@@ -13,23 +13,23 @@
   },
   "dependencies": {
     "@lyra/ui": "workspace:*",
-    "isbot": "^5.1.17",
+    "isbot": "^5.2.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router": "^8.3.0"
+    "react-router": "^8.3.1"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.51.2",
+    "@cloudflare/vite-plugin": "^1.54.4",
     "@lyra/config": "workspace:*",
-    "@react-router/dev": "^8.3.0",
+    "@react-router/dev": "^8.3.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^19.2.7",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "vite": "^8.2.1",
+    "vite": "^8.2.2",
     "vitest": "^3.2.7",
-    "wrangler": "^4.120.1"
+    "wrangler": "^4.129.0"
   }
 }

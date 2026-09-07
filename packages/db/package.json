@@ -19,15 +19,15 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260811.1",
-    "@libsql/client": "^0.17.4",
+    "@cloudflare/workers-types": "^5.20260904.1",
+    "@libsql/client": "^0.18.0",
     "@lyra/config": "workspace:*",
     "@types/node": "^22",
     "drizzle-kit": "^0.31.10",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "vitest": "^3.2.7"
   }
