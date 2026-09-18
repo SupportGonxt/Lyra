@@ -2874,9 +2874,11 @@ export interface Operations {
   "GET /v1/orbit/journey-runs/{id}": Op<{ id: string }, never, never, OrbitJourneyRuns>;
   "GET /v1/orbit/journeys": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitJourneys>>;
   "POST /v1/orbit/journeys": Op<never, never, OrbitJourneys, OrbitJourneys>;
+  "POST /v1/orbit/journeys/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/orbit/journeys/{id}": Op<{ id: string }, never, never, OrbitJourneys>;
   "PATCH /v1/orbit/journeys/{id}": Op<{ id: string }, never, OrbitJourneys, OrbitJourneys>;
   "DELETE /v1/orbit/journeys/{id}": Op<{ id: string }, never, never, void>;
+  "POST /v1/orbit/journeys/{id}/trigger": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/orbit/messages": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitMessages>>;
   "POST /v1/orbit/messages": Op<never, never, OrbitMessages, OrbitMessages>;
   "GET /v1/orbit/messages/{id}": Op<{ id: string }, never, never, OrbitMessages>;
@@ -3605,9 +3607,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/orbit/journey-runs/{id}": { tag: "orbit", summary: "Fetch one journey run", permission: "orbit:journeys:read", public: false },
   "GET /v1/orbit/journeys": { tag: "orbit", summary: "List journeys", permission: "orbit:journeys:read", public: false },
   "POST /v1/orbit/journeys": { tag: "orbit", summary: "Create a journey", permission: "orbit:journeys:write", public: false },
+  "POST /v1/orbit/journeys/sweep": { tag: "orbit", summary: "Force the journey advance step now — elapsed waits, closed tasks and lifted quiet-hours deferrals (also runs on the scheduled tick)", permission: "orbit:journeys:publish", public: false },
   "GET /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Fetch one journey", permission: "orbit:journeys:read", public: false },
   "PATCH /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Update a journey", permission: "orbit:journeys:write", public: false },
   "DELETE /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Soft-delete a journey", permission: "orbit:journeys:write", public: false },
+  "POST /v1/orbit/journeys/{id}/trigger": { tag: "orbit", summary: "Enrol a cohort in a journey by hand; the normal path is the event bus", permission: "orbit:journeys:publish", public: false },
   "GET /v1/orbit/messages": { tag: "orbit", summary: "List messages", permission: "orbit:messages:read", public: false },
   "POST /v1/orbit/messages": { tag: "orbit", summary: "Create a message", permission: "orbit:messages:send", public: false },
   "GET /v1/orbit/messages/{id}": { tag: "orbit", summary: "Fetch one message", permission: "orbit:messages:read", public: false },

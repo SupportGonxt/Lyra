@@ -10,6 +10,7 @@ import { dispatchOutbound } from "../engines/orbit-channel-outbound.js";
 import { sweepRenewals } from "../engines/renewals.js";
 import { sweepRouting } from "../engines/orbit-routing.js";
 import { sweepConversationDrafts } from "../engines/orbit-draft.js";
+import { advanceJourneyRuns, triggerJourney } from "../engines/orbit-journeys.js";
 import { requestPartnerQuote } from "../engines/orbit-partner-quotes.js";
 import type { App } from "../env.js";
 
@@ -107,6 +108,44 @@ orbitRoutes.post("/drafts/sweep", async (c) => {
   require_(ctx.actor, "orbit:ai:invoke", { tenantId: ctx.tenantId, module: "orbit" });
   require_(ctx.actor, "orbit:conversations:reply", { tenantId: ctx.tenantId, module: "orbit" });
   return c.json({ drafted: await sweepConversationDrafts(ctx, c.get("gateway")) });
+});
+
+const TriggerBody = z.object({ customerIds: z.array(z.string().min(1)).min(1).max(500) });
+
+/**
+ * Enrol a cohort by hand. The normal path is the event bus — `onJourneyEvent`
+ * off the outbox drain (CLAUDE.md rule 6) — and this is the operator's door to
+ * the same engine: a win-back list pasted in, or a journey author checking a
+ * graph against one real customer before publishing it. `orbit:journeys:publish`
+ * rather than `:write`, because enrolling a live cohort is the act a draft
+ * author is not trusted with.
+ */
+orbitRoutes.post("/journeys/:id/trigger", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:journeys:publish", { tenantId: ctx.tenantId, module: "orbit" });
+  const journeyId = c.req.param("id");
+  const input = await body(c, TriggerBody);
+  const result = await withIdempotency(
+    ctx,
+    c.req.header("idempotency-key"),
+    "orbit.journey_trigger",
+    { journeyId, ...input },
+    () => triggerJourney(ctx, journeyId, input.customerIds)
+  );
+  return c.json(result, 201);
+});
+
+/**
+ * Force the journey advance step now. Same idiom as `/routing/sweep` above: it
+ * otherwise only runs off the Workers cron tick, so an operator demoing a
+ * journey — or an e2e test — has no way to see a wait elapse. Gated on
+ * `orbit:journeys:publish` for the same reason the trigger is: advancing a run
+ * sends.
+ */
+orbitRoutes.post("/journeys/sweep", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:journeys:publish", { tenantId: ctx.tenantId, module: "orbit" });
+  return c.json(await advanceJourneyRuns(ctx));
 });
 
 const PartnerQuoteBody = z.object({

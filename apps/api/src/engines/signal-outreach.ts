@@ -6,6 +6,7 @@ import {
   checkCompliance,
   emit,
   gate,
+  inQuietHours,
   AppError,
   type Ctx
 } from "@lyra/core";
@@ -189,19 +190,14 @@ export async function recentSendCount(ctx: Ctx, customerId: string): Promise<num
   return row?.n ?? 0;
 }
 
-/** Quiet hours in the tenant's currency of time: 20:00–08:00 local. RFC-3339
- *  hour off the tenant timezone setting; a tenant without one reads UTC. */
-export function inQuietHours(now: number, timezone: string | undefined): boolean {
-  let hour: number;
-  try {
-    hour = Number(
-      new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: timezone ?? "UTC" }).format(now)
-    );
-  } catch {
-    hour = new Date(now).getUTCHours();
-  }
-  return hour >= 20 || hour < 8;
-}
+/**
+ * Quiet hours moved to packages/core (`quiet-hours.ts`) when ORBIT's journey
+ * engine needed the same floor: two modules reaching the same window makes it
+ * a core concern, and importing it from here would be exactly the cross-module
+ * import CLAUDE.md rule 6 forbids. Re-exported so this module's callers and
+ * its own tests keep one name for it.
+ */
+export { inQuietHours } from "@lyra/core";
 
 export interface DraftedOutreach {
   customerId: string;

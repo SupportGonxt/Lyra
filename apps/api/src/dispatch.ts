@@ -16,6 +16,7 @@ import { onBindIssued } from "./engines/signal-attribution.js";
 import { onLeadConverted } from "./engines/signal-outreach.js";
 import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
+import { onJourneyEvent } from "./engines/orbit-journeys.js";
 
 // The outbox drain. Events are written in the same request that changed the row,
 // so delivery can fail all it likes without ever losing the fact that something
@@ -88,6 +89,13 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // The retention loop (docs/17 SIG-007): a decided renewal folds in the
       // campaign-window conversations and their QA scores, and announces the
       // attribution — save-rate with the quality it was done at.
+      // Journeys are triggered by events and nothing else (CLAUDE.md rule 6):
+      // `triggerJourney` had no caller at all, so a published journey could
+      // never enrol anybody. Deliberately unconditional on type — a journey's
+      // own `trigger` node names the event it starts on, and a list of
+      // trigger-able types here would silently ignore every journey authored
+      // outside it (docs/27 F30).
+      await consume(ctx.db, event, "orbit.journeys", (e) => onJourneyEvent(ctx, e), ctx.now);
       if (event.type === "orbit.renewal.accepted" || event.type === "orbit.renewal.lost") {
         await consume(ctx.db, event, "orbit.renewal.attribution", (e) => onRenewalDecided(ctx, e).then(() => undefined), ctx.now);
       }
