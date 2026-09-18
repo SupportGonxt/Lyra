@@ -284,7 +284,10 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 109 declared routes, in manifest order.
+All 117 declared routes, in manifest order. `routes.inventory.test.ts` holds
+this table to `apps/web/app/routes.ts` — URL, route module and the count above —
+so a screen cannot ship missing from the inventory a reader is told to consult
+first. What each screen *does* is still written by hand; what exists is not.
 
 | URL | Route module |
 | --- | --- |
@@ -302,6 +305,7 @@ All 109 declared routes, in manifest order.
 | `/settings/:tab` | [settings.tsx](apps/web/app/routes/settings.tsx) |
 | `/approvals` | [approvals.tsx](apps/web/app/routes/approvals.tsx) |
 | `/admin/ai/console` | [ai-console.tsx](apps/web/app/routes/ai-console.tsx) |
+| `/center` | [command-center.tsx](apps/web/app/routes/command-center.tsx) |
 | `/admin/ai/budget` | [ai-budget.tsx](apps/web/app/routes/ai-budget.tsx) |
 | `/admin/ai/runs/:id` | [ai-run.tsx](apps/web/app/routes/ai-run.tsx) |
 | `/admin/cost-explorer` | [cost-explorer.tsx](apps/web/app/routes/cost-explorer.tsx) |
@@ -337,6 +341,11 @@ All 109 declared routes, in manifest order.
 | `/admin/customers/:id/360` | [customer-360.tsx](apps/web/app/routes/customer-360.tsx) |
 | `/admin/products/:id/detail` | [product-detail.tsx](apps/web/app/routes/product-detail.tsx) |
 | `/distribution/channels/:id/detail` | [channel-detail.tsx](apps/web/app/routes/channel-detail.tsx) |
+| `/surface/:module/:screen` | [surface.tsx](apps/web/app/routes/surface.tsx) |
+| `/journey/axis` | [journey-axis.tsx](apps/web/app/routes/journey-axis.tsx) |
+| `/journey/north` | [journey-north.tsx](apps/web/app/routes/journey-north.tsx) |
+| `/journey/scout` | [journey-scout.tsx](apps/web/app/routes/journey-scout.tsx) |
+| `/journey/signal` | [journey-signal.tsx](apps/web/app/routes/journey-signal.tsx) |
 | `/:module` | [module.tsx](apps/web/app/routes/module.tsx) |
 | `/:module/:resource` | [module.tsx](apps/web/app/routes/module.tsx) |
 | `/:module/:resource/:id` | [record.tsx](apps/web/app/routes/record.tsx) |
@@ -359,6 +368,7 @@ All 109 declared routes, in manifest order.
 | `/axis/claims/:id/detail` | [claim-detail.tsx](apps/web/app/routes/claim-detail.tsx) |
 | `/axis/cases/:id/evidence-bundles/:bundleId/download` | [case-evidence-download.tsx](apps/web/app/routes/case-evidence-download.tsx) |
 | `/axis/cases/:id/detail` | [case-detail.tsx](apps/web/app/routes/case-detail.tsx) |
+| `/axis/bordereaux` | [axis-bordereaux.tsx](apps/web/app/routes/axis-bordereaux.tsx) |
 | `/orbit/conversations/:id/thread` | [conversation.tsx](apps/web/app/routes/conversation.tsx) |
 | `/orbit/console` | [orbit-console.tsx](apps/web/app/routes/orbit-console.tsx) |
 | `/orbit/supervisor` | [orbit-supervisor.tsx](apps/web/app/routes/orbit-supervisor.tsx) |
@@ -391,6 +401,7 @@ All 109 declared routes, in manifest order.
 | `/north/brief` | [north-brief.tsx](apps/web/app/routes/north-brief.tsx) |
 | `/north/explorer` | [north-explorer.tsx](apps/web/app/routes/north-explorer.tsx) |
 | `/north/anomalies` | [north-anomalies.tsx](apps/web/app/routes/north-anomalies.tsx) |
+| `/north/alerts` | [north-alerts.tsx](apps/web/app/routes/north-alerts.tsx) |
 | `/north/whatif` | [north-whatif.tsx](apps/web/app/routes/north-whatif.tsx) |
 | `/north/board` | [north-board.tsx](apps/web/app/routes/north-board.tsx) |
 | `/north/board/:id/file` | [north-board-file.tsx](apps/web/app/routes/north-board-file.tsx) |
