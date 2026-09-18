@@ -1,7 +1,22 @@
 import { eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
 import { PaymentPlanWrite, schema } from "@lyra/db";
-import { autoApproveProblem, badRequest, can, checkKAnonymity, CUSTOMER_PII, DEFAULT_K_FLOOR, emit, gate, scoped, sealFields } from "@lyra/core";
+import {
+  autoApproveProblem,
+  badRequest,
+  can,
+  canClaimTransition,
+  canPolicyTransition,
+  checkKAnonymity,
+  CUSTOMER_PII,
+  DEFAULT_K_FLOOR,
+  emit,
+  gate,
+  isClaimState,
+  isPolicyState,
+  scoped,
+  sealFields
+} from "@lyra/core";
 import { SENSITIVE_EXTRACTION_FIELDS } from "@lyra/model-gateway";
 import { fieldKey } from "./env.js";
 import { register, type Resource } from "./crud.js";
@@ -292,6 +307,54 @@ const SIU_TRANSITIONS: Record<string, string[]> = {
   closed: []
 };
 
+/**
+ * docs/27 F27. `POLICY_TRANSITIONS` and `CLAIM_TRANSITIONS` (@lyra/core
+ * lifecycle.ts) were enforced by the dedicated engines — `transitionClaim`,
+ * `axis-lifecycle.ts` — and by nothing here, which left generic CRUD as a
+ * second writable path around the same contract: a reported claim could be
+ * PATCHed straight to `settled`, a cancelled policy revived. The maps are
+ * imported rather than restated so the two doors cannot drift, which is the
+ * failure the neighbouring hand-written `COMPLAINT_TRANSITIONS` risks.
+ *
+ * Shaped like the `beforeWrite` guards directly below, and like `invoices` in
+ * the ledger registry: the check belongs where every writer passes.
+ */
+function guardState(
+  field: string,
+  legal: (from: never, to: never) => boolean,
+  known: (s: string) => boolean,
+  noun: string,
+  reserved: (to: string) => string | null = () => null
+) {
+  return (values: Record<string, unknown>, existing: Record<string, unknown> | null | undefined) => {
+    if (!existing) return values;
+    const to = values[field];
+    if (typeof to !== "string") return values;
+    const from = existing[field] as string;
+    if (to === from) return values;
+    const why = reserved(to);
+    if (why) throw badRequest(why);
+    if (!known(to)) throw badRequest(`${to} is not a ${noun} state`);
+    if (!legal(from as never, to as never)) throw badRequest(`a ${noun} cannot move ${from} -> ${to}`);
+    return values;
+  };
+}
+
+const guardClaimState = guardState(
+  "status",
+  canClaimTransition,
+  isClaimState,
+  "claim",
+  // Money owns these two (engines/axis-claims.ts `settlementTarget`), so the
+  // CRUD door may not hand them out even where the machine allows the hop.
+  (to) =>
+    to === "settling" || to === "settled"
+      ? `move a claim to ${to} by requesting a payment, not by editing it`
+      : null
+);
+
+const guardPolicyState = guardState("status", canPolicyTransition, isPolicyState, "policy");
+
 export const AXIS = register(
   r("cases", schema.axisCases, "cas", "axis", rcud("axis:cases"), { searchable: ["ref"] }),
   // docs/27 F13: `dist_quote_responses` is the single source of quote truth.
@@ -349,7 +412,8 @@ export const AXIS = register(
     // or string" (see `isJsonColumn`), so without this the sweep's own input is
     // whatever a caller typed. Validated here rather than in the shape because
     // that is where the other JSON columns are checked (`extractionJson` above).
-    beforeWrite: (_ctx, values) => {
+    beforeWrite: (_ctx, values, existing) => {
+      guardPolicyState(values, existing);
       if (values.paymentPlanJson === undefined || values.paymentPlanJson === null) return values;
       const raw = values.paymentPlanJson;
       let parsed: unknown = raw;
@@ -389,7 +453,10 @@ export const AXIS = register(
     read: "axis:claims:read",
     create: "axis:claims:create",
     update: "axis:claims:update"
-  }, { approval: { update: "axis.claim_settlement", amountField: "settledMinor" } }),
+  }, {
+    approval: { update: "axis.claim_settlement", amountField: "settledMinor" },
+    beforeWrite: (_ctx, values, existing) => guardClaimState(values, existing)
+  }),
   r("complaints", schema.axisComplaints, "cmp", "axis", {
     read: "axis:complaints:read",
     create: "axis:complaints:write",
