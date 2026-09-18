@@ -30,17 +30,15 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 await signIn(page);
 
-console.log(`\nharvesting hrefs from ${STATIC.length} static routes\n`);
 const found = new Map(); // url -> the pattern it matched, for coverage reporting
-let harvested = 0;
-for (const path of STATIC) {
-  // Harvest is the long phase — 76 loads at `networkidle`. Without a line per
-  // route a slow run and a hung one read identically, which cost an hour once.
-  process.stdout.write(`  ${++harvested}/${STATIC.length} ${path}\n`);
+
+/** Every in-app href under `main`, filtered to the ones this sweep can render. */
+async function harvest(path) {
   const hrefs = await page
     .goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: 45_000 })
     .then(() => page.locator("main a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href"))))
     .catch(() => []);
+  const fresh = [];
   for (const href of hrefs) {
     if (!href?.startsWith("/")) continue; // external and #anchors are not ours
     const url = href.split(/[?#]/)[0];
@@ -52,8 +50,52 @@ for (const path of STATIC) {
     if (/\/(?:file|download)$/.test(url)) continue;
     if (found.has(url)) continue;
     const m = MATCHERS.find(({ re }) => re.test(url));
-    if (m) found.set(url, m.pattern);
+    if (m) {
+      found.set(url, m.pattern);
+      fresh.push(url);
+    }
   }
+  return fresh;
+}
+
+// Two hops, not one. A single pass over the static routes reached 13 of 38
+// param patterns and reported the other 25 "unreached", which reads as a wall
+// of dead links and is mostly not: a policy detail hangs off a policy record,
+// a journey builder off a journey record, a whitespace dossier off a radar dot
+// — every one of them **one hop below a detail route the first pass had already
+// found**. A harvest shallower than the app's own link depth cannot tell a
+// screen with no opener from a screen whose opener it never opened, and that is
+// the exact distinction this sweep exists to make (sighting 13). So each round
+// harvests from what the last one discovered, until nothing new appears.
+const MAX_HOPS = Number(process.env.SWEEP_HOPS ?? 3);
+// One instance of a pattern links the same way as the next, so following the
+// 600th commission entry discovers nothing the first did. Cap what each hop
+// carries forward per pattern; without it hop 2's frontier is every row in the
+// seed and the run never ends.
+const HARVEST_PER_PATTERN = Number(process.env.SWEEP_HARVEST_PER_PATTERN ?? 2);
+function throttle(urls) {
+  const seen = new Map();
+  return urls.filter((u) => {
+    const p = found.get(u);
+    const n = (seen.get(p) ?? 0) + 1;
+    seen.set(p, n);
+    return n <= HARVEST_PER_PATTERN;
+  });
+}
+
+let frontier = STATIC;
+for (let hop = 1; hop <= MAX_HOPS && frontier.length; hop++) {
+  console.log(`\nhop ${hop}: harvesting hrefs from ${frontier.length} routes\n`);
+  const next = [];
+  let n = 0;
+  for (const path of frontier) {
+    // Harvest is the long phase — dozens of loads at `networkidle`. Without a
+    // line per route a slow run and a hung one read identically, which cost an
+    // hour once.
+    process.stdout.write(`  ${++n}/${frontier.length} ${path}\n`);
+    next.push(...(await harvest(path)));
+  }
+  frontier = throttle(next);
 }
 
 const covered = new Set(found.values());
