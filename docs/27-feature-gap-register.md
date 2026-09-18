@@ -603,6 +603,39 @@ a frontend gap:
 - `axis-doc-intel.tsx` still requires caller-supplied `rawText` ("OCR is out of
   scope", `routes/axis.ts:73-78`).
 
+### New finding — saved views are written, listed, and never applied, 2026-09-18
+
+Found by asking what the API sends that nothing reads, which is how dead seam 15
+was found. `analytics_saved_views` stores a `route`, a `queryJson`, a
+`columnsJson` and an `isDefault` per row, and the API is built to serve exactly
+one question with them: `GET /v1/analytics/saved-views` takes a **`?route=`
+filter** (`routes/analytics.ts:658`) and orders **`isDefault` first**
+(`:662`) — the shape a list screen needs to ask "what views exist for this
+screen, preferred one first".
+
+No screen asks. `module.tsx` is the one file that renders every resource-tab
+list — filters, columns, sort, pagination — and it contains no reference to
+saved views, `route=` or `isDefault`. The web's only reader is the generic
+`/analytics/saved-views` tab (`modules/analytics.ts:440`), which lists the rows
+as records: a reader can see that a saved view exists and can never apply one.
+
+The seed makes the gap concrete rather than theoretical. Six views are seeded
+(`packages/core/src/seed/analytics.ts:998-1067`), every one of them naming a
+real resource tab — `/axis/cases`, `/ledger/txns`,
+`/distribution/quote-requests`, `/orbit/renewals`, `/analytics/exports`,
+`/analytics/report-runs` — and three carry `isDefault: true`, including the
+finance controller's private "My reconciliation queue". A default that is never
+applied is a promise in the data model that the UI does not keep.
+
+Two notes for whoever picks this up. The `?route=` value is a *resource tab*
+path (`/ledger/txns`, the generated list) and not a bespoke screen path
+(`/ledger/transactions`, `ledger-open-txn.tsx`) — the two differ by one segment
+and read alike, which is the kind of near-collision nothing currently compares
+against the route tree. And `columnsJson` implies per-user column selection,
+which `module.tsx` does not have at all; applying `queryJson` alone is the
+smaller, coherent first step. A finding, not a backlog: it needs a spec update
+before any screen changes.
+
 ---
 
 ## What is genuinely strong
