@@ -53,6 +53,33 @@ async function fundedFloat(ctx: Ctx, claimId: string): Promise<number> {
   return Number(row?.total ?? 0);
 }
 
+/**
+ * Cover states in which the claim was, at the moment of the loss, not answered
+ * by the contract — `checkCoverage` (engines/axis-fnol.ts) decides them before
+ * the claim exists and snapshots the reasoning. `unknown` is deliberately not
+ * here: it means no version answered and a human decides, so refusing on it
+ * would turn "we could not tell" into "no" (docs/27 F24).
+ */
+const NOT_IN_COVER = new Set(["out_of_cover", "lapsed_at_loss", "cancelled_at_loss"]);
+
+/**
+ * Written as what must NOT pass rather than as a list of what may — the shape
+ * dead-seam sightings 8 and 11 both arrived at. A cover state added later is
+ * refused until someone decides it is payable, instead of silently paying.
+ */
+function assertInCover(claim: ClaimRow, kind: ClaimPaymentInput["kind"]): void {
+  // Ex gratia is the deliberate exception: a goodwill payment on a claim that
+  // was never covered is exactly what it is for, and it carries its own gate
+  // (`axis.claim_exgratia`) rather than the indemnity one.
+  if (kind === "ex_gratia") return;
+  if (NOT_IN_COVER.has(claim.coverageState)) {
+    throw conflict(
+      `claim ${claim.id} was ${claim.coverageState} at the loss and cannot be paid as ${kind}; ` +
+        `pay it ex gratia if that is the decision`
+    );
+  }
+}
+
 /* --------------------------------------------------------------- settlement */
 
 /**
@@ -96,6 +123,9 @@ export type ClaimPaymentInput = z.infer<typeof ClaimPaymentBody>;
 
 export async function requestClaimPayment(ctx: Ctx, claim: ClaimRow, input: ClaimPaymentInput) {
   assertOpen(claim, "take a payment");
+  // Before the ceiling and before the gate, for the same reason the ceiling is:
+  // a payment that was never going to be allowed must not spend a decision.
+  assertInCover(claim, input.kind);
 
   // Ceiling first: refusing after the approval is spent would burn a decision
   // on a payment that was never going to be allowed.
