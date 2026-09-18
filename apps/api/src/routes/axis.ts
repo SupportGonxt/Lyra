@@ -728,7 +728,16 @@ async function bindPolicy(
     },
     {
       recipe: {
-        lines: buildRecipe("BIND", { grossMinor: policy.commissionMinor, channelMinor }),
+        // docs/27 F14. `gwpMinor` is what makes gross written premium a
+        // receivable at bind instead of a cash event whenever the money turns
+        // up: Dr 1200 / Cr 2000 beside the commission accrual. policy.grossMinor
+        // is premium + tax + fees — the whole debt the customer owes.
+        lines: buildRecipe("BIND", {
+          gwpMinor: policy.grossMinor,
+          grossMinor: policy.commissionMinor,
+          channelMinor,
+          dims: { policy: policy.id, provider: policy.providerId }
+        }),
         currency: policy.currency
       },
       approvalSubjectRef: `axis_policy:${policy.id}`
