@@ -272,7 +272,7 @@ rather than mirrored, a parameter no caller passes, a column holding something
 other than what its name says. It tests green because the unit test calls the
 function directly and the fixture mocks the assumption instead of the server.
 Fix it at the seam every reader routes through, grep the call sites in the same
-commit, verify on a deployed environment. Fifteen sightings so far.
+commit, verify on a deployed environment. Sixteen sightings so far.
 
 1. `apps/web/app/components/whitespace-commentary.tsx`, typed against an assumed
    contract while the API was built in parallel, shared one field with what
@@ -484,6 +484,41 @@ commit, verify on a deployed environment. Fifteen sightings so far.
    `onboarding.tsx` 13 — put `name` on the inner `<input>` under a `<Field>`
    wrapper, so they have no shared seam and stay unmarked by choice.
 
+16. Saved views are written, listed and never applied — found by asking what the
+   API sends that nothing reads, the same question that found 15.
+   `GET /v1/analytics/saved-views` takes a **`?route=` filter**
+   (`routes/analytics.ts:658`) and orders **`isDefault` first** (`:662`): that
+   pair is not incidental, it is exactly the question a list screen asks. No
+   screen asks it. `module.tsx` renders every resource-tab list in the product —
+   filters, columns, sort — and contains no reference to saved views, `route=`
+   or `isDefault`; the web's only reader is the generic `/analytics/saved-views`
+   tab, which lists the rows as records, so a reader can see that a saved view
+   exists and can never apply one. The seed makes it concrete: six views, every
+   one naming a real resource tab, three `isDefault: true` including the finance
+   controller's private reconciliation queue. Recorded in docs/27 as a finding
+   rather than fixed — applying `queryJson` is a coherent first step but
+   `columnsJson` implies per-user column selection `module.tsx` does not have,
+   so it wants a spec update first. One trap for whoever takes it: the `route`
+   value is a *resource tab* path (`/ledger/txns`) and not the bespoke screen
+   one segment away (`/ledger/transactions`, `ledger-open-txn.tsx`), and nothing
+   compares either against the route tree.
+
+The round that found 16 spent most of its time on the **guards themselves**, and
+that is the lesson worth keeping: four of the tools written to find dead seams
+were dead seams. `routing.reachable.test.ts` matched `opened from|linked from|
+reached from` — the passive voice only — while `HIDDEN_ROUTES` writes a detail
+route's claim in the active ("**opens** one policy … from the policies list"), so
+16 of its 28 in-app claims were never checked; it reported green because it
+asserted a floor, `expect(checkable.length).toBeGreaterThan(5)`, and **a floor is
+not a contract**. It also never grepped the static half at all, though its own
+header said static hrefs are greppable. `sweep.mjs` read one of the two files
+that declare routes. `journey-permissions.test.ts` listed its three subjects by
+hand and so covered exactly the three screens that already had the bug. The
+general shape: **a guard that selects its own subjects — by matching prose, by
+reading one source, by a hand-written list — must assert that it selected all of
+them.** Partition the population into checked / excluded-for-a-named-reason and
+require the leftover bucket to be empty; never assert a count is large enough.
+
 One process lesson from the same round, cheap and repeatedly paid for: a
 `pnpm typecheck` run *before* the last edits does not cover them. `9823033` was
 committed green on a run that predated three of its own edits and left three
@@ -582,7 +617,7 @@ missing *dimensions* (tax treatment for Europe, tax jurisdiction for the US, a
 legal entity to hang an invoice series on). Findings, not backlogs — each item
 needs an ADR or spec update first.
 
-`scripts/sweep.mjs` walks the 76 static routes. It signs in as the demo
+`scripts/sweep.mjs` walks the 86 static routes. It signs in as the demo
 administrator, reads only, and greps the rendered
 `main` for text that is not prose: `[object Object]`, a bare `undefined`/`NaN`,
 an untranslated i18n key, a storage key, a comma-grouped year, Arabic prose on
@@ -590,14 +625,47 @@ an English session. `SWEEP_BASE` picks the environment; false positives are
 permission scopes, curl examples, bilingual-by-design screens, labels like
 "Locale: ar", Arabic customer messages in seeded ORBIT threads.
 
+76 of those 86 came from the literals in `routes.ts`; the other ten are the
+**workspace landing pages**, which the generic `:module` catch-all serves and no
+literal declares, so the sweep reported "77 routes, 0 unswept" having never
+opened the front door of any workspace — `/analytics` and `/compliance` have no
+bespoke screen at all and were swept by nothing. `routePatterns` now unions
+`WORKSPACE_PATHS` (`routing.ts`) in. A route list derived from one of two
+sources of truth is a dead seam in the tool that hunts for them.
+
+`scripts/sweep-detail.mjs` **exists** (`2add1ba`, rebuilt on the shared
+`sweep-lib.mjs`) — the note that stood here saying it "was never committed and no
+longer exists" was wrong, and detail routes are not unswept. It harvests the
+routes behind an `:id` by following links rather than hard-coding ids, and now
+iterates to a fixpoint (3 hops, capped per pattern) over the whole page rather
+than one hop over `main`: 13/38 param patterns and 143 URLs became 22/38 and
+282. An "unreached" pattern is not an unreachable screen — a harvest never
+clicks, so a Link that appears only once a radar dot is selected
+(`/scout/whitespace/:id`) cannot be found this way. `routing.reachable.test.ts`
+answers "does anything build this path"; the sweep answers "did a reader walking
+from the front door find one"; the two disagreeing is the signal.
+
+`scripts/sweep-personas.mjs` runs the static sweep once per demo seat.
+Sighting 7 is about which screens get *rendered*; sighting 6 is the half no
+single-seat sweep can see, because the all-roles persona is precisely the one
+reader a "500 to everyone who is not an administrator" bug cannot touch. The
+per-seat question is therefore not "does it render" but **"when this reader is
+refused, is it refused or does it crash"** — a 403 is a pass, a 500 is the
+defect. Select a seat with `SWEEP_PERSONA=<email>`; never by the label, which
+reads "all 24 roles" only while the seed grants exactly 24 (a fresh local seed
+grants 25, and matching the text hung the sweep on a locator timeout that reads
+as a broken login page).
+
 `innerText` returns text as *rendered*, so a Constellation `Eyebrow` (uppercased
 by CSS `text-transform`) reads back `AGENT LOOP`, not `Agent loop`. Asserting
 the source casing says "the fix is not deployed" about a screen that is showing
 it. Match case-insensitively when checking a live render against a catalogue
 string.
 
-Its sibling `sweep-detail.mjs` — which harvested the routes behind an `:id` by
-following `main a[href]` rather than hard-coding them, 38 last run, and found
-sighting 4 — was never committed and no longer exists. Detail routes are
-currently unswept; rebuild it beside `sweep.mjs` when that coverage is next
-needed. That loss is why the static sweep is now in the repo.
+`innerText` also means a sweep sees only what a *reader* sees, which is why the
+permission-wall CHECK carries one documented exception: `/platform`. That
+check's premise is "this persona holds every role, so a wall is a lie about it",
+and the demo seat holds every **tenant** role, not every role — `me.ts:451`
+gates the `/platform` rail item on `admin:diagnostics:read`, which `rbac.ts`
+grants to `platform.*` only. The nav never offers it to a tenant reader and the
+screen refusing it agrees.
