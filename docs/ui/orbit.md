@@ -397,6 +397,19 @@ The send posts `{conversationId, role: "agent_human", content, deliveryStatus:
 "queued"}`. **It does not send a timestamp** — the server owns `ts`, and passing
 it is rejected as an unknown field.
 
+**Canned replies** (docs/27 F32) sit directly above the composer, shown only
+when the reader holds `orbit:messages:send` *and* the macro list came back —
+`orbit:macros:read` is fetched with the loader's optional swallow, so an agent
+without it gets the whole screen minus the picker. A select of active macros by
+name, and one button: **"Send canned reply"**, hint *"Sent in this
+conversation's language, word for word, under your name."*
+
+The form posts `{macroKey}` to `POST /v1/orbit/conversations/:id/macro` and
+**never the wording**. The API renders the macro in the conversation's own
+language and writes it as `agent_human`. An agent who could edit a canned reply
+on its way out would make the macro library a suggestion rather than a standard,
+which is why the key is the only thing that crosses.
+
 Without the permission the whole form is replaced by one line: **"You do not hold
 the permission to reply in this conversation."**
 

@@ -226,7 +226,11 @@ export async function deflect(
     .where(scoped(ctx, schema.orbitConversations, eq(schema.orbitConversations.id, input.conversationId)))
     .limit(1);
   if (!conversation) throw notFound("conversation");
-  require_(ctx.actor, "orbit:conversations:reply", { tenantId: ctx.tenantId, module: "orbit" });
+  // No `require_` here, unlike applyMacro below: this runs on the inbound
+  // webhook path under the `channel-webhook` system actor, which holds no
+  // grants at all (routes/channels.ts) — the same shape `sweepConversationDrafts`
+  // and `recordSignal` have. The human door gates instead:
+  // `POST /v1/orbit/conversations/:id/deflect` requires `orbit:ai:invoke`.
 
   const hits =
     conversation.state === "bot"

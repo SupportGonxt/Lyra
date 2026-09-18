@@ -109,7 +109,17 @@ export async function processChannelEvents(
   ctx: Ctx,
   connector: ChannelConnectorRow,
   events: InboundEvent[],
-  opts: { signal?: (conversationId: string, customerId: string | null, text: string) => Promise<void> } = {}
+  opts: {
+    signal?: (conversationId: string, customerId: string | null, text: string) => Promise<void>;
+    /**
+     * docs/27 F32. Offered every inbound customer message once it is durable,
+     * after `signal`: language is what knowledge-base retrieval picks an
+     * article by, and `signal` is what sets it, so a deflection that ran first
+     * would search in the previous message's language. Optional for the same
+     * reason `signal` is — this engine has to stay callable with no AI wiring.
+     */
+    deflect?: (conversationId: string, text: string) => Promise<void>;
+  } = {}
 ): Promise<{ processed: number; skipped: number }> {
   let processed = 0;
   let skipped = 0;
@@ -151,6 +161,9 @@ export async function processChannelEvents(
       // the message is durable; a failure leaves the previous signal standing.
       // Awaited so webhook return implies the conversation is fully annotated.
       await opts.signal?.(conversation.id, conversation.customerId, event.message.text);
+      // Inside the try, after the insert: a redelivered webhook throws on the
+      // unique index above and must not answer the customer a second time.
+      await opts.deflect?.(conversation.id, event.message.text);
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       skipped++;

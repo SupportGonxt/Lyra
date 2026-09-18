@@ -102,6 +102,14 @@ interface QaScore {
   ts: number;
 }
 
+/** Mirrors `packages/db/src/schema/orbit.ts` `macros` — the columns the picker needs. */
+interface Macro {
+  id: string;
+  key: string;
+  nameJson: unknown;
+  category: string | null;
+}
+
 interface AiRun {
   id: string;
   agentKey: string;
@@ -157,7 +165,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     Math.max(1, Math.trunc(Number(new URL(request.url).searchParams.get("pages") ?? "1")) || 1)
   );
 
-  const [thread, customer, handovers, scores] = await Promise.all([
+  const [thread, customer, handovers, scores, macros] = await Promise.all([
     olderFirst(id, pages, env, request),
     conversation.customerId
       ? optional(
@@ -175,7 +183,11 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
         env,
         request
       })
-    )
+    ),
+    // docs/27 F32. `optional` because an agent without `orbit:macros:read` still
+    // gets the whole screen, minus the picker — a canned reply is a
+    // convenience, not part of reading a conversation.
+    optional(api<Page<Macro>>(`/v1/orbit/macros?status=active&sort=key&limit=100`, { env, request }))
   ]);
 
   const messages = thread.rows;
@@ -227,7 +239,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     denied: thread.denied,
     customerName: nameOf(customer?.nameJson),
     handovers: handovers?.data ?? null,
-    scores: scores?.data ?? null
+    scores: scores?.data ?? null,
+    macros: macros?.data ?? []
   };
 }
 
@@ -344,6 +357,22 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       return { problem: null, sent: null, done: "done.handover" };
     }
 
+    // docs/27 F32. The wording lives on the macro, so the browser posts a key
+    // and never the text: an agent cannot edit a canned reply on its way out,
+    // and the API renders it in the conversation's own language.
+    if (intent === "macro") {
+      const macroKey = String(form.get("macroKey") ?? "");
+      if (!macroKey) return { problem: null, sent: null, done: null };
+      await api(`/v1/orbit/conversations/${id}/macro`, {
+        env,
+        request,
+        method: "POST",
+        headers: { "idempotency-key": String(form.get("nonce") ?? crypto.randomUUID()) },
+        body: { macroKey }
+      });
+      return { problem: null, sent: null, done: "done.macro" };
+    }
+
     if (intent === "close" || intent === "reopen") {
       const closing = intent === "close";
       await api(`/v1/orbit/conversations/${id}`, {
@@ -402,6 +431,10 @@ const LABELS: Record<string, Record<string, string>> = {
     reply: "Reply",
     replyHint: "Sending a reply leaves the tenant and is recorded in the audit log.",
     send: "Send reply",
+    macro: "Canned reply",
+    macroHint: "Sent in this conversation's language, word for word, under your name.",
+    macroSend: "Send canned reply",
+    "done.macro": "Canned reply sent.",
     noReply: "You do not hold the permission to reply in this conversation.",
     empty: "No messages yet.",
     "empty.body": "This customer reached out on a channel but no message has been recorded — the first reply or inbound message will open the thread.",
@@ -485,6 +518,10 @@ const LABELS: Record<string, Record<string, string>> = {
     reply: "الرد",
     replyHint: "إرسال الرد يخرج من المنصة ويُسجَّل في سجل التدقيق.",
     send: "إرسال الرد",
+    macro: "رد جاهز",
+    macroHint: "يُرسل بلغة هذه المحادثة كما هو وباسمك.",
+    macroSend: "إرسال الرد الجاهز",
+    "done.macro": "أُرسل الرد الجاهز.",
     noReply: "لا تملك صلاحية الرد في هذه المحادثة.",
     empty: "لا توجد رسائل بعد.",
     "empty.body": "تواصل هذا العميل عبر قناة دون تسجيل أي رسالة — أول رد أو رسالة واردة تفتح الخيط.",
@@ -845,6 +882,32 @@ export default function ConversationThread() {
             </Form>
           ) : null}
         </section>
+      ) : null}
+
+      {/* docs/27 F32. The picker posts a key, never the wording: a canned reply
+          is wording somebody approved, and an agent editing it on the way out
+          would make the macro library a suggestion rather than a standard. The
+          API renders it in this conversation's own language. */}
+      {canReply && loaded.macros.length > 0 ? (
+        <Form method="post" className="flex flex-col gap-2">
+          <input type="hidden" name="intent" value="macro" />
+          <input type="hidden" name="nonce" value={`${composerId}:macro:${attempt}`} />
+          <Field label={l("macro")} hint={l("macroHint")}>
+            <Select
+              name="macroKey"
+              defaultValue={loaded.macros[0]!.key}
+              options={loaded.macros.map((macro) => ({
+                value: macro.key,
+                label: nameOf(macro.nameJson) ?? macro.key
+              }))}
+            />
+          </Field>
+          <div className="flex">
+            <Button type="submit" variant="secondary" size="sm" loading={busy} disabled={closed}>
+              {l("macroSend")}
+            </Button>
+          </div>
+        </Form>
       ) : null}
 
       {canReply ? (
