@@ -457,6 +457,90 @@ export function chargebackWon(a: z.infer<typeof ChargebackArgs>): PostingLine[] 
   );
 }
 
+/* ------------------------------------------ G2. FX revaluation (F18) */
+
+const FxRevalArgs = z.object({
+  /** One per (account, currency) whose carrying value has moved. Signed. */
+  adjustments: z
+    .array(
+      z.object({
+        accountCode: z.string().regex(/^\d{4}$/, "account code is four digits"),
+        /** Base-currency movement: positive increases the account's normal side. */
+        deltaMinor: z.number().int(),
+        /** The foreign currency this leg revalues, stamped so the next plan can see it. */
+        currency: z.string().length(3).optional(),
+        memo: Memo
+      })
+    )
+    .min(1),
+  gainAccount: z.string().default("4095"),
+  lossAccount: z.string().default("5500"),
+  memo: Memo,
+  dims: Dims
+});
+export type FxRevalArgs = z.input<typeof FxRevalArgs>;
+
+const FX_GAIN = "4095";
+const FX_LOSS = "5500";
+
+/**
+ * docs/19 §5.3: "Revaluation job for open receivables/payables at period end."
+ * docs/27 F18 found it absent, so a USD receivable carried the rate it was
+ * booked at forever and an AED-reporting tenant's balance sheet drifted with
+ * every move in the dollar.
+ *
+ * The entry posts in the **base** currency. That is what makes it work against
+ * this engine rather than around it: `post()` derives a base amount from a
+ * transaction amount and a rate, and a revaluation has no transaction amount at
+ * all — nothing was bought or sold, only reinterpreted. Posting the delta as a
+ * base-currency batch on the same account code adjusts the carrying value while
+ * leaving the foreign-currency balance exactly where it was, because
+ * `ledger_account_balances` is keyed by (account, currency).
+ *
+ * `deltaMinor` is signed and the sign is read against the account's normal side,
+ * which is why one function covers a gain on an asset and a gain on a liability
+ * without the caller having to know which is which.
+ */
+export function fxRevaluation(a: FxRevalArgs): PostingLine[] {
+  const moves = a.adjustments.filter((x) => x.deltaMinor !== 0);
+  if (!moves.length) throw badRequest("nothing to revalue: every adjustment is zero");
+
+  const legs: PostingLine[] = [];
+  let net = 0;
+  for (const m of moves) {
+    const normal = account(m.accountCode)?.normalSide ?? "debit";
+    const up = m.deltaMinor > 0;
+    const side: Side = up ? normal : normal === "debit" ? "credit" : "debit";
+    // `revalues` is what closes the loop: the adjustment posts in the base
+    // currency, so without it the next plan would not know this base-currency
+    // line belongs to the foreign position it just corrected, and would report
+    // the same difference again every period end.
+    const dims = { ...(a.dims ?? {}), ...(m.currency ? { revalues: m.currency } : {}) };
+    legs.push(
+      line(
+        m.accountCode,
+        side,
+        Math.abs(m.deltaMinor),
+        m.memo ?? a.memo ?? "fx revaluation",
+        Object.keys(dims).length ? dims : undefined
+      )
+    );
+    // The P&L effect of an asset going up is a gain; of a liability going up, a
+    // loss. `normal === "debit"` is exactly "this is an asset", so the sign of
+    // the income effect is the sign of the delta for assets and its opposite
+    // for liabilities.
+    net += normal === "debit" ? m.deltaMinor : -m.deltaMinor;
+  }
+  if (net === 0) {
+    throw badRequest("fx revaluation nets to zero: there is no gain or loss to post");
+  }
+  return lines(
+    ...legs,
+    net > 0 ? line(a.gainAccount ?? FX_GAIN, "credit", net, a.memo ?? "unrealised fx gain", a.dims) : null,
+    net < 0 ? line(a.lossAccount ?? FX_LOSS, "debit", -net, a.memo ?? "unrealised fx loss", a.dims) : null
+  );
+}
+
 /* ------------------------------- H. manual & structural entries (F2, F3) */
 
 const AuthoredLine = z.object({
@@ -652,6 +736,9 @@ export const RECIPES: Record<string, RecipeSpec> = {
   // marketing & content
   "MEDIA-SPEND": spec(AccrualArgs, expenseAccrual, { expenseAccount: "5100", payableAccount: "2250" }),
   BOOST: spec(AccrualArgs, expenseAccrual, { expenseAccount: "5100", payableAccount: "2250" }),
+
+  // fx revaluation (docs/27 F18)
+  "FX-REVAL": spec(FxRevalArgs, fxRevaluation),
 
   // manual & structural (docs/27 F2, F3)
   "MANUAL-JRNL": spec(AuthoredArgs, manualJournal),

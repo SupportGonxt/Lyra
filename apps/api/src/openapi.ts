@@ -423,6 +423,8 @@ const HAND_WRITTEN: Op[] = [
 
   // NORTH explorer and data health (routes/north.ts). Explorer reads a fixed
   // set of columns off north_snapshots only, never a client SQL string.
+  { method: "get", path: "/v1/ledger/fx-revaluation", summary: "What a period-end FX revaluation of open foreign balances would post (docs/19 §5.3)", permission: "ledger:journals:read", tag: "ledger" },
+  { method: "post", path: "/v1/ledger/fx-revaluation", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", tag: "ledger" },
   { method: "post", path: "/v1/north/snapshots/{id}/verify", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", tag: "north", requestBody: true },
   { method: "post", path: "/v1/north/explore", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", tag: "north", requestBody: true },
   { method: "get", path: "/v1/north/data-health", summary: "Staleness per metric, computed live from the snapshot table", permission: "north:metrics:read", tag: "north" },

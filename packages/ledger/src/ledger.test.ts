@@ -110,7 +110,10 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
       ],
       reason: "fuzzed authored entry for the balance invariant"
     },
-    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 }
+    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 },
+    // FX revaluation (docs/27 F18): signed base-currency adjustments, so the
+    // amount is deliberately not a `Pos` and no earlier shape can match it.
+    { adjustments: [{ accountCode: "1100", deltaMinor: amount, currency: "USD" }] }
   ];
   for (const s of shapes) {
     if (spec.schema.safeParse({ ...spec.defaults, ...s }).success) return s;

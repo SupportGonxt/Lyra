@@ -149,6 +149,11 @@ export const TXN_TYPES: Record<string, TxnTypeDef> = def([
   // so the type is flagged: no tenant setting can auto-approve it.
   ["OPEN-BAL", true, "ledger.opening_balance", { clientMoney: true }],
   ["YEAR-END-CLOSE", true, "ledger.year_end_close"],
+  // docs/19 §5.3 / docs/27 F18. Period-end revaluation of open foreign-currency
+  // balances. System-derived from the rate table and the ledger's own lines —
+  // nobody states the number — so it is ungated for the same reason a commission
+  // accrual is (docs/19 §7, "commission accrual (system-derived): none").
+  ["FX-REVAL", true, null],
 
   // 4.5 subscriptions, usage & platform billing
   ["SUB-CREATE", false, null],

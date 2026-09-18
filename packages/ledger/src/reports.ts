@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, account, schema } from "@lyra/db";
-import { notFound, type Ctx } from "@lyra/core";
+import { applyPpm, badRequest, notFound, type Ctx } from "@lyra/core";
+import { fxRateFor } from "./posting.js";
 
 // docs/19 §9. Every figure a finance user sees comes from here, and every one of
 // them is derived from ledger_journal_lines — the balances table is a cache we
@@ -527,6 +528,152 @@ export async function agedBalances(
     buckets.set(k, row);
   }
   return [...buckets.values()].filter((r) => r.totalMinor !== 0).sort((a, b) => b.totalMinor - a.totalMinor);
+}
+
+/* --------------------------------------------- fx revaluation (F18) */
+
+export interface FxAdjustment {
+  accountCode: string;
+  currency: string;
+  /** Open balance in the transaction currency, signed to the account's normal side. */
+  balanceMinor: number;
+  /** What the ledger currently carries this at, in base currency. */
+  carriedBaseMinor: number;
+  /** What it is worth at the closing rate. */
+  revaluedBaseMinor: number;
+  /** revalued − carried. Positive increases the account's normal side. */
+  deltaMinor: number;
+  ratePpm: number;
+}
+
+export interface FxRevaluationPlan {
+  asOf: number;
+  baseCurrency: string;
+  adjustments: FxAdjustment[];
+  /** Net income effect: gains on assets less gains on liabilities. */
+  netMinor: number;
+}
+
+/**
+ * docs/19 §5.3, "revaluation job for open receivables/payables at period end"
+ * (docs/27 F18). A read-only plan: what a revaluation *would* post, computed
+ * from the lines and the rate table, so a controller sees the number before it
+ * exists rather than after.
+ *
+ * Two exclusions, both deliberate.
+ *
+ * **The base currency.** There is nothing to revalue; the carried amount is the
+ * amount.
+ *
+ * **Client money.** A gain on `1010` would be income recognised inside client
+ * money, which docs/19 §5.2 B forbids outright — and rightly: the money is not
+ * ours, so neither is the movement in what it is worth. A tenant holding client
+ * money in a foreign currency has a segregation question, not a P&L one.
+ *
+ * Income and expense accounts are excluded for the ordinary reason: they were
+ * translated at the rate on the day of the transaction and that is where they
+ * stay. Only monetary balances — what is owed, in either direction — move.
+ */
+export async function fxRevaluationPlan(
+  ctx: Ctx,
+  opts: { asOf?: number; baseCurrency?: string } = {}
+): Promise<FxRevaluationPlan> {
+  const asOf = opts.asOf ?? ctx.now;
+  const base = opts.baseCurrency ?? ctx.policy.currency;
+  const l = schema.ledgerJournalLines;
+
+  const rows = await ctx.db
+    .select({
+      accountCode: l.accountCode,
+      currency: l.currency,
+      side: l.side,
+      amount: sql<number>`sum(${l.amountMinor})`,
+      baseAmount: sql<number>`sum(${l.baseAmountMinor})`
+    })
+    .from(l)
+    .where(and(eq(l.tenantId, ctx.tenantId), lte(l.postedAt, asOf)))
+    .groupBy(l.accountCode, l.currency, l.side);
+
+  const revaluable = (code: string): boolean => {
+    const def = account(code);
+    return Boolean(def) && (def?.type === "asset" || def?.type === "liability") && !def?.clientMoney;
+  };
+
+  const positions = new Map<string, { accountCode: string; currency: string; balance: number; carried: number }>();
+  const at = (accountCode: string, currency: string) => {
+    const k = `${accountCode}|${currency}`;
+    const p = positions.get(k) ?? { accountCode, currency, balance: 0, carried: 0 };
+    positions.set(k, p);
+    return p;
+  };
+
+  for (const r of rows) {
+    if (r.currency === base) continue;
+    if (!revaluable(r.accountCode)) continue;
+    const p = at(r.accountCode, r.currency);
+    const sign = r.side === account(r.accountCode)?.normalSide ? 1 : -1;
+    p.balance += sign * Number(r.amount);
+    p.carried += sign * Number(r.baseAmount);
+  }
+
+  // Prior revaluations post in the *base* currency against the same account, so
+  // they are invisible to the loop above — and without them every period end
+  // would report the same difference again, having already corrected it. The
+  // `revalues` dim (recipes.ts `fxRevaluation`) is what ties a base-currency
+  // adjustment back to the foreign position it belongs to.
+  const priorAdjustments = await ctx.db
+    .select({
+      accountCode: l.accountCode,
+      side: l.side,
+      baseAmountMinor: l.baseAmountMinor,
+      dimsJson: l.dimsJson
+    })
+    .from(l)
+    .where(
+      and(
+        eq(l.tenantId, ctx.tenantId),
+        lte(l.postedAt, asOf),
+        eq(l.currency, base),
+        sql`${l.dimsJson} like '%"revalues"%'`
+      )
+    );
+  for (const r of priorAdjustments) {
+    if (!revaluable(r.accountCode)) continue;
+    const dims = r.dimsJson ? (JSON.parse(r.dimsJson) as Record<string, unknown>) : {};
+    const revalues = dims["revalues"];
+    if (typeof revalues !== "string" || revalues === base) continue;
+    const p = at(r.accountCode, revalues);
+    p.carried += (r.side === account(r.accountCode)?.normalSide ? 1 : -1) * r.baseAmountMinor;
+  }
+
+  const adjustments: FxAdjustment[] = [];
+  let netMinor = 0;
+  for (const p of positions.values()) {
+    if (p.balance === 0 && p.carried === 0) continue;
+    const ratePpm = await fxRateFor(ctx, p.currency, base);
+    // Fail closed. A missing rate is not "no movement": it is a position nobody
+    // can value, and reporting it as flat would be the quiet wrong answer.
+    if (!ratePpm) {
+      throw badRequest(
+        `no fx rate on file for ${p.currency} -> ${base}; cannot revalue the open ${p.accountCode} balance`
+      );
+    }
+    const revalued = applyPpm(p.balance, ratePpm);
+    const delta = revalued - p.carried;
+    if (delta === 0) continue;
+    adjustments.push({
+      accountCode: p.accountCode,
+      currency: p.currency,
+      balanceMinor: p.balance,
+      carriedBaseMinor: p.carried,
+      revaluedBaseMinor: revalued,
+      deltaMinor: delta,
+      ratePpm
+    });
+    netMinor += account(p.accountCode)?.normalSide === "debit" ? delta : -delta;
+  }
+
+  return { asOf, baseCurrency: base, adjustments, netMinor };
 }
 
 /* ------------------------------------------------- open-item aging (F15) */

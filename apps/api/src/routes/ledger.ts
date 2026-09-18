@@ -22,6 +22,7 @@ import {
   decideMatch,
   ensurePeriod,
   FORCE_REASON_MIN,
+  fxRevaluationPlan,
   getTxn,
   periodCode,
   profitAndLoss,
@@ -236,6 +237,54 @@ ledgerRoutes.post("/periods/:code/reopen", async (c) => {
   // terms as a forced close.
   const input = await body(c, z.object({ reason: z.string().min(FORCE_REASON_MIN).max(500) }));
   return c.json(await reopenPeriod(ctx, c.req.param("code"), { reason: input.reason }));
+});
+
+/* ----------------------------------------------------- fx revaluation (F18) */
+
+// docs/19 §5.3. Two routes and the same read behind both: the preview a
+// controller signs off and the entry that posts must be the same computation,
+// for the same reason year-end close reads its closing lines off the ledger
+// rather than accepting them from a browser.
+
+ledgerRoutes.get("/fx-revaluation", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
+  const at = asOf(qOf(c));
+  return c.json(await fxRevaluationPlan(ctx, at !== undefined ? { asOf: at } : {}));
+});
+
+ledgerRoutes.post("/fx-revaluation", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:journals:post", { tenantId: ctx.tenantId, module: "ledger" });
+  const at = asOf(qOf(c));
+  const plan = await fxRevaluationPlan(ctx, at !== undefined ? { asOf: at } : {});
+  if (!plan.adjustments.length) throw badRequest("nothing to revalue: every open foreign balance is already carried at the closing rate");
+
+  const period = periodCode(at ?? ctx.now);
+  const args = {
+    adjustments: plan.adjustments.map((a) => ({
+      accountCode: a.accountCode,
+      deltaMinor: a.deltaMinor,
+      currency: a.currency,
+      memo: `fx revaluation ${a.currency}->${plan.baseCurrency} @ ${a.ratePpm}ppm`
+    }))
+  };
+  // One revaluation per period, whoever asks and however many times.
+  const txn = await runTxn(
+    ctx,
+    {
+      type: "FX-REVAL",
+      idempotencyKey: `fxreval:${period}`,
+      currency: plan.baseCurrency,
+      grossMinor: Math.abs(plan.netMinor)
+    },
+    {
+      recipe: { lines: buildRecipe("FX-REVAL", args), currency: plan.baseCurrency },
+      args,
+      event: { name: "ledger.txn.fx-reval.settled" }
+    }
+  );
+  return c.json({ txn, plan }, 201);
 });
 
 /* ---------------------------------------------------------------- year end */

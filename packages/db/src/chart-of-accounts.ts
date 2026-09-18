@@ -58,6 +58,10 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   { code: "4075", en: "Marketplace Revenue", ar: "إيرادات السوق", type: "income", normalSide: "credit" },
   { code: "4080", en: "Financing Commission", ar: "عمولة التمويل", type: "income", normalSide: "credit" },
   { code: "4090", en: "Service Fees", ar: "رسوم الخدمات", type: "income", normalSide: "credit" },
+  // docs/19 §5.3 revaluation (docs/27 F18). Unrealised, and therefore its own
+  // pair of accounts rather than folded into the income it came nowhere near:
+  // a controller has to be able to read the margin without the exchange rate in it.
+  { code: "4095", en: "FX Revaluation Gain", ar: "أرباح إعادة تقييم العملة", type: "income", normalSide: "credit" },
 
   // expense / contra-income
   { code: "5000", en: "Commission Clawback", ar: "استرداد العمولة", type: "expense", normalSide: "debit" },
@@ -66,7 +70,8 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   { code: "5200", en: "AI & Inference COGS", ar: "تكلفة الذكاء الاصطناعي والاستدلال", type: "expense", normalSide: "debit" },
   { code: "5300", en: "Payment Processing Fees", ar: "رسوم معالجة المدفوعات", type: "expense", normalSide: "debit" },
   { code: "5400", en: "Partner Revenue Share", ar: "حصة الشركاء من الإيرادات", type: "expense", normalSide: "debit" },
-  { code: "5450", en: "Recovery Written Off", ar: "استرداد مشطوب", type: "expense", normalSide: "debit" }
+  { code: "5450", en: "Recovery Written Off", ar: "استرداد مشطوب", type: "expense", normalSide: "debit" },
+  { code: "5500", en: "FX Revaluation Loss", ar: "خسائر إعادة تقييم العملة", type: "expense", normalSide: "debit" }
 ];
 
 const BY_CODE = new Map(CHART_OF_ACCOUNTS.map((a) => [a.code, a]));
