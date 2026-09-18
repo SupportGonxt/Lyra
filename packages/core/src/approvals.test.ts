@@ -109,6 +109,8 @@ describe("APPROVAL_POLICIES", () => {
       "signal.boost": { key: "signal.boost", module: "signal", decide: "signal:campaigns:update", dualControl: "never" },
       "signal.creator_brief": { key: "signal.creator_brief", module: "signal", decide: "signal:creatives:approve", dualControl: "never" },
       "signal.outreach_send": { key: "signal.outreach_send", module: "signal", decide: "signal:outreach:send", dualControl: "never" },
+      "orbit.renewal_offer": { key: "orbit.renewal_offer", module: "orbit", decide: "orbit:renewals:approve", dualControl: "never" },
+      "orbit.document_send": { key: "orbit.document_send", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" },
       "scout.whitespace_promote": { key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" },
       "core.impersonate": { key: "core.impersonate", module: "core", decide: "core:impersonate:use", dualControl: "always", neverAutoApprove: true },
       "core.mandate_register": { key: "core.mandate_register", module: "core", decide: "core:api_keys:create", dualControl: "always", neverAutoApprove: true },
