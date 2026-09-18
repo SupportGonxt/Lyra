@@ -1540,6 +1540,7 @@ export interface LedgerPeriods {
   endAt: number;
   state?: string;
   checklistJson?: string;
+  stateReason?: string;
   closePackFileId?: string;
   closedBy?: string;
   closedAt?: number;
@@ -1560,6 +1561,7 @@ export interface LedgerReconMatches {
   reasonCode?: string;
   confirmedBy?: string;
   confirmedAt?: number;
+  settlementTxnId?: string;
   createdAt?: number;
 }
 
@@ -1837,6 +1839,9 @@ export interface NorthSnapshots {
   dimsHash?: string;
   value: number;
   ts: number;
+  verifiedAt?: number;
+  verifiedBy?: string;
+  verificationRef?: string;
 }
 
 export interface OrbitAgentPresence {
@@ -2722,6 +2727,8 @@ export interface Operations {
   "GET /v1/ledger/fx-rates": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerFxRates>>;
   "POST /v1/ledger/fx-rates": Op<never, never, LedgerFxRates, LedgerFxRates>;
   "GET /v1/ledger/fx-rates/{id}": Op<{ id: string }, never, never, LedgerFxRates>;
+  "GET /v1/ledger/fx-revaluation": Op<never, never, never, Record<string, unknown>>;
+  "POST /v1/ledger/fx-revaluation": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/invoices": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerInvoices>>;
   "POST /v1/ledger/invoices": Op<never, never, LedgerInvoices, LedgerInvoices>;
   "GET /v1/ledger/invoices/{id}": Op<{ id: string }, never, never, LedgerInvoices>;
@@ -2750,6 +2757,7 @@ export interface Operations {
   "GET /v1/ledger/recon/runs/{id}": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/ledger/recon/runs/{id}/evidence-bundle": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/ledger/recon/runs/{id}/evidence-bundle/download": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "GET /v1/ledger/recon/statement-formats": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/aged": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/balance-sheet": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/chart-of-accounts": Op<never, never, never, Record<string, unknown>>;
@@ -2835,6 +2843,7 @@ export interface Operations {
   "PATCH /v1/north/scenarios/{id}": Op<{ id: string }, never, NorthScenarios, NorthScenarios>;
   "GET /v1/north/snapshots": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthSnapshots>>;
   "GET /v1/north/snapshots/{id}": Op<{ id: string }, never, never, NorthSnapshots>;
+  "POST /v1/north/snapshots/{id}/verify": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/north/snapshotter/run": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/onboarding/agreements": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/onboarding/agreements/{id}/send": Op<{ id: string }, never, never, Record<string, unknown>>;
@@ -3453,6 +3462,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/fx-rates": { tag: "ledger", summary: "List fx-rates", permission: "ledger:accounts:read", public: false },
   "POST /v1/ledger/fx-rates": { tag: "ledger", summary: "Create a fx rate", permission: "ledger:accounts:write", public: false },
   "GET /v1/ledger/fx-rates/{id}": { tag: "ledger", summary: "Fetch one fx rate", permission: "ledger:accounts:read", public: false },
+  "GET /v1/ledger/fx-revaluation": { tag: "ledger", summary: "What a period-end FX revaluation of open foreign balances would post (docs/19 §5.3)", permission: "ledger:journals:read", public: false },
+  "POST /v1/ledger/fx-revaluation": { tag: "ledger", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", public: false },
   "GET /v1/ledger/invoices": { tag: "ledger", summary: "List invoices", permission: "ledger:invoices:read", public: false },
   "POST /v1/ledger/invoices": { tag: "ledger", summary: "Create a invoice", permission: "ledger:invoices:create", public: false },
   "GET /v1/ledger/invoices/{id}": { tag: "ledger", summary: "Fetch one invoice", permission: "ledger:invoices:read", public: false },
@@ -3481,6 +3492,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/recon/runs/{id}": { tag: "ledger", summary: "One reconciliation run with its matches and exceptions", permission: "ledger:recon:read", public: false },
   "POST /v1/ledger/recon/runs/{id}/evidence-bundle": { tag: "ledger", summary: "Assemble a reconciliation run's evidence as a signed, hash-manifested bundle", permission: "ledger:recon:export", public: false },
   "GET /v1/ledger/recon/runs/{id}/evidence-bundle/download": { tag: "ledger", summary: "Download an assembled recon evidence bundle", permission: "ledger:recon:export", public: false },
+  "GET /v1/ledger/recon/statement-formats": { tag: "ledger", summary: "Bank statement formats the importer can read (CAMT.053, MT940, OFX)", permission: "ledger:recon:read", public: false },
   "GET /v1/ledger/reports/aged": { tag: "ledger", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/balance-sheet": { tag: "ledger", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/chart-of-accounts": { tag: "ledger", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", public: false },
@@ -3566,6 +3578,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/north/scenarios/{id}": { tag: "north", summary: "Update a scenario", permission: "north:scenarios:run", public: false },
   "GET /v1/north/snapshots": { tag: "north", summary: "List snapshots", permission: "north:snapshots:read", public: false },
   "GET /v1/north/snapshots/{id}": { tag: "north", summary: "Fetch one snapshot", permission: "north:snapshots:read", public: false },
+  "POST /v1/north/snapshots/{id}/verify": { tag: "north", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", public: false },
   "POST /v1/north/snapshotter/run": { tag: "north", summary: "Force the NORTH metric snapshot and anomaly scan now (also runs on the scheduled tick)", permission: "north:snapshots:run", public: false },
   "POST /v1/onboarding/agreements": { tag: "onboarding", summary: "Draft the next version of a partner agreement", permission: "dist:agreements:write", public: false },
   "POST /v1/onboarding/agreements/{id}/send": { tag: "onboarding", summary: "Send a drafted agreement for signature", permission: "dist:agreements:write", public: false },
