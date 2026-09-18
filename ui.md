@@ -27,7 +27,7 @@ of route files driven by declarative specs in [apps/web/app/modules/](apps/web/a
 - [module.tsx](apps/web/app/routes/module.tsx) — `/:module` and `/:module/:resource`, the tabbed list
 - [record.tsx](apps/web/app/routes/record.tsx) — `/:module/:resource/:id`, the single record
 
-Adding a resource adds a `ResourceSpec` entry, not a route. 130 resource tabs
+Adding a resource adds a `ResourceSpec` entry, not a route. 133 resource tabs
 across 10 workspaces render this way. §7 is the full table.
 
 **Bespoke.** A screen that is genuinely its own thing — a quote comparison, a
@@ -444,7 +444,7 @@ multiplier in ppm (FX 18.5 is `18500000`, never 1850%), `measure` is a number
 whose unit is a sibling column (NORTH stores money, basis points, milliseconds and
 counts in one `value`), `money` is minor units.
 
-### 7.1 The 130 resource tabs
+### 7.1 The 133 resource tabs
 
 
 #### `/admin` — 35 tabs
@@ -583,7 +583,7 @@ counts in one `value`), `money` is minor units.
 | `boardpacks` | `/v1/north/boardpacks` | `north:boardpacks:read` | ✓ |  |  |  |  |
 | `decisions` | `/v1/north/decisions` | `north:decisions:read` | ✓ | ✓ | ✓ |  |  |
 
-#### `/orbit` — 15 tabs
+#### `/orbit` — 18 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
@@ -602,6 +602,9 @@ counts in one `value`), `money` is minor units.
 | `routing-rules` | `/v1/orbit/routing-rules` | `orbit:teams:read` | ✓ | ✓ | ✓ |  |  |
 | `sla-policies` | `/v1/orbit/sla-policies` | `orbit:teams:read` | ✓ | ✓ | ✓ |  |  |
 | `agent-presence` | `/v1/orbit/agent-presence` | `orbit:presence:read` | ✓ | ✓ |  |  |  |
+| `kb-articles` | `/v1/orbit/kb-articles` | `orbit:kb:read` | ✓ | ✓ | ✓ |  |  |
+| `macros` | `/v1/orbit/macros` | `orbit:macros:read` | ✓ | ✓ | ✓ |  |  |
+| `deflections` | `/v1/orbit/deflections` | `orbit:conversations:read` |  |  |  |  |  |
 
 #### `/scout` — 6 tabs
 
