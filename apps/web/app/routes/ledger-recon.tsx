@@ -216,11 +216,23 @@ export async function action({ request, context }: ActionFunctionArgs) {
     }
 
     const currency = String(form.get("currency") ?? "");
-    // The statement is read here, not in the browser: the run posts what the
-    // server parsed, so a preview that drifted cannot change what reconciles.
-    const { lines, rejected } = statementFromCsv(String(form.get("lines") ?? ""), currency);
-    if (!lines.length) return { ...empty, problem: { title: "lines", status: 400 } };
-    if (rejected.length) return { ...empty, rejected };
+
+    // docs/27 F16. An uploaded CAMT.053 / MT940 / OFX file goes to the API as
+    // text and is parsed there, beside the CSV parser and for the same reason:
+    // the run reconciles what the *server* read, so nothing a browser did to a
+    // preview can change what posts. Nothing is parsed here.
+    const upload = form.get("statementFile");
+    const statementText =
+      upload instanceof File && upload.size > 0 ? (await upload.text()).trim() : "";
+
+    // A pasted statement is only read when no file was given: two sources for
+    // one run is a question with no right answer, so the file wins and the
+    // paste is ignored rather than merged.
+    const pasted = statementText ? { lines: [], rejected: [] } : statementFromCsv(String(form.get("lines") ?? ""), currency);
+    if (!statementText) {
+      if (!pasted.lines.length) return { ...empty, problem: { title: "lines", status: 400 } };
+      if (pasted.rejected.length) return { ...empty, rejected: pasted.rejected };
+    }
 
     const counterparty = String(form.get("counterpartyRef") ?? "").trim();
     const tolerance = String(form.get("toleranceMinor") ?? "").trim();
@@ -239,7 +251,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
         ...(counterparty ? { counterpartyRef: counterparty } : {}),
         ...(tolerance ? { toleranceMinor: Number(tolerance) } : {}),
         propose: form.get("propose") === "on",
-        lines
+        ...(statementText ? { statementText } : { lines: pasted.lines })
       }
     });
     return { ...empty, started: result };
@@ -606,7 +618,9 @@ export default function LedgerRecon() {
 
       {loaded.canRun ? (
         <Card title={l("recon.start")} elevation="flat">
-          <Form method="post" className="flex flex-col gap-4">
+          {/* multipart: a file input in a urlencoded form posts its *name*,
+              not its contents, and the action would read an empty statement. */}
+          <Form method="post" encType="multipart/form-data" className="flex flex-col gap-4">
             <div className="flex flex-wrap items-end gap-3">
               <Field label={l("recon.process")} required className="w-52">
                 <Select
@@ -646,7 +660,19 @@ export default function LedgerRecon() {
               </Field>
             </div>
 
-            <Field label={l("recon.lines")} hint={l("recon.linesHint")} required>
+            {/* docs/27 F16: the counterparty's own export, in the format it
+                came in. The paste below stays for the statement that arrived as
+                a spreadsheet, which is most of them today. */}
+            <Field label={l("recon.file")} hint={l("recon.fileHint")}>
+              <input
+                type="file"
+                name="statementFile"
+                accept=".xml,.txt,.sta,.940,.ofx,.qfx,text/xml,application/xml,text/plain"
+                className="block w-full rounded-sm border border-line bg-surface px-3 py-2 font-ui text-13 text-text file:me-3 file:rounded-sm file:border-0 file:bg-accent/10 file:px-3 file:py-1 file:font-ui file:text-13 file:text-accent"
+              />
+            </Field>
+
+            <Field label={l("recon.lines")} hint={l("recon.linesHint")}>
               {/* The statement as the counterparty exported it. No defaultValue:
                   an empty paste must fail `required` rather than post a run
                   against nothing. */}
@@ -657,7 +683,6 @@ export default function LedgerRecon() {
                 onChange={(event) => setStatement(event.target.value)}
                 placeholder={l("recon.linesPlaceholder")}
                 className="font-mono text-12"
-                required
               />
             </Field>
 

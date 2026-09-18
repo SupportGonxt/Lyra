@@ -175,13 +175,29 @@ export async function closeChecks(ctx: Ctx, code: string): Promise<CloseCheck[]>
   return checks.map((c) => ({ ...c, name: `${c.name}@${code}` }));
 }
 
+/**
+ * docs/27 F20. A forced close accepts a break the checklist found, so the one
+ * thing an auditor will ask for is *which* break and *why* — and `force` was a
+ * bare boolean off the request body with neither. Ten characters is the same
+ * floor a manual journal's reason carries (recipes.ts AuthoredArgs): enough to
+ * be a sentence, not enough to be a keystroke.
+ */
+export const FORCE_REASON_MIN = 10;
+
 /** Soft close first, always: hard closing straight from open skips the checklist. */
 export async function closePeriod(
   ctx: Ctx,
   code: string,
   to: "soft_closed" | "hard_closed",
-  opts: { force?: boolean; preApproved?: boolean } = {}
+  opts: { force?: boolean; reason?: string; preApproved?: boolean } = {}
 ): Promise<Period> {
+  // Before anything is read: a force with no reason is not a request this
+  // function can carry out, whoever is asking and whatever the month looks like.
+  if (opts.force && (opts.reason ?? "").trim().length < FORCE_REASON_MIN) {
+    throw badRequest(
+      `forcing a close requires a reason of at least ${FORCE_REASON_MIN} characters naming the break being accepted`
+    );
+  }
   // Authorisation first: a seat that may not close the month should be told so
   // before it learns anything about the month's state.
   if (!opts.preApproved) {
@@ -203,6 +219,12 @@ export async function closePeriod(
   if (failed.length && !opts.force) {
     throw conflict(`close checks failed: ${failed.map((c) => c.name).join(", ")}`);
   }
+  // A force over a clean month overrides nothing. Accepting it silently is how
+  // `force: true` becomes the shape of every request: the caller learns it is
+  // harmless, and the day it *isn't* harmless nobody notices. So it is refused.
+  if (opts.force && !failed.length) {
+    throw conflict(`period ${code} passes every close check; there is nothing to force`);
+  }
 
   // docs/specs/gap-finance-design.md D10. The gate lives here rather than in the
   // route, because a close reached from a scheduler or a year-end run is the
@@ -212,7 +234,19 @@ export async function closePeriod(
   if (!opts.preApproved) {
     await gate(ctx, {
       policyKey: opts.force ? "ledger.period_close_force" : "ledger.period_close",
-      subjectRef: `period:${code}`
+      subjectRef: `period:${code}`,
+      // The approver is being asked to accept specific breaks, so the request
+      // they see names them — an approval screen showing only "force close May"
+      // is asking for a signature on an unread document.
+      ...(opts.force
+        ? {
+            context: {
+              reason: opts.reason,
+              overrode: failed.map((c) => c.name),
+              detail: failed.map((c) => c.detail).filter(Boolean)
+            }
+          }
+        : {})
     });
   }
 
@@ -221,6 +255,9 @@ export async function closePeriod(
     .set({
       state: to,
       checklistJson: JSON.stringify(checks),
+      stateReason: opts.force
+        ? `forced: ${opts.reason} (overrode ${failed.map((c) => c.name).join(", ")})`
+        : (opts.reason ?? null),
       closedBy: actorRef(ctx),
       closedAt: ctx.now
     })
@@ -230,33 +267,54 @@ export async function closePeriod(
     action: "ledger.period.close",
     subjectRef: `period:${code}`,
     before: { state: p.state },
-    after: { state: to, checks, forced: Boolean(opts.force) }
+    after: {
+      state: to,
+      checks,
+      forced: Boolean(opts.force),
+      ...(opts.force ? { forceReason: opts.reason, overrode: failed.map((c) => c.name) } : {})
+    }
   });
 
   return { ...p, state: to };
 }
 
-/** Reopen is a separate, higher-privilege act — never a side effect of posting. */
+/**
+ * Reopen is a separate, higher-privilege act — never a side effect of posting.
+ * docs/27 F20 reports it as ungated; the `ledger.period_reopen` policy below
+ * closed that. What stayed missing is the same thing `force` was missing: a
+ * month that was signed off and is now open again has to say why.
+ */
 export async function reopenPeriod(
   ctx: Ctx,
   code: string,
-  opts: { preApproved?: boolean } = {}
+  opts: { reason?: string; preApproved?: boolean } = {}
 ): Promise<Period> {
   const p = await ensurePeriod(ctx, code);
+  // An open period is already what the caller wants; nothing is being undone,
+  // so there is nothing to justify.
   if (p.state === "open") return p;
+  if ((opts.reason ?? "").trim().length < FORCE_REASON_MIN) {
+    throw badRequest(
+      `reopening a period requires a reason of at least ${FORCE_REASON_MIN} characters`
+    );
+  }
   if (!opts.preApproved) {
     require_(ctx.actor, "ledger:periods:reopen", { tenantId: ctx.tenantId, module: "ledger" });
-    await gate(ctx, { policyKey: "ledger.period_reopen", subjectRef: `period:${code}` });
+    await gate(ctx, {
+      policyKey: "ledger.period_reopen",
+      subjectRef: `period:${code}`,
+      context: { reason: opts.reason, from: p.state }
+    });
   }
   await ctx.db
     .update(schema.ledgerPeriods)
-    .set({ state: "open", closedBy: null, closedAt: null })
+    .set({ state: "open", stateReason: `reopened: ${opts.reason}`, closedBy: null, closedAt: null })
     .where(and(eq(schema.ledgerPeriods.tenantId, ctx.tenantId), eq(schema.ledgerPeriods.code, code)));
   await audit(ctx, {
     action: "ledger.period.reopen",
     subjectRef: `period:${code}`,
     before: { state: p.state },
-    after: { state: "open" }
+    after: { state: "open", reason: opts.reason }
   });
   return { ...p, state: "open" };
 }

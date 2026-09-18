@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, isNull, lt, lte, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { buildRecipe, fxRateFor, runTxn } from "@lyra/ledger";
+import { buildRecipe, fxRateFor, runTxn, straightLine } from "@lyra/ledger";
 import { audit, emit, scoped, type Ctx } from "@lyra/core";
 import { SWEEP_MAX } from "./sweep.js";
 
@@ -319,7 +319,7 @@ async function invoiceSubscription(ctx: Ctx, sub: typeof schema.ledgerSubscripti
     // Straight-line recognition: the invoice defers the whole term into 2300
     // and each period releases its share. The first period carries the
     // integer-division remainder so the twelve rows sum to exactly the invoice.
-    const share = Math.floor(netMinor / months);
+    const plan = straightLine(netMinor, months);
     for (let i = 0; i < months; i++) {
       await ctx.db
         .insert(schema.ledgerRevenueSchedules)
@@ -329,7 +329,7 @@ async function invoiceSubscription(ctx: Ctx, sub: typeof schema.ledgerSubscripti
           invoiceId,
           accountCode: "2300",
           period: currentPeriod(addMonths(at, i)),
-          plannedMinor: i === 0 ? netMinor - share * (months - 1) : share,
+          plannedMinor: plan[i] as number,
           currency: sub.currency,
           state: "scheduled"
         })
@@ -528,6 +528,28 @@ async function postRecognitions(ctx: Ctx): Promise<number> {
         continue;
       }
 
+      // docs/19 §11.9 (docs/27 F22): a release may never take total recognition
+      // above what was invoiced. The ceiling is read from the ledger's own rows
+      // rather than from this row's plan — a schedule is a plan, and plans get
+      // edited, duplicated and re-run, so the plan cannot be its own limit.
+      const [invoice] = await ctx.db
+        // subtotal, not total: only the net is deferred, the tax went to 2200.
+        .select({ netMinor: schema.ledgerInvoices.subtotalMinor })
+        .from(schema.ledgerInvoices)
+        .where(scoped(ctx, schema.ledgerInvoices, eq(schema.ledgerInvoices.id, row.invoiceId)))
+        .limit(1);
+      const [already] = await ctx.db
+        .select({ total: sql<number>`coalesce(sum(${schema.ledgerRevenueSchedules.recognizedMinor}), 0)` })
+        .from(schema.ledgerRevenueSchedules)
+        .where(
+          scoped(
+            ctx,
+            schema.ledgerRevenueSchedules,
+            eq(schema.ledgerRevenueSchedules.invoiceId, row.invoiceId),
+            eq(schema.ledgerRevenueSchedules.state, "recognized")
+          )
+        );
+
       const txn = await runTxn(
         ctx,
         {
@@ -539,7 +561,12 @@ async function postRecognitions(ctx: Ctx): Promise<number> {
         },
         {
           recipe: {
-            lines: buildRecipe("SUB-RECOG", { amountMinor: row.plannedMinor, incomeAccount }),
+            lines: buildRecipe("SUB-RECOG", {
+              amountMinor: row.plannedMinor,
+              incomeAccount,
+              ...(invoice ? { invoicedMinor: invoice.netMinor } : {}),
+              alreadyRecognisedMinor: Number(already?.total ?? 0)
+            }),
             currency: row.currency,
             fxRatePpm
           }

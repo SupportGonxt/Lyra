@@ -21,6 +21,7 @@ import {
   recoveryCodes,
   requiresMfa,
   resyncSystemRolePermissions,
+  syncTaxRules,
   syncChartOfAccounts,
   seed,
   sha256Hex,
@@ -592,7 +593,11 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // login picker — /demo/personas enumerates users, so it can only ever show
   // rows that were written.
   const people = await ensureSeedPeople(database as unknown as CoreDb, tenantId);
-  return c.json({ tenantId, updated, accounts, demo, people });
+  // Fifth: TAX_RULEPACK (docs/27 F17). Same one-delivery shape, and the one
+  // whose absence is loudest — taxTreatment() refuses a supply it has no rule
+  // for, so a tenant seeded before the rulepack existed cannot bind at all.
+  const taxRules = await syncTaxRules(database as unknown as CoreDb, tenantId);
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules });
 });
 
 /**

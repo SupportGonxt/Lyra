@@ -36,7 +36,16 @@ export const snapshots = sqliteTable(
     dimsJson: text("dims_json"),
     dimsHash: text("dims_hash").notNull().default(""), // "" = grand total
     value: integer("value").notNull(), // minor units for money metrics
-    ts: integer("ts").notNull()
+    ts: integer("ts").notNull(),
+    // docs/19 §7 and §11.10 — a success fee may only be charged on a *verified*
+    // metric. Verification is a second read of the same definition landing on
+    // the same number, recorded by whoever stood behind it; docs/27 F21 found
+    // SUCCESS-FEE posting against nothing at all. Null means "computed, not
+    // attested", which is what every snapshotter run produces.
+    verifiedAt: integer("verified_at"),
+    verifiedBy: text("verified_by"),
+    /** What the verification re-read: a recompute id, a statement, a signed-off pack. */
+    verificationRef: text("verification_ref")
   },
   (t) => [
     index("north_snapshots_idx").on(t.tenantId, t.metricKey, t.grain, t.period),

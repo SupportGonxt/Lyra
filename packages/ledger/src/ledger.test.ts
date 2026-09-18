@@ -110,7 +110,10 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
       ],
       reason: "fuzzed authored entry for the balance invariant"
     },
-    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 }
+    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 },
+    // FX revaluation (docs/27 F18): signed base-currency adjustments, so the
+    // amount is deliberately not a `Pos` and no earlier shape can match it.
+    { adjustments: [{ accountCode: "1100", deltaMinor: amount, currency: "USD" }] }
   ];
   for (const s of shapes) {
     if (spec.schema.safeParse({ ...spec.defaults, ...s }).success) return s;
@@ -120,41 +123,12 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
 
 /* ---------------------------------------------------------------- §11.1 */
 
-describe("every journal batch balances in both currencies", () => {
-  it("holds for every financial transaction type, fuzzed", async () => {
-    const r = rng(20260615);
-    expect(FINANCIAL.length).toBeGreaterThan(20);
-
-    for (const def of FINANCIAL) {
-      for (let i = 0; i < 3; i++) {
-        const lines = buildRecipe(def.code, argsFor(def.code, r));
-        const debit = lines.filter((l) => l.side === "debit").reduce((s, l) => s + l.amountMinor, 0);
-        const credit = lines.filter((l) => l.side === "credit").reduce((s, l) => s + l.amountMinor, 0);
-        expect(debit, `${def.code} txn currency`).toBe(credit);
-
-        const txnId = `tx_${def.code}_${i}`;
-        await ctx.db.insert(schema.ledgerTxns).values(baseTxn(txnId, def.code, debit));
-        const batch = await post(ctx, {
-          txnId,
-          currency: "AED",
-          baseCurrency: "USD",
-          // A non-unit rate is the case where base-currency balance is not free.
-          fxRatePpm: 272_300,
-          lines
-        });
-        expect(batch.totalMinor).toBe(debit);
-
-        const rows = await ctx.db
-          .select()
-          .from(schema.ledgerJournalLines)
-          .where(eq(schema.ledgerJournalLines.batchId, batch.batchId));
-        const baseDebit = rows.filter((l) => l.side === "debit").reduce((s, l) => s + l.baseAmountMinor, 0);
-        const baseCredit = rows.filter((l) => l.side === "credit").reduce((s, l) => s + l.baseAmountMinor, 0);
-        expect(baseDebit, `${def.code} base currency`).toBe(baseCredit);
-      }
-    }
-  });
-});
+// Obligation 1 — "every journal batch balances in both currencies" — now lives
+// in properties.test.ts as a real property test (docs/27 F22). The seeded-LCG
+// loop that used to stand here walked one fixed path and reported "no
+// counterexample on this path"; the property searches, and shrinks what it
+// finds. Keeping both would have meant maintaining two generators over one
+// catalogue, and two guards over the same rule eventually disagree.
 
 function baseTxn(txnId: string, type: string, gross: number) {
   return {
@@ -456,6 +430,15 @@ describe("periods", () => {
 describe("reports", () => {
   it("the balances cache agrees with a rebuild from lines", async () => {
     const r = rng(4242);
+    // Fund the client account first: a claim payment or a remittance out of an
+    // empty float is refused now (docs/19 §11.11, found by the obligation-11
+    // property test), exactly as a bank would refuse it.
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_rb_fund", "CM-RECEIPT", 100_000_000));
+    await post(ctx, {
+      txnId: "tx_rb_fund",
+      currency: "AED",
+      lines: buildRecipe("CM-RECEIPT", { amountMinor: 100_000_000 })
+    });
     for (const [i, def] of FINANCIAL.slice(0, 12).entries()) {
       const txnId = `tx_rb_${i}`;
       const lines = buildRecipe(def.code, argsFor(def.code, r));
@@ -816,6 +799,11 @@ describe("recipe argument fields", () => {
     const fields = argFields("CM-RECEIPT");
     expect(fields).toEqual([
       { name: "amountMinor", kind: "integer", required: true },
+      // docs/27 F14: a receipt may clear the premium receivable a bind booked,
+      // and name the insurer payable it reclassifies. Both optional — a
+      // commission-only tenant books neither.
+      { name: "clearsReceivableAccount", kind: "text", required: false },
+      { name: "insurerPayableAccount", kind: "text", required: false, default: "2000" },
       { name: "memo", kind: "text", required: false }
     ]);
   });

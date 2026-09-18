@@ -69,7 +69,15 @@ export function autoApproveProblem(keys: readonly unknown[]): string | null {
 export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntries(
   [
     // money
-    policy({ key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00 }),
+    // docs/19 §7: "No transaction type may be added to a tenant's auto-approve
+    // allowlist if it debits client money, **issues a payout**, or crosses a
+    // regulatory floor." REFUND-ISSUE is `payout: true`, so this policy needed
+    // the flag and did not have it — found by the obligation-6 property test
+    // (docs/27 F22). Without it `autoApproveProblem` accepted "ledger.refund"
+    // into a tenant's allowlist, and `runTxn`'s own belt then refused every
+    // refund outright rather than gating it: two guards over the same rule
+    // disagreeing, which is the shape that always resolves into a support ticket.
+    policy({ key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00, neverAutoApprove: true }),
     policy({ key: "ledger.payout", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.client_money_transfer", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.partner_settlement", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true }),
@@ -225,7 +233,13 @@ export interface GateInput {
   context?: Record<string, unknown>;
 }
 
-function needsDualControl(p: ApprovalPolicy, amountMinor: number | undefined): boolean {
+/**
+ * docs/19 §11.6 — "every payout transaction has an approval with a distinct
+ * approver above threshold". Exported so the obligation can be property-tested
+ * against the policy table rather than against one hand-picked example
+ * (docs/27 F22).
+ */
+export function needsDualControl(p: ApprovalPolicy, amountMinor: number | undefined): boolean {
   if (p.dualControl === "always") return true;
   if (p.dualControl === "never") return false;
   // Fail closed: an amount the caller could not state may be any amount.

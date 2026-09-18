@@ -1,6 +1,7 @@
 import { and, eq, isNull, or, lte, gt, desc } from "drizzle-orm";
 import { schema } from "@lyra/db";
 import { badRequest, notFound } from "./errors.js";
+import { taxPpmOf, taxTreatment } from "./tax.js";
 import type { Ctx } from "./context.js";
 
 // The aggregator's money split. Three parties on every sale: the underwriter
@@ -111,11 +112,30 @@ export async function resolveRate(ctx: Ctx, q: RateQuery): Promise<RateRow | nul
  * The split for a real sale: resolves the rate, falls back to the offering's own
  * base commission and the channel default, and stamps which rate row applied so
  * the entry stays reproducible after the rate changes.
+ *
+ * docs/27 F17. Tax is resolved the same way and stamped the same way. A caller
+ * may *state* `taxPpm` — an insurer statement carries its own rate, a migration
+ * restates history — and then `taxRuleId` is null because no rule was consulted.
+ * A caller that states nothing gets the market rulepack's rate, or a refusal:
+ * docs/19 §5.3 says tax is never inferred, and the zero this used to default to
+ * was an inference.
  */
 export async function quoteCommission(
   ctx: Ctx,
-  args: { offeringId: string; channelId: string; premiumMinor: number; taxPpm?: number; at?: number }
-): Promise<CommissionSplit & { rateId: string | null; basePpm: number; sharePpm: number }> {
+  args: {
+    offeringId: string;
+    channelId: string;
+    premiumMinor: number;
+    taxPpm?: number;
+    /** Overrides the tenant's policy market for a cross-border supply. */
+    taxMarket?: string;
+    /** Rulepack code; defaults to `commission`. */
+    taxCode?: string;
+    at?: number;
+  }
+): Promise<
+  CommissionSplit & { rateId: string | null; basePpm: number; sharePpm: number; taxRuleId: string | null }
+> {
   const offering = (
     await ctx.db
       .select()
@@ -158,12 +178,25 @@ export async function quoteCommission(
   // house channel keeping a "share" would double-count our own commission.
   const sharePpm = rate?.channelSharePpm ?? (channel.kind === "b2b" ? channel.defaultCommissionPpm ?? 0 : 0);
 
+  // Stated beats resolved; nothing at all is refused, never assumed to be zero.
+  const tax =
+    args.taxPpm !== undefined
+      ? { ppm: args.taxPpm, ruleId: null }
+      : await (async () => {
+          const t = await taxTreatment(ctx, {
+            ...(args.taxMarket !== undefined ? { market: args.taxMarket } : {}),
+            ...(args.taxCode !== undefined ? { code: args.taxCode } : {}),
+            ...(args.at !== undefined ? { at: args.at } : {})
+          });
+          return { ppm: taxPpmOf(t), ruleId: t.ruleId };
+        })();
+
   const split = splitCommission({
     premiumMinor: args.premiumMinor,
     baseCommissionPpm: basePpm,
     channelSharePpm: sharePpm,
     flatFeeMinor: rate?.flatFeeMinor ?? 0,
-    ...(args.taxPpm !== undefined ? { taxPpm: args.taxPpm } : {})
+    taxPpm: tax.ppm
   });
-  return { ...split, rateId: rate?.id ?? null, basePpm, sharePpm };
+  return { ...split, rateId: rate?.id ?? null, basePpm, sharePpm, taxRuleId: tax.ruleId };
 }

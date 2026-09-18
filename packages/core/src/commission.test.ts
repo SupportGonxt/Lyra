@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { EntitlementsJson, PolicyJson, id, schema } from "@lyra/db";
+import { EntitlementsJson, PolicyJson, TAX_RULEPACK, id, schema } from "@lyra/db";
 import { applyPpm, quoteCommission, resolveRate, splitCommission } from "./commission.js";
 import { permissionsForRole, type Actor } from "./rbac.js";
 import type { Ctx } from "./context.js";
@@ -85,6 +85,23 @@ describe("splitCommission", () => {
 const PPM_FULL = 1_000_000;
 
 async function seedPanel() {
+  // docs/27 F17: quoteCommission now resolves tax from the market rulepack and
+  // refuses a supply it has no rule for, so a panel without one is not a panel
+  // anybody could sell through.
+  await ctx.db.insert(schema.ledgerTaxRules).values(
+    TAX_RULEPACK.filter((r) => r.market === "AE").map((r, i) => ({
+      id: id("tax", NOW + i),
+      tenantId: "t_1",
+      market: r.market,
+      code: r.code,
+      ratePpm: r.ratePpm,
+      placeOfSupply: r.placeOfSupply ?? null,
+      reverseCharge: r.reverseCharge ?? false,
+      exempt: r.exempt ?? false,
+      effectiveFrom: 0,
+      effectiveTo: null
+    }))
+  );
   const rows = {
     product: id("prd", NOW),
     provider: id("prv", NOW),
@@ -222,7 +239,8 @@ describe("rate resolution", () => {
       premiumMinor: 100_000
     });
     expect(current.sharePpm).toBe(500_000);
-    expect(current.netMinor).toBe(7_500);
+    // Net of the rulepack's 5% VAT on our share (F17): 7_500 gross share - 375.
+    expect(current.netMinor).toBe(7_125);
   });
 
   it("pays no channel share on a b2c sale even if the channel carries a default", async () => {
@@ -233,6 +251,6 @@ describe("rate resolution", () => {
       premiumMinor: 100_000
     });
     expect(s.channelMinor).toBe(0);
-    expect(s.netMinor).toBe(15_000);
+    expect(s.netMinor).toBe(14_250); // 15_000 less the rulepack's 5% VAT (F17)
   });
 });

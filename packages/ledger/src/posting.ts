@@ -413,6 +413,33 @@ export async function clientMoneyCheck(
     + signedDelta(CLIENT_MONEY_LIABILITY_ACCOUNT, agg);
   if (asset === 0 && liability === 0) return null;
 
+  // docs/19 §11.11 (docs/27 F22). The shortfall test below compares the two
+  // balances against *each other*, and that is not the same question as whether
+  // either of them is possible. Paying out of a float nobody funded moves both
+  // by the same amount — `CLAIM-PAY` is Dr 2010 / Cr 1010 — so asset and
+  // liability go negative together, stay equal, and the segregation check sees
+  // nothing wrong. A bank account cannot hold less than nothing, so the second
+  // question has to be asked separately: this is what stops a claim float going
+  // negative, and it was the property test that found it.
+  if (asset < 0) {
+    const row = {
+      id: id("cmc", at),
+      tenantId: ctx.tenantId,
+      assetMinor: asset,
+      liabilityMinor: liability,
+      currency,
+      shortfallMinor: -asset,
+      breach: true,
+      triggeredBy,
+      resolvedAt: null,
+      ts: at
+    };
+    await ctx.db.insert(schema.ledgerClientMoneyChecks).values(row);
+    throw conflict(
+      `client money account would go to ${asset} ${currency}: there is nothing in the float to pay out of`
+    );
+  }
+
   const shortfall = liability - asset;
   const breach = shortfall > 0;
   const row = {

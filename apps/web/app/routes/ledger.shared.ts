@@ -590,6 +590,11 @@ export const LABELS: Record<string, Record<string, string>> = {
     "recon.tolerance": "Tolerance",
     "recon.propose": "Let the assistant propose matches for the leftovers",
     "recon.proposeHint": "Proposals are never posted. Each one still needs a person to confirm it.",
+    "recon.file": "Statement file",
+    "recon.fileHint":
+      "Upload the file the bank or insurer sent: CAMT.053, MT940 or OFX. The format is read from the file itself, so its name does not matter. Leave this empty to paste the lines instead.",
+    "recon.fileOr": "Or paste the lines",
+    "recon.fileUnreadable": "That file is not a statement in a format we read. Upload a CAMT.053, MT940 or OFX export, or paste the lines below.",
     "recon.lines": "Statement lines",
     "recon.linesHint":
       "Paste the statement as it was exported — one line per row, columns in this order: reference, amount, our reference, date, description. Only the first two are needed. Commas or tabs; a header row is fine.",
@@ -965,6 +970,11 @@ export const LABELS: Record<string, Record<string, string>> = {
     "recon.tolerance": "حد التسامح",
     "recon.propose": "دع المساعد يقترح مطابقات للمتبقّي",
     "recon.proposeHint": "الاقتراحات لا تُرحّل أبدًا، ويظل كل اقتراح بحاجة إلى تأكيد شخص.",
+    "recon.file": "ملف الكشف",
+    "recon.fileHint":
+      "ارفع الملف الذي أرسله المصرف أو شركة التأمين: CAMT.053 أو MT940 أو OFX. تُقرأ الصيغة من الملف نفسه، فاسم الملف لا يهم. اتركه فارغًا إن كنت ستلصق السطور بدلًا من ذلك.",
+    "recon.fileOr": "أو الصق السطور",
+    "recon.fileUnreadable": "هذا الملف ليس كشفًا بصيغة نقرؤها. ارفع تصديرًا بصيغة CAMT.053 أو MT940 أو OFX، أو الصق السطور أدناه.",
     "recon.lines": "سطور الكشف",
     "recon.linesHint":
       "الصق الكشف كما صُدِّر — سطر لكل صف، والأعمدة بهذا الترتيب: المرجع، المبلغ، مرجعنا، التاريخ، الوصف. الأول والثاني وحدهما مطلوبان. فواصل أو علامات جدولة، وصف العناوين مقبول.",

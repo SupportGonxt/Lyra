@@ -144,9 +144,51 @@ const dataProductKAnonymity: Precondition = async (ctx, args) => {
   }
 };
 
+/**
+ * docs/19 §11.10 — "`SUCCESS-FEE` cannot post without a verified metric snapshot
+ * reference", and §7 — "verified metric snapshot + both parties' sign-off". The
+ * sign-off half is the `ledger.success_fee` approval policy, which is
+ * `dualControl: "always", neverAutoApprove`. This is the other half, and it was
+ * the missing one (docs/27 F21): the recipe is an ordinary invoice, so nothing
+ * in the posting path could ask what metric the fee was a fee *on*.
+ *
+ * Verified means attested, not merely computed. Every snapshotter run writes
+ * `north_snapshots` rows with `verified_at` null; a row only becomes chargeable
+ * when somebody re-read the metric and stood behind the number. A reference to
+ * another tenant's snapshot reads as not-found rather than as forbidden — the
+ * query is tenant-scoped, so a caller learns nothing about what it cannot see.
+ */
+const verifiedMetricSnapshot: Precondition = async (ctx, args) => {
+  const snapshotId = args["metricSnapshotId"];
+  if (typeof snapshotId !== "string" || !snapshotId) {
+    throw conflict(
+      "metricSnapshotId is required: a success fee may only be charged on a verified metric snapshot (docs/19 §11.10)"
+    );
+  }
+  const [snap] = await ctx.db
+    .select({
+      id: schema.northSnapshots.id,
+      metricKey: schema.northSnapshots.metricKey,
+      period: schema.northSnapshots.period,
+      verifiedAt: schema.northSnapshots.verifiedAt
+    })
+    .from(schema.northSnapshots)
+    .where(
+      and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.id, snapshotId))
+    )
+    .limit(1);
+  if (!snap) throw conflict(`metric snapshot ${snapshotId} not found`);
+  if (snap.verifiedAt == null) {
+    throw conflict(
+      `metric snapshot ${snapshotId} (${snap.metricKey} ${snap.period}) has not been verified; a success fee may not be charged on a computed-but-unattested figure (docs/19 §11.10)`
+    );
+  }
+};
+
 /** Every check that must pass before a transaction of this type may proceed. */
 export const TXN_PRECONDITIONS: Record<string, Precondition> = {
   "OPEN-BAL": firstOpeningBalanceOnly,
+  "SUCCESS-FEE": verifiedMetricSnapshot,
   "YEAR-END-CLOSE": async (ctx, args) => {
     await yearNotAlreadyClosed(ctx, args);
     await fiscalYearSoftClosed(ctx, args);

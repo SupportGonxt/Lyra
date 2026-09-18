@@ -120,24 +120,70 @@ bind path and the customer-facing comparison all read it, and
 
 ## P1 — blocks a serious pilot
 
-*Finance.* Premium accounting is cash-basis only — `1200 Premium Receivable`
-appears once, as a chargeback default (`recipes.ts:296`), and `2000 Insurer
-Payable` is never posted, so GWP is never a receivable (**F14**). Aging ages
-journal lines by posting date against a free-text counterparty string, not open
-items by due date, and there is no payables aging (`reports.ts:411-459`)
-(**F15**). No cash application and no bank statement import — CAMT/MT940/OFX
-absent; `ledger-recon.tsx:521` requires hand-pasted JSON (**F16**). Tax is a
-caller-supplied `taxPpm` defaulting to zero (`core/src/commission.ts:45-58`)
-while `docs/19` §5.3 says tax is never inferred; the `taxRules` table is unread
-(**F17**). No FX revaluation of open balances (**F18**). Insurer statement
-reconciliation posts nothing — `decideMatch` (`recon.ts:297-330`) updates match
-state and never books the `CMSN-SETL` the spec promises (**F19**). `force: true`
-on period close is accepted straight from the request body
-(`routes/ledger.ts:187-195`) and `reopenPeriod` (`periods.ts:172-186`) has no
-approval gate at all (**F20**). `SUCCESS-FEE` can post with no verified metric
-snapshot despite `docs/19` §11.10 (**F21**). Four of the ten mandated property
-obligations are untested, and the tests are seeded-LCG fuzz, not property tests
-— fast-check is not a dependency (**F22**).
+*Finance.* **F14–F22 are closed** (2026-09-18). What each one was, and what
+closed it:
+
+**F14** *Closed.* Premium accounting was cash-basis only — `1200 Premium
+Receivable` appeared once, as a chargeback default, and `2000 Insurer Payable`
+was posted by nothing, so GWP was never a receivable. `bindPosting`
+(`recipes.ts`) books Dr 1200 / Cr 2000 beside the commission accrual whenever
+`gwpMinor` is stated, and `clientMoneyReceipt` clears the receivable and
+reclassifies the payable when the premium arrives. Both production bind sites
+pass it. ADR-0079 names what is deliberately out of scope: ENDORSE,
+UBI-REPRICE and CANCEL need a *signed* premium movement of their own.
+
+**F15** *Closed.* Aging aged journal lines by posting date against a free-text
+counterparty, and had no payables side. `agedOpenItems` (`reports.ts`) groups
+lines into open *items* by `dims.item`, ages them from `dims.dueAt` (falling
+back to the raise date — never to today, which would report every unpaid item
+as current), and reads the liability accounts for `kind: "payable"`.
+`agedBalances` stays reachable behind `?legacy=1` for one release.
+
+**F16** *Closed.* `packages/ledger/src/statements.ts` reads CAMT.053, MT940 and
+OFX, detecting the format from the file's content rather than its name, and
+hands `reconcile()` the shape it already took. Money is parsed as text, not
+through a float. `POST /v1/ledger/recon/runs` accepts `statementText`, and the
+recon screen has a real file input.
+
+**F17** *Closed.* `ledger_tax_rules` had no reader and `taxPpm` was applied as
+`?? 0`, so "tax is never inferred" was implemented as "always inferred, as
+nothing". `taxTreatment` (`core/src/tax.ts`) resolves the market rulepack's
+rate or **throws**; `quoteCommission` honours a stated rate and refuses an
+omitted one. `policy.taxMarket` is the jurisdiction dimension docs/29 found
+missing. ADR-0078.
+
+**F18** *Closed.* `fxRevaluationPlan` (`reports.ts`) values every open foreign
+monetary position at the closing rate and reports the difference; `FX-REVAL`
+posts it in base currency to 4095 / 5500. Client money is excluded — that
+exposure is the client's. The `revalues` dim ties a base-currency adjustment
+back to the position it corrected, so the second run is flat.
+
+**F19** *Closed.* `decideMatch` books `CMSN-SETL` on a confirmed insurer match,
+under `recon-setl:{matchId}`; `settleRun` covers the deterministic matches that
+never reach a reviewer. The *statement's* amount clears — the variance stays on
+1100 for a controller, because a recon that closes its own gap can never report
+one.
+
+**F20** *Closed.* `force` now requires a reason of at least ten characters
+naming the break being accepted, is refused over a month that passes every
+check, carries the failing checks into the approval request, and persists to
+`ledger_periods.state_reason`. `reopenPeriod` does have an approval gate
+(`ledger.period_reopen`, added after this register was written); it now
+requires a reason too.
+
+**F21** *Closed.* `TXN_PRECONDITIONS["SUCCESS-FEE"]` requires an
+`args.metricSnapshotId` naming a `north_snapshots` row in this tenant with
+`verified_at` set. `POST /v1/north/snapshots/:id/verify` is the only writer of
+that column and takes a required evidence ref.
+
+**F22** *Closed.* fast-check is a dependency and `packages/ledger/src/properties.test.ts`
+holds all eleven docs/19 §11 obligations as property tests. It found three real
+defects on its first run: a claim float could go negative (1010 ≥ 2010 does not
+imply it — CLAIM-PAY moves both sides equally, so an unfunded payout kept them
+equal and negative); `ledger.refund` was missing `neverAutoApprove` despite
+REFUND-ISSUE being a payout; and obligation 9 had nowhere to live, so
+`recognition.ts` now holds the schedule split and the ceiling that
+`sweepBilling` enforces against the ledger's own released total.
 
 *AXIS.* Claims carry two money fields (`schema/axis.ts:227-252`); reserve is one
 mutable integer overwritten in place (`claim-detail.tsx:452-460`), settlement

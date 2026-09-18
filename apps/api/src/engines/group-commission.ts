@@ -26,7 +26,23 @@ export async function bindGroup(
       subjectRefs: { policy: policy.id }
     },
     {
-      recipe: { lines: buildRecipe("BIND-GROUP", { grossMinor: policy.commissionMinor, channelMinor }), currency: policy.currency },
+      recipe: {
+        // docs/27 F14, same as the single bind: the scheme's gross premium is a
+        // receivable from the moment it is bound, not when the cash lands.
+        lines: buildRecipe("BIND-GROUP", {
+          gwpMinor: policy.grossMinor,
+          grossMinor: policy.commissionMinor,
+          channelMinor,
+          dims: {
+            item: `policy:${policy.id}`,
+            dueAt: policy.startAt,
+            policy: policy.id,
+            provider: policy.providerId,
+            counterparty: `provider:${policy.providerId}`
+          }
+        }),
+        currency: policy.currency
+      },
       approvalSubjectRef: `axis_policy:${policy.id}`
     }
   );

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { beforeEach, describe, expect, it } from "vitest";
-import { PolicyJson, EntitlementsJson, account } from "@lyra/db";
+import { PolicyJson, EntitlementsJson, account, schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
 import { post } from "./posting.js";
 import { runTxn } from "./txn.js";
@@ -337,16 +337,39 @@ describe("F3 — the balance sheet stops plugging equity", () => {
 });
 
 describe("D10 — closing a period is itself an approved act", () => {
+  const FORCE_REASON = "accepting the known torn batch from the March migration";
+
   it("gates a forced close on ledger.period_close_force", async () => {
-    await ensurePeriod(ctx, "2025-04");
-    // The checks pass on an empty period, so force is the only thing under test.
-    await rejects(closePeriod(ctx, "2025-04", "soft_closed", { force: true }), /ledger\.period_close_force/);
+    const p = await ensurePeriod(ctx, "2025-04");
+    // docs/27 F20: a force over a month with nothing wrong is now refused before
+    // the gate is reached, so the break has to be real for the gate to be what
+    // is under test. A header that disagrees with its lines is the cheapest one.
+    await ctx.db.insert(schema.ledgerJournalBatches).values({
+      id: "bat_torn_d10",
+      tenantId: ctx.tenantId,
+      txnId: "txn_torn_d10",
+      periodId: p.id,
+      currency: "AED",
+      baseCurrency: "AED",
+      fxRatePpm: 1_000_000,
+      totalDebitMinor: 100,
+      totalCreditMinor: 100,
+      baseTotalDebitMinor: 100,
+      baseTotalCreditMinor: 100,
+      postedBy: "user:u_test",
+      postedAt: ctx.now
+    });
+    await rejects(
+      closePeriod(ctx, "2025-04", "soft_closed", { force: true, reason: FORCE_REASON }),
+      /ledger\.period_close_force/
+    );
   });
 
   it("gates a reopen on ledger.period_reopen", async () => {
+    const reason = "reopening for the late insurer statement";
     await closePeriod(ctx, "2025-04", "soft_closed", { preApproved: true });
-    await rejects(reopenPeriod(ctx, "2025-04"), /ledger\.period_reopen/);
-    const p = await reopenPeriod(ctx, "2025-04", { preApproved: true });
+    await rejects(reopenPeriod(ctx, "2025-04", { reason }), /ledger\.period_reopen/);
+    const p = await reopenPeriod(ctx, "2025-04", { reason, preApproved: true });
     expect(p.state).toBe("open");
   });
 });

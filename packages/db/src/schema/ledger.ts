@@ -190,6 +190,11 @@ export const periods = sqliteTable(
     endAt: integer("end_at").notNull(),
     state: text("state").notNull().default("open"), // open|soft_closed|hard_closed
     checklistJson: text("checklist_json"),
+    // docs/27 F20. Why the period is in the state it is in: the break a forced
+    // close accepted, or the reason a signed-off month was reopened. The audit
+    // log stores only hashes of before/after, so without this the sentence an
+    // auditor actually wants to read exists nowhere.
+    stateReason: text("state_reason"),
     closePackFileId: text("close_pack_file_id"),
     closedBy: text("closed_by"),
     closedAt: integer("closed_at")
@@ -239,6 +244,11 @@ export const reconMatches = sqliteTable(
     reasonCode: text("reason_code"),
     confirmedBy: text("confirmed_by"),
     confirmedAt: integer("confirmed_at"),
+    // docs/19 §6 / docs/27 F19: the CMSN-SETL this match booked. `txnId` above
+    // is the *accrual* the statement line matched; this is the settlement that
+    // cleared it. Two different transactions, so two different columns — one
+    // holding both would be a column that means whatever the last writer meant.
+    settlementTxnId: text("settlement_txn_id"),
     createdAt: integer("created_at").notNull()
   },
   (t) => [index("ledger_recon_matches_idx").on(t.tenantId, t.runId, t.state)]
