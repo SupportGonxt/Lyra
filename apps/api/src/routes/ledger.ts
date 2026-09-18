@@ -20,6 +20,7 @@ import {
   commissionByDimension,
   decideMatch,
   ensurePeriod,
+  FORCE_REASON_MIN,
   getTxn,
   periodCode,
   profitAndLoss,
@@ -202,18 +203,38 @@ ledgerRoutes.get("/period/:code", async (c) => {
 
 // The permission and approval gates live in closePeriod/reopenPeriod (ADR D10),
 // so a close reached from a scheduler is gated the same as one reached from here.
+// docs/27 F20. `force` used to be a bare boolean off the body: no reason, no
+// evidence, nothing an auditor could read. It is now a *pair* — the flag and the
+// reason arrive together or the request is a 400 — and the schema says so, so a
+// caller cannot send the flag alone and discover the rule from the engine.
+const ClosePeriodBody = z
+  .object({
+    to: z.enum(["soft_closed", "hard_closed"]),
+    force: z.boolean().default(false),
+    reason: z.string().min(FORCE_REASON_MIN).max(500).optional()
+  })
+  .refine((v) => !v.force || Boolean(v.reason), {
+    message: `forcing a close requires a reason of at least ${FORCE_REASON_MIN} characters naming the break being accepted`,
+    path: ["reason"]
+  });
+
 ledgerRoutes.post("/periods/:code/close", async (c) => {
   const ctx = ctxOf(c);
-  const input = await body(
-    c,
-    z.object({ to: z.enum(["soft_closed", "hard_closed"]), force: z.boolean().default(false) })
+  const input = await body(c, ClosePeriodBody);
+  return c.json(
+    await closePeriod(ctx, c.req.param("code"), input.to, {
+      force: input.force,
+      ...(input.reason !== undefined ? { reason: input.reason } : {})
+    })
   );
-  return c.json(await closePeriod(ctx, c.req.param("code"), input.to, { force: input.force }));
 });
 
 ledgerRoutes.post("/periods/:code/reopen", async (c) => {
   const ctx = ctxOf(c);
-  return c.json(await reopenPeriod(ctx, c.req.param("code")));
+  // A month that was signed off and is now open again says why, on the same
+  // terms as a forced close.
+  const input = await body(c, z.object({ reason: z.string().min(FORCE_REASON_MIN).max(500) }));
+  return c.json(await reopenPeriod(ctx, c.req.param("code"), { reason: input.reason }));
 });
 
 /* ---------------------------------------------------------------- year end */

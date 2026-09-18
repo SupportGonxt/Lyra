@@ -190,6 +190,11 @@ export const periods = sqliteTable(
     endAt: integer("end_at").notNull(),
     state: text("state").notNull().default("open"), // open|soft_closed|hard_closed
     checklistJson: text("checklist_json"),
+    // docs/27 F20. Why the period is in the state it is in: the break a forced
+    // close accepted, or the reason a signed-off month was reopened. The audit
+    // log stores only hashes of before/after, so without this the sentence an
+    // auditor actually wants to read exists nowhere.
+    stateReason: text("state_reason"),
     closePackFileId: text("close_pack_file_id"),
     closedBy: text("closed_by"),
     closedAt: integer("closed_at")
