@@ -153,12 +153,13 @@ describe("payables age too, on the other sign", () => {
   });
 
   it("the two sides read disjoint accounts, so nothing is counted twice", () => {
-    const overlap = RECEIVABLE_AGING_ACCOUNTS.filter((c) => PAYABLE_AGING_ACCOUNTS.includes(c));
+    const payable: readonly string[] = PAYABLE_AGING_ACCOUNTS;
+    const overlap = RECEIVABLE_AGING_ACCOUNTS.filter((c) => payable.includes(c));
     expect(overlap).toEqual([]);
     // Premium receivable and insurer payable (docs/27 F14) are the two the
     // report exists for — an aggregator's whole working-capital position.
-    expect(RECEIVABLE_AGING_ACCOUNTS).toContain("1200");
-    expect(PAYABLE_AGING_ACCOUNTS).toContain("2000");
+    expect(RECEIVABLE_AGING_ACCOUNTS as readonly string[]).toContain("1200");
+    expect(payable).toContain("2000");
   });
 });
 

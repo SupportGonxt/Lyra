@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { account } from "@lyra/db";
 import { badRequest, splitCommission } from "@lyra/core";
+import { assertWithinInvoice } from "./recognition.js";
 import type { PostingLine, Side } from "./posting.js";
 
 // docs/19 §5.2 A–G. A recipe turns a business fact into journal lines and does
@@ -54,7 +55,7 @@ const CommissionArgs = z.object({
   memo: Memo,
   dims: Dims
 });
-export type CommissionArgs = z.infer<typeof CommissionArgs>;
+export type CommissionArgs = z.input<typeof CommissionArgs>;
 
 /**
  * docs/19 §5.2 A extended for the channel leg: the underwriter owes us the gross
@@ -80,8 +81,8 @@ export function commissionAccrual(a: CommissionArgs): PostingLine[] {
 
   if (split.netMinor < 0) throw badRequest("commission split leaves negative net income");
   return lines(
-    line(a.receivableAccount, "debit", split.grossMinor, a.memo ?? "commission earned", a.dims),
-    line(a.incomeAccount, "credit", split.netMinor, "our share", a.dims),
+    line(a.receivableAccount ?? "1100", "debit", split.grossMinor, a.memo ?? "commission earned", a.dims),
+    line(a.incomeAccount ?? "4000", "credit", split.netMinor, "our share", a.dims),
     line("2100", "credit", split.channelMinor, "channel share payable", a.dims),
     line("2200", "credit", split.taxMinor, "tax on commission", a.dims)
   );
@@ -135,7 +136,7 @@ const BindArgs = CommissionArgs.extend({
   premiumReceivableAccount: z.string().default("1200"),
   insurerPayableAccount: z.string().default("2000")
 });
-export type BindArgs = z.output<typeof BindArgs>;
+export type BindArgs = z.input<typeof BindArgs>;
 
 /**
  * A bind is two economic facts in one batch: a contract came into existence
@@ -231,7 +232,7 @@ const ClientMoneyArgs = z.object({
  * or expense. It credits an asset and a liability. No revenue is recognised
  * here and none can be — the money is not ours until CM-TRANSFER moves it.
  */
-export function clientMoneyReceipt(a: z.infer<typeof ClientMoneyArgs>): PostingLine[] {
+export function clientMoneyReceipt(a: z.input<typeof ClientMoneyArgs>): PostingLine[] {
   if (!a.clearsReceivableAccount) {
     return lines(
       line("1010", "debit", a.amountMinor, a.memo ?? "premium received", a.dims),
@@ -366,12 +367,27 @@ const RecogniseArgs = z.object({
   amountMinor: Pos,
   incomeAccount: z.string().default("4040"),
   deferredAccount: z.string().default("2300"),
+  /**
+   * docs/19 §11.9 (docs/27 F22). The invoice this releases against and what has
+   * already been released from it. Optional because a caller may genuinely not
+   * be releasing against an invoice (a manual deferral true-up); stated, it is
+   * enforced, and `sweepBilling` states it.
+   */
+  invoicedMinor: NonNeg.optional(),
+  alreadyRecognisedMinor: NonNeg.optional(),
   memo: Memo,
   dims: Dims
 });
 
 /** Monthly release of deferred revenue; the schedule lives in ledger_revenue_schedules. */
 export function revenueRecognition(a: z.infer<typeof RecogniseArgs>): PostingLine[] {
+  if (a.invoicedMinor !== undefined) {
+    assertWithinInvoice({
+      invoicedMinor: a.invoicedMinor,
+      alreadyRecognisedMinor: a.alreadyRecognisedMinor ?? 0,
+      amountMinor: a.amountMinor
+    });
+  }
   return lines(
     line(a.deferredAccount, "debit", a.amountMinor, a.memo ?? "revenue recognised", a.dims),
     line(a.incomeAccount, "credit", a.amountMinor, a.memo ?? "revenue recognised", a.dims)

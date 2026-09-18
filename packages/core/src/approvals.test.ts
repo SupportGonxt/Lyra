@@ -61,7 +61,9 @@ beforeEach(async () => {
 describe("APPROVAL_POLICIES", () => {
   it("defines the exact catalogue docs/19 §7 requires", () => {
     expect(APPROVAL_POLICIES).toEqual({
-      "ledger.refund": { key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00 },
+      // neverAutoApprove: docs/19 §7 puts a floor under any tenant setting for
+      // anything that issues a payout, and REFUND-ISSUE is one (docs/27 F22).
+      "ledger.refund": { key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00, neverAutoApprove: true },
       "ledger.payout": { key: "ledger.payout", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true },
       "ledger.client_money_transfer": { key: "ledger.client_money_transfer", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true },
       "ledger.partner_settlement": { key: "ledger.partner_settlement", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true },

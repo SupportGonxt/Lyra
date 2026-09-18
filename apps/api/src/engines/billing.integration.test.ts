@@ -249,7 +249,11 @@ describe("the shipped seed's own tenant", () => {
       await assertLedgerInvariants(tick, at);
       await assertDeferredPerInvoice(tick, at);
     }
-  });
+    // A year of month-end ticks over a fully seeded tenant, each one now also
+    // reading the invoice and its released total to enforce the recognition
+    // ceiling (docs/19 §11.9). Well past vitest's 5s default under a loaded
+    // runner, and the timeout read as an engine failure rather than as one.
+  }, 60_000);
 });
 
 describe("overage billing survives a crash mid-tick", () => {
