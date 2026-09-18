@@ -1,16 +1,25 @@
 // The sibling of sweep.mjs, for the 38 routes behind an :id. It cannot read
 // those routes off the manifest the way sweep.mjs does — `/admin/staff/:id` is
-// not a URL — so it harvests real ones: walk the static routes, collect every
-// `main a[href]`, and keep the hrefs that match a :param pattern.
+// not a URL — so it harvests real ones: open a route, collect every `a[href]`
+// on the page, keep the hrefs matching a :param pattern, and open those in turn
+// until nothing new appears.
 //
 // This is how sighting 4 was found (`admin.status.active` rendered raw on
-// /admin/staff/:id while the list beside it translated the same column), and
-// this script's uncommitted predecessor is why detail routes then went unswept
-// for weeks. Harvesting beats a hard-coded id list for the same reason: the ids
-// come from whatever the environment actually seeded.
+// /admin/staff/:id while the list beside it translated the same column).
+// Harvesting beats a hard-coded id list for the same reason: the ids come from
+// whatever the environment actually seeded.
+//
+// Two scope decisions worth keeping, both of which were once wrong and cost
+// coverage. The harvest iterates rather than taking one hop, because a policy
+// detail hangs off a policy record and a journey builder off a journey record —
+// one hop reached 13 of 38 patterns, three reach 22. And it reads the whole
+// page rather than `main`: the grep is scoped to `main` because that is where a
+// screen's prose is, but a link is reachable wherever it is rendered, and the
+// design catalogue lives in the shell's nav.
 //
 //   node scripts/sweep-detail.mjs
 //   SWEEP_BASE=https://staging.lyra.vantax.co.za node scripts/sweep-detail.mjs
+//   SWEEP_HOPS=4 node scripts/sweep-detail.mjs
 import { chromium } from "@playwright/test";
 import { BASE, routePatterns, signIn, sweepRoute, report } from "./sweep-lib.mjs";
 
