@@ -21,9 +21,21 @@ import { HIDDEN_ROUTES } from "./routing";
 
 const APP = import.meta.dirname;
 
-/** Claims an opener inside the app — as opposed to a marketing link, a token'd
- *  email or a storefront footer, none of which this repo builds. */
-const IN_APP = /opened from|linked from|reached from/;
+/**
+ * Claims an opener inside the app — as opposed to a marketing link, a token'd
+ * email or a storefront footer, none of which this repo builds.
+ *
+ * The active voice belongs here too, and leaving it out cost most of this
+ * guard's reach. HIDDEN_ROUTES writes a detail route's claim as "**opens** one
+ * policy with its history from the policies list", not "opened from", and the
+ * first version of this pattern matched only the passive: 16 of the 28 in-app
+ * claims — every `:id/detail`, `/admin/customers/:id/360`, the journey builder,
+ * the clawback, both analytics screens — fell out of the filter and the suite
+ * reported green over 12. A guard that selects its subjects by matching prose
+ * has to be held to the prose that is actually written, or it quietly grades
+ * itself on the half it happens to parse.
+ */
+const IN_APP = /opened from|linked from|reached from|opens \w+|opens from/;
 const EXTERNAL = /no session and no shell|marketing link|storefront footer|one-time token/;
 
 function sources(dir: string): string[] {
@@ -66,8 +78,31 @@ describe("every parameterised hidden route has something that builds its path", 
   // record.tsx builds those, and spec.routes.test.ts already holds them.
   const checkable = claims.filter(([path]) => !path.startsWith("/:"));
 
-  it("has claims to check", () => {
-    expect(checkable.length).toBeGreaterThan(5);
+  /**
+   * Every parameterised hidden route must land in exactly one of three buckets,
+   * and the leftover bucket must be empty.
+   *
+   * `expect(checkable.length).toBeGreaterThan(5)` used to stand here, and a
+   * floor is not a contract: the filter above was matching 12 of the 28 in-app
+   * claims and this assertion was happy, because 12 is more than 5. A route
+   * whose claim the filter fails to recognise is not skipped loudly — it is
+   * skipped silently, which is the same failure mode as the unreachable screen
+   * the suite exists to catch. So account for all of them instead.
+   */
+  it("classifies every parameterised hidden route", () => {
+    const all = Object.keys(HIDDEN_ROUTES).filter((p) => p.includes("/:"));
+    const external = all.filter((p) => EXTERNAL.test(HIDDEN_ROUTES[p]!));
+    // record.tsx builds these from a spec, and spec.routes.test.ts holds them.
+    const generic = all.filter((p) => p.startsWith("/:"));
+    const unclassified = all.filter(
+      (p) =>
+        !external.includes(p) && !generic.includes(p) && !checkable.some(([path]) => path === p)
+    );
+    expect(
+      unclassified,
+      "these claim no opener this guard recognises — reword the claim, or teach IN_APP the words it uses"
+    ).toEqual([]);
+    expect(checkable.length + external.length + generic.length).toBe(all.length);
   });
 
   for (const [path, why] of checkable) {
