@@ -148,7 +148,13 @@ export const policies = sqliteTable(
     commissionMinor: integer("commission_minor").notNull().default(0),
     docsJson: text("docs_json"),
     escrowBatchId: text("escrow_batch_id"),
-    paymentPlanJson: text("payment_plan_json"), // H9 reserved
+    // The instalment plan, read and acted on: `PaymentPlanJson` (../json.ts) is
+    // its shape and `sweepPolicyLifecycle` lapses a policy whose instalment
+    // went unpaid past grace (engines/axis-lifecycle.ts). What stays reserved
+    // under docs/16 H9 is *financing* — a premium-finance agreement with a
+    // third party — not this column. It read `// H9 reserved` long after the
+    // sweep started depending on it (docs/27 F25).
+    paymentPlanJson: text("payment_plan_json"),
     // docs/27 F5. The head row is the contract; terms live in axis_policy_versions.
     // premiumMinor/startAt/endAt above are denormalizations of the effective
     // version and are written only by the lifecycle endpoints.
