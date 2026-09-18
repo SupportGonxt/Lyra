@@ -267,7 +267,7 @@ async function sendDocument(ctx: Ctx, args: Record<string, unknown>): Promise<un
   await gate(ctx, {
     policyKey: "orbit.document_send",
     subjectRef: `${conversationId}:${mode}:${docType}`,
-    reasonJson: { conversationId, mode, docType }
+    context: { conversationId, mode, docType }
   });
 
   const note = str(args.note);
@@ -347,7 +347,7 @@ async function makeRenewalOffer(ctx: Ctx, args: Record<string, unknown>): Promis
     policyKey: "orbit.renewal_offer",
     subjectRef: renewalId,
     amountMinor: premiumMinor,
-    reasonJson: { renewalId, premiumMinor, currency }
+    context: { renewalId, premiumMinor, currency }
   });
 
   const requotes = { premiumMinor, currency, offeredBy: `${ctx.actor.kind}:${ctx.actor.id}`, ...(str(args.note) ? { note: str(args.note) } : {}) };

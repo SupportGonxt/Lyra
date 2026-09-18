@@ -1894,6 +1894,18 @@ export interface OrbitConversations {
   updatedAt?: number;
 }
 
+export interface OrbitDeflections {
+  id?: string;
+  tenantId?: string;
+  conversationId: string;
+  question: string;
+  articleId?: string;
+  score: number;
+  outcome: string;
+  via?: string;
+  ts: number;
+}
+
 export interface OrbitHandoverNotes {
   id?: string;
   tenantId?: string;
@@ -1930,6 +1942,35 @@ export interface OrbitJourneys {
   status?: string;
   createdBy?: string;
   createdAt?: number;
+}
+
+export interface OrbitKbArticles {
+  id?: string;
+  tenantId?: string;
+  key: string;
+  locale?: string;
+  title: string;
+  body: string;
+  tagsJson?: string;
+  status?: string;
+  vectorId?: string;
+  updatedBy?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface OrbitMacros {
+  id?: string;
+  tenantId?: string;
+  key: string;
+  nameJson: string;
+  bodyJson: string;
+  category?: string;
+  articleId?: string;
+  usageCount?: number;
+  status?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface OrbitMessages {
@@ -2862,8 +2903,12 @@ export interface Operations {
   "POST /v1/orbit/conversations": Op<never, never, OrbitConversations, OrbitConversations>;
   "GET /v1/orbit/conversations/{id}": Op<{ id: string }, never, never, OrbitConversations>;
   "PATCH /v1/orbit/conversations/{id}": Op<{ id: string }, never, OrbitConversations, OrbitConversations>;
+  "POST /v1/orbit/conversations/{id}/deflect": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/orbit/conversations/{id}/macro": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/orbit/conversations/{id}/reply": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/orbit/conversations/{id}/turns": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/orbit/deflections": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitDeflections>>;
+  "GET /v1/orbit/deflections/{id}": Op<{ id: string }, never, never, OrbitDeflections>;
   "POST /v1/orbit/drafts/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/orbit/handover-notes": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitHandoverNotes>>;
   "POST /v1/orbit/handover-notes": Op<never, never, OrbitHandoverNotes, OrbitHandoverNotes>;
@@ -2879,6 +2924,18 @@ export interface Operations {
   "PATCH /v1/orbit/journeys/{id}": Op<{ id: string }, never, OrbitJourneys, OrbitJourneys>;
   "DELETE /v1/orbit/journeys/{id}": Op<{ id: string }, never, never, void>;
   "POST /v1/orbit/journeys/{id}/trigger": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/orbit/kb-articles": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitKbArticles>>;
+  "POST /v1/orbit/kb-articles": Op<never, never, OrbitKbArticles, OrbitKbArticles>;
+  "GET /v1/orbit/kb-articles/{id}": Op<{ id: string }, never, never, OrbitKbArticles>;
+  "PATCH /v1/orbit/kb-articles/{id}": Op<{ id: string }, never, OrbitKbArticles, OrbitKbArticles>;
+  "DELETE /v1/orbit/kb-articles/{id}": Op<{ id: string }, never, never, void>;
+  "POST /v1/orbit/kb/articles/{id}/publish": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/orbit/kb/search": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/orbit/macros": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitMacros>>;
+  "POST /v1/orbit/macros": Op<never, never, OrbitMacros, OrbitMacros>;
+  "GET /v1/orbit/macros/{id}": Op<{ id: string }, never, never, OrbitMacros>;
+  "PATCH /v1/orbit/macros/{id}": Op<{ id: string }, never, OrbitMacros, OrbitMacros>;
+  "DELETE /v1/orbit/macros/{id}": Op<{ id: string }, never, never, void>;
   "GET /v1/orbit/messages": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitMessages>>;
   "POST /v1/orbit/messages": Op<never, never, OrbitMessages, OrbitMessages>;
   "GET /v1/orbit/messages/{id}": Op<{ id: string }, never, never, OrbitMessages>;
@@ -3595,8 +3652,12 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/orbit/conversations": { tag: "orbit", summary: "Create a conversation", permission: "orbit:conversations:reply", public: false },
   "GET /v1/orbit/conversations/{id}": { tag: "orbit", summary: "Fetch one conversation", permission: "orbit:conversations:read", public: false },
   "PATCH /v1/orbit/conversations/{id}": { tag: "orbit", summary: "Update a conversation", permission: "orbit:conversations:assign", public: false },
+  "POST /v1/orbit/conversations/{id}/deflect": { tag: "orbit", summary: "Try to answer this conversation's question from the knowledge base; the result says whether it did", permission: "orbit:ai:invoke", public: false },
+  "POST /v1/orbit/conversations/{id}/macro": { tag: "orbit", summary: "Send a canned reply into the conversation, in the language the conversation is in", permission: "orbit:conversations:reply", public: false },
   "POST /v1/orbit/conversations/{id}/reply": { tag: "orbit", summary: "Send a reply out over the conversation's channel connector", permission: "orbit:messages:send", public: false },
   "POST /v1/orbit/conversations/{id}/turns": { tag: "orbit", summary: "Append a turn to a conversation, checkpointed to orbit_messages", permission: "orbit:messages:send", public: false },
+  "GET /v1/orbit/deflections": { tag: "orbit", summary: "List deflections", permission: "orbit:conversations:read", public: false },
+  "GET /v1/orbit/deflections/{id}": { tag: "orbit", summary: "Fetch one deflection", permission: "orbit:conversations:read", public: false },
   "POST /v1/orbit/drafts/sweep": { tag: "orbit", summary: "Force the AI reply-draft sweep now — drafts a pending agent_ai reply for every conversation waiting on us (also runs on the scheduled tick)", permission: "orbit:ai:invoke", public: false },
   "GET /v1/orbit/handover-notes": { tag: "orbit", summary: "List handover-notes", permission: "orbit:handover:read", public: false },
   "POST /v1/orbit/handover-notes": { tag: "orbit", summary: "Create a handover note", permission: "orbit:handover:write", public: false },
@@ -3612,6 +3673,18 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Update a journey", permission: "orbit:journeys:write", public: false },
   "DELETE /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Soft-delete a journey", permission: "orbit:journeys:write", public: false },
   "POST /v1/orbit/journeys/{id}/trigger": { tag: "orbit", summary: "Enrol a cohort in a journey by hand; the normal path is the event bus", permission: "orbit:journeys:publish", public: false },
+  "GET /v1/orbit/kb-articles": { tag: "orbit", summary: "List kb-articles", permission: "orbit:kb:read", public: false },
+  "POST /v1/orbit/kb-articles": { tag: "orbit", summary: "Create a kb article", permission: "orbit:kb:write", public: false },
+  "GET /v1/orbit/kb-articles/{id}": { tag: "orbit", summary: "Fetch one kb article", permission: "orbit:kb:read", public: false },
+  "PATCH /v1/orbit/kb-articles/{id}": { tag: "orbit", summary: "Update a kb article", permission: "orbit:kb:write", public: false },
+  "DELETE /v1/orbit/kb-articles/{id}": { tag: "orbit", summary: "Soft-delete a kb article", permission: "orbit:kb:write", public: false },
+  "POST /v1/orbit/kb/articles/{id}/publish": { tag: "orbit", summary: "Publish a knowledge-base article and embed it — the act that makes it answerable to a customer", permission: "orbit:kb:publish", public: false },
+  "POST /v1/orbit/kb/search": { tag: "orbit", summary: "What the knowledge base has on a question, best answer first (POST so a customer's own words stay out of access logs)", permission: "orbit:kb:read", public: false },
+  "GET /v1/orbit/macros": { tag: "orbit", summary: "List macros", permission: "orbit:macros:read", public: false },
+  "POST /v1/orbit/macros": { tag: "orbit", summary: "Create a macro", permission: "orbit:macros:write", public: false },
+  "GET /v1/orbit/macros/{id}": { tag: "orbit", summary: "Fetch one macro", permission: "orbit:macros:read", public: false },
+  "PATCH /v1/orbit/macros/{id}": { tag: "orbit", summary: "Update a macro", permission: "orbit:macros:write", public: false },
+  "DELETE /v1/orbit/macros/{id}": { tag: "orbit", summary: "Soft-delete a macro", permission: "orbit:macros:write", public: false },
   "GET /v1/orbit/messages": { tag: "orbit", summary: "List messages", permission: "orbit:messages:read", public: false },
   "POST /v1/orbit/messages": { tag: "orbit", summary: "Create a message", permission: "orbit:messages:send", public: false },
   "GET /v1/orbit/messages/{id}": { tag: "orbit", summary: "Fetch one message", permission: "orbit:messages:read", public: false },

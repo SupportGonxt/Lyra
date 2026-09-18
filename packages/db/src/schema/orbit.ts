@@ -360,3 +360,87 @@ export const slaPolicies = sqliteTable(
   },
   (t) => [uniqueIndex("orbit_sla_policies_key_uq").on(t.tenantId, t.key)]
 );
+
+/**
+ * A knowledge-base article: the answer the agent retrieves before it improvises
+ * one, and the thing a deflection points a customer at (docs/modules/orbit.md
+ * §5 "self-contained toolset", docs/27 F32).
+ *
+ * One row per (key, locale) rather than a `bodyJson` map, because retrieval is
+ * per-language: an article is embedded and scored in the language it is written
+ * in, and a `{en, ar}` blob would put both languages in one vector. `vectorId`
+ * is the id it was upserted under in VEC_KB — null means it has never been
+ * embedded, which is the normal state of a draft and of every row on a deploy
+ * with no Vectorize index bound.
+ */
+export const kbArticles = sqliteTable(
+  "orbit_kb_articles",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    key: text("key").notNull(),
+    locale: text("locale").notNull().default("en"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    tagsJson: text("tags_json").notNull().default("[]"), // JSON string[]
+    status: text("status").notNull().default("draft"), // draft|published|retired
+    vectorId: text("vector_id"),
+    updatedBy: text("updated_by"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("orbit_kb_articles_key_uq").on(t.tenantId, t.key, t.locale),
+    index("orbit_kb_articles_status_idx").on(t.tenantId, t.status, t.locale)
+  ]
+);
+
+/**
+ * A canned reply. `bodyJson` is `{en, ar}` here and deliberately not one row
+ * per locale like an article: a macro is picked by a human by name and then
+ * rendered in the conversation's language, so both languages are read together
+ * and neither is retrieved on its own.
+ */
+export const macros = sqliteTable(
+  "orbit_macros",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    key: text("key").notNull(),
+    nameJson: text("name_json").notNull(),
+    bodyJson: text("body_json").notNull(),
+    category: text("category"),
+    /** The article this macro is the short form of, if any. */
+    articleId: text("article_id"),
+    usageCount: integer("usage_count").notNull().default(0),
+    status: text("status").notNull().default("active"), // active|disabled
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [uniqueIndex("orbit_macros_key_uq").on(t.tenantId, t.key)]
+);
+
+/**
+ * One row per attempt to answer a customer from the knowledge base, whether it
+ * worked or not. The `escalated` rows are the point: containment % (§7) is a
+ * ratio, and a log that only kept the wins would report 100% forever.
+ */
+export const deflections = sqliteTable(
+  "orbit_deflections",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    question: text("question").notNull(),
+    articleId: text("article_id"),
+    score: integer("score").notNull(), // 0-100
+    outcome: text("outcome").notNull(), // deflected|escalated
+    /** How the article was found: `vector` (VEC_KB) or `lexical` (the fallback). */
+    via: text("via").notNull().default("lexical"),
+    ts: integer("ts").notNull()
+  },
+  (t) => [
+    index("orbit_deflections_tenant_idx").on(t.tenantId, t.ts),
+    index("orbit_deflections_conversation_idx").on(t.tenantId, t.conversationId)
+  ]
+);
