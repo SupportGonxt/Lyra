@@ -1,4 +1,5 @@
-import type { EmbedRequest, ModelRequest, Provider, ProviderEnv, ProviderResult, ToolCall, Usage } from "../types.js";
+import type { EmbedRequest, ModelRequest, Provider, ProviderEnv, ProviderResult, ProviderStreamChunk, ToolCall, Usage } from "../types.js";
+import { sseData, sseJson } from "./sse.js";
 
 // Cloudflare Workers AI via the `AI` binding — no key, no egress, runs beside
 // the Worker. Default provider for every tier (docs/02 §5).
@@ -72,6 +73,49 @@ export const workersAi: Provider = {
       tokensIn: out.usage?.prompt_tokens ?? estimate(req.messages.map((m) => m.content).join(" ")),
       tokensOut: out.usage?.completion_tokens ?? estimate(text),
       finishReason: toolCalls.length ? "tool_calls" : "stop"
+    };
+  },
+
+  /**
+   * docs/27 F35. Workers AI streams by returning a `ReadableStream` of SSE from
+   * the same binding rather than a JSON object, so the only difference from
+   * `complete` is `stream: true` and who parses the body.
+   *
+   * Tools are deliberately not sent here. A streamed tool call arrives as
+   * fragments of a JSON argument string that have to be reassembled before they
+   * mean anything, and a half-parsed argument to a consequential tool is the
+   * one failure mode this codebase least wants — so the agent loop's
+   * tool-bearing rounds go through `complete()` and only the answer streams.
+   * This is a real limit, written down rather than discovered later.
+   */
+  async *stream(req: ModelRequest, model: string, env: ProviderEnv): AsyncGenerator<ProviderStreamChunk> {
+    if (!env.AI) throw new Error("workers-ai: AI binding missing");
+    const out = (await env.AI.run(model, {
+      messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+      max_tokens: req.maxTokens ?? 1024,
+      temperature: req.temperature ?? 0.2,
+      stream: true
+    })) as unknown;
+
+    // Not every model honours `stream: true`; one that answers with the plain
+    // object is served as a single chunk rather than as an error.
+    if (!(out instanceof ReadableStream)) {
+      const text = textOf(out as RunResult);
+      yield { delta: text, tokensOut: estimate(text), finishReason: "stop" };
+      return;
+    }
+
+    let text = "";
+    for await (const payload of sseData(out as ReadableStream<Uint8Array>)) {
+      const json = sseJson<{ response?: string }>(payload);
+      if (!json?.response) continue;
+      text += json.response;
+      yield { delta: json.response };
+    }
+    yield {
+      tokensIn: estimate(req.messages.map((m) => m.content).join(" ")),
+      tokensOut: estimate(text),
+      finishReason: "stop"
     };
   },
 

@@ -1,4 +1,5 @@
-import type { EmbedRequest, ModelRequest, Provider, ProviderEnv, ProviderResult, ToolCall, Usage } from "../types.js";
+import type { EmbedRequest, ModelRequest, Provider, ProviderEnv, ProviderResult, ProviderStreamChunk, ToolCall, Usage } from "../types.js";
+import { sseData, sseJson } from "./sse.js";
 
 // The on-prem twin (docs/02 §8): vLLM or Ollama behind an OpenAI-shaped API on
 // the tenant's own network. No key leaves the estate; no request leaves the VPC.
@@ -13,6 +14,10 @@ interface ChatResponse {
   }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string };
+}
+interface StreamDelta {
+  choices?: { delta?: { content?: string }; finish_reason?: string }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 interface EmbedResponseBody {
   data?: { embedding: number[] }[];
@@ -85,6 +90,57 @@ export const openaiCompat: Provider = {
       tokensOut: json.usage?.completion_tokens ?? 0,
       finishReason: FINISH[choice?.finish_reason ?? "stop"] ?? "stop"
     };
+  },
+
+  /**
+   * docs/27 F35. The same request with `stream: true`, read as SSE.
+   *
+   * `stream_options.include_usage` asks for the usage block vLLM and OpenRouter
+   * otherwise omit from a streamed response — without it every streamed call
+   * would be billed on an estimate, and the budget ledger would drift from the
+   * invoice in one direction only.
+   */
+  async *stream(req: ModelRequest, model: string, env: ProviderEnv): AsyncGenerator<ProviderStreamChunk> {
+    const body: Record<string, unknown> = {
+      model,
+      stream: true,
+      stream_options: { include_usage: true },
+      max_tokens: req.maxTokens ?? 1024,
+      temperature: req.temperature ?? 0.2,
+      messages: req.messages.map((m) =>
+        m.role === "tool"
+          ? { role: "tool", content: m.content, tool_call_id: m.toolCallId ?? "" }
+          : { role: m.role, content: m.content }
+      )
+    };
+    if (req.tools?.length) {
+      body["tools"] = req.tools.map((t) => ({
+        type: "function",
+        function: { name: t.name, description: t.description, parameters: t.parameters }
+      }));
+    }
+
+    const doFetch = env.fetch ?? fetch;
+    const res = await doFetch(`${base(env)}/chat/completions`, {
+      method: "POST",
+      headers: headers(env),
+      body: JSON.stringify(body)
+    });
+    if (!res.ok || !res.body) throw new Error(`openai-compat ${res.status}: stream request failed`);
+
+    for await (const payload of sseData(res.body)) {
+      const json = sseJson<StreamDelta>(payload);
+      if (!json) continue;
+      const choice = json.choices?.[0];
+      const out: ProviderStreamChunk = {};
+      if (choice?.delta?.content) out.delta = choice.delta.content;
+      if (choice?.finish_reason) out.finishReason = FINISH[choice.finish_reason] ?? "stop";
+      if (json.usage) {
+        out.tokensIn = json.usage.prompt_tokens ?? 0;
+        out.tokensOut = json.usage.completion_tokens ?? 0;
+      }
+      if (out.delta || out.finishReason || out.tokensIn != null) yield out;
+    }
   },
 
   async embed(req: EmbedRequest, model: string, env: ProviderEnv): Promise<{ vectors: number[][]; usage: Usage }> {

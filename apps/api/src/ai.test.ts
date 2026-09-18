@@ -73,7 +73,12 @@ beforeAll(async () => {
   env = {
     DB_CLIENT: database,
     ENVIRONMENT: "development",
-    APP_ORIGIN: "http://localhost:5173"
+    APP_ORIGIN: "http://localhost:5173",
+    // The streaming route needs a provider to reach. A binding that answers
+    // with the plain object rather than a ReadableStream is also the case
+    // workers-ai.stream degrades through — a model that ignores `stream: true`
+    // is served as a stream of one rather than as an error.
+    AI: { run: async () => ({ response: "Cedar is cheaper because of the excess." }) }
   } as unknown as Env;
 
   tokens = {};
@@ -133,6 +138,60 @@ describe("ai suggestion telemetry is gated", () => {
 
     const row = await call("tenant.admin", "GET", `/v1/ai/suggestions/${created.body.id}`);
     expect(row.body.outcome).toBe("accepted");
+  });
+});
+
+/* ---------------------------------------------------------------- streaming */
+
+// docs/27 F35. The guardrail arithmetic is the gateway's (evals/streaming);
+// what only this level can hold is that the route really answers SSE, really
+// records the run, and really refuses before streaming when it should.
+describe("POST /v1/ai/runs/stream", () => {
+  async function sse(who: string, payload: unknown): Promise<{ status: number; body: string }> {
+    const res = await app.fetch(
+      new Request("http://api.test/v1/ai/runs/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${tokens[who]}` },
+        body: JSON.stringify(payload)
+      }),
+      env as never,
+      exec as never
+    );
+    return { status: res.status, body: await res.text() };
+  }
+
+  it("answers an event stream and closes with a done event carrying the run id", async () => {
+    const res = await sse("axis.agent", {
+      agentKey: "quoting",
+      purpose: "quote.explain",
+      input: "draft a short note about renewals"
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toContain("event: done");
+    const done = JSON.parse(res.body.split("event: done\ndata: ")[1]!.split("\n")[0]!);
+    expect(done.runId).toMatch(/^air_/);
+    expect(done.auditId).toMatch(/^aia_/);
+
+    const rows = await database.select().from(schema.aiRuns);
+    const row = rows.find((r) => r.id === done.runId);
+    expect(row!.state).toBe("succeeded");
+    // A streamed run is audited like any other (CLAUDE.md §3).
+    expect(row!.outputRef).toBe(done.auditId);
+  });
+
+  // Same door, same lock: `purpose` is a safety input wherever it arrives.
+  it("refuses an unregistered purpose before opening a stream", async () => {
+    const res = await sse("axis.agent", {
+      agentKey: "quoting",
+      purpose: "not.a.purpose",
+      input: "hello"
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses an actor without the agent module's ai:invoke", async () => {
+    const res = await sse("dev.admin", { agentKey: "quoting", purpose: "quote.explain", input: "hello" });
+    expect(res.status).toBe(403);
   });
 });
 

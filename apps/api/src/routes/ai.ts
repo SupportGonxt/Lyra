@@ -281,6 +281,132 @@ aiRoutes.post("/runs", async (c) => {
 });
 
 /**
+ * docs/15 §2 ("streamed always") + docs/27 F35. The same agent run, delivered as
+ * it arrives.
+ *
+ * Deliberately a separate path from `POST /runs` rather than a flag on it. A
+ * streamed run is a single completion, not a tool loop: tool arguments arrive
+ * as fragments over a stream, and reassembling them to decide whether a
+ * consequential action may run is the last place this codebase wants a partial
+ * parse (workers-ai.ts says the same thing from the adapter's side). A caller
+ * that needs tools uses `/runs`; a caller that needs the answer to appear as it
+ * is written uses this.
+ *
+ * The events are `delta` (text to append) and `done` (the run id, usage and
+ * flags), plus `error`. A refusal is a `done` with `finishReason: "refusal"` and
+ * no further deltas — never a transport error, because the guardrail firing is
+ * a result and a dropped connection is not.
+ */
+aiRoutes.post("/runs/stream", async (c) => {
+  const ctx = ctxOf(c);
+  const input = await body(c, RunBody);
+  const agent = await agentByKey(ctx, input.agentKey);
+  require_(ctx.actor, `${agent.module}:ai:invoke`, { tenantId: ctx.tenantId, module: agent.module });
+  if (agent.status !== "active") throw badRequest(`agent ${agent.key} is ${agent.status}`);
+  if (!isKnownPurpose(agent.module, input.purpose))
+    throw badRequest(`purpose ${input.purpose} is not registered for module ${agent.module}`);
+
+  const prompt = await activePrompt(ctx, agent.promptRef);
+  const runId = newId("air", ctx.now);
+  await ctx.db.insert(schema.aiRuns).values({
+    id: runId,
+    tenantId: ctx.tenantId,
+    agentKey: agent.key,
+    module: agent.module,
+    purpose: input.purpose,
+    subjectRef: input.subjectRef ?? null,
+    actorRef: actorRef(ctx),
+    autonomyLevel: agent.autonomyLevel,
+    trigger: input.trigger,
+    state: "running",
+    inputHash: "",
+    startedAt: ctx.now
+  });
+
+  const gateway = c.get("gateway");
+  const messages: Message[] = [
+    { role: "system", content: prompt },
+    { role: "user", content: input.context ? `${input.input}\n\ncontext:\n${JSON.stringify(input.context)}` : input.input }
+  ];
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: string, data: unknown): void => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+      try {
+        for await (const ev of gateway.stream(ctx, {
+          module: agent.module,
+          purpose: input.purpose,
+          tier: agent.tier as "fast" | "standard" | "reasoning",
+          ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
+          ...(input.locale !== undefined ? { locale: input.locale } : {}),
+          messages
+        })) {
+          if (ev.type === "delta") {
+            send("delta", { text: ev.text });
+            continue;
+          }
+          const refused = ev.response.finishReason === "refusal";
+          await ctx.db
+            .update(schema.aiRuns)
+            .set({
+              state: refused ? "refused" : "succeeded",
+              inputHash: ev.response.auditId,
+              outputRef: ev.response.auditId,
+              tokensIn: ev.response.usage.tokensIn,
+              tokensOut: ev.response.usage.tokensOut,
+              costMicro: ev.response.usage.costMicro,
+              latencyMs: ev.response.latencyMs,
+              evidenceJson: JSON.stringify({
+                flags: ev.response.flags,
+                model: ev.response.model,
+                provider: ev.response.provider
+              }),
+              endedAt: ctx.now
+            })
+            .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
+          send("done", {
+            runId,
+            finishReason: ev.response.finishReason,
+            flags: ev.response.flags,
+            model: ev.response.model,
+            provider: ev.response.provider,
+            usage: ev.response.usage,
+            auditId: ev.response.auditId
+          });
+        }
+      } catch (err) {
+        await ctx.db
+          .update(schema.aiRuns)
+          .set({
+            state: "failed",
+            errorCode: err instanceof Error ? err.message.slice(0, 120) : "error",
+            endedAt: ctx.now
+          })
+          .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
+        // The status line is long gone by the time this fires, so the failure
+        // has to arrive as an event. A caller reading deltas and never seeing
+        // `done` would otherwise wait for a stream that has already ended.
+        send("error", { runId, message: "the model call failed" });
+      } finally {
+        controller.close();
+      }
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      // Proxies that buffer defeat the whole point of this route.
+      "x-accel-buffering": "no"
+    }
+  });
+});
+
+/**
  * Explainability: the run, its model call and the guardrails that fired.
  *
  * Mounted at `/detail`, not at `/runs/:id`. Hand-written routes register before

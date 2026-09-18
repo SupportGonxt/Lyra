@@ -141,7 +141,33 @@ export interface Provider {
   embed?(req: EmbedRequest, model: string, env: ProviderEnv): Promise<{ vectors: number[][]; usage: Usage }>;
   /** Only Workers AI implements this today (ADR-0060) — optional so other adapters need no stub method. */
   generateImage?(prompt: string, model: string, env: ProviderEnv): Promise<{ bytes: Uint8Array; contentType: string }>;
+  /**
+   * docs/27 F35. Incremental completion. Optional, and deliberately so: an
+   * adapter that cannot stream is served by `Gateway.stream` calling
+   * `complete` and emitting one chunk, so a provider without this is slower
+   * rather than unavailable, and the surface above never has two shapes.
+   */
+  stream?(req: ModelRequest, model: string, env: ProviderEnv): AsyncIterable<ProviderStreamChunk>;
 }
+
+/**
+ * One step of a streamed completion. Everything but `delta` is optional and
+ * arrives when the provider says so — usually on the last chunk, which is why
+ * the gateway estimates tokens rather than requiring them.
+ */
+export interface ProviderStreamChunk {
+  delta?: string;
+  tokensIn?: number;
+  tokensOut?: number;
+  toolCalls?: ToolCall[];
+  finishReason?: ModelResponse["finishReason"];
+}
+
+/** What `Gateway.stream` yields. */
+export type StreamEvent =
+  | { type: "delta"; text: string }
+  /** Terminal. `response` is the same shape `complete()` returns, audit id and all. */
+  | { type: "done"; response: ModelResponse };
 
 export interface ProviderResult {
   text: string;

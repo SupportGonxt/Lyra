@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { checkInput, checkOutput, blocked } from "../src/guardrails.js";
 import { fallbackChain } from "../src/models.js";
 import { MAX_ROUNDS, MAX_TOOL_ROUNDS, offersTools, planRound, verdictFor } from "../src/agent-loop.js";
+import { guardChunk, newStreamGuard } from "../src/stream-guard.js";
 import { EXTRACTION_FIELDS, normalizeField, parseExtraction, parseVisionExtraction } from "../src/extract.js";
 import { parseTriage } from "../src/triage.js";
 import { parseReserve } from "../src/reserve.js";
@@ -168,6 +169,91 @@ async function scoreArabicGuardrails(dir: string): Promise<Metric[]> {
       ruleCases.length ? ruleCases.filter((r) => r.hits.some((h) => h.rule === r.case.expectRule)).length / ruleCases.length : 1,
       { min: thresholds.ruleMatchMin }
     )
+  ];
+}
+
+interface StreamingCase {
+  id: string;
+  note: string;
+  customerFacing: boolean;
+  /** The deltas a provider hands back, in order. */
+  chunks: string[];
+  expectRefused: boolean;
+  expectEmitted: string;
+}
+
+interface StreamingThresholds {
+  fidelityMin: number;
+  refusalRecallMin: number;
+  prematureEmissionMax: number;
+  falseRefusalMax: number;
+}
+
+/**
+ * docs/15 §2 ("streamed always") + docs/27 F35. Nothing streamed anywhere, and
+ * the reason it could not is a real tension rather than an oversight:
+ * `checkOutput` decides about a finished answer, and a stream has no finished
+ * answer until it is already on the reader's screen.
+ *
+ * The golden set drives the resolution (`guardChunk`, src/stream-guard.ts) over
+ * scripted deltas, because the failure that matters is invisible to any test
+ * that feeds a whole string. str-04 is the case that exists for it: "we gua" +
+ * "rantee this" is two clean chunks and one blocked sentence, and a per-chunk
+ * check passes both.
+ *
+ * `prematureEmission` is the metric with teeth. Emitted text cannot be
+ * recalled, so a refusal that arrives after half the phrase has shipped is not
+ * a refusal — and a scorer that only compared final states would call it one.
+ */
+async function scoreStreaming(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<StreamingCase>(dir);
+  const thresholds = await loadThresholds<StreamingThresholds>(dir);
+
+  let fidelity = 0;
+  let refusalsCaught = 0;
+  let premature = 0;
+  let falseRefusals = 0;
+  const shouldRefuse = cases.filter((c) => c.expectRefused);
+  const shouldPass = cases.filter((c) => !c.expectRefused);
+
+  for (const c of cases) {
+    const state = newStreamGuard();
+    let accumulated = "";
+    let emitted = "";
+    let refused = false;
+    for (let i = 0; i < c.chunks.length; i++) {
+      accumulated += c.chunks[i];
+      const step = guardChunk(state, accumulated, i === c.chunks.length - 1, {
+        issued: new Set<string>(),
+        customerFacing: c.customerFacing
+      });
+      emitted += step.emit;
+      if (step.refused) {
+        refused = true;
+        break;
+      }
+    }
+
+    if (refused === c.expectRefused && emitted === c.expectEmitted) fidelity += 1;
+    else console.log(`    ${c.id}: refused ${refused}/${c.expectRefused} emitted ${JSON.stringify(emitted)}`);
+
+    if (c.expectRefused) {
+      if (refused) refusalsCaught += 1;
+      // Anything at all reaching the reader on a refused answer is the failure
+      // this design exists to prevent.
+      if (emitted.length > 0) premature += 1;
+    } else if (refused) {
+      falseRefusals += 1;
+    }
+  }
+
+  return [
+    metric("fidelity", cases.length ? fidelity / cases.length : 1, { min: thresholds.fidelityMin }),
+    metric("refusalRecall", shouldRefuse.length ? refusalsCaught / shouldRefuse.length : 1, {
+      min: thresholds.refusalRecallMin
+    }),
+    metric("prematureEmission", premature, { max: thresholds.prematureEmissionMax }),
+    metric("falseRefusals", shouldPass.length ? falseRefusals : 0, { max: thresholds.falseRefusalMax })
   ];
 }
 
@@ -1322,6 +1408,7 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   "provider-fallback": scoreProviderFallback,
   "agent-loop": scoreAgentLoop,
   "memory-recall": scoreMemoryRecall,
+  streaming: scoreStreaming,
   "guardrails-ar": scoreArabicGuardrails,
   axis: scoreAxis,
   "axis-vision": scoreAxisVision,
