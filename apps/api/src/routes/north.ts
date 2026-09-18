@@ -144,6 +144,48 @@ northRoutes.post("/snapshotter/run", async (c) => {
   return c.json(await runSnapshotter(ctx));
 });
 
+/**
+ * docs/19 §11.10 / docs/27 F21. A snapshotter run *computes* a figure; this is
+ * where somebody *attests* to one, and it is the only writer of
+ * north_snapshots.verified_at. Without it the SUCCESS-FEE precondition would be
+ * a gate with nothing on the other side — a declared contract nothing routes
+ * through, which is the recurring defect this repo keeps finding.
+ *
+ * The verifier must re-read the metric and state what they re-read it against;
+ * `ref` is that evidence, and it is required rather than optional because a
+ * verification with no evidence is a click.
+ */
+const VerifySnapshotBody = z.object({ ref: z.string().min(3).max(200) });
+
+northRoutes.post("/snapshots/:id/verify", async (c) => {
+  const ctx = ctxOf(c);
+  // north:metrics:write, not snapshots:read — attesting to a figure somebody
+  // will be invoiced on is a stronger act than reading it.
+  require_(ctx.actor, "north:metrics:write", { tenantId: ctx.tenantId, module: "north" });
+  const input = await body(c, VerifySnapshotBody);
+  const snapshotId = c.req.param("id");
+  const [snap] = await ctx.db
+    .select()
+    .from(schema.northSnapshots)
+    .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.id, snapshotId)))
+    .limit(1);
+  if (!snap) throw notFound(`snapshot ${snapshotId}`);
+
+  await ctx.db
+    .update(schema.northSnapshots)
+    .set({ verifiedAt: ctx.now, verifiedBy: actorRef(ctx), verificationRef: input.ref })
+    .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.id, snapshotId)));
+
+  await audit(ctx, {
+    action: "north.snapshot.verified",
+    subjectRef: `north_snapshot:${snapshotId}`,
+    before: { verifiedAt: snap.verifiedAt, verifiedBy: snap.verifiedBy },
+    after: { verifiedAt: ctx.now, verifiedBy: actorRef(ctx), ref: input.ref, value: snap.value }
+  });
+
+  return c.json({ id: snapshotId, verifiedAt: ctx.now, verifiedBy: actorRef(ctx), verificationRef: input.ref });
+});
+
 const ExploreBody = z.object({
   metricKeys: z.array(z.string().min(1)).min(1).max(20),
   grain: z.enum(["day", "week", "month"]),
