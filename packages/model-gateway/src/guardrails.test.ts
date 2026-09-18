@@ -96,6 +96,34 @@ describe("checkOutput — regulated claims", () => {
     const hits = checkOutput({ text: "your quote is ready for review", issued: new Set() });
     expect(hits).toHaveLength(0);
   });
+
+  // docs/27 F41. The floor was English-only, so the same claim blocked in
+  // English and shipped in Arabic. The golden set lives in
+  // evals/guardrails-ar; these hold the severity, which the eval does not.
+  it("blocks an Arabic guarantee on a customer-facing purpose", () => {
+    const hits = checkOutput({
+      text: "نضمن لك الموافقة على مطالبتك خلال يومين.",
+      issued: new Set(),
+      customerFacing: true
+    });
+    expect(hits).toEqual([expect.objectContaining({ rule: "regulated_claim", severity: "block" })]);
+  });
+
+  it("warns rather than blocks on the same Arabic claim internally", () => {
+    const hits = checkOutput({ text: "سندفع كامل قيمة الإصلاح.", issued: new Set() });
+    expect(hits).toEqual([expect.objectContaining({ rule: "regulated_claim", severity: "warn" })]);
+  });
+
+  // `\b` is ASCII-only, so an Arabic rule written with it bounds nothing. The
+  // deductible *is* mentioned here — just not denied.
+  it("does not flag Arabic prose that states a deductible instead of denying one", () => {
+    const hits = checkOutput({
+      text: "يبلغ مبلغ التحمل ٥٠٠ درهم لكل حادث، ويمكنك مراجعة تفاصيله في الملحق.",
+      issued: new Set(),
+      customerFacing: true
+    });
+    expect(hits).toHaveLength(0);
+  });
 });
 
 describe("checkOutput — hallucinated placeholders", () => {

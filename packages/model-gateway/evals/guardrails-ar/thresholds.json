@@ -1,0 +1,5 @@
+{
+  "blockRecallMin": 1.0,
+  "falsePositiveMax": 0,
+  "ruleMatchMin": 1.0
+}

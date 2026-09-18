@@ -102,6 +102,72 @@ async function scoreCompliance(dir: string): Promise<Metric[]> {
   ];
 }
 
+interface ArabicGuardrailCase {
+  id: string;
+  /** Which floor this case exercises: `checkInput` (pre-flight) or `checkOutput` (post-flight). */
+  surface: "input" | "output";
+  text: string;
+  /** input cases only: provenance, which is what decides warn vs block. */
+  untrusted?: boolean;
+  /** output cases only. */
+  customerFacing?: boolean;
+  expectBlock: boolean;
+  expectRule: string | null;
+}
+
+interface ArabicGuardrailThresholds {
+  blockRecallMin: number;
+  falsePositiveMax: number;
+  ruleMatchMin: number;
+}
+
+/**
+ * docs/27 F41 / docs/16 H12. The guardrail floors were six English regexes, so
+ * the half of the product that ships in Arabic had no floor at all — an Arabic
+ * "نضمن" (we guarantee) reached a customer where its English twin was blocked.
+ *
+ * Scored as one set across both floors on purpose: the finding is not "the
+ * regulated-claim rule is weak", it is "the rule set is monolingual", and the
+ * jailbreak list had already been half-fixed while the regulated list had not.
+ * A pooled Arabic metric is what fails when either half regresses.
+ */
+async function scoreArabicGuardrails(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<ArabicGuardrailCase>(dir);
+  const thresholds = await loadThresholds<ArabicGuardrailThresholds>(dir);
+
+  const results = cases.map((c) => ({
+    case: c,
+    hits:
+      c.surface === "input"
+        ? checkInput(c.text, c.untrusted === undefined ? {} : { untrusted: c.untrusted })
+        : checkOutput({
+            text: c.text,
+            issued: new Set<string>(),
+            ...(c.customerFacing === undefined ? {} : { customerFacing: c.customerFacing })
+          })
+  }));
+
+  const blockCases = results.filter((r) => r.case.expectBlock);
+  const cleanCases = results.filter((r) => !r.case.expectBlock);
+  const ruleCases = results.filter((r) => r.case.expectRule);
+
+  return [
+    metric("blockRecall", blockCases.length ? blockCases.filter((r) => blocked(r.hits)).length / blockCases.length : 1, {
+      min: thresholds.blockRecallMin
+    }),
+    metric(
+      "falsePositiveRate",
+      cleanCases.length ? cleanCases.filter((r) => r.hits.length > 0).length / cleanCases.length : 0,
+      { max: thresholds.falsePositiveMax }
+    ),
+    metric(
+      "ruleMatchRate",
+      ruleCases.length ? ruleCases.filter((r) => r.hits.some((h) => h.rule === r.case.expectRule)).length / ruleCases.length : 1,
+      { min: thresholds.ruleMatchMin }
+    )
+  ];
+}
+
 interface AxisCase {
   id: string;
   docType: string;
@@ -976,6 +1042,7 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   injection: scoreInjection,
   "creative-image": scoreInjection,
   compliance: scoreCompliance,
+  "guardrails-ar": scoreArabicGuardrails,
   axis: scoreAxis,
   "axis-vision": scoreAxisVision,
   "axis-copilot": scoreGroundedness,
