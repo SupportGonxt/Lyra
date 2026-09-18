@@ -429,3 +429,152 @@ describe("AXIS claim money, read back (§D.3)", () => {
     expect(ok(await call("GET", `/v1/axis/claims/${otherId}/recoveries`)).data).toEqual([]);
   });
 });
+
+/**
+ * docs/27 F23, the residue. The state machine, the reserve history and the
+ * CLAIM-PAY recipe all shipped; what never did is the join between them.
+ * `transitionClaim` refuses `settling` and `settled` in as many words —
+ * "move a claim to settling by requesting a payment, not by transition" — and
+ * `requestClaimPayment` then never touches `status`, so both states are
+ * unreachable by any path and no claim can ever be settled. `settledMinor` is
+ * the same defect in a column: three readers route through it (the reserve
+ * advisor's comparables, the fraud scorer's history, customer-360's positions)
+ * and nothing after FNOL has ever written it, so every one of them reasons
+ * from a permanent null.
+ */
+describe("AXIS settlement is reachable (docs/27 F23)", () => {
+  /**
+   * reported -> triage -> assessing -> approved, the hops the desk takes by
+   * hand. `approved` is dual-control always (`neverAutoApprove`), so the
+   * decision is granted rather than automated — the same shape as
+   * `grantPayment`, keyed on the state being moved to.
+   */
+  async function approveClaim(claimId: string): Promise<void> {
+    for (const to of ["triage", "assessing", "approved"]) {
+      await database.insert(schema.approvals).values({
+        id: `apr_clm_hop_${++approvalSeq}`,
+        tenantId: seeded.tenantId,
+        subjectRef: `axis_claim_settlement:${claimId}:${to}`,
+        policyKey: "axis.claim_settlement",
+        module: "axis",
+        requestedBy: "user:tester",
+        requestedAt: Date.now(),
+        decidedBy: "user:approver",
+        decision: "approved",
+        reason: "test fixture",
+        // An approval covers at most the amount it was approved for, and a
+        // claim hop is gated at the reserve (or the notified amount).
+        contextJson: JSON.stringify({ claimId, to, amountMinor: 10_000_00 }),
+        decidedAt: Date.now(),
+        delegationId: null
+      });
+      ok(await call("POST", `/v1/axis/claims/${claimId}/transition`, { to }), 200);
+    }
+  }
+
+  it("a payment moves an approved claim to settling, and a final payment settles it", async () => {
+    await autoApprove("axis.bind", "axis.underwriting_referral", "axis.claim_settlement");
+    const policyId = await boundPolicy("POL-CLMSET-1", Date.now() - 10 * DAY);
+    const claimId = await openClaim(policyId, "CLM-SET-1", 800_00);
+    await fundFloat(policyId, claimId, 800_00);
+    await approveClaim(claimId);
+    expect((await claimRow(claimId)).status).toBe("approved");
+
+    // An interim payment is money in flight, not the end of the claim.
+    await grantPayment(claimId, 300_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "interim", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 300_00, method: "eft" },
+        { "idempotency-key": "clm-set-1-interim" }
+      ),
+      201
+    );
+    const settling = await claimRow(claimId);
+    expect(settling.status).toBe("settling");
+    // Nothing is agreed while money is still in flight.
+    expect(settling.settledMinor).toBeNull();
+
+    // The final payment is the settlement: it ends the claim and freezes what
+    // it settled for at the total actually paid.
+    await grantPayment(claimId, 200_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "final", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 200_00, method: "eft" },
+        { "idempotency-key": "clm-set-1-final" }
+      ),
+      201
+    );
+    const settled = await claimRow(claimId);
+    expect(settled.status).toBe("settled");
+    expect(settled.paidMinor).toBe(500_00);
+    expect(settled.settledMinor).toBe(500_00);
+  });
+
+  it("the settled figure is frozen: a later expense payment moves paid, not settled", async () => {
+    // `settledMinor` answers "what did this claim settle for", which is a
+    // historical fact. `paidMinor` keeps moving while the file is open — the
+    // reserve advisor compares the two, so they may not be the same column.
+    await autoApprove("axis.bind", "axis.underwriting_referral", "axis.claim_settlement");
+    const policyId = await boundPolicy("POL-CLMSET-2", Date.now() - 10 * DAY);
+    const claimId = await openClaim(policyId, "CLM-SET-2", 900_00);
+    await fundFloat(policyId, claimId, 900_00);
+    await approveClaim(claimId);
+
+    await grantPayment(claimId, 400_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "final", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 400_00, method: "eft" },
+        { "idempotency-key": "clm-set-2-final" }
+      ),
+      201
+    );
+    expect((await claimRow(claimId)).settledMinor).toBe(400_00);
+
+    await grantPayment(claimId, 50_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "expense", payeeKind: "third_party", payeeRef: "vendor:assessor-1", amountMinor: 50_00, method: "eft" },
+        { "idempotency-key": "clm-set-2-expense" }
+      ),
+      201
+    );
+    const after = await claimRow(claimId);
+    expect(after.paidMinor).toBe(450_00);
+    expect(after.settledMinor).toBe(400_00);
+    expect(after.status).toBe("settled");
+  });
+
+  it("a payment on a claim that is not yet approved leaves the status alone", async () => {
+    // The machine has no hop from `assessing` to `settling`, so an interim
+    // payment made while the file is still being assessed must not invent one.
+    await autoApprove("axis.bind", "axis.underwriting_referral", "axis.claim_settlement");
+    const policyId = await boundPolicy("POL-CLMSET-3", Date.now() - 10 * DAY);
+    const claimId = await openClaim(policyId, "CLM-SET-3", 600_00);
+    await fundFloat(policyId, claimId, 600_00);
+    ok(await call("POST", `/v1/axis/claims/${claimId}/transition`, { to: "triage" }), 200);
+    ok(await call("POST", `/v1/axis/claims/${claimId}/transition`, { to: "assessing" }), 200);
+
+    await grantPayment(claimId, 100_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "interim", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 100_00, method: "eft" },
+        { "idempotency-key": "clm-set-3-interim" }
+      ),
+      201
+    );
+    const row = await claimRow(claimId);
+    expect(row.status).toBe("assessing");
+    expect(row.paidMinor).toBe(100_00);
+    expect(row.settledMinor).toBeNull();
+  });
+});

@@ -1,7 +1,17 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema } from "@lyra/db";
-import { actorRef, audit, conflict, emit, gate, scoped, type Ctx } from "@lyra/core";
+import {
+  actorRef,
+  audit,
+  canClaimTransition,
+  conflict,
+  emit,
+  gate,
+  scoped,
+  type ClaimState,
+  type Ctx
+} from "@lyra/core";
 import { buildRecipe, runTxn } from "@lyra/ledger";
 import { InstantMs } from "../http.js";
 
@@ -41,6 +51,35 @@ async function fundedFloat(ctx: Ctx, claimId: string): Promise<number> {
       )
     );
   return Number(row?.total ?? 0);
+}
+
+/* --------------------------------------------------------------- settlement */
+
+/**
+ * The part of the claim machine money owns. `transitionClaim` refuses
+ * `settling` and `settled` by hand, in as many words, so that no claim can read
+ * as paying without a payment behind it — which makes this the only place
+ * either state is ever reached, and made both of them unreachable for as long
+ * as the payment path did not take them (docs/27 F23).
+ *
+ * A payment on an approved claim puts it into `settling`; a `final` payment is
+ * the settlement itself. Anything the machine has no hop for pays without
+ * moving: there is no route from `assessing` to `settling`, and a payment may
+ * not invent one.
+ */
+const SETTLEMENT_SPINE = ["settling", "settled"] as const;
+
+export function settlementTarget(status: string, kind: ClaimPaymentInput["kind"]): ClaimState | null {
+  const target = kind === "final" ? "settled" : "settling";
+  if (status === target) return null;
+  let at = status;
+  for (const to of SETTLEMENT_SPINE) {
+    if (at === target) break;
+    if (at === to) continue;
+    if (!canClaimTransition(at as ClaimState, to)) return null;
+    at = to;
+  }
+  return at === status ? null : (at as ClaimState);
 }
 
 /* ------------------------------------------------------------------ payment */
@@ -118,13 +157,54 @@ export async function requestClaimPayment(ctx: Ctx, claim: ClaimRow, input: Clai
   };
   await ctx.db.insert(schema.axisClaimPayments).values(payment);
 
-  const after = { ...claim, paidMinor: claim.paidMinor + input.amountMinor, lastTxnId: txn.id, updatedAt: ctx.now };
+  const paidMinor = claim.paidMinor + input.amountMinor;
+  const to = settlementTarget(claim.status, input.kind);
+  // `settledMinor` is what the claim settled for — a historical fact, frozen at
+  // the total paid when it settles. `paidMinor` keeps moving after that (an
+  // assessor's fee lands late), which is exactly why the two are separate
+  // columns: the reserve advisor and the fraud scorer compare them.
+  const settledMinor = to === "settled" ? paidMinor : claim.settledMinor;
+  const after = {
+    ...claim,
+    paidMinor,
+    settledMinor,
+    ...(to ? { status: to } : {}),
+    lastTxnId: txn.id,
+    updatedAt: ctx.now
+  };
   await ctx.db
     .update(schema.axisClaims)
-    .set({ paidMinor: after.paidMinor, lastTxnId: txn.id, updatedAt: ctx.now })
+    .set({
+      paidMinor: after.paidMinor,
+      settledMinor: after.settledMinor,
+      ...(to ? { status: to } : {}),
+      lastTxnId: txn.id,
+      updatedAt: ctx.now
+    })
     .where(scoped(ctx, schema.axisClaims, eq(schema.axisClaims.id, claim.id)));
 
   await audit(ctx, { action: "axis.claim.payment", subjectRef: claim.id, before: claim, after });
+  if (to) {
+    // Audited under the state's own action name because `stateOfAudit`
+    // (@lyra/core lifecycle.ts) reads the trail to draw the claim's steps, and
+    // a settlement reached by paying is still a step.
+    await audit(ctx, { action: `axis.claim.${to}`, subjectRef: claim.id, before: claim, after });
+    await emit(ctx, {
+      module: "axis",
+      type: `axis.claim.${to}`,
+      subject: claim.id,
+      data: {
+        claimId: claim.id,
+        policyId: claim.policyId,
+        customerId: claim.customerId,
+        from: claim.status,
+        to,
+        paymentId,
+        settledMinor: after.settledMinor,
+        currency: claim.currency
+      }
+    });
+  }
   await emit(ctx, {
     module: "axis",
     type: "axis.claim.paid",
