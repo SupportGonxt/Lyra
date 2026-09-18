@@ -2343,6 +2343,7 @@ export interface Operations {
   "POST /v1/ai/resume": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ai/runs": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AiRuns>>;
   "POST /v1/ai/runs": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/ai/runs/stream": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ai/runs/{id}": Op<{ id: string }, never, never, AiRuns>;
   "GET /v1/ai/runs/{id}/detail": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/ai/suggestions": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AiSuggestions>>;
@@ -3074,6 +3075,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ai/resume": { tag: "ai", summary: "Release the tenant or module AI pause", permission: "ai:agents:write", public: false },
   "GET /v1/ai/runs": { tag: "ai", summary: "List runs", permission: "ai:runs:read", public: false },
   "POST /v1/ai/runs": { tag: "ai", summary: "Run an agent through the gateway, budgeted and audited (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", public: false },
+  "POST /v1/ai/runs/stream": { tag: "ai", summary: "Run an agent and stream the answer as server-sent events (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", public: false },
   "GET /v1/ai/runs/{id}": { tag: "ai", summary: "Fetch one run", permission: "ai:runs:read", public: false },
   "GET /v1/ai/runs/{id}/detail": { tag: "ai", summary: "One agent run with its tool calls and audit trail", permission: "ai:runs:read", public: false },
   "GET /v1/ai/suggestions": { tag: "ai", summary: "List suggestions", permission: "ai:suggestions:read", public: false },
