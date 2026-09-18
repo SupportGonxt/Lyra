@@ -244,6 +244,11 @@ export const reconMatches = sqliteTable(
     reasonCode: text("reason_code"),
     confirmedBy: text("confirmed_by"),
     confirmedAt: integer("confirmed_at"),
+    // docs/19 §6 / docs/27 F19: the CMSN-SETL this match booked. `txnId` above
+    // is the *accrual* the statement line matched; this is the settlement that
+    // cleared it. Two different transactions, so two different columns — one
+    // holding both would be a column that means whatever the last writer meant.
+    settlementTxnId: text("settlement_txn_id"),
     createdAt: integer("created_at").notNull()
   },
   (t) => [index("ledger_recon_matches_idx").on(t.tenantId, t.runId, t.state)]

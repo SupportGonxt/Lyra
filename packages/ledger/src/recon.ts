@@ -1,6 +1,8 @@
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
 import { actorRef, audit, badRequest, conflict, notFound, type Ctx } from "@lyra/core";
+import { buildRecipe } from "./recipes.js";
+import { runTxn } from "./txn.js";
 
 // docs/19 §6 reconciliation. Three passes, in order, each only seeing what the
 // previous one could not match:
@@ -246,6 +248,10 @@ export async function reconcile(ctx: Ctx, input: ReconInput): Promise<ReconResul
   }
 
   if (rows.length) await ctx.db.insert(schema.ledgerReconMatches).values(rows);
+  // The deterministic pass confirms exact matches itself, so they never reach a
+  // reviewer. Booking them here is what makes a clean statement post its money
+  // (docs/27 F19); everything else waits for decideMatch.
+  await settleRun(ctx, runId);
 
   const matched = rows.filter((r) => r.state !== "unmatched").length;
   const varied = rows.filter((r) => r.state !== "unmatched" && r.deltaMinor !== 0);
@@ -293,6 +299,112 @@ export async function reconcile(ctx: Ctx, input: ReconInput): Promise<ReconResul
   };
 }
 
+/* ----------------------------------------------- booking what was matched */
+
+/**
+ * docs/19 §6, insurer statement recon: the process's outputs are "matched,
+ * variance, missing-both-ways queues; **`CMSN-SETL` postings**". docs/27 F19
+ * found the last clause unimplemented — the engine updated match state and
+ * moved no money, so a reconciled month left the commission receivable
+ * untouched and the cash unrecorded.
+ *
+ * Three rules the shape has to respect.
+ *
+ * **Only the insurer process posts.** A client-money reconciliation proves
+ * segregation and moves nothing of ours; a PSP or media recon has its own
+ * economics and its own recipe. Booking a commission settlement for either
+ * would be an invention.
+ *
+ * **The statement's amount is what clears, not ours.** A match inside tolerance
+ * has a delta by definition, and the insurer paid what the insurer paid: the
+ * shortfall stays on `1100` as the variance it is, for a controller to chase or
+ * write off. A recon that closed the gap itself would be a recon that can never
+ * report one.
+ *
+ * **`recon-setl:{matchId}` is the idempotency key.** A confirmation followed by
+ * a run close, or a close run twice, posts exactly once — the key is the match,
+ * and a match is confirmed once.
+ */
+async function bookMatchSettlement(
+  ctx: Ctx,
+  match: typeof schema.ledgerReconMatches.$inferSelect,
+  process: ReconProcess
+): Promise<string | null> {
+  if (process !== "insurer") return null;
+  if (match.settlementTxnId) return match.settlementTxnId;
+  if (!match.txnId) return null; // nothing of ours was matched: no receivable to clear
+
+  const txn = await runTxn(
+    ctx,
+    {
+      type: "CMSN-SETL",
+      idempotencyKey: `recon-setl:${match.id}`,
+      currency: match.currency,
+      grossMinor: match.amountMinor,
+      correlationId: match.runId,
+      subjectRefs: { reconMatch: match.id, accrual: match.txnId }
+    },
+    {
+      recipe: {
+        lines: buildRecipe("CMSN-SETL", {
+          amountMinor: match.amountMinor,
+          memo: `insurer statement ${match.statementLineRef ?? match.id}`,
+          dims: { reconRun: match.runId, reconMatch: match.id }
+        }),
+        currency: match.currency
+      },
+      event: { name: "ledger.txn.cmsn-setl.settled" }
+    }
+  );
+
+  await ctx.db
+    .update(schema.ledgerReconMatches)
+    .set({ settlementTxnId: txn.id })
+    .where(
+      and(eq(schema.ledgerReconMatches.tenantId, ctx.tenantId), eq(schema.ledgerReconMatches.id, match.id))
+    );
+  return txn.id;
+}
+
+/** The run's process, which decides whether a confirmed match books anything. */
+async function processOf(ctx: Ctx, runId: string): Promise<ReconProcess> {
+  const [r] = await ctx.db
+    .select({ process: schema.ledgerReconRuns.process })
+    .from(schema.ledgerReconRuns)
+    .where(and(eq(schema.ledgerReconRuns.tenantId, ctx.tenantId), eq(schema.ledgerReconRuns.id, runId)))
+    .limit(1);
+  if (!r) throw notFound(`recon run ${runId}`);
+  return r.process as ReconProcess;
+}
+
+/**
+ * Book every confirmed match in a run that has not been booked yet. This is the
+ * half `decideMatch` alone cannot cover: the deterministic pass confirms an
+ * exact match itself and never reaches a reviewer, so a perfectly clean
+ * statement would otherwise post nothing at all.
+ */
+export async function settleRun(ctx: Ctx, runId: string): Promise<string[]> {
+  const process = await processOf(ctx, runId);
+  if (process !== "insurer") return [];
+  const rows = await ctx.db
+    .select()
+    .from(schema.ledgerReconMatches)
+    .where(
+      and(
+        eq(schema.ledgerReconMatches.tenantId, ctx.tenantId),
+        eq(schema.ledgerReconMatches.runId, runId),
+        eq(schema.ledgerReconMatches.state, "confirmed"),
+        isNull(schema.ledgerReconMatches.settlementTxnId)
+      )
+    );
+  const booked: string[] = [];
+  for (const m of rows) {
+    const txnId = await bookMatchSettlement(ctx, m, process);
+    if (txnId) booked.push(txnId);
+  }
+  return booked;
+}
+
 /** A reviewer's decision on one proposed match. Confirmations are audited individually. */
 export async function decideMatch(
   ctx: Ctx,
@@ -321,11 +433,23 @@ export async function decideMatch(
     })
     .where(eq(schema.ledgerReconMatches.id, matchId));
 
+  // docs/27 F19. The confirmation is the money decision, so the posting happens
+  // here rather than in a later sweep nobody would run: a match confirmed and
+  // unbooked is a receivable that reads as settled and is not.
+  const settlementTxnId =
+    decision === "confirmed"
+      ? await bookMatchSettlement(
+          ctx,
+          { ...m, state: decision, confirmedBy: actorRef(ctx), confirmedAt: ctx.now },
+          await processOf(ctx, m.runId)
+        )
+      : null;
+
   await audit(ctx, {
     action: `ledger.recon.${decision}`,
     subjectRef: `recon_match:${matchId}`,
     before: { state: m.state, method: m.method, confidence: m.confidence },
-    after: { state: decision, deltaMinor: m.deltaMinor, reasonCode }
+    after: { state: decision, deltaMinor: m.deltaMinor, reasonCode, settlementTxnId }
   });
 }
 
@@ -382,6 +506,8 @@ export async function reconSummary(ctx: Ctx, runId: string): Promise<ReconSummar
 export async function closeRun(ctx: Ctx, runId: string): Promise<void> {
   const s = await reconSummary(ctx, runId);
   if (s.open > 0) throw conflict(`recon run ${runId} still has ${s.open} open matches`);
+  // Nothing may be declared reconciled while a confirmed match is still unbooked.
+  await settleRun(ctx, runId);
   await ctx.db
     .update(schema.ledgerReconRuns)
     .set({ state: "closed", closedBy: actorRef(ctx), updatedAt: ctx.now })
