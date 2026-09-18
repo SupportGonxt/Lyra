@@ -18,6 +18,7 @@ import { aggregateCxScore, cxRubricSummary } from "../src/cx-judge.js";
 import {
   verifyNumericClaims,
   verifyGroundedness,
+  recallable,
   checkCompliance as checkSignalCompliance,
   PROTECTED_AXES,
   type BriefingSnapshot
@@ -167,6 +168,85 @@ async function scoreArabicGuardrails(dir: string): Promise<Metric[]> {
       ruleCases.length ? ruleCases.filter((r) => r.hits.some((h) => h.rule === r.case.expectRule)).length / ruleCases.length : 1,
       { min: thresholds.ruleMatchMin }
     )
+  ];
+}
+
+interface MemoryCase {
+  id: string;
+  note: string;
+  purpose: string;
+  now: number;
+  maxSensitivity: "low" | "medium" | "high";
+  limit?: number;
+  rows: { id: string; kind: string; purposes: string[] | null; sensitivity: string; expiry: number | null; createdAt: number }[];
+  expectIds: string[];
+}
+
+interface MemoryThresholds {
+  selectionAccuracyMin: number;
+  expiredLeakageMax: number;
+  purposeLeakageMax: number;
+  sensitivityLeakageMax: number;
+}
+
+/**
+ * docs/27 F34 / docs/16 H11. `core_memories` was a table with no writer and no
+ * reader — a store the platform was documented as reasoning from, holding
+ * nothing. Its own comment set the contract ("purpose-bound reads;
+ * erasure-linked"), and the half of that contract worth evaluating is the
+ * selection rule: not "can we find the memory" but "may this call see it".
+ *
+ * The three leakage metrics sit beside exact-match accuracy because they are
+ * the failures that matter asymmetrically. Recalling one memory too few is a
+ * duller answer; recalling one too many is an expired claim, another purpose's
+ * data or a sensitive fact in a prompt it was never bound to — and each would
+ * still be scored as a near miss by accuracy alone.
+ */
+async function scoreMemoryRecall(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<MemoryCase>(dir);
+  const thresholds = await loadThresholds<MemoryThresholds>(dir);
+
+  let exact = 0;
+  let expired = 0;
+  let wrongPurpose = 0;
+  let tooSensitive = 0;
+  const order = ["low", "medium", "high"];
+
+  for (const c of cases) {
+    const rows = c.rows.map((r) => ({
+      id: r.id,
+      subjectRef: "sub_1",
+      kind: r.kind,
+      contentJson: "{}",
+      provenance: "eval",
+      sensitivity: r.sensitivity,
+      purposesJson: r.purposes === null ? null : JSON.stringify(r.purposes),
+      expiry: r.expiry,
+      createdAt: r.createdAt
+    }));
+    const got = recallable(rows, {
+      purpose: c.purpose,
+      now: c.now,
+      maxSensitivity: c.maxSensitivity,
+      ...(c.limit === undefined ? {} : { limit: c.limit })
+    });
+    const ids = got.map((r) => r.id);
+    if (JSON.stringify(ids) === JSON.stringify(c.expectIds)) exact += 1;
+    else console.log(`    ${c.id}: got [${ids.join(", ")}] want [${c.expectIds.join(", ")}]`);
+
+    for (const r of got) {
+      if (r.expiry != null && r.expiry <= c.now) expired += 1;
+      if (!r.purposesJson || !(JSON.parse(r.purposesJson) as string[]).includes(c.purpose)) wrongPurpose += 1;
+      const rank = order.indexOf(r.sensitivity);
+      if (rank === -1 || rank > order.indexOf(c.maxSensitivity)) tooSensitive += 1;
+    }
+  }
+
+  return [
+    metric("selectionAccuracy", cases.length ? exact / cases.length : 1, { min: thresholds.selectionAccuracyMin }),
+    metric("expiredLeakage", expired, { max: thresholds.expiredLeakageMax }),
+    metric("purposeLeakage", wrongPurpose, { max: thresholds.purposeLeakageMax }),
+    metric("sensitivityLeakage", tooSensitive, { max: thresholds.sensitivityLeakageMax })
   ];
 }
 
@@ -1241,6 +1321,7 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   compliance: scoreCompliance,
   "provider-fallback": scoreProviderFallback,
   "agent-loop": scoreAgentLoop,
+  "memory-recall": scoreMemoryRecall,
   "guardrails-ar": scoreArabicGuardrails,
   axis: scoreAxis,
   "axis-vision": scoreAxisVision,

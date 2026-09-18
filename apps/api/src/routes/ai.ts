@@ -10,6 +10,8 @@ import {
   flagEnabled,
   gate,
   notFound,
+  recallMemories,
+  remember,
   require_,
   MODULES,
   type Ctx
@@ -111,6 +113,24 @@ aiRoutes.post("/runs", async (c) => {
           })
         : [];
 
+    // docs/27 F34 / docs/16 H11. `core_memories` had no reader and no writer.
+    // This is the reader: durable claims held about this subject, and only the
+    // ones bound to the purpose of this call. Vector recall above answers "what
+    // was said"; memory answers "what we concluded", which is the half that
+    // survives a conversation ending.
+    //
+    // `medium` is this surface's ceiling, not a default — `recallMemories`
+    // refuses to have one, because a default here is a decision about customer
+    // data that the next caller would inherit without making it.
+    const memories = input.subjectRef
+      ? await recallMemories(ctx, input.subjectRef, {
+          purpose: input.purpose,
+          now: ctx.now,
+          maxSensitivity: "medium",
+          limit: 5
+        })
+      : [];
+
     const messages: Message[] = [
       { role: "system", content: prompt },
       {
@@ -119,6 +139,9 @@ aiRoutes.post("/runs", async (c) => {
           input.context ? `${input.input}\n\ncontext:\n${JSON.stringify(input.context)}` : input.input,
           recall.length
             ? `relevant past messages:\n${recall.map((m) => m.metadata?.role + ": " + m.metadata?.text).join("\n")}`
+            : "",
+          memories.length
+            ? `what is already known about this subject:\n${memories.map((m) => `- ${m.kind}: ${m.contentJson}`).join("\n")}`
             : ""
         ]
           .filter(Boolean)
@@ -200,6 +223,31 @@ aiRoutes.post("/runs", async (c) => {
         endedAt: ctx.now
       })
       .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
+
+    // …and the writer. A run that actually used tools reached a conclusion the
+    // next run about this subject should not have to re-derive, which is what
+    // H11's "compounding" means.
+    //
+    // Three deliberate narrowings, because a memory store fed model prose
+    // uncritically compounds its mistakes as readily as its knowledge. Only
+    // tool-using runs are remembered, so the claim rests on something the
+    // platform actually did rather than on fluent text. Only unrefused ones —
+    // a guardrail trip is the opposite of a fact worth keeping. And the memory
+    // is bound to the purpose that produced it and nothing else, so widening
+    // its reach is a deliberate edit rather than a side effect.
+    if (!refused && askedFor.length && input.subjectRef) {
+      await remember(ctx, {
+        subjectRef: input.subjectRef,
+        kind: `${agent.module}.run_conclusion`,
+        content: { text: final.text.slice(0, 2000), tools: askedFor.map((t) => t.name) },
+        provenance: `ai_run:${runId}`,
+        purposes: [input.purpose],
+        // Ninety days: long enough to be worth having, short enough that a
+        // stale conclusion about a customer expires on its own rather than
+        // waiting for someone to notice it.
+        expiry: ctx.now + 90 * 24 * 60 * 60 * 1000
+      });
+    }
 
     return c.json(
       {
