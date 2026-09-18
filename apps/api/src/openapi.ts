@@ -423,6 +423,7 @@ const HAND_WRITTEN: Op[] = [
 
   // NORTH explorer and data health (routes/north.ts). Explorer reads a fixed
   // set of columns off north_snapshots only, never a client SQL string.
+  { method: "get", path: "/v1/ledger/recon/statement-formats", summary: "Bank statement formats the importer can read (CAMT.053, MT940, OFX)", permission: "ledger:recon:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/fx-revaluation", summary: "What a period-end FX revaluation of open foreign balances would post (docs/19 §5.3)", permission: "ledger:journals:read", tag: "ledger" },
   { method: "post", path: "/v1/ledger/fx-revaluation", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", tag: "ledger" },
   { method: "post", path: "/v1/north/snapshots/{id}/verify", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", tag: "north", requestBody: true },

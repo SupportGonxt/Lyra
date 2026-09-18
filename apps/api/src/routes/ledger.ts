@@ -29,6 +29,8 @@ import {
   rebuildBalances,
   reconSummary,
   reconcile,
+  parseStatement,
+  STATEMENT_FORMATS,
   reopenPeriod,
   reverseTxn,
   runTxn,
@@ -774,17 +776,39 @@ ledgerRoutes.post("/recon/runs", async (c) => {
       toleranceMinor: z.number().int().min(0).optional(),
       /** Opt in to pass 3. Off by default: no silent AI in the money path. */
       propose: z.boolean().default(false),
-      lines: z.array(StatementLine).min(1).max(5000)
+      /** Already-parsed lines: a CSV paste, an API client, a test. */
+      lines: z.array(StatementLine).max(5000).optional(),
+      /**
+       * docs/27 F16. The counterparty's own file, as text: CAMT.053, MT940 or
+       * OFX. Parsed *here* rather than in the browser, for the same reason the
+       * CSV is - the run reconciles what the server read, so a preview that
+       * drifted cannot change what posts.
+       */
+      statementText: z.string().min(1).max(4_000_000).optional()
     })
+      .refine((v) => Boolean(v.lines?.length) !== Boolean(v.statementText), {
+        message: "give either parsed lines or a statement file, but not both",
+        path: ["statementText"]
+      })
   );
 
-  const { propose, ...rest } = input;
+  const { propose, statementText, ...rest } = input;
+  const parsed = statementText ? parseStatement(statementText) : null;
+  // The file states its own currency; a caller that also states one and
+  // disagrees is a mistake worth refusing rather than silently resolving.
+  if (parsed?.currency && parsed.currency !== input.currency) {
+    throw badRequest(
+      `the ${parsed.format} statement is in ${parsed.currency}, not the ${input.currency} this run was asked for`
+    );
+  }
+  const statementLines = parsed ? parsed.lines : (rest.lines ?? []);
   // A run posts matches against money, so a double submit must not start two of
   // them — same wrapper the transaction endpoint uses, keyed on the statement.
   return c.json(
     await withIdempotency(ctx, c.req.header("idempotency-key"), `ledger.recon.${input.process}`, input, () =>
       reconcile(ctx, {
         ...rest,
+        lines: statementLines,
         ...(propose ? { propose: aiProposer(ctx, c.get("gateway")) } : {})
       })
     ),
@@ -869,6 +893,13 @@ function safeJson(raw: string): unknown {
     return null;
   }
 }
+
+/** What the importer can read, so an upload control need not hard-code it. */
+ledgerRoutes.get("/recon/statement-formats", (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:recon:read", { tenantId: ctx.tenantId, module: "ledger" });
+  return c.json({ data: [...STATEMENT_FORMATS] });
+});
 
 ledgerRoutes.get("/recon/runs/:id", async (c) => {
   const ctx = ctxOf(c);
