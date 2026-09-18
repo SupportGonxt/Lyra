@@ -111,3 +111,51 @@ describe("every parameterised hidden route has something that builds its path", 
     });
   }
 });
+
+/**
+ * The same question for the routes with no `:param`. The header above says a
+ * static href "is greppable as a literal and spec.routes.test.ts already covers
+ * the module specs" — but that suite covers the *workspace specs*, and more than
+ * half of these are not in one: /approvals, /design, /center, /search/results,
+ * and all four `/journey/*` screens, whose claims describe a chain
+ * ("reached via JourneyContinue from /journey/axis") that nothing held anyone
+ * to. Greppable and not grepped is the same state as unchecked, and it is the
+ * state /onboarding/:kind/:ref was in when it was found unreachable.
+ *
+ * The check is the literal, because that is all a static path needs: an href,
+ * a redirect or a `to=` somewhere that is not routing.ts itself.
+ */
+describe("every static hidden route claiming an opener has a link to it", () => {
+  /** `reached via JourneyContinue from …` — the journey chain's own wording. */
+  const STATIC_IN_APP = new RegExp(`${IN_APP.source}|reached via`);
+  /** A route with deliberately no UI and so deliberately no link. */
+  const NO_UI = /no UI of its own|action only, no UI|pre-session/;
+
+  const all = Object.entries(HIDDEN_ROUTES).filter(([p]) => !p.includes("/:"));
+  const claims = all.filter(
+    ([, why]) => STATIC_IN_APP.test(why) && !EXTERNAL.test(why) && !NO_UI.test(why)
+  );
+
+  it("classifies every static hidden route", () => {
+    const unclassified = all
+      .filter(([p, why]) => !NO_UI.test(why) && !EXTERNAL.test(why) && !claims.some(([q]) => q === p))
+      .map(([p]) => p);
+    expect(
+      unclassified,
+      "these claim no opener this guard recognises — reword the claim, or teach the pattern its words"
+    ).toEqual([]);
+  });
+
+  for (const [path, why] of claims) {
+    it(`${path} is linked from somewhere`, () => {
+      // The path as a whole string literal: `to="/design"`, `href='/approvals'`,
+      // `redirect(\`/center\`)`. Trailing `?` and `#` count — a link that carries
+      // query context is still the link.
+      const literal = new RegExp(`["'\`]${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[?#"'\`])`);
+      expect(
+        CORPUS.some((src) => literal.test(src)),
+        `routing.ts says "${why}" — but no source links ${path}`
+      ).toBe(true);
+    });
+  }
+});
