@@ -562,16 +562,46 @@ not exist despite the CLAUDE.md target layout and `docs/02:59` — the runtime i
 (`:523,618`) — only the dark-mode values are guarded by a test, so the light
 row can drift from its own doc unnoticed.
 
-**Thin screens.** `ledger-open-txn.tsx:79-120` asks a finance user to type
-recipe arguments as raw JSON (the file's own header names the fix: publish the
-recipe field list from `GET /txn-types`). `ledger-recon.tsx` cannot import a
-file, close a run, write off a variance, or act in bulk. `ledger-account.tsx`,
-`ledger-reports.tsx` and `ledger-money-map.tsx` export no action, so nothing
-can be exported from the UI even though the API exports six reports.
-`axis-board.tsx` has no transitions (self-documented at `:36-40`) and sorts by
-lateness rather than value × risk × SLA. `axis-doc-intel.tsx` requires
-caller-supplied `rawText` ("OCR is out of scope", `routes/axis.ts:73-78`).
-`north-brief.tsx` owns an anomaly and nothing follows.
+**Thin screens.** *Re-read at source 2026-09-18; five of the seven claims had
+been closed in code and the paragraph never caught up. Kept, not deleted, per
+the convention above — and a standing warning that a finding written as prose
+rather than as a failing test rots the moment someone fixes it.*
+
+- *Closed.* `ledger-open-txn.tsx` no longer asks for raw JSON. `GET /txn-types`
+  publishes each recipe's arguments as a flat field list (`ArgField`,
+  `ledger.shared.ts:113`, mirroring `recipes.ts`), the form renders money in a
+  money field, and the action reads back exactly the arguments the type declared
+  (`:91-93`).
+- *Closed.* `ledger-recon.tsx` **can** import a file: `statementFromCsv`
+  (`ledger.shared.ts:191`) parses a pasted statement, previewed at `:819` and
+  posted at `:221`.
+- *Closed.* `ledger-reports.tsx` downloads all six reports in four formats
+  (`:184-186`, `:288-292`) through `GET /v1/ledger/reports/:report/export`.
+- *Closed.* `axis-board.tsx` has per-card transitions through
+  `POST /v1/axis/cases/:id/transition` (`:435`, `:601`) — the same state machine
+  and approval gate the case detail screen uses — and sorts by `byUrgency`,
+  which is value × risk × SLA with weights, not lateness (`:249-261`).
+- *Closed.* `north-brief.tsx` follows its anomaly: it assigns an owner
+  (`intent=own-anomaly`, `:313`) and links out to the anomaly itself (`:495`).
+
+Still open, and all three need API work before any screen can change — none is
+a frontend gap:
+
+- `ledger-recon.tsx` cannot close a run, write off a variance, or act in bulk.
+  Close is the sharper one: `closeRun` (`packages/ledger/src/recon.ts:382`)
+  exists, is exported, and **has no callers anywhere in the repo** — no route
+  publishes it, so there is nothing for a button to post to. Write-off has no
+  engine at all. Bulk decide could in principle be built over the existing
+  `POST /recon/matches/:id/decide`, one call per match, but a bulk money
+  decision fanned out client-side is a transaction-integrity question
+  (CLAUDE.md §12), not a UI one — it needs an ADR, not a button.
+- `ledger-account.tsx` and `ledger-money-map.tsx` export no action, and unlike
+  the six reports there is no endpoint for them to call: `REPORT_EXPORTS`
+  (`routes/ledger.ts:456`) holds trial-balance, pnl, balance-sheet, aged,
+  commission and client-money, and neither an account statement nor a money map
+  is among them.
+- `axis-doc-intel.tsx` still requires caller-supplied `rawText` ("OCR is out of
+  scope", `routes/axis.ts:73-78`).
 
 ---
 
