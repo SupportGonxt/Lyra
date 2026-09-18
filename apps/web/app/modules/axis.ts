@@ -124,7 +124,14 @@ export const axis: WorkspaceSpec = {
       "status.lapsed": "Lapsed",
       "status.renewed": "Renewed",
       "status.reported": "Reported",
+      "status.triage": "Triage",
       "status.assessing": "Assessing",
+      "status.settling": "Settling",
+      "status.recovering": "Recovering",
+      "status.reopened": "Reopened",
+      "status.bound": "Bound",
+      "status.expired": "Expired",
+      "status.ntu": "Not taken up",
       "status.approved": "Approved",
       "status.settled": "Settled",
       "status.withdrawn": "Withdrawn",
@@ -191,6 +198,7 @@ export const axis: WorkspaceSpec = {
       assignedTo: "Investigator",
       savedMinor: "Leakage prevented",
       openedAt: "Opened",
+      "claims.statusHint": "Settling and settled follow a payment, so they are not offered here.",
       "complaints.summaryHint": "Sealed at rest: only staff with the complaint permission can read it back.",
       "complaints.redressHint": "Anything above zero needs a second approver before it saves.",
       "siu.savedHint": "What the investigation stopped going out the door.",
@@ -367,7 +375,14 @@ export const axis: WorkspaceSpec = {
       "status.lapsed": "منتهية",
       "status.renewed": "مُجددة",
       "status.reported": "مُبلّغ عنها",
+      "status.triage": "فرز أولي",
       "status.assessing": "قيد التقييم",
+      "status.settling": "قيد السداد",
+      "status.recovering": "قيد الاسترداد",
+      "status.reopened": "أُعيد فتحها",
+      "status.bound": "مُبرمة",
+      "status.expired": "منتهية",
+      "status.ntu": "لم تُفعّل",
       "status.approved": "معتمدة",
       "status.settled": "مسددة",
       "status.withdrawn": "مسحوبة",
@@ -433,6 +448,7 @@ export const axis: WorkspaceSpec = {
       assignedTo: "المحقق",
       savedMinor: "الخسائر المُتفاداة",
       openedAt: "تاريخ الفتح",
+      "claims.statusHint": "حالتا قيد السداد والمسددة تتبعان عملية دفع، لذلك لا تظهران هنا.",
       "complaints.summaryHint": "مُشفَّرة عند التخزين: لا يقرؤها إلا من يملك صلاحية الشكاوى.",
       "complaints.redressHint": "أي مبلغ فوق الصفر يحتاج موافقة ثانية قبل الحفظ.",
       "siu.savedHint": "ما منع التحقيق خروجه من الشركة.",
@@ -849,8 +865,24 @@ export const axis: WorkspaceSpec = {
       update: "axis:claims:update",
       filters: [
         {
+          // Every state a claim can actually be in (CLAIM_STATES, @lyra/core
+          // lifecycle.ts). `settling`, `settled` and the rest were missing while
+          // no claim could reach them; a payment now can (docs/27 F23).
           name: "status",
-          options: ["reported", "assessing", "approved", "rejected", "settled", "withdrawn"]
+          options: [
+            "reported",
+            "triage",
+            "assessing",
+            "awaiting_docs",
+            "approved",
+            "rejected",
+            "settling",
+            "settled",
+            "recovering",
+            "closed",
+            "reopened",
+            "withdrawn"
+          ]
         }
       ],
       sort: "reportedAt",
@@ -875,9 +907,25 @@ export const axis: WorkspaceSpec = {
       ],
       editable: [
         {
+          // The hops a person may take by hand. `settling` and `settled` are
+          // absent for the reason `hopsFor` (claims-desk.tsx) drops them: the
+          // API refuses both here, so offering either would be a dead end the
+          // desk only discovers after submitting (docs/27 F23/F27).
           name: "status",
           type: "select",
-          options: ["reported", "assessing", "approved", "rejected", "settled", "withdrawn"]
+          options: [
+            "reported",
+            "triage",
+            "assessing",
+            "awaiting_docs",
+            "approved",
+            "rejected",
+            "recovering",
+            "closed",
+            "reopened",
+            "withdrawn"
+          ],
+          hintKey: "claims.statusHint"
         },
         { name: "assessorRef", type: "text" },
         // Settling is consequential: the API routes this through an approval

@@ -724,6 +724,71 @@ technical reviewer will test:
 
 ---
 
+### AXIS P1 re-verification, 2026-09-18
+
+Every AXIS P1 (F23-F28) re-read at source rather than taken from the 2026-08-12
+block above. All six are now closed. Four were already closed by earlier work
+and needed only confirming; the other two had *residue* of one shape, and it is
+the shape worth recording: in each case the expensive half had been built and
+its answer routed nowhere.
+
+*Confirmed closed, no change needed.*
+
+- **F26** — `engines/axis-policy-document.ts` generates the schedule and
+  `axis-zero-touch.test.ts:221-229` now asserts it is attached to the version it
+  describes. The analytics-PDF substitute the finding named is gone.
+- **F28** — all eight surfaces exist and are registered:
+  `fnol-intake.tsx`, `claims-desk.tsx`, `policy-endorse.tsx`,
+  `policy-cancel.tsx`, `renewal-desk.tsx`, `referral-desk.tsx`, and complaints
+  and SIU as declarative tabs on the AXIS workspace. `spec.routes.test.ts` and
+  `routing.reachable.test.ts` both hold.
+
+*Closed this round.*
+
+- **F23** — the state machine, the reserve history and the `CLAIM-PAY` recipe
+  had all shipped; the join between them had not. `transitionClaim` refuses
+  `settling` and `settled` by hand and says why in a comment — "move a claim to
+  settling by requesting a payment" — and `requestClaimPayment` then never
+  touched `status`, so **both states were unreachable by any path** and no claim
+  in any deployed tenant could ever be settled. `settledMinor` was the same
+  defect in a column: three readers (the reserve advisor's comparables, the
+  fraud scorer's history, customer-360's position lines) and no writer after
+  FNOL, so all three reasoned from a permanent null and two fed it to a model as
+  fact. `settlementTarget` (`engines/axis-claims.ts`) walks the machine rather
+  than around it, and freezes `settledMinor` at the total paid.
+- **F24** — the check was real and its answer was read by nothing.
+  `checkCoverage` resolves cover before the claim exists and snapshots version,
+  limits, excess and warnings; `coverageState` then had no consumer outside its
+  own engine, so a claim recorded as out of cover, lapsed at the loss or
+  cancelled at the loss was paid like any other. Refused now at the payment
+  door — not at FNOL, because a notification of loss is always taken. Ex gratia
+  passes under its own gate; `unknown` passes, because refusing on it would turn
+  "we could not tell" into "no".
+- **F25** — the tax/fee split is whole and was already whole: `rating.ts:169`
+  computes `taxMinor` from `taxPpm`, the quoter carries it, bind writes
+  premium/tax/fees/gross to the policy and the version, the schedule prints it.
+  Nothing asserted it survived the chain, so `axis-bind.test.ts` now walks every
+  step. The column comment was the real defect: `paymentPlanJson` read
+  `// H9 reserved` while `sweepPolicyLifecycle` had been lapsing policies off it
+  for months. What docs/16 H9 reserves is premium *financing*, not this column.
+- **F27** — `POLICY_TRANSITIONS` and `CLAIM_TRANSITIONS` were enforced by the
+  dedicated engines and by nothing on generic CRUD, leaving a second writable
+  path around the same contract: a reported claim could be PATCHed straight to
+  `settled`, a cancelled policy revived. The AXIS workspace's own `editable`
+  spec offered exactly that. Guarded now in `resources.ts` with the `beforeWrite`
+  shape `complaints` and `siu-referrals` already use, importing the maps from
+  `@lyra/core` so the two doors cannot drift.
+
+The general shape, which is worth more than the four fixes: **F23, F24 and F27
+are all one defect seen from three sides — a contract that is declared,
+computed, or enforced on one path, and consulted on none.** The tell is not a
+screen misbehaving; it is a grep for a column's or a map's readers coming back
+with only its own writer. Asking that question of `settledMinor` and
+`coverageState` found both in minutes, where reading the screens had found
+neither in a month.
+
+---
+
 ## Suggested order
 
 All thirteen P0s are closed as of 2026-08-12. F2 and F3 went together, as

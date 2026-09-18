@@ -1278,3 +1278,151 @@ describe("orbit routing tables are writable by the roles that own them", () => {
     expect(team.status).toBe(403);
   });
 });
+
+/**
+ * docs/27 F27. `POLICY_TRANSITIONS` and `CLAIM_TRANSITIONS` (@lyra/core
+ * lifecycle.ts) are enforced by the dedicated engines — `transitionClaim`,
+ * `axis-lifecycle.ts` — and by nothing on the generic CRUD door, which is a
+ * second writable path around the same contract. The AXIS workspace's own
+ * `editable` spec offers `status` as a select (apps/web/app/modules/axis.ts),
+ * so a desk could PATCH a freshly reported claim straight to `settled`, or
+ * reopen a cancelled policy, with no hop check, no per-hop permission, no
+ * transaction and no step on the audit trail.
+ *
+ * `invoices` above already enforces its machine here, and `complaints` and
+ * `siu-referrals` do it in resources.ts with a `beforeWrite` — so this is the
+ * pattern being applied, not a new one being invented.
+ */
+describe("AXIS state machines through generic CRUD (docs/27 F27)", () => {
+  const claims = () => {
+    const r = BY_MODULE.axis?.find((x) => x.path === "claims");
+    if (!r) throw new Error("no axis/claims resource");
+    return router(r);
+  };
+  const policies = () => {
+    const r = BY_MODULE.axis?.find((x) => x.path === "policies");
+    if (!r) throw new Error("no axis/policies resource");
+    return router(r);
+  };
+
+  const claimRow = async (id: string) => {
+    const [row] = await ctx.db.select().from(schema.axisClaims).where(eq(schema.axisClaims.id, id));
+    return row;
+  };
+  const policyRow = async (id: string) => {
+    const [row] = await ctx.db.select().from(schema.axisPolicies).where(eq(schema.axisPolicies.id, id));
+    return row;
+  };
+
+  /**
+   * Every PATCH on a claim is gated by `axis.claim_settlement`, which is
+   * `neverAutoApprove`, so a test about the machine grants the decision the
+   * test is not about. `beforeWrite` runs before the gate (crud.ts), so an
+   * illegal hop is refused without spending one.
+   */
+  let grantSeq = 0;
+  async function grantClaimPatch(id: string): Promise<void> {
+    await ctx.db.insert(schema.approvals).values({
+      id: `apr_flow_${++grantSeq}`,
+      tenantId: ctx.tenantId,
+      subjectRef: `claims:${id}`,
+      policyKey: "axis.claim_settlement",
+      module: "axis",
+      requestedBy: "user:tester",
+      requestedAt: NOW,
+      decidedBy: "user:approver",
+      decision: "approved",
+      reason: "test fixture",
+      contextJson: JSON.stringify({ amountMinor: 10_000_00 }),
+      decidedAt: NOW,
+      delegationId: null
+    } as never);
+  }
+
+  async function seedClaim(id: string, status: string): Promise<void> {
+    await ctx.db.insert(schema.axisClaims).values({
+      id,
+      tenantId: ctx.tenantId,
+      policyId: "pol_flow",
+      customerId: "cus_flow",
+      claimNo: `CLM-${id}`,
+      reportedAt: NOW,
+      currency: "AED",
+      status,
+      createdAt: NOW,
+      updatedAt: NOW
+    } as never);
+  }
+
+  async function seedPolicy(id: string, status: string): Promise<void> {
+    await ctx.db.insert(schema.axisPolicies).values({
+      id,
+      tenantId: ctx.tenantId,
+      customerId: "cus_flow",
+      providerId: "prv_flow",
+      policyNo: `POL-${id}`,
+      startAt: NOW,
+      endAt: NOW,
+      premiumMinor: 1000,
+      currency: "AED",
+      status,
+      createdAt: NOW,
+      updatedAt: NOW
+    } as never);
+  }
+
+  it("a reported claim cannot be PATCHed straight to settled", async () => {
+    await seedClaim("clm_flow_1", "reported");
+    const res = await send(claims(), "PATCH", "/clm_flow_1", { status: "settled" });
+    expect(res.status).toBe(400);
+    expect((await claimRow("clm_flow_1"))?.status).toBe("reported");
+  });
+
+  it("settling and settled are refused here whatever the current state", async () => {
+    // Money owns both states (engines/axis-claims.ts `settlementTarget`), so
+    // the CRUD door may not hand them out even from `approved`, where the
+    // machine does allow the hop.
+    await seedClaim("clm_flow_2", "approved");
+    for (const status of ["settling", "settled"]) {
+      const res = await send(claims(), "PATCH", "/clm_flow_2", { status });
+      expect(res.status, `${status} was accepted`).toBe(400);
+      expect(String(res.body?.detail ?? res.body?.title)).toMatch(/payment/i);
+    }
+    expect((await claimRow("clm_flow_2"))?.status).toBe("approved");
+  });
+
+  it("a legal hop still passes, and an unknown state is refused", async () => {
+    await seedClaim("clm_flow_3", "reported");
+    await grantClaimPatch("clm_flow_3");
+    expect((await send(claims(), "PATCH", "/clm_flow_3", { status: "triage" })).status).toBe(200);
+    expect((await claimRow("clm_flow_3"))?.status).toBe("triage");
+
+    const bogus = await send(claims(), "PATCH", "/clm_flow_3", { status: "nearly_settled" });
+    expect(bogus.status).toBe(400);
+    expect((await claimRow("clm_flow_3"))?.status).toBe("triage");
+  });
+
+  it("a PATCH that does not touch status is unaffected", async () => {
+    await seedClaim("clm_flow_4", "assessing");
+    await grantClaimPatch("clm_flow_4");
+    const res = await send(claims(), "PATCH", "/clm_flow_4", { assessorRef: "assessor:ahmed" });
+    expect(res.status).toBe(200);
+    expect((await claimRow("clm_flow_4"))?.status).toBe("assessing");
+  });
+
+  it("a cancelled policy is terminal, and active -> cancelled still works", async () => {
+    await seedPolicy("pol_flow_1", "cancelled");
+    expect((await send(policies(), "PATCH", "/pol_flow_1", { status: "active" })).status).toBe(400);
+    expect((await policyRow("pol_flow_1"))?.status).toBe("cancelled");
+
+    await seedPolicy("pol_flow_2", "active");
+    expect((await send(policies(), "PATCH", "/pol_flow_2", { status: "cancelled" })).status).toBe(200);
+    expect((await policyRow("pol_flow_2"))?.status).toBe("cancelled");
+  });
+
+  it("a policy cannot be minted straight into a state it has to be walked to", async () => {
+    await seedPolicy("pol_flow_3", "bound");
+    expect((await send(policies(), "PATCH", "/pol_flow_3", { status: "renewed" })).status).toBe(400);
+    expect((await policyRow("pol_flow_3"))?.status).toBe("bound");
+  });
+});

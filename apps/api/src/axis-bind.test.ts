@@ -264,3 +264,62 @@ describe("AXIS bind (docs/27 F4)", () => {
     expect(again.body.detail).toContain("already bound");
   });
 });
+
+/**
+ * docs/27 F25. Premium was read as "a free-text integer with no tax/fee split".
+ * The split exists now — `rating.ts` computes `taxMinor` from the table's
+ * `taxPpm`, the quoter carries it, bind writes it to the policy and the version
+ * — but nothing asserted that it survives the whole chain, and a split that
+ * silently falls back to zero at any hand-off is indistinguishable from not
+ * having one. Every step from the rating table to the schedule is checked here
+ * so the chain cannot rot at a seam.
+ */
+describe("AXIS premium carries a tax and fee split (docs/27 F25)", () => {
+  it("the split survives rating, quote, policy, version and schedule", async () => {
+    const shopped = ok(
+      await call("POST", "/v1/dist/quote-requests/shop", {
+        productId,
+        channelId: seeded.channels.web,
+        customerId,
+        consentId,
+        inputs: RISK,
+        currency: "AED"
+      }),
+      201
+    );
+    const quoted = (shopped.responses as any[]).filter((r) => r.state === "quoted");
+    const best = quoted.slice().sort((a, b) => a.premiumMinor - b.premiumMinor)[0];
+
+    // The seeded motor tables carry `taxPpm: 50_000` — 5% VAT. A zero here is
+    // the whole finding: it means the rate never reached the rating engine.
+    expect(best.taxMinor).toBeGreaterThan(0);
+    expect(best.taxMinor).toBe(Math.floor((best.premiumMinor * 50_000) / 1_000_000));
+
+    ok(await call("POST", `/v1/dist/quote-requests/${shopped.request.id}/select`, { responseId: best.id }));
+    const start = Date.now();
+    const out = ok(
+      await call("POST", `/v1/axis/quote-responses/${best.id}/bind`, {
+        policyNo: "POL-BIND-TAX",
+        startAt: start,
+        endAt: start + 365 * DAY
+      }),
+      201
+    );
+
+    // Gross is the sum, not a fourth free-text number: a reader who adds the
+    // parts and a reader who takes the total must agree.
+    expect(out.policy.taxMinor).toBe(best.taxMinor);
+    expect(out.policy.feesMinor).toBe(best.feesMinor ?? 0);
+    expect(out.policy.grossMinor).toBe(out.policy.premiumMinor + out.policy.taxMinor + out.policy.feesMinor);
+
+    const version = (
+      await database
+        .select()
+        .from(schema.axisPolicyVersions)
+        .where(eq(schema.axisPolicyVersions.policyId, out.policy.id))
+    )[0]!;
+    expect(version.taxMinor).toBe(out.policy.taxMinor);
+    expect(version.feesMinor).toBe(out.policy.feesMinor);
+    expect(version.premiumMinor).toBe(out.policy.premiumMinor);
+  });
+});
