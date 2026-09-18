@@ -459,6 +459,106 @@ describe("gateway.complete edge cases", () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(200);
   });
 
+  // docs/27 F36. The retry loop above answers a blip. Until this, it was the
+  // *only* answer: three attempts at the identical provider and the identical
+  // model, so a vendor outage was a platform outage.
+  describe("cross-provider fallback (F36)", () => {
+    const down = (name: Provider["name"]): Provider => ({
+      name,
+      async complete() {
+        throw new Error("503 service unavailable");
+      }
+    });
+    const up = (name: Provider["name"], text: string): Provider & { calls: number } => {
+      const p = {
+        name,
+        calls: 0,
+        async complete() {
+          p.calls++;
+          return { text, toolCalls: [], tokensIn: 3, tokensOut: 3, finishReason: "stop" as const };
+        }
+      };
+      return p;
+    };
+
+    it("serves the call from the next provider when the primary is down", async () => {
+      const second = up("anthropic", "from the fallback");
+      const gw = new Gateway({ env: {}, providers: { "workers-ai": down("workers-ai"), anthropic: second } });
+      const res = await gw.complete(ctx, {
+        module: "axis",
+        purpose: "axis.case.copilot",
+        tier: "standard",
+        messages: [{ role: "user", content: "hi" }]
+      });
+      expect(res.text).toBe("from the fallback");
+      expect(second.calls).toBe(1);
+      expect(res.provider).toBe("anthropic");
+      expect(res.flags).toContain("provider_fallback");
+    });
+
+    // The audit row is the bill and the explanation. Naming the primary on a
+    // call the fallback served would misattribute both.
+    it("audits the model that actually answered, not the one that was routed to", async () => {
+      const gw = new Gateway({
+        env: {},
+        providers: { "workers-ai": down("workers-ai"), anthropic: up("anthropic", "ok") }
+      });
+      await gw.complete(ctx, {
+        module: "axis",
+        purpose: "axis.case.copilot",
+        tier: "standard",
+        messages: [{ role: "user", content: "hi" }]
+      });
+      const audit = await ctx.db.select().from(schema.aiAuditLog);
+      expect(audit[0]!.provider).toBe("anthropic");
+      expect(audit[0]!.model).toBe("claude-sonnet-5");
+    });
+
+    it("does not spend the chain on a malformed request, which fails the same way everywhere", async () => {
+      const second = up("anthropic", "never reached");
+      const gw = new Gateway({
+        env: {},
+        providers: {
+          "workers-ai": {
+            name: "workers-ai",
+            async complete() {
+              throw new Error("400 bad request: unknown field");
+            }
+          },
+          anthropic: second
+        }
+      });
+      await expect(
+        gw.complete(ctx, {
+          module: "axis",
+          purpose: "axis.case.copilot",
+          tier: "standard",
+          messages: [{ role: "user", content: "hi" }]
+        })
+      ).rejects.toThrow("400 bad request");
+      expect(second.calls).toBe(0);
+    });
+
+    // CLAUDE.md §3 / ADR-0075. An outage is not a reason to send an on-prem
+    // tenant's prompts to a third party.
+    it("never falls back off-prem for a tenant pinned on-prem", async () => {
+      const cloud = up("anthropic", "should never be reached");
+      const gw = new Gateway({
+        env: {},
+        providers: { "openai-compat": down("openai-compat"), anthropic: cloud }
+      });
+      await expect(
+        gw.complete(makeCtx({ dataResidency: "on-prem" }), {
+          module: "axis",
+          purpose: "axis.case.copilot",
+          tier: "standard",
+          messages: [{ role: "user", content: "hi" }]
+        })
+      ).rejects.toThrow("503");
+      expect(cloud.calls).toBe(0);
+    });
+  });
+
   it("omits subjectRef from the audit row when the request has none", async () => {
     const { gw } = stubbed(["fine"]);
     await gw.complete(ctx, {

@@ -1,0 +1,6 @@
+{
+  "chainAccuracyMin": 1.0,
+  "crossProviderCoverageMin": 1.0,
+  "residencyBreachMax": 0,
+  "sameProviderRepeatMax": 0
+}

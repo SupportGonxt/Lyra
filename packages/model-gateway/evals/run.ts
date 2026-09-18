@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkInput, checkOutput, blocked } from "../src/guardrails.js";
+import { fallbackChain } from "../src/models.js";
 import { EXTRACTION_FIELDS, normalizeField, parseExtraction, parseVisionExtraction } from "../src/extract.js";
 import { parseTriage } from "../src/triage.js";
 import { parseReserve } from "../src/reserve.js";
@@ -165,6 +166,81 @@ async function scoreArabicGuardrails(dir: string): Promise<Metric[]> {
       ruleCases.length ? ruleCases.filter((r) => r.hits.some((h) => h.rule === r.case.expectRule)).length / ruleCases.length : 1,
       { min: thresholds.ruleMatchMin }
     )
+  ];
+}
+
+interface FallbackCase {
+  id: string;
+  note: string;
+  tier: "fast" | "standard" | "reasoning";
+  onPrem?: boolean;
+  needsTools?: boolean;
+  modelKey?: string;
+  overrides?: Record<string, string>;
+  /** Providers whose credentials/bindings this deployment actually has. */
+  configured: string[];
+  expectKeys: string[];
+}
+
+interface FallbackThresholds {
+  chainAccuracyMin: number;
+  crossProviderCoverageMin: number;
+  residencyBreachMax: number;
+  sameProviderRepeatMax: number;
+}
+
+/**
+ * docs/27 F36. `gateway.complete` retried three times against the identical
+ * provider and the identical model, which answers a blip and nothing else: a
+ * provider outage, a model deprecation or a regional 5xx took the whole
+ * platform's AI down three times in a row and then gave up.
+ *
+ * The golden set is the routing decision, not a model's words, so it scores
+ * `fallbackChain` directly. Four metrics, because "does it fall back" is not
+ * the only thing that can go wrong:
+ *   - chainAccuracy: the chain is exactly what the case expects.
+ *   - crossProviderCoverage: every cloud case reaches a second *provider*.
+ *     A chain of two Anthropic models is the defect with more steps.
+ *   - residencyBreach: an on-prem tenant never gets a cloud link, whatever is
+ *     configured and whatever the tenant override says (CLAUDE.md §3, ADR-0075).
+ *   - sameProviderRepeat: no provider appears twice in one chain.
+ */
+async function scoreProviderFallback(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<FallbackCase>(dir);
+  const thresholds = await loadThresholds<FallbackThresholds>(dir);
+
+  const results = cases.map((c) => {
+    const chain = fallbackChain(c.tier, {
+      ...(c.onPrem === undefined ? {} : { onPrem: c.onPrem }),
+      ...(c.needsTools === undefined ? {} : { needsTools: c.needsTools }),
+      ...(c.modelKey === undefined ? {} : { modelKey: c.modelKey }),
+      ...(c.overrides === undefined ? {} : { overrides: c.overrides as Record<"fast" | "standard" | "reasoning", string> }),
+      configured: c.configured as never
+    });
+    return { case: c, chain };
+  });
+
+  const cloud = results.filter((r) => !r.case.onPrem && r.case.configured.length > 1);
+  const onPrem = results.filter((r) => r.case.onPrem);
+
+  const exact = results.filter((r) => JSON.stringify(r.chain.map((d) => d.key)) === JSON.stringify(r.case.expectKeys));
+  const crossed = cloud.filter((r) => new Set(r.chain.map((d) => d.provider)).size > 1);
+  const breaches = onPrem.filter((r) => r.chain.some((d) => d.provider !== "openai-compat"));
+  const repeats = results.filter((r) => new Set(r.chain.map((d) => d.provider)).size !== r.chain.length);
+
+  for (const r of results) {
+    if (JSON.stringify(r.chain.map((d) => d.key)) !== JSON.stringify(r.case.expectKeys)) {
+      console.log(`    ${r.case.id}: got [${r.chain.map((d) => d.key).join(", ")}] want [${r.case.expectKeys.join(", ")}]`);
+    }
+  }
+
+  return [
+    metric("chainAccuracy", results.length ? exact.length / results.length : 1, { min: thresholds.chainAccuracyMin }),
+    metric("crossProviderCoverage", cloud.length ? crossed.length / cloud.length : 1, {
+      min: thresholds.crossProviderCoverageMin
+    }),
+    metric("residencyBreaches", breaches.length, { max: thresholds.residencyBreachMax }),
+    metric("sameProviderRepeats", repeats.length, { max: thresholds.sameProviderRepeatMax })
   ];
 }
 
@@ -1042,6 +1118,7 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   injection: scoreInjection,
   "creative-image": scoreInjection,
   compliance: scoreCompliance,
+  "provider-fallback": scoreProviderFallback,
   "guardrails-ar": scoreArabicGuardrails,
   axis: scoreAxis,
   "axis-vision": scoreAxisVision,

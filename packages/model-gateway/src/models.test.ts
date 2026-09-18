@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelDef } from "./models.js";
-import { CATALOGUE, CLOUD_ROUTES, ONPREM_ROUTES, EMBED_MODEL, resolveModel, costMicro } from "./models.js";
+import { CATALOGUE, CLOUD_ROUTES, ONPREM_ROUTES, EMBED_MODEL, fallbackChain, resolveModel, costMicro } from "./models.js";
 
 // Temporarily patches CATALOGUE (module-level mutable object) for the duration
 // of `run`, then restores the exact original keys/values/order. Lets us force
@@ -265,5 +265,39 @@ describe("costMicro", () => {
 
   it("returns zero for zero usage", () => {
     expect(costMicro(cheap, 0, 0)).toBe(0);
+  });
+});
+
+// docs/27 F36. The golden set (evals/provider-fallback) holds the full chain
+// per tier; these hold the three properties that make it a *fallback* rather
+// than a longer retry.
+describe("fallbackChain", () => {
+  it("leads with the routing decision and then crosses providers", () => {
+    const chain = fallbackChain("standard");
+    expect(chain[0]!.key).toBe(CLOUD_ROUTES.standard);
+    expect(new Set(chain.map((d) => d.provider)).size).toBe(chain.length);
+    expect(chain.length).toBeGreaterThan(1);
+  });
+
+  it("is the primary alone on-prem, whatever the tenant override asks for", () => {
+    const chain = fallbackChain("reasoning", { onPrem: true, overrides: { reasoning: "claude-opus-5" } });
+    expect(chain).toHaveLength(1);
+    expect(chain[0]!.provider).toBe("openai-compat");
+  });
+
+  it("drops links this deployment holds no credentials for", () => {
+    expect(fallbackChain("standard", { configured: ["workers-ai"] }).map((d) => d.key)).toEqual([
+      CLOUD_ROUTES.standard
+    ]);
+  });
+
+  // Never empty: a call that fails against its own model reports something an
+  // operator can act on; "no provider" reports nothing.
+  it("keeps the primary rather than returning nothing when no link is configured", () => {
+    expect(fallbackChain("standard", { configured: [] })).toHaveLength(1);
+  });
+
+  it("keeps every link tool-capable when the request carries tools", () => {
+    for (const def of fallbackChain("fast", { needsTools: true })) expect(def.tools).toBe(true);
   });
 });

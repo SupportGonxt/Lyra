@@ -3,7 +3,7 @@ import { AppError, actorRef, hashObject, sha256Hex, type Ctx } from "@lyra/core"
 import { assertBudget, charge } from "./budget.js";
 import { assertNotKilled } from "./kill.js";
 import { blocked, checkInput, checkOutput, recordGuardrails, type GuardrailHit } from "./guardrails.js";
-import { CATALOGUE, EMBED_MODEL, IMAGE_CATALOGUE, IMAGE_MODEL, costMicro, resolveModel } from "./models.js";
+import { CATALOGUE, EMBED_MODEL, IMAGE_CATALOGUE, IMAGE_MODEL, costMicro, fallbackChain, resolveModel } from "./models.js";
 import { resolvePurpose } from "./purposes.js";
 import { rehydrate, scrubMessages } from "./scrub.js";
 import { anthropic } from "./providers/anthropic.js";
@@ -62,6 +62,35 @@ export interface GatewayOptions {
 /** Retryable transport failures; a 4xx from a provider is not one. */
 const RETRY_DELAYS_MS = [0, 250, 1000];
 
+/**
+ * docs/27 F36. Errors that mean "this request is wrong", not "this provider is
+ * having a bad day". They will fail identically at every vendor, so falling
+ * through the chain on one is three times the latency and three times the bill
+ * for the same 400. Everything else — auth, quota, a deprecated model, a
+ * regional outage, a transport failure — is exactly what the chain is for.
+ */
+function requestFatal(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b(400|404|422)\b/.test(msg);
+}
+
+/**
+ * Which providers this deployment can actually reach. A link with no key is
+ * not a fallback, it is a guaranteed second failure spent on a customer's wait,
+ * so it is dropped from the chain rather than attempted.
+ *
+ * A provider passed explicitly in `GatewayOptions.providers` counts as
+ * configured whatever the env holds: that is how tests and the seed inject a
+ * stub, and treating the stub as unreachable would route them at real models.
+ */
+function configuredProviders(env: ProviderEnv, injected: Partial<Record<ProviderName, Provider>> = {}): ProviderName[] {
+  const names = new Set<ProviderName>(Object.keys(injected) as ProviderName[]);
+  if (env.AI) names.add("workers-ai");
+  if (env.ANTHROPIC_API_KEY) names.add("anthropic");
+  if (env.OPENAI_COMPAT_URL) names.add("openai-compat");
+  return [...names];
+}
+
 export class Gateway {
   constructor(private readonly opts: GatewayOptions) {}
 
@@ -75,12 +104,19 @@ export class Gateway {
     const started = Date.now();
 
     const onPrem = ctx.policy.dataResidency === "on-prem";
-    const def = resolveModel(req.tier, {
+    // docs/27 F36. The chain, not a single model: the routing decision first,
+    // then whatever other *providers* can serve this tier. `def` stays the
+    // primary for everything decided before the call (the input hash, the
+    // pre-flight audit rows), and is reassigned to the link that actually
+    // answered, so the audit row names the model the tokens were spent on.
+    const chain = fallbackChain(req.tier, {
       onPrem,
       overrides: (this.opts.overrides ?? ctx.policy.modelOverrides) as never,
       needsTools: Boolean(req.tools?.length),
+      configured: configuredProviders(this.opts.env, this.opts.providers ?? {}),
       ...(req.modelKey !== undefined ? { modelKey: req.modelKey } : {})
     });
+    let def = chain[0]!;
 
     // Scrub before anything sees the messages, including our own audit hash.
     const scrubbed = req.unscrubbed
@@ -175,17 +211,28 @@ export class Gateway {
       messages: scrubbed.messages.map(({ untrusted: _untrusted, ...m }) => m)
     };
 
+    // Retries inside a link answer a blip; the chain answers an outage. Three
+    // attempts at the identical provider and model (what this loop used to be)
+    // could only ever do the first, so a vendor being down was the platform
+    // being down.
     let result;
     let lastError: unknown;
-    for (const delay of RETRY_DELAYS_MS) {
-      if (delay) await sleep(delay);
-      try {
-        result = await this.pick(def.provider).complete(outbound, def.model, this.opts.env);
-        break;
-      } catch (err) {
-        lastError = err;
-        if (!retryable(err)) break;
+    chain: for (const [i, link] of chain.entries()) {
+      for (const delay of RETRY_DELAYS_MS) {
+        if (delay) await sleep(delay);
+        try {
+          result = await this.pick(link.provider).complete(outbound, link.model, this.opts.env);
+          def = link;
+          if (i > 0) flags.add("provider_fallback");
+          break chain;
+        } catch (err) {
+          lastError = err;
+          if (!retryable(err)) break;
+        }
       }
+      // A malformed request fails the same way everywhere: stop, do not spend
+      // the rest of the chain proving it.
+      if (requestFatal(lastError)) break;
     }
 
     if (!result) {
