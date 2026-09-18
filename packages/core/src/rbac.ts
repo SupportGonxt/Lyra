@@ -169,6 +169,8 @@ export const PERMISSIONS = [
   "orbit:handover:read", "orbit:handover:write",
   "orbit:channels:read", "orbit:channels:write",
   "orbit:teams:read", "orbit:teams:write",
+  "orbit:kb:read", "orbit:kb:write", "orbit:kb:publish",
+  "orbit:macros:read", "orbit:macros:write",
   "orbit:presence:read", "orbit:presence:write",
 
   // SIGNAL — growth
@@ -430,6 +432,11 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "orbit:conversations:close", "orbit:messages:send", "orbit:handover:write",
     "orbit:qa:score", "orbit:renewals:update", "orbit:journeys:write",
     "orbit:presence:write", "orbit:teams:write",
+    // The lead owns the wording the desk sends: knowledge-base articles and the
+    // canned replies built from them (docs/27 F32). Publishing is separate from
+    // writing because publishing is what makes an article answer a customer
+    // unaccompanied.
+    "orbit:kb:write", "orbit:kb:publish", "orbit:macros:write",
     "core:customers:read", "core:pii:view", "core:consents:read", "core:search:read",
     "core:approvals:read", "core:approvals:decide", "core:files:read",
     "axis:policies:read", "axis:cases:read", "axis:cases:create",

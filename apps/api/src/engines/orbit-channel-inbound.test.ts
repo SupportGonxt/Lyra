@@ -188,6 +188,47 @@ describe("processChannelEvents routing", () => {
     expect(conversation!.assigneeRef).toBe("u_1");
   });
 
+  // docs/27 F32: deflection is only deflection if something tries it on a real
+  // inbound message. The hook is optional here for the same reason `signal` is
+  // — the engine must stay callable with no AI wiring at all.
+  it("offers each inbound customer message to the deflection hook, after the signal hook", async () => {
+    const order: string[] = [];
+    const deflected: { conversationId: string; text: string }[] = [];
+    await processChannelEvents(
+      ctx,
+      connector,
+      [{ kind: "message", message: { externalRef: "wamid.1", handle: "97150", text: "how do I renew?", modality: "text", sentAt: now } }],
+      {
+        signal: () => {
+          order.push("signal");
+          return Promise.resolve();
+        },
+        deflect: (conversationId, text) => {
+          order.push("deflect");
+          deflected.push({ conversationId, text });
+          return Promise.resolve();
+        }
+      }
+    );
+    const [conversation] = await ctx.db.select().from(schema.orbitConversations).where(eq(schema.orbitConversations.tenantId, tenantId));
+    expect(deflected).toEqual([{ conversationId: conversation!.id, text: "how do I renew?" }]);
+    // Language is what retrieval picks an article by, and `signal` is what sets
+    // it — so deflection has to run second or it reads the previous language.
+    expect(order).toEqual(["signal", "deflect"]);
+  });
+
+  it("does not offer a redelivered message to the deflection hook", async () => {
+    const seen: string[] = [];
+    const event = {
+      kind: "message" as const,
+      message: { externalRef: "wamid.1", handle: "97150", text: "hello", modality: "text" as const, sentAt: now }
+    };
+    const hook = { deflect: (_id: string, text: string) => { seen.push(text); return Promise.resolve(); } };
+    await processChannelEvents(ctx, connector, [event], hook);
+    await processChannelEvents(ctx, connector, [event], hook);
+    expect(seen).toEqual(["hello"]);
+  });
+
   it("leaves a conversation unrouted when the tenant has no team configured yet", async () => {
     await processChannelEvents(ctx, connector, [
       { kind: "message", message: { externalRef: "wamid.1", handle: "97150", text: "Hello", modality: "text", sentAt: now } }

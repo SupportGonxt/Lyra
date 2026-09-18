@@ -49,15 +49,44 @@ beforeEach(async () => {
 });
 
 describe("seedOpsConfig", () => {
-  it("writes the five tables the router reads", async () => {
+  it("writes the five tables the router reads and the two the desk answers from", async () => {
     await givenTenant();
     expect(await seedOpsConfig(db, TENANT, NOW)).toEqual({
       orbit_teams: 2,
       orbit_team_members: 3,
       orbit_agent_presence: 3,
       orbit_sla_policies: 2,
-      orbit_routing_rules: 2
+      orbit_routing_rules: 2,
+      orbit_kb_articles: 4,
+      orbit_macros: 2
     });
+  });
+
+  it("writes every knowledge-base article in both languages, published", async () => {
+    await givenTenant();
+    await seedOpsConfig(db, TENANT, NOW);
+    const articles = await db.select().from(schema.orbitKbArticles);
+    // One row per (key, locale): retrieval is per-language, so a key with only
+    // an English row is an Arabic conversation that can never be deflected.
+    const keys = [...new Set(articles.map((a) => a.key))];
+    for (const key of keys) {
+      expect(articles.filter((a) => a.key === key).map((a) => a.locale).sort()).toEqual(["ar", "en"]);
+    }
+    expect(articles.every((a) => a.status === "published")).toBe(true);
+    // Never embedded here: seeding holds no Vectorize binding, and a vectorId
+    // pointing at a vector that was never written is worse than none.
+    expect(articles.every((a) => a.vectorId === null)).toBe(true);
+  });
+
+  it("writes macros with wording in both languages", async () => {
+    await givenTenant();
+    await seedOpsConfig(db, TENANT, NOW);
+    const macros = await db.select().from(schema.orbitMacros);
+    for (const macro of macros) {
+      const body = JSON.parse(macro.bodyJson) as Record<string, string>;
+      expect(body.en?.length).toBeGreaterThan(0);
+      expect(body.ar?.length).toBeGreaterThan(0);
+    }
   });
 
   it("gives the orbit team the id the core team already has", async () => {

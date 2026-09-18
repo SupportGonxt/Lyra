@@ -6,6 +6,7 @@ import { sweepPolicyLifecycle } from "./engines/axis-lifecycle.js";
 import { sweepPremiumFinancing } from "./engines/premium-financing.js";
 import { sweepRenewals } from "./engines/renewals.js";
 import { sweepRouting } from "./engines/orbit-routing.js";
+import { advanceJourneyRuns } from "./engines/orbit-journeys.js";
 import { sweepBilling } from "./engines/billing.js";
 import { sweepConversationDrafts } from "./engines/orbit-draft.js";
 import { runSnapshotter } from "./engines/north-snapshotter.js";
@@ -207,6 +208,11 @@ export default {
             // agent went quiet, requeued — before anything else touches assignment
             // state this tick.
             await sweepRouting(ctx);
+            // docs/27 F30. Walks every journey run whose wait has elapsed, whose
+            // task has closed or whose quiet-hours deferral has lifted. After
+            // sweepRouting, because a `task` node raises a conversation this
+            // tick that the next tick's routing sweep should see.
+            await advanceJourneyRuns(ctx);
             await sweepBilling(ctx);
             await runBudgetAutopilot(ctx);
             // Acquisition outreach (engines/signal-outreach.ts): draft →

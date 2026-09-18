@@ -789,6 +789,54 @@ neither in a month.
 
 ---
 
+## ORBIT P1 re-verification, 2026-09-18
+
+Read of the ORBIT P1 block (F29–F32) as the code now stands, and what closing
+them took.
+
+- **F29 — closed, and was already closed before this round.**
+  `apps/api/src/engines/orbit-routing.ts` is the routing and queueing engine:
+  `pickRoute` and `pickAssignee` pure and table-tested, `routeConversation`
+  stamping the team, the assignee and both SLA clocks, `sweepRouting`
+  escalating an FRT breach and reassigning an absent agent's queue.
+  `orbit_conversations.teamId` is read by all four. The hardcoded `SLOW_MS`
+  badge threshold is gone; `PRESENCE_STALE_MS` and `orbit_sla_policies` are
+  what the timers read now. Nothing further was needed.
+- **F30 — closed.** `triggerJourney` wrote a run at `startNode()` and nothing
+  moved it, and nothing called `triggerJourney` either: a published journey
+  could not enrol anybody. `advanceJourneyRuns` (`orbit-journeys.ts`) executes
+  all four node types — `wait` parks on `nextAt`, `send` writes a transcript
+  turn and emits `orbit.journey.sent`, `branch` picks a `when`-labelled edge off
+  an allowlisted customer attribute or the run context, `task` raises a
+  conversation through `routeConversation` and waits for a human to close it.
+  Consent is re-checked at every send and quiet hours defer rather than drop.
+  The trigger half is `onJourneyEvent`, called from the outbox drain for every
+  event and matched against each journey's own `trigger` node (CLAUDE.md rule
+  6). Cron tick plus `POST /v1/orbit/journeys/sweep` and
+  `POST /v1/orbit/journeys/:id/trigger`.
+- **F31 — closed.** `ORBIT_TOOL_DEFS` now carries the eight tools
+  docs/modules/orbit.md §2.1 names. The five added: `send_document` (both
+  directions, one tool, because the doc registers one — a `collect` leaves an
+  `axis_tasks` chase row), `make_renewal_offer` (refuses a decided renewal),
+  `fnol_guidance` (writes nothing, reads its questions off `FnolBody` so the
+  script cannot drift from the intake contract), `book_callback` and
+  `human_handover` (both queue through `routeConversation`). The two that reach
+  a customer or a price gate before they write, under two new approval policies
+  `orbit.document_send` and `orbit.renewal_offer`.
+- **F32 — closed.** `orbit-kb.ts` is the article manager, the macro sender and
+  the deflection loop, with `orbit_kb_articles`, `orbit_macros` and
+  `orbit_deflections` behind them and three workspace tabs over those.
+  Retrieval is VEC_KB when the index is bound and a deterministic lexical score
+  when it is not, and every hit and every logged deflection carries `via` so a
+  retrieval-quality question is answerable. This is **VEC_KB's first reader** —
+  `routes/axis.ts:344` has embedded document text into it since the binding
+  existed with nothing ever querying it, which is F52's shape on the other
+  index — so the query filters on a `kind` metadata field, the index holding two
+  populations now. A miss is logged as loudly as a hit, because containment %
+  (§7) is a ratio and a log that kept only the wins would report 100% forever.
+
+---
+
 ## Suggested order
 
 All thirteen P0s are closed as of 2026-08-12. F2 and F3 went together, as

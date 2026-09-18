@@ -35,6 +35,30 @@ export const orbit: WorkspaceSpec = {
       "routing-rules": "Routing rules",
       "sla-policies": "SLA policies",
       "agent-presence": "Agent presence",
+      "kb-articles": "Knowledge base",
+      macros: "Canned replies",
+      deflections: "Self-service answers",
+
+      title: "Title",
+      body: "Answer",
+      "body.hint": "This is sent to the customer word for word, so write it as the answer and not as a note to a colleague.",
+      locale: "Language",
+      tagsJson: "Tags",
+      vectorId: "Search index id",
+      updatedBy: "Updated by",
+      bodyJson: "Wording",
+      "bodyJson.hint": "One wording per language, keyed en and ar. A conversation in a language with no wording falls back to English.",
+      category: "Category",
+      articleId: "Article",
+      usageCount: "Times used",
+      question: "Question asked",
+      outcome: "Outcome",
+      via: "Found by",
+      published: "Published",
+      deflected: "Answered",
+      escalated: "Passed to a person",
+      vector: "Meaning match",
+      lexical: "Word match",
 
       externalRef: "External reference",
       customerId: "Customer",
@@ -220,6 +244,30 @@ export const orbit: WorkspaceSpec = {
       "routing-rules": "قواعد التوجيه",
       "sla-policies": "سياسات مستوى الخدمة",
       "agent-presence": "حضور الوكلاء",
+      "kb-articles": "قاعدة المعرفة",
+      macros: "الردود الجاهزة",
+      deflections: "الإجابات الذاتية",
+
+      title: "العنوان",
+      body: "الإجابة",
+      "body.hint": "تُرسل هذه الإجابة إلى العميل كما هي، فاكتبها كإجابة لا كملاحظة لزميل.",
+      locale: "اللغة",
+      tagsJson: "الوسوم",
+      vectorId: "معرّف فهرس البحث",
+      updatedBy: "حدّثها",
+      bodyJson: "الصياغة",
+      "bodyJson.hint": "صياغة واحدة لكل لغة بمفتاحي en و ar. المحادثة بلغة لا صياغة لها تعود إلى الإنجليزية.",
+      category: "الفئة",
+      articleId: "المقالة",
+      usageCount: "مرات الاستخدام",
+      question: "السؤال المطروح",
+      outcome: "النتيجة",
+      via: "طريقة الإيجاد",
+      published: "منشورة",
+      deflected: "أُجيب عنه",
+      escalated: "أُحيل إلى موظف",
+      vector: "تطابق المعنى",
+      lexical: "تطابق الكلمات",
 
       externalRef: "المرجع الخارجي",
       customerId: "العميل",
@@ -806,6 +854,84 @@ export const orbit: WorkspaceSpec = {
       editable: [
         { name: "frtMinutes", type: "number", hintKey: "frtMinutes.hint" },
         { name: "resolutionMinutes", type: "number" }
+      ]
+    },
+    // docs/27 F32. The article manager, the canned replies built from it, and
+    // the log of whether either answered the customer. `status` is not editable
+    // here by design: publishing is what embeds an article, and it happens at
+    // POST /v1/orbit/kb/articles/:id/publish, not through a PATCH that would
+    // publish something no search index has heard of.
+    {
+      key: "kb-articles",
+      api: "/v1/orbit/kb-articles",
+      read: "orbit:kb:read",
+      create: "orbit:kb:write",
+      update: "orbit:kb:write",
+      remove: "orbit:kb:write",
+      filters: [
+        { name: "status", options: ["draft", "published", "retired"] },
+        { name: "locale", options: ["en", "ar"] }
+      ],
+      columns: [
+        { name: "key", type: "text" },
+        { name: "title", type: "text" },
+        { name: "locale", type: "text" },
+        { name: "status", type: "text", badge: true },
+        { name: "updatedAt", type: "datetime", sortable: true }
+      ],
+      fields: [
+        { name: "key", type: "text", required: true },
+        { name: "locale", type: "select", options: ["en", "ar"], required: true },
+        { name: "title", type: "text", required: true },
+        { name: "body", type: "textarea", required: true, hintKey: "body.hint" },
+        { name: "tagsJson", type: "json" }
+      ],
+      editable: [
+        { name: "title", type: "text" },
+        { name: "body", type: "textarea", hintKey: "body.hint" },
+        { name: "tagsJson", type: "json" }
+      ]
+    },
+    {
+      key: "macros",
+      api: "/v1/orbit/macros",
+      read: "orbit:macros:read",
+      create: "orbit:macros:write",
+      update: "orbit:macros:write",
+      remove: "orbit:macros:write",
+      filters: [{ name: "status", options: ["active", "disabled"] }],
+      columns: [
+        { name: "key", type: "text" },
+        { name: "nameJson", type: "json" },
+        { name: "category", type: "text" },
+        { name: "usageCount", type: "number", sortable: true },
+        { name: "status", type: "text", badge: true }
+      ],
+      fields: [
+        { name: "key", type: "text", required: true },
+        { name: "nameJson", type: "json", required: true },
+        { name: "bodyJson", type: "json", required: true, hintKey: "bodyJson.hint" },
+        { name: "category", type: "text" }
+      ],
+      editable: [
+        { name: "nameJson", type: "json" },
+        { name: "bodyJson", type: "json", hintKey: "bodyJson.hint" },
+        { name: "category", type: "text" },
+        { name: "status", type: "select", options: ["active", "disabled"] }
+      ]
+    },
+    {
+      key: "deflections",
+      api: "/v1/orbit/deflections",
+      read: "orbit:conversations:read",
+      sort: "-ts",
+      filters: [{ name: "outcome", options: ["deflected", "escalated"] }],
+      columns: [
+        { name: "question", type: "text" },
+        { name: "outcome", type: "text", badge: true },
+        { name: "score", type: "number", sortable: true },
+        { name: "via", type: "text" },
+        { name: "ts", type: "datetime", sortable: true }
       ]
     },
     {

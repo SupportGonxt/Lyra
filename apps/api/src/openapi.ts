@@ -341,6 +341,12 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/orbit/renewals/sweep", summary: "Force the renewal sweep now (also runs on the scheduled tick)", permission: "orbit:renewals:update", tag: "orbit" },
   { method: "post", path: "/v1/orbit/routing/sweep", summary: "Force the routing sweep now — SLA breach escalation and absence reassignment (also runs on the scheduled tick)", permission: "orbit:conversations:assign", tag: "orbit" },
   { method: "post", path: "/v1/orbit/drafts/sweep", summary: "Force the AI reply-draft sweep now — drafts a pending agent_ai reply for every conversation waiting on us (also runs on the scheduled tick)", permission: "orbit:ai:invoke", tag: "orbit" },
+  { method: "post", path: "/v1/orbit/kb/search", summary: "What the knowledge base has on a question, best answer first (POST so a customer's own words stay out of access logs)", permission: "orbit:kb:read", tag: "orbit", requestBody: true },
+  { method: "post", path: "/v1/orbit/kb/articles/{id}/publish", summary: "Publish a knowledge-base article and embed it — the act that makes it answerable to a customer", permission: "orbit:kb:publish", tag: "orbit" },
+  { method: "post", path: "/v1/orbit/conversations/{id}/deflect", summary: "Try to answer this conversation's question from the knowledge base; the result says whether it did", permission: "orbit:ai:invoke", tag: "orbit", requestBody: true },
+  { method: "post", path: "/v1/orbit/conversations/{id}/macro", summary: "Send a canned reply into the conversation, in the language the conversation is in", permission: "orbit:conversations:reply", tag: "orbit", requestBody: true },
+  { method: "post", path: "/v1/orbit/journeys/sweep", summary: "Force the journey advance step now — elapsed waits, closed tasks and lifted quiet-hours deferrals (also runs on the scheduled tick)", permission: "orbit:journeys:publish", tag: "orbit" },
+  { method: "post", path: "/v1/orbit/journeys/{id}/trigger", summary: "Enrol a cohort in a journey by hand; the normal path is the event bus", permission: "orbit:journeys:publish", tag: "orbit", requestBody: true },
   { method: "post", path: "/v1/orbit/partners/{id}/quotes", summary: "Request a partner pricing quote (sandbox partners get clearly-marked synthetic pricing)", permission: "orbit:partners:read", tag: "orbit", requestBody: true },
   // Staff read the hosted-page link so they can send it; gated on the same read
   // permission as the row it points at, because a link is as sensitive as the row.

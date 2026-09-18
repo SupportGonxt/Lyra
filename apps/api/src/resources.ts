@@ -603,6 +603,15 @@ export const ORBIT = register(
   r("team-members", schema.orbitTeamMembers, "tmm", "orbit", rw("orbit:teams")),
   r("sla-policies", schema.orbitSlaPolicies, "slp", "orbit", rw("orbit:teams")),
   r("routing-rules", schema.orbitRoutingRules, "rr", "orbit", rw("orbit:teams")),
+  // docs/27 F32. The article manager is CRUD plus one endpoint: `status` is
+  // deliberately absent from every editable list here, because publishing is
+  // what embeds an article — a PATCH that set it would publish something no
+  // index has heard of. `POST /v1/orbit/kb/articles/:id/publish` is the door.
+  r("kb-articles", schema.orbitKbArticles, "kba", "orbit", rw("orbit:kb"), { searchable: ["title", "body"] }),
+  r("macros", schema.orbitMacros, "mac", "orbit", rw("orbit:macros")),
+  // Written by the deflection engine only: a hand-written row would be a claim
+  // about containment nobody made.
+  r("deflections", schema.orbitDeflections, "dfl", "orbit", ro("orbit:conversations:read")),
   // ponytail: any agent may write any presence row, as leads legitimately mark
   // a colleague away. Narrow to self-or-lead if that is ever abused.
   r("agent-presence", schema.orbitAgentPresence, "ap", "orbit", {

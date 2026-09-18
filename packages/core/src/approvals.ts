@@ -178,6 +178,13 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     // checked separately at runtime; the approval covers the *act of sending*,
     // not the permission to.
     policy({ key: "signal.outreach_send", module: "signal", decide: "signal:outreach:send", dualControl: "never" }),
+    // retention & service. Both are ORBIT agent tools (engines/orbit-tools.ts)
+    // and both reach a customer, so both gate: a renewal offer carries a price,
+    // and a document send is an outbound message to a person. Same shape as
+    // signal.outreach_send — the approval covers the act of sending, not the
+    // permission to; consent and quiet hours are separate runtime floors.
+    policy({ key: "orbit.renewal_offer", module: "orbit", decide: "orbit:renewals:approve", dualControl: "never" }),
+    policy({ key: "orbit.document_send", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" }),
     // docs/modules/scout.md §4: "whitespace approvals (promote/park)" — a
     // product-strategy decision, same shape as dist.offering_publish.
     policy({ key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" }),
