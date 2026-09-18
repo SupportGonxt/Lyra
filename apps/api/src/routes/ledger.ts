@@ -10,6 +10,7 @@ import {
   TXN_TYPES,
   accountStatement,
   agedBalances,
+  agedOpenItems,
   balanceOf,
   balanceSheet,
   buildRecipe,
@@ -334,6 +335,29 @@ function agedOpts(q: Query): { accountCodes?: string[]; asOf?: number } {
   };
 }
 
+/**
+ * docs/27 F15. `?kind=payable` is the side that did not exist; `receivable` is
+ * the default because that is what the screen asked for before. `?legacy=1`
+ * still reaches the line-by-posting-date report — kept for one release so a
+ * controller can compare the two, and named `legacy` so nobody mistakes it for
+ * a second opinion.
+ */
+function agedItemOpts(q: Query): {
+  kind: "receivable" | "payable";
+  accountCodes?: string[];
+  asOf?: number;
+  currency?: string;
+} {
+  const codes = q("accounts")?.split(",").filter(Boolean);
+  const at = asOf(q);
+  return {
+    kind: q("kind") === "payable" ? "payable" : "receivable",
+    ...(codes?.length ? { accountCodes: codes } : {}),
+    ...(at !== undefined ? { asOf: at } : {}),
+    ...(q("currency") ? { currency: q("currency") as string } : {})
+  };
+}
+
 ledgerRoutes.get("/reports/trial-balance", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
@@ -358,7 +382,9 @@ ledgerRoutes.get("/reports/balance-sheet", async (c) => {
 ledgerRoutes.get("/reports/aged", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
-  return c.json({ data: await agedBalances(ctx, agedOpts(qOf(c))) });
+  const q = qOf(c);
+  if (q("legacy") === "1") return c.json({ data: await agedBalances(ctx, agedOpts(q)) });
+  return c.json({ data: await agedOpenItems(ctx, agedItemOpts(q)) });
 });
 
 ledgerRoutes.get("/reports/commission", async (c) => {
@@ -530,14 +556,14 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
   aged: {
     permission: "ledger:journals:read",
     build: async (ctx, q) => {
-      const rows = await agedBalances(ctx, agedOpts(q));
+      const rows = await agedOpenItems(ctx, agedItemOpts(q));
       return {
         table: {
-          title: "Aged analysis",
+          title: agedItemOpts(q).kind === "payable" ? "Aged payables" : "Aged receivables",
           columns: [
             text("counterparty", "Counterparty"),
             text("currency", "Currency"),
-            money("currentMinor", "0-30 days"),
+            money("currentMinor", "Not yet due / 0-30 days"),
             money("d30Minor", "31-60 days"),
             money("d60Minor", "61-90 days"),
             money("d90Minor", "91-120 days"),

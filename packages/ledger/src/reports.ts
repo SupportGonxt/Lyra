@@ -471,8 +471,13 @@ export interface AgedRow {
 const DAY = 86_400_000;
 
 /**
- * Ageing by the `counterparty` dimension stamped on each line. Receivable
- * accounts default to the three we actually invoice against.
+ * Ageing by the `counterparty` dimension stamped on each line.
+ *
+ * @deprecated docs/27 F15 — this ages *lines by posting date*, so a settled
+ * invoice never leaves the report and a 90-day term reads as 90 days overdue.
+ * `agedOpenItems` replaces it and is what `/v1/ledger/reports/aged` serves;
+ * this stays reachable behind `?legacy=1` for one release so a controller can
+ * compare the two, and for no other reason.
  */
 export async function agedBalances(
   ctx: Ctx,
@@ -522,6 +527,192 @@ export async function agedBalances(
     buckets.set(k, row);
   }
   return [...buckets.values()].filter((r) => r.totalMinor !== 0).sort((a, b) => b.totalMinor - a.totalMinor);
+}
+
+/* ------------------------------------------------- open-item aging (F15) */
+
+/** What a customer, insurer or financier owes us. */
+export const RECEIVABLE_AGING_ACCOUNTS = ["1100", "1150", "1155", "1160", "1200"] as const;
+/** What we owe an insurer, channel, creator, supplier or the tax authority. */
+export const PAYABLE_AGING_ACCOUNTS = ["2000", "2100", "2150", "2200", "2250", "2400"] as const;
+
+export interface OpenItem {
+  /** The item's own reference: an invoice number, a policy id, a settlement run. */
+  ref: string;
+  accountCode: string;
+  /** Still outstanding, always positive whichever side of the ledger it is. */
+  openMinor: number;
+  raisedAt: number;
+  dueAt: number;
+  daysOverdue: number;
+}
+
+export interface AgedOpenItemRow {
+  counterparty: string;
+  currency: string;
+  kind: "receivable" | "payable";
+  currentMinor: number;
+  d30Minor: number;
+  d60Minor: number;
+  d90Minor: number;
+  olderMinor: number;
+  totalMinor: number;
+  items: OpenItem[];
+}
+
+/** `dims.item` is the open-item key; everything else is a fallback for old rows. */
+function itemRef(dims: Record<string, unknown>, txnId: string): string {
+  for (const k of ["item", "invoice", "policy", "settlement"]) {
+    const v = dims[k];
+    if (typeof v === "string" && v) return v;
+  }
+  // An unkeyed line is its own item. That is correct rather than convenient: two
+  // lines nobody related can only be netted by guessing, and a guess here is a
+  // debt that silently disappears from the report.
+  return txnId;
+}
+
+function counterpartyRef(dims: Record<string, unknown>): string {
+  for (const k of ["counterparty", "provider", "partner", "channel", "customer"]) {
+    const v = dims[k];
+    if (typeof v === "string" && v) return v;
+  }
+  return "unattributed";
+}
+
+/**
+ * docs/27 F15. Three faults in one report, and they are worth naming separately
+ * because the fix for each is different.
+ *
+ * **It aged lines.** A receivable raised in January and settled in February was
+ * two lines in two buckets; nothing netted them, so a fully-paid item stayed on
+ * the report forever and the totals were gross, not open. Here the unit is the
+ * *item* — lines grouped by `dims.item` — and an item that nets to zero is
+ * simply not open.
+ *
+ * **It aged by posting date.** That is when we invoiced, not when they owe. The
+ * bucket is now measured from `dims.dueAt`, falling back to the date the item
+ * was raised — a debt with no terms on file is due on demand. It deliberately
+ * does *not* fall back to "today", which would report every unpaid item as
+ * current: the friendly lie an aging report exists to prevent.
+ *
+ * **It had no payables side.** `kind: "payable"` reads the liability accounts
+ * and flips the sign, so "what do we owe and how late are we" has an answer.
+ * The two account sets are disjoint by construction (there is a test), so
+ * nothing is counted on both sides.
+ */
+export async function agedOpenItems(
+  ctx: Ctx,
+  opts: {
+    kind?: "receivable" | "payable";
+    accountCodes?: readonly string[];
+    asOf?: number;
+    currency?: string;
+    /** Items whose open balance is below this are noise; default 0 keeps all. */
+    minOpenMinor?: number;
+  } = {}
+): Promise<AgedOpenItemRow[]> {
+  const asOf = opts.asOf ?? ctx.now;
+  const kind = opts.kind ?? "receivable";
+  const codes = opts.accountCodes ?? (kind === "receivable" ? RECEIVABLE_AGING_ACCOUNTS : PAYABLE_AGING_ACCOUNTS);
+  // The side that *increases* the balance: a receivable grows on a debit, a
+  // payable on a credit. Everything on the other side reduces the item.
+  const openingSide = kind === "receivable" ? "debit" : "credit";
+
+  const l = schema.ledgerJournalLines;
+  const where = [
+    eq(l.tenantId, ctx.tenantId),
+    lte(l.postedAt, asOf),
+    sql`${l.accountCode} in (${sql.join(codes.map((c) => sql`${c}`), sql`,`)})`
+  ];
+  if (opts.currency) where.push(eq(l.currency, opts.currency));
+
+  const rows = await ctx.db
+    .select()
+    .from(l)
+    .where(and(...where))
+    .orderBy(asc(l.postedAt))
+    .limit(50_000);
+
+  interface Acc {
+    ref: string;
+    accountCode: string;
+    counterparty: string;
+    currency: string;
+    openMinor: number;
+    raisedAt: number;
+    dueAt: number | null;
+  }
+  const items = new Map<string, Acc>();
+  for (const r of rows) {
+    const dims = r.dimsJson ? (JSON.parse(r.dimsJson) as Record<string, unknown>) : {};
+    const ref = itemRef(dims, r.txnId);
+    const counterparty = counterpartyRef(dims);
+    const key = `${r.accountCode}|${r.currency}|${counterparty}|${ref}`;
+    const acc =
+      items.get(key) ??
+      ({
+        ref,
+        accountCode: r.accountCode,
+        counterparty,
+        currency: r.currency,
+        openMinor: 0,
+        raisedAt: r.postedAt,
+        dueAt: null
+      } satisfies Acc);
+    acc.openMinor += r.side === openingSide ? r.amountMinor : -r.amountMinor;
+    // The opening leg is what carries the terms and what the item was raised on.
+    if (r.side === openingSide) {
+      acc.raisedAt = Math.min(acc.raisedAt, r.postedAt);
+      const due = dims["dueAt"];
+      if (typeof due === "number" && Number.isFinite(due)) acc.dueAt = acc.dueAt === null ? due : Math.min(acc.dueAt, due);
+    }
+    items.set(key, acc);
+  }
+
+  const floor = opts.minOpenMinor ?? 0;
+  const byCounterparty = new Map<string, AgedOpenItemRow>();
+  for (const acc of items.values()) {
+    if (acc.openMinor <= floor) continue;
+    const dueAt = acc.dueAt ?? acc.raisedAt;
+    // Never negative: an item that is not due yet is zero days overdue, not
+    // minus thirty. A negative age would sort a future debt above a late one.
+    const daysOverdue = Math.max(0, Math.floor((asOf - dueAt) / DAY));
+    const k = `${acc.counterparty}|${acc.currency}`;
+    const row =
+      byCounterparty.get(k) ??
+      ({
+        counterparty: acc.counterparty,
+        currency: acc.currency,
+        kind,
+        currentMinor: 0,
+        d30Minor: 0,
+        d60Minor: 0,
+        d90Minor: 0,
+        olderMinor: 0,
+        totalMinor: 0,
+        items: []
+      } satisfies AgedOpenItemRow);
+    if (daysOverdue <= 30) row.currentMinor += acc.openMinor;
+    else if (daysOverdue <= 60) row.d30Minor += acc.openMinor;
+    else if (daysOverdue <= 90) row.d60Minor += acc.openMinor;
+    else if (daysOverdue <= 120) row.d90Minor += acc.openMinor;
+    else row.olderMinor += acc.openMinor;
+    row.totalMinor += acc.openMinor;
+    row.items.push({
+      ref: acc.ref,
+      accountCode: acc.accountCode,
+      openMinor: acc.openMinor,
+      raisedAt: acc.raisedAt,
+      dueAt,
+      daysOverdue
+    });
+    byCounterparty.set(k, row);
+  }
+
+  const out = [...byCounterparty.values()];
+  for (const row of out) row.items.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  return out.sort((a, b) => b.totalMinor - a.totalMinor);
 }
 
 export interface CommissionByDimension {

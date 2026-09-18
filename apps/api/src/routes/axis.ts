@@ -736,7 +736,17 @@ async function bindPolicy(
           gwpMinor: policy.grossMinor,
           grossMinor: policy.commissionMinor,
           channelMinor,
-          dims: { policy: policy.id, provider: policy.providerId }
+          // docs/27 F15: `item` is the open-item key the aging report groups on
+          // and `dueAt` is what it ages from. Premium is due at inception unless
+          // a payment plan says otherwise, and a plan restates both on its own
+          // instalment legs.
+          dims: {
+            item: `policy:${policy.id}`,
+            dueAt: policy.startAt,
+            policy: policy.id,
+            provider: policy.providerId,
+            counterparty: `provider:${policy.providerId}`
+          }
         }),
         currency: policy.currency
       },

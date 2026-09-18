@@ -33,7 +33,13 @@ export async function bindGroup(
           gwpMinor: policy.grossMinor,
           grossMinor: policy.commissionMinor,
           channelMinor,
-          dims: { policy: policy.id, provider: policy.providerId }
+          dims: {
+            item: `policy:${policy.id}`,
+            dueAt: policy.startAt,
+            policy: policy.id,
+            provider: policy.providerId,
+            counterparty: `provider:${policy.providerId}`
+          }
         }),
         currency: policy.currency
       },
