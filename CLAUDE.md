@@ -625,6 +625,17 @@ an English session. `SWEEP_BASE` picks the environment; false positives are
 permission scopes, curl examples, bilingual-by-design screens, labels like
 "Locale: ar", Arabic customer messages in seeded ORBIT threads.
 
+The full false-positive set, from an 18-seat run on 2026-09-18 — 25 flags, all
+seven of these, nothing else. Every one is a technical identifier a screen shows
+on purpose, in a column whose header says so, and the check trips on them because
+a module name is also an i18n namespace: `north.exec` and `north.admin` are role
+keys (a saved dashboard's `rolesJson`, the permission grid); `axis.bind` a txn
+type on the ledger transactions screen; `ledger.txns` a saved-query key
+(`ledger.txns-by-state`) and a saved view's `route`; `north.metrics.read` an
+agent tool name on the AI console; `north.alert.triggered` and
+`signal.budget.moved` event-envelope `type` fields on dev screens. The last two
+of those seven appear only since `/analytics` became a swept route.
+
 76 of those 86 came from the literals in `routes.ts`; the other ten are the
 **workspace landing pages**, which the generic `:module` catch-all serves and no
 literal declares, so the sweep reported "77 routes, 0 unswept" having never
