@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkInput, checkOutput, blocked } from "../src/guardrails.js";
 import { fallbackChain } from "../src/models.js";
+import { MAX_ROUNDS, MAX_TOOL_ROUNDS, offersTools, planRound, verdictFor } from "../src/agent-loop.js";
 import { EXTRACTION_FIELDS, normalizeField, parseExtraction, parseVisionExtraction } from "../src/extract.js";
 import { parseTriage } from "../src/triage.js";
 import { parseReserve } from "../src/reserve.js";
@@ -165,6 +166,126 @@ async function scoreArabicGuardrails(dir: string): Promise<Metric[]> {
       "ruleMatchRate",
       ruleCases.length ? ruleCases.filter((r) => r.hits.some((h) => h.rule === r.case.expectRule)).length / ruleCases.length : 1,
       { min: thresholds.ruleMatchMin }
+    )
+  ];
+}
+
+interface LoopCase {
+  id: string;
+  kind: "loop";
+  note: string;
+  /** What the model asks for in each round, in order. */
+  script: string[][];
+  /**
+   * A provider that returns tool calls in a round it was offered no tools for.
+   * Rare, real, and the only way `planRound`'s halt branch is reached — the
+   * executor's allowlist re-check (orbit-tools.ts) exists for the same reason.
+   */
+  echoesUnofferedTools?: boolean;
+  expectModelRounds: number;
+  expectExecuted: string[];
+  expectHalted: boolean;
+}
+
+interface GateCase {
+  id: string;
+  kind: "gate";
+  note: string;
+  tool: string;
+  consequential: boolean;
+  executed: { outcome: "ok" | "error" | "awaiting_approval"; approvalId: string | null; gateObserved?: boolean };
+  expectVerdict: string;
+}
+
+interface AgentLoopThresholds {
+  loopAccuracyMin: number;
+  toolRoundsMin: number;
+  gateAccuracyMin: number;
+  ungatedConsequentialMax: number;
+}
+
+/**
+ * docs/27 F33 + F38. The agent loop was one tool round-trip: a completion, its
+ * tool calls executed, then a second completion offered no tools at all. The
+ * model could look a policy up and never act on what it read, and every
+ * transcript that needed a second dependent step was silently truncated. In the
+ * same loop, `consequential: true` was written to `ai_tool_calls` and branched
+ * on by nothing.
+ *
+ * Both are decisions, not model outputs, so the golden set drives them directly
+ * (`planRound`, `verdictFor` in src/agent-loop.ts). Scoring them here rather
+ * than only in an API unit test is the point: an API test mocks the gateway and
+ * the database, which is precisely how a loop that could not loop and a flag
+ * that gated nothing both stayed green.
+ *
+ * `toolRounds` is the metric that fails against the old shape and cannot be
+ * satisfied by a transcript that happens to fit in one round — it reads the
+ * loop's own ceiling.
+ */
+async function scoreAgentLoop(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<LoopCase | GateCase>(dir);
+  const thresholds = await loadThresholds<AgentLoopThresholds>(dir);
+
+  const loops = cases.filter((c): c is LoopCase => c.kind === "loop");
+  const gates = cases.filter((c): c is GateCase => c.kind === "gate");
+
+  let loopHits = 0;
+  for (const c of loops) {
+    const executed: string[] = [];
+    let round = 0;
+    let halted = false;
+    for (;;) {
+      // The loop only ever sees tool calls it offered tools for.
+      const asked = offersTools(round) || c.echoesUnofferedTools ? (c.script[round] ?? []) : [];
+      const step = planRound({ round, toolCalls: asked.map((name) => ({ name })) });
+      round += 1;
+      if (step.action === "answer") break;
+      if (step.action === "halt") {
+        halted = true;
+        break;
+      }
+      executed.push(...asked);
+      if (round >= MAX_ROUNDS) {
+        halted = true;
+        break;
+      }
+    }
+    const ok =
+      round === c.expectModelRounds &&
+      halted === c.expectHalted &&
+      JSON.stringify(executed) === JSON.stringify(c.expectExecuted);
+    if (ok) loopHits += 1;
+    else
+      console.log(
+        `    ${c.id}: rounds ${round}/${c.expectModelRounds} halted ${halted}/${c.expectHalted} executed [${executed.join(", ")}] want [${c.expectExecuted.join(", ")}]`
+      );
+  }
+
+  const verdicts = gates.map((c) => ({
+    case: c,
+    verdict: verdictFor({ consequential: c.consequential }, c.executed)
+  }));
+  for (const v of verdicts) {
+    if (v.verdict !== v.case.expectVerdict) console.log(`    ${v.case.id}: ${v.verdict} want ${v.case.expectVerdict}`);
+  }
+
+  return [
+    metric("loopAccuracy", loops.length ? loopHits / loops.length : 1, { min: thresholds.loopAccuracyMin }),
+    metric("toolRounds", MAX_TOOL_ROUNDS, { min: thresholds.toolRoundsMin }),
+    metric(
+      "gateAccuracy",
+      verdicts.length ? verdicts.filter((v) => v.verdict === v.case.expectVerdict).length / verdicts.length : 1,
+      { min: thresholds.gateAccuracyMin }
+    ),
+    metric(
+      "ungatedConsequentialEscapes",
+      // Counted separately from gateAccuracy because it is the only direction
+      // that lets a contract change unnoticed: mistaking a gated call for an
+      // ungated one is a false alarm someone will chase, while the reverse is
+      // an endorsement the tenant never agreed to.
+      verdicts.filter((v) => v.case.expectVerdict === "ungated_consequential" && v.verdict !== "ungated_consequential")
+        .length,
+      { max: thresholds.ungatedConsequentialMax }
     )
   ];
 }
@@ -1119,6 +1240,7 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   "creative-image": scoreInjection,
   compliance: scoreCompliance,
   "provider-fallback": scoreProviderFallback,
+  "agent-loop": scoreAgentLoop,
   "guardrails-ar": scoreArabicGuardrails,
   axis: scoreAxis,
   "axis-vision": scoreAxisVision,

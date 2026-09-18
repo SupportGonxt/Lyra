@@ -14,7 +14,17 @@ import {
   MODULES,
   type Ctx
 } from "@lyra/core";
-import { AI_KILL_SWITCH, checkBudget, isKnownPurpose, setLimits, type Message } from "@lyra/model-gateway";
+import {
+  AI_KILL_SWITCH,
+  checkBudget,
+  isKnownPurpose,
+  offersTools,
+  planRound,
+  setLimits,
+  type Gateway,
+  type Message,
+  type ToolCall
+} from "@lyra/model-gateway";
 import { body, intParam, MAX_INSTANT_MS } from "../http.js";
 import { executeOrbitToolCalls, orbitToolsFor } from "../engines/orbit-tools.js";
 import { embedQuery } from "../engines/vectorize.js";
@@ -116,55 +126,65 @@ aiRoutes.post("/runs", async (c) => {
       }
     ];
 
-    // Tool calling is scoped to ORBIT for now — the registry only knows ORBIT's
-    // tools (apps/api/src/engines/orbit-tools.ts). Other modules get no `tools`
-    // field, same behaviour as before this wiring existed.
-    const first = await c.get("gateway").complete(ctx, {
-      module: agent.module,
-      purpose: input.purpose,
-      tier: agent.tier as "fast" | "standard" | "reasoning",
-      ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
-      ...(input.locale !== undefined ? { locale: input.locale } : {}),
-      ...(agent.module === "orbit" ? { tools: orbitToolsFor(agent) } : {}),
-      messages
-    });
+    // docs/27 F33. This was two calls: one with tools, then — if the model
+    // asked for any — a second with none. A model could look a policy up and
+    // never act on what it read, because the only turn in which it could act
+    // was the one it had already spent, and every transcript needing a second
+    // dependent step was silently truncated into a summary of step one.
+    //
+    // It is now a real loop, bounded by the same `MAX_ROUNDS`/`offersTools`
+    // rule the command loop uses (packages/model-gateway/src/agent-loop.ts,
+    // evals/agent-loop). Each round is its own `gateway.complete`, so every one
+    // is separately budgeted, scrubbed, guardrailed and audited — there is no
+    // "loop call" that escapes the front door.
+    const tools = agent.module === "orbit" ? orbitToolsFor(agent) : [];
+    const allowed = new Set(tools.map((t) => t.name));
+    const turns: Message[] = [...messages];
+    const usage = { tokensIn: 0, tokensOut: 0, costMicro: 0 };
+    let latencyMs = 0;
+    let toolSeq = 0;
+    const askedFor: ToolCall[] = [];
 
-    // The model asked for real work: execute each call through the registry
-    // (approval gate included — CLAUDE.md rule 4), then let the model react to
-    // what actually happened, via a second, separately audited completion.
-    const final =
-      agent.module === "orbit" && first.toolCalls.length
-        ? await c.get("gateway").complete(ctx, {
-            module: agent.module,
-            purpose: input.purpose,
-            tier: agent.tier as "fast" | "standard" | "reasoning",
-            ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
-            ...(input.locale !== undefined ? { locale: input.locale } : {}),
-            messages: [
-              ...messages,
-              { role: "assistant", content: first.text },
-              ...(await executeOrbitToolCalls(
-                ctx,
-                runId,
-                first.toolCalls,
-                new Set(orbitToolsFor(agent).map((t) => t.name))
-              ))
-            ]
-          })
-        : first;
+    const round = async (seq: number): Promise<Awaited<ReturnType<Gateway["complete"]>>> => {
+      const res = await c.get("gateway").complete(ctx, {
+        module: agent.module,
+        purpose: input.purpose,
+        tier: agent.tier as "fast" | "standard" | "reasoning",
+        ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
+        ...(input.locale !== undefined ? { locale: input.locale } : {}),
+        ...(tools.length && offersTools(seq) ? { tools } : {}),
+        messages: turns
+      });
+      usage.tokensIn += res.usage.tokensIn;
+      usage.tokensOut += res.usage.tokensOut;
+      usage.costMicro += res.usage.costMicro;
+      latencyMs += res.latencyMs;
+      return res;
+    };
+
+    let seq = 0;
+    let final = await round(seq);
+    for (;;) {
+      // A module with no registry (everything but ORBIT today) never loops: a
+      // tool call echoed back by a model that was offered none is nothing this
+      // route can execute, and looping on it would spend the tenant's budget
+      // re-asking the same question.
+      const step = tools.length ? planRound({ round: seq, toolCalls: final.toolCalls }) : ({ action: "answer" } as const);
+      if (step.action !== "execute") break;
+      askedFor.push(...final.toolCalls);
+      // The registry executes, records one `ai_tool_calls` row per call and
+      // gates the consequential ones (CLAUDE.md rule 4). `seq` continues across
+      // rounds so the run's tool sequence stays a sequence.
+      const results = await executeOrbitToolCalls(ctx, runId, final.toolCalls, allowed, toolSeq);
+      toolSeq += final.toolCalls.length;
+      turns.push({ role: "assistant", content: final.text }, ...results);
+      seq += 1;
+      final = await round(seq);
+    }
 
     // A refusal is a successful run with a refusal outcome, not an error. The
     // operator needs to see that the guardrail fired, not a 500.
     const refused = final.finishReason === "refusal";
-    const usage =
-      final === first
-        ? final.usage
-        : {
-            tokensIn: first.usage.tokensIn + final.usage.tokensIn,
-            tokensOut: first.usage.tokensOut + final.usage.tokensOut,
-            costMicro: first.usage.costMicro + final.usage.costMicro
-          };
-    const latencyMs = final === first ? final.latencyMs : first.latencyMs + final.latencyMs;
 
     await ctx.db
       .update(schema.aiRuns)
@@ -185,7 +205,10 @@ aiRoutes.post("/runs", async (c) => {
       {
         runId,
         text: final.text,
-        toolCalls: first.toolCalls,
+        // Every tool the run asked for across every round, not only the first
+        // round's — the response used to report `first.toolCalls` because that
+        // was all a two-call path could have.
+        toolCalls: askedFor,
         model: final.model,
         provider: final.provider,
         tier: final.tier,
