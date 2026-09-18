@@ -4,6 +4,7 @@ import {
   CHART_OF_ACCOUNTS,
   EntitlementsJson,
   PolicyJson,
+  TAX_RULEPACK,
   id,
   schema
 } from "@lyra/db";
@@ -291,6 +292,12 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       createdAt: now
     });
   }
+
+  /* --------------------------------------------- tax rulepack (F17) */
+  // docs/19 §5.3. Without these rows every commission accrual is refused, so
+  // the rulepack is provisioned beside the chart of accounts rather than left
+  // to a settings screen nobody would find before the first bind.
+  await syncTaxRules(db, tenantId, { now });
 
   /* ------------------------------------------------------------ panel */
   const providers = {
@@ -2399,6 +2406,55 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
       createdAt: now
     });
     added.push(acc.code);
+  }
+  return added;
+}
+
+/**
+ * docs/27 F17. The market tax rulepack has exactly the staleness sighting 9
+ * describes: `TAX_RULEPACK` is a compiled table read at provisioning time, so a
+ * market or code added to it afterwards never reaches a tenant that already
+ * exists — and since `taxTreatment` now *refuses* a supply it has no rule for,
+ * that staleness is a 400 on every bind rather than a quietly wrong figure.
+ *
+ * Idempotent by (market, code): an existing row is left entirely alone, because
+ * a tenant that has restated a rate has restated it deliberately. Returns the
+ * `market/code` pairs it added, so a repeat run answers with an empty list.
+ */
+export async function syncTaxRules(
+  db: CoreDb,
+  tenantId: string,
+  opts: { now?: number } = {}
+): Promise<string[]> {
+  const now = opts.now ?? Date.now();
+  const existing = new Set(
+    (
+      await db
+        .select({ market: schema.ledgerTaxRules.market, code: schema.ledgerTaxRules.code })
+        .from(schema.ledgerTaxRules)
+        .where(eq(schema.ledgerTaxRules.tenantId, tenantId))
+    ).map((r) => `${r.market}/${r.code}`)
+  );
+  const added: string[] = [];
+  for (const rule of TAX_RULEPACK) {
+    const key = `${rule.market}/${rule.code}`;
+    if (existing.has(key)) continue;
+    await db.insert(schema.ledgerTaxRules).values({
+      id: id("tax", now + added.length),
+      tenantId,
+      market: rule.market,
+      code: rule.code,
+      ratePpm: rule.ratePpm,
+      placeOfSupply: rule.placeOfSupply ?? null,
+      reverseCharge: rule.reverseCharge ?? false,
+      exempt: rule.exempt ?? false,
+      // Open-ended from the epoch: a tenant migrating history must be able to
+      // re-derive the rate that applied to a back-dated sale, and a rulepack
+      // that started today would refuse every one of them.
+      effectiveFrom: 0,
+      effectiveTo: null
+    });
+    added.push(key);
   }
   return added;
 }

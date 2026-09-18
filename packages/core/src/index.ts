@@ -14,6 +14,7 @@ export * from "./onboarding-templates.js";
 export * from "./pii.js";
 export * from "./idempotency.js";
 export * from "./commission.js";
+export * from "./tax.js";
 export * from "./k-anonymity.js";
 export * from "./lens.js";
 export * from "./momentum.js";

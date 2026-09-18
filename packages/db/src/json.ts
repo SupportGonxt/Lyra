@@ -89,6 +89,11 @@ export const PolicyJson = z.object({
   // and the settings panel, which refuses one on the way in).
   timezone: z.string().optional(),
   currency: z.string().length(3).default("AED"),
+  // ADR-0075 / docs/29: the tax jurisdiction a tenant's supplies are made in.
+  // docs/19 §5.3 forbids inferring tax, and a rate cannot be looked up without
+  // a market — this is the dimension that was missing, so the lookup key is a
+  // tenant's own stated establishment rather than a guess from its currency.
+  taxMarket: z.string().min(2).max(8).default("AE"),
   // docs/modules/signal.md §8: "one-click global pause" for budget autopilot —
   // a tenant-wide kill switch, distinct from a single campaign's own
   // state=paused (packages/db/schema/signal.ts).

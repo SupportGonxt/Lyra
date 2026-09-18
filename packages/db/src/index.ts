@@ -7,6 +7,7 @@ export * from "./json.js";
 export { VIEWS, viewSql } from "./views.js";
 export * from "./tx.js";
 export * from "./chart-of-accounts.js";
+export * from "./tax-rulepack.js";
 export * from "./policy-versions.js";
 export * from "./claim-reserves.js";
 
