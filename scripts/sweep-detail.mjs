@@ -32,11 +32,21 @@ await signIn(page);
 
 const found = new Map(); // url -> the pattern it matched, for coverage reporting
 
-/** Every in-app href under `main`, filtered to the ones this sweep can render. */
+/**
+ * Every in-app href on the page, filtered to the ones this sweep can render.
+ *
+ * The whole document, not `main`. Those are two different subjects and reading
+ * one for the other cost real coverage: the grep is scoped to `main` because
+ * that is where a screen's *prose* is, but a link is reachable wherever it is
+ * rendered, and `/surface/:module/:screen` — a whole design catalogue — is built
+ * into the shell's nav (components/shell.tsx:199), outside `main`, so it was
+ * reported "unreached" on every run while sitting in the navigation of every
+ * page the harvest opened.
+ */
 async function harvest(path) {
   const hrefs = await page
     .goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: 45_000 })
-    .then(() => page.locator("main a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href"))))
+    .then(() => page.locator("a[href]").evaluateAll((as) => as.map((a) => a.getAttribute("href"))))
     .catch(() => []);
   const fresh = [];
   for (const href of hrefs) {
@@ -101,9 +111,16 @@ for (let hop = 1; hop <= MAX_HOPS && frontier.length; hop++) {
 const covered = new Set(found.values());
 const unreached = MATCHERS.filter(({ pattern }) => !covered.has(pattern)).map((m) => m.pattern);
 console.log(`\n${found.size} detail URLs across ${covered.size}/${PARAM.length} param routes`);
-// A pattern no link reaches is not swept, and silence would read as a pass. It
-// is usually a screen linked only from a detail route (one hop deeper than this
-// harvest goes) or one whose list is empty in this environment's seed.
+// A pattern no link reaches is not swept, and silence would read as a pass.
+// "Unreached" is not "unreachable", and the difference is worth stating because
+// the list reads like an alarm: a screen opened by an *interaction* rather than
+// by a rendered href is invisible to a harvest that never clicks —
+// /scout/whitespace/:id is a Link that appears only once a radar dot is
+// selected (scout-radar.tsx:317) — and so is one whose list is empty in this
+// environment's seed. routing.reachable.test.ts is the guard that answers
+// "does anything build this path"; this list answers the narrower "did a reader
+// walking from the front door find one", and the two disagreeing is the signal
+// worth chasing.
 if (unreached.length) console.log(`unreached patterns: ${unreached.join(", ")}`);
 console.log("");
 
