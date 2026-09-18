@@ -102,6 +102,78 @@ export function resolveModel(tier: Tier, opts: RouteOptions = {}): ModelDef & { 
   return { key, ...def };
 }
 
+/**
+ * docs/27 F36. Ordered alternatives per tier, consulted only when the primary
+ * provider has failed every retry. Keys, not providers: a fallback has to name
+ * a model, and "the same tier at another vendor" is a judgement about capability
+ * that belongs in this table beside the routes it mirrors.
+ *
+ * The chain builder drops any entry sharing the primary's provider, so a list
+ * may safely mention the same vendor more than once for different tiers — what
+ * it may never do is serve as a second attempt at the vendor that just failed,
+ * which is exactly what the three identical retries were.
+ */
+export const CLOUD_FALLBACKS: Record<Tier, string[]> = {
+  fast: ["claude-haiku-4-5", "ox-alpha"],
+  standard: ["claude-sonnet-5", "ox-alpha"],
+  reasoning: ["claude-opus-5", "ox-alpha"]
+};
+
+export interface ChainOptions extends RouteOptions {
+  /**
+   * Providers this deployment actually holds credentials or bindings for.
+   * Omitted means "assume everything" (tests and the pure routing question);
+   * the gateway always passes the real set, because a link with no API key is
+   * not a fallback, it is a guaranteed second failure and a wasted second of
+   * a customer's wait.
+   */
+  configured?: readonly ProviderName[];
+}
+
+/**
+ * The ordered list of models a single logical call may be served by: the
+ * routing decision first, then cross-provider alternatives.
+ *
+ * Two invariants the eval (evals/provider-fallback) holds and this function
+ * exists to make checkable:
+ *
+ * 1. **On-prem never falls back off-prem.** An outage is not a reason to send a
+ *    tenant's prompts to a third party, so an on-prem chain is the primary
+ *    alone. `resolveModel` already pins the primary internal even against a
+ *    tenant override; this is the same rule applied to the recovery path, which
+ *    is where a residency breach would otherwise be invisible.
+ * 2. **One link per provider.** Re-asking the vendor that just failed is the
+ *    defect, not the fix.
+ *
+ * Never empty: if filtering by `configured` would remove everything, the
+ * primary stays, so the call fails against its own model with its own error
+ * rather than against "no provider", which tells an operator nothing.
+ */
+export function fallbackChain(tier: Tier, opts: ChainOptions = {}): (ModelDef & { key: string })[] {
+  const primary = resolveModel(tier, opts);
+  if (opts.onPrem) return [primary];
+
+  const seen = new Set<ProviderName>([primary.provider]);
+  const chain = [primary];
+  // The tier's own cloud route leads the candidates, not just the declared
+  // alternatives. A tenant override or a `modelKey` moves the *primary* off it,
+  // and without this the platform default — the one model we know is bound,
+  // priced and exercised — would be the single route a fallback could never
+  // reach. It is skipped by the provider de-dupe whenever it *is* the primary.
+  for (const key of [CLOUD_ROUTES[tier], ...CLOUD_FALLBACKS[tier]]) {
+    const def = CATALOGUE[key];
+    if (!def) continue;
+    if (seen.has(def.provider)) continue;
+    if (opts.needsTools && !def.tools) continue;
+    seen.add(def.provider);
+    chain.push({ key, ...def });
+  }
+
+  if (!opts.configured) return chain;
+  const usable = chain.filter((d) => opts.configured!.includes(d.provider));
+  return usable.length ? usable : [primary];
+}
+
 /** micro-USD, rounded up so a tenant is never under-billed against its budget. */
 export function costMicro(def: ModelDef, tokensIn: number, tokensOut: number): number {
   return Math.ceil((tokensIn * def.inPer1k + tokensOut * def.outPer1k) / 1000);

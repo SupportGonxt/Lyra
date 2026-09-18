@@ -1,0 +1,6 @@
+{
+  "fidelityMin": 1.0,
+  "refusalRecallMin": 1.0,
+  "prematureEmissionMax": 0,
+  "falseRefusalMax": 0
+}

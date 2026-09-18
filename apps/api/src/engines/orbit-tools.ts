@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, count, eq, like } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import { AppError, audit, badRequest, conflict, emit, gate, hashObject, notFound, require_, scoped, type Ctx } from "@lyra/core";
-import { promptInstant, type Message, type ToolCall, type ToolDef } from "@lyra/model-gateway";
+import { promptInstant, verdictFor, type Message, type ToolCall, type ToolDef } from "@lyra/model-gateway";
 import { isInstantKey } from "../http.js";
 import { endorsePolicy } from "./axis-endorse.js";
 import { FnolBody } from "./axis-fnol.js";
@@ -142,6 +142,37 @@ export const ORBIT_TOOL_DEFS: ToolDef[] = [
     consequential: false
   }
 ];
+
+/**
+ * docs/27 F38. The approval policy behind each consequential tool. This was a
+ * private constant in command-loop.ts, which is half the registry it needed to
+ * be: the chat loop dispatched the same tools and consulted nothing. It lives
+ * beside the defs now, and both executors read it, so adding a consequential
+ * tool without naming its gate fails in both loops rather than in neither.
+ *
+ * A non-consequential tool has no entry and needs none.
+ */
+export const POLICY_FOR_TOOL: Record<string, string> = {
+  create_endorsement_request: "axis.endorse",
+  send_document: "orbit.document_send",
+  make_renewal_offer: "orbit.renewal_offer"
+};
+
+const DEFS_BY_NAME = new Map(ORBIT_TOOL_DEFS.map((d) => [d.name, d]));
+
+/**
+ * How many approval decisions this tenant has recorded. Read either side of a
+ * consequential tool call, the difference answers "did this call reach a gate"
+ * — which `gate()` guarantees, because every path it can take writes one of
+ * these rows (`core.approval.requested` / `.consumed` / `.auto`).
+ */
+async function approvalAudits(ctx: Ctx): Promise<number> {
+  const rows = await ctx.db
+    .select({ n: count() })
+    .from(schema.auditLog)
+    .where(and(eq(schema.auditLog.tenantId, ctx.tenantId), like(schema.auditLog.action, "core.approval.%")));
+  return rows[0]?.n ?? 0;
+}
 
 type ToolHandler = (ctx: Ctx, args: Record<string, unknown>) => Promise<unknown>;
 
@@ -552,12 +583,15 @@ export async function executeOrbitToolCalls(
   ctx: Ctx,
   runId: string,
   toolCalls: ToolCall[],
-  allowed: ReadonlySet<string>
+  allowed: ReadonlySet<string>,
+  /** Continues the run's tool-call sequence across rounds (docs/27 F33). */
+  startSeq = 0
 ): Promise<Message[]> {
   const messages: Message[] = [];
-  let seq = 0;
+  let seq = startSeq;
   for (const call of toolCalls) {
     const startedAt = Date.now();
+    const approvalsBefore = DEFS_BY_NAME.get(call.name)?.consequential ? await approvalAudits(ctx) : 0;
     let outcome: "ok" | "error" | "awaiting_approval" = "ok";
     let approvalId: string | null = null;
     let result: unknown;
@@ -568,6 +602,20 @@ export async function executeOrbitToolCalls(
       // same allowlist here so the executor, not the model's cooperation, is
       // what actually gates a consequential action (docs/02 §4).
       if (!allowed.has(call.name)) throw notFound(`tool ${call.name}`);
+      // docs/27 F38. A consequential tool may only be dispatched when this
+      // registry says which approval policy stands behind it. Today's one such
+      // tool gates inside `endorsePolicy`, so the rule held by luck of
+      // implementation — the *next* consequential tool anyone adds would have
+      // executed unchecked with a truthful `consequential: true` beside it in
+      // `ai_tool_calls`. An unregistered gate now refuses before the handler
+      // runs, which is the direction a missing entry has to fail in.
+      if (DEFS_BY_NAME.get(call.name)?.consequential && !POLICY_FOR_TOOL[call.name])
+        throw new AppError(
+          403,
+          "ungated_consequential",
+          `tool ${call.name} is consequential and has no registered approval policy`,
+          "Register the tool's approval policy in POLICY_FOR_TOOL before an agent may call it."
+        );
       result = await runOrbitTool(ctx, call.name, call.args);
     } catch (err) {
       if (err instanceof AppError && err.code === "approval_required") {
@@ -578,6 +626,33 @@ export async function executeOrbitToolCalls(
         outcome = "error";
         result = { error: err instanceof Error ? err.message : "tool error" };
       }
+    }
+    // docs/27 F38, the second half. The registry check above stops a tool with
+    // no declared gate; this catches a tool that has one and did not reach it.
+    //
+    // The signal is the gate's own audit trail, not a guess from tenant policy.
+    // `gate()` writes a `core.approval.*` row on every path it takes —
+    // requested, consumed, auto — so "did an approval decision happen while
+    // this call ran" is directly observable, where "is there an approval id"
+    // is not: three legitimate paths hand the caller nothing back. Counting
+    // rather than joining on a request id because `core_audit_log` has no such
+    // column; a concurrent approval elsewhere in the same tenant can therefore
+    // mask an ungated call, which is why this is the *second* line and the
+    // registry check is the first.
+    const def = DEFS_BY_NAME.get(call.name);
+    const verdict = def
+      ? verdictFor(def, {
+          outcome,
+          approvalId,
+          gateObserved: def.consequential ? (await approvalAudits(ctx)) > approvalsBefore : false
+        })
+      : outcome;
+    if (verdict === "ungated_consequential") {
+      outcome = "error";
+      result = {
+        error: "ungated_consequential",
+        detail: `${call.name} changed contractual state without an approval; the result is withheld`
+      };
     }
     await recordToolCall(ctx, {
       runId,

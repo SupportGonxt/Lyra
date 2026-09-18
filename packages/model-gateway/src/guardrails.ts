@@ -13,14 +13,41 @@ export interface GuardrailHit {
   detail?: string;
 }
 
-/** Claims we may not let a model make on our behalf without a stored source. */
+/**
+ * Claims we may not let a model make on our behalf without a stored source.
+ *
+ * docs/27 F41 / docs/16 H12. Lyra ships en+ar (CLAUDE.md §7) and this list was
+ * English only, so every one of these claims was blocked in English and waved
+ * through in Arabic — a floor with a hole the size of half the product's
+ * locales, on the customer-facing side where the severity is `block`. The
+ * Arabic half below mirrors the English one claim for claim; keep them paired,
+ * because a rule added to one language and not the other is the same defect
+ * again (the jailbreak list had already been half-fixed this way).
+ *
+ * `\b` is ASCII-only in JavaScript regexes, so it matches *between* any two
+ * Arabic letters and bounds nothing. `(?<!\p{L})` / `(?!\p{L})` with the `u`
+ * flag is the equivalent that works in both scripts, and is what keeps
+ * "تجاهلت" (she ignored) out of a rule written for "تجاهل" (ignore).
+ */
 const REGULATED = [
   /\bguarantee(?:d|s)?\b/i,
   /\bwe (?:will|shall) (?:pay|cover|reimburse)\b/i,
   /\bapproved by (?:the )?(?:central bank|insurance authority|regulator)\b/i,
   /\byou are (?:fully )?covered\b/i,
   /\brisk[- ]free\b/i,
-  /\bno (?:exclusions|deductible|excess)\b/i
+  /\bno (?:exclusions|deductible|excess)\b/i,
+  // ar — "we guarantee" / "guaranteed"
+  /(?<!\p{L})(?:نضمن|أضمن|مضمون(?:ة)?|ضمان\s+كامل)(?!\p{L})/u,
+  // ar — "we will pay / cover / reimburse"
+  /(?<!\p{L})(?:سندفع|سنغطي|سنعوض|سوف\s+(?:ندفع|نغطي|نعوض))(?!\p{L})/u,
+  // ar — "approved by the central bank / insurance authority / regulator"
+  /معتمد(?:ون|ة)?\s+من\s+(?:قبل\s+)?(?:ال)?(?:مصرف\s+المركزي|بنك\s+المركزي|هيئة\s+التأمين|جهة\s+التنظيمية)/u,
+  // ar — "you are (fully) covered"
+  /(?:(?:أنت|أنتِ|أنتم|إنك)\s+مغطى|التغطية\s+كاملة)/u,
+  // ar — "risk-free"
+  /(?:بدون|بلا|خالٍ\s+من|خالي\s+من)\s+(?:أي\s+)?(?:ال)?مخاطر/u,
+  // ar — "no exclusions / no deductible / no excess"
+  /(?:لا\s+(?:توجد|يوجد)|بدون|بلا)\s+(?:أي\s+)?(?:استثناءات|تحمل|مبلغ\s+تحمل|خصم\s+تحملي)/u
 ];
 
 const JAILBREAK = [

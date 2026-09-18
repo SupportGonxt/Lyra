@@ -239,6 +239,10 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/ai/runs", summary: "Run an agent through the gateway, budgeted and audited (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", tag: "ai", requestBody: true },
   // The bare `/runs/{id}` is the generated CRUD record (a flat row); this is the
   // second, enriched view and so it gets a second path.
+  // docs/27 F35. Same body as /v1/ai/runs; the response is text/event-stream
+  // (`delta`, `done`, `error`) rather than JSON, and the run is a single
+  // completion with no tool loop — see routes/ai.ts for why those are separate.
+  { method: "post", path: "/v1/ai/runs/stream", summary: "Run an agent and stream the answer as server-sent events (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", tag: "ai", requestBody: true },
   { method: "get", path: "/v1/ai/runs/{id}/detail", summary: "One agent run with its tool calls and audit trail", permission: "ai:runs:read", tag: "ai" },
   { method: "get", path: "/v1/ai/budget", summary: "Remaining AI budget for the period", permission: "ai:budgets:read", tag: "ai" },
   { method: "post", path: "/v1/ai/budget/limits", summary: "Set per-module AI spend limits", permission: "ai:budgets:write", tag: "ai", requestBody: true },

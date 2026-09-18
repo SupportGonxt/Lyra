@@ -225,6 +225,54 @@ caller-controlled (`ai.ts:36`) and safety keys off it (**F40**). Guardrail
 floors are six hard-coded English regexes with no Arabic
 (`guardrails.ts:17-46`), contradicting `docs/16` H12 (**F41**).
 
+*AI platform — closed 2026-09-18.* Seven of the nine above are closed, each
+with its golden set authored first under `packages/model-gateway/evals`
+(CLAUDE.md, AI features are eval-first). F39 stands where ADR-0049 left it.
+
+- **F33** *Closed.* `POST /v1/ai/runs` is a bounded multi-round loop. The two
+  decisions that define a loop are pure and in the gateway where an eval can
+  reach them — `planRound`/`offersTools` (`model-gateway/src/agent-loop.ts`),
+  `evals/agent-loop` — because an API unit test mocks the gateway and the
+  database, which is how a loop that could not loop stayed green. The command
+  loop had the same defect behind a `while` that could run six times:
+  `seq === 0 ? { tools } : {}` made rounds two to six toolless. Both now share
+  one ceiling and one rule; the terminator stays toolless so a run always ends
+  in prose rather than a dropped request.
+- **F34** *Closed.* `packages/core/src/memory.ts` — `remember`,
+  `recallMemories`, `forgetMemories`, and `recallable` as the purpose-bound
+  selection rule (`evals/memory-recall`). Three rules fail closed: a memory
+  with no `purposesJson` is read by nothing, an unrecognised sensitivity ranks
+  above the scale, and `maxSensitivity` has no default. Read and written by the
+  ORBIT run, so it is not a seam waiting for a caller. `forgetMemories` is the
+  erasure link and is honestly labelled: no DSAR runner calls it yet.
+- **F35** *Closed.* `Gateway.stream` + `POST /v1/ai/runs/stream` (SSE).
+  `guardChunk` (`src/stream-guard.ts`, `evals/streaming`) runs the real output
+  rule over the accumulated text behind a holdback sized against the rules —
+  a per-chunk check misses any phrase split across a boundary, and emitted text
+  cannot be recalled. `preflight()` is shared with `complete()`, so a streamed
+  call is budgeted, scrubbed, screened and audited by the same code. Two stated
+  limits: no tools on a streamed call, and no fallback past the first byte.
+- **F36** *Closed.* `fallbackChain` (`src/models.ts`, `evals/provider-fallback`)
+  — one link per provider, the tier's own route among the candidates, links
+  with no credentials dropped rather than attempted, and on-prem pinned to the
+  primary alone so an outage cannot become a residency breach. A 400/404/422
+  stops the chain.
+- **F37** *Closed earlier* at `gateway.ts` (`role === "tool"` screened as
+  untrusted); the command loop's remaining hole is closed too — it formatted
+  tool results back as ordinary `role: "user"` turns, where the screen only
+  warns, and now marks them `untrusted`.
+- **F38** *Closed.* Two lines, the first preventive: a consequential tool is
+  dispatched only if `POLICY_FOR_TOOL` names its approval policy, so a new one
+  with no gate refuses rather than runs. Then `verdictFor` compares the call
+  against `gate()`'s own audit trail — not against tenant policy, because
+  `gate()` has three legitimate paths that return no approval id.
+- **F40** *Closed earlier.* `purposes.ts` is the governed vocabulary;
+  `resolvePurpose` fails closed on an unknown or cross-module pair and
+  `isKnownPurpose` rejects at the door.
+- **F41** *Closed.* Six Arabic regulated-claim patterns mirroring the English
+  six (`evals/guardrails-ar`). `\b` is ASCII-only in JavaScript and bounds
+  nothing in Arabic script; `(?<!\p{L})` with the `u` flag is the equivalent.
+
 *Middle East.* `localeFrom()` (`i18n.ts:138-140`) strips to the base subtag, so
 `ar-SA` Eastern Arabic-Indic digits can never render (**F42**). Zero regional
 payment rails — Telr, PayFort, PayTabs, Network International, mada, STC Pay,
@@ -312,8 +360,8 @@ and should be assumed to stand.
 - **F22** — `fast-check` is not a dependency of any package.
 - **F30** — `orbit-journeys.ts` exports `triggerJourney` and nothing else; no
   advance step exists.
-- **F41** — the guardrail floors are still six English regexes
-  (`guardrails.ts:17-31`), no Arabic.
+- **F41** — *superseded 2026-09-18.* Was still six English regexes at that
+  re-verification; closed since, see the AI-platform block above.
 - **F43** — no regional rail: Telr, PayFort, PayTabs, Network International,
   mada and STC Pay have zero hits.
 - **F49** — `north-snapshotter.ts:107-120` still sums `axis_policies` for GWP

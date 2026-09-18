@@ -3,9 +3,10 @@ import { AppError, actorRef, hashObject, sha256Hex, type Ctx } from "@lyra/core"
 import { assertBudget, charge } from "./budget.js";
 import { assertNotKilled } from "./kill.js";
 import { blocked, checkInput, checkOutput, recordGuardrails, type GuardrailHit } from "./guardrails.js";
-import { CATALOGUE, EMBED_MODEL, IMAGE_CATALOGUE, IMAGE_MODEL, costMicro, resolveModel } from "./models.js";
+import { CATALOGUE, EMBED_MODEL, IMAGE_CATALOGUE, IMAGE_MODEL, costMicro, fallbackChain } from "./models.js";
 import { resolvePurpose } from "./purposes.js";
 import { rehydrate, scrubMessages } from "./scrub.js";
+import { guardChunk, newStreamGuard } from "./stream-guard.js";
 import { anthropic } from "./providers/anthropic.js";
 import { openaiCompat } from "./providers/openai-compat.js";
 import { workersAi } from "./providers/workers-ai.js";
@@ -18,7 +19,10 @@ import type {
   ModelResponse,
   Provider,
   ProviderEnv,
-  ProviderName
+  ProviderName,
+  ProviderStreamChunk,
+  StreamEvent,
+  ToolCall
 } from "./types.js";
 
 // docs/02 §5. The only way to reach a model. Every call is budgeted, scrubbed,
@@ -62,6 +66,35 @@ export interface GatewayOptions {
 /** Retryable transport failures; a 4xx from a provider is not one. */
 const RETRY_DELAYS_MS = [0, 250, 1000];
 
+/**
+ * docs/27 F36. Errors that mean "this request is wrong", not "this provider is
+ * having a bad day". They will fail identically at every vendor, so falling
+ * through the chain on one is three times the latency and three times the bill
+ * for the same 400. Everything else — auth, quota, a deprecated model, a
+ * regional outage, a transport failure — is exactly what the chain is for.
+ */
+function requestFatal(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b(400|404|422)\b/.test(msg);
+}
+
+/**
+ * Which providers this deployment can actually reach. A link with no key is
+ * not a fallback, it is a guaranteed second failure spent on a customer's wait,
+ * so it is dropped from the chain rather than attempted.
+ *
+ * A provider passed explicitly in `GatewayOptions.providers` counts as
+ * configured whatever the env holds: that is how tests and the seed inject a
+ * stub, and treating the stub as unreachable would route them at real models.
+ */
+function configuredProviders(env: ProviderEnv, injected: Partial<Record<ProviderName, Provider>> = {}): ProviderName[] {
+  const names = new Set<ProviderName>(Object.keys(injected) as ProviderName[]);
+  if (env.AI) names.add("workers-ai");
+  if (env.ANTHROPIC_API_KEY) names.add("anthropic");
+  if (env.OPENAI_COMPAT_URL) names.add("openai-compat");
+  return [...names];
+}
+
 export class Gateway {
   constructor(private readonly opts: GatewayOptions) {}
 
@@ -71,16 +104,47 @@ export class Gateway {
     return p;
   }
 
-  async complete(ctx: Ctx, req: ModelRequest): Promise<ModelResponse> {
-    const started = Date.now();
-
+  /**
+   * Everything that happens before a provider is touched: routing, scrubbing,
+   * the input screen, the purpose resolution, the kill switch, the budget, and
+   * the audit row each of those can refuse into.
+   *
+   * Extracted when `stream()` arrived (docs/27 F35). A second entry point that
+   * re-implemented this list would drift from it, and the drift would be
+   * invisible — a streamed call quietly missing the budget check reads exactly
+   * like a streamed call. One front door means one place to add the next rule.
+   */
+  private async preflight(
+    ctx: Ctx,
+    req: ModelRequest,
+    started: number
+  ): Promise<
+    | { refusal: ModelResponse }
+    | {
+        chain: ReturnType<typeof fallbackChain>;
+        scrubbed: { messages: ModelRequest["messages"]; map: Map<string, string> };
+        flags: Set<string>;
+        preHits: GuardrailHit[];
+        purpose: { customerFacing: boolean };
+        inputHash: string;
+        auditId: string;
+        outbound: ModelRequest;
+      }
+  > {
     const onPrem = ctx.policy.dataResidency === "on-prem";
-    const def = resolveModel(req.tier, {
+    // docs/27 F36. The chain, not a single model: the routing decision first,
+    // then whatever other *providers* can serve this tier. `def` stays the
+    // primary for everything decided before the call (the input hash, the
+    // pre-flight audit rows), and is reassigned to the link that actually
+    // answered, so the audit row names the model the tokens were spent on.
+    const chain = fallbackChain(req.tier, {
       onPrem,
       overrides: (this.opts.overrides ?? ctx.policy.modelOverrides) as never,
       needsTools: Boolean(req.tools?.length),
+      configured: configuredProviders(this.opts.env, this.opts.providers ?? {}),
       ...(req.modelKey !== undefined ? { modelKey: req.modelKey } : {})
     });
+    const def = chain[0]!;
 
     // Scrub before anything sees the messages, including our own audit hash.
     const scrubbed = req.unscrubbed
@@ -156,16 +220,18 @@ export class Gateway {
       });
       await recordGuardrails(ctx, preHits, req.subjectRef ? { subjectRef: req.subjectRef } : {});
       return {
-        text: "",
-        toolCalls: [],
-        model: def.model,
-        provider: def.provider,
-        tier: req.tier,
-        usage: { tokensIn: 0, tokensOut: 0, costMicro: 0 },
-        latencyMs: elapsed(started),
-        finishReason: "refusal",
-        flags: [...flags, "refused_input"],
-        auditId
+        refusal: {
+          text: "",
+          toolCalls: [],
+          model: def.model,
+          provider: def.provider,
+          tier: req.tier,
+          usage: { tokensIn: 0, tokensOut: 0, costMicro: 0 },
+          latencyMs: elapsed(started),
+          finishReason: "refusal",
+          flags: [...flags, "refused_input"],
+          auditId
+        }
       };
     }
 
@@ -175,17 +241,38 @@ export class Gateway {
       messages: scrubbed.messages.map(({ untrusted: _untrusted, ...m }) => m)
     };
 
+    return { chain, scrubbed, flags, preHits, purpose, inputHash, auditId, outbound };
+  }
+
+  async complete(ctx: Ctx, req: ModelRequest): Promise<ModelResponse> {
+    const started = Date.now();
+    const pre = await this.preflight(ctx, req, started);
+    if ("refusal" in pre) return pre.refusal;
+    const { chain, scrubbed, flags, preHits, purpose, inputHash, auditId, outbound } = pre;
+    let def = chain[0]!;
+
+    // Retries inside a link answer a blip; the chain answers an outage. Three
+    // attempts at the identical provider and model (what this loop used to be)
+    // could only ever do the first, so a vendor being down was the platform
+    // being down.
     let result;
     let lastError: unknown;
-    for (const delay of RETRY_DELAYS_MS) {
-      if (delay) await sleep(delay);
-      try {
-        result = await this.pick(def.provider).complete(outbound, def.model, this.opts.env);
-        break;
-      } catch (err) {
-        lastError = err;
-        if (!retryable(err)) break;
+    chain: for (const [i, link] of chain.entries()) {
+      for (const delay of RETRY_DELAYS_MS) {
+        if (delay) await sleep(delay);
+        try {
+          result = await this.pick(link.provider).complete(outbound, link.model, this.opts.env);
+          def = link;
+          if (i > 0) flags.add("provider_fallback");
+          break chain;
+        } catch (err) {
+          lastError = err;
+          if (!retryable(err)) break;
+        }
       }
+      // A malformed request fails the same way everywhere: stop, do not spend
+      // the rest of the chain proving it.
+      if (requestFatal(lastError)) break;
     }
 
     if (!result) {
@@ -250,6 +337,165 @@ export class Gateway {
       flags: [...flags],
       auditId
     };
+  }
+
+  /**
+   * docs/15 §2 ("streamed always") + docs/27 F35. The same call as
+   * `complete()`, delivered as it arrives.
+   *
+   * Everything before the provider is literally the same code (`preflight`), so
+   * a streamed call is budgeted, scrubbed, screened and audited exactly like a
+   * buffered one — the failure mode of a second entry point is that it quietly
+   * isn't, and that is indistinguishable from working.
+   *
+   * Three things are genuinely different, and each is a decision rather than a
+   * detail:
+   *
+   *   1. The output guardrail runs over the accumulated text on every chunk,
+   *      behind a holdback (`stream-guard.ts`, evals/streaming). A per-chunk
+   *      check would miss any phrase split across a boundary, and a check at
+   *      the end would not be streaming.
+   *   2. A block ends the stream. Text already sent cannot be recalled, which
+   *      is why the holdback is sized against the rules and not against a
+   *      network buffer.
+   *   3. Fallback only applies before the first byte. Once the reader has seen
+   *      part of an answer, switching providers would splice two different
+   *      answers together — so a mid-stream failure is an error, not a retry.
+   *
+   * Rehydration is per-chunk, so a placeholder split across a boundary is
+   * rehydrated once the chunk holding its tail arrives — the holdback makes
+   * that the normal case rather than a race.
+   */
+  async *stream(ctx: Ctx, req: ModelRequest): AsyncGenerator<StreamEvent> {
+    const started = Date.now();
+    const pre = await this.preflight(ctx, req, started);
+    if ("refusal" in pre) {
+      yield { type: "done", response: pre.refusal };
+      return;
+    }
+    const { chain, scrubbed, flags, preHits, purpose, inputHash, auditId, outbound } = pre;
+
+    const guard = newStreamGuard();
+    const checkOpts = {
+      issued: new Set(scrubbed.map.keys()),
+      customerFacing: purpose.customerFacing,
+      ...(req.intent !== undefined ? { intent: req.intent } : {})
+    };
+
+    let def = chain[0]!;
+    let accumulated = "";
+    let toolCalls: ToolCall[] = [];
+    let finishReason: ModelResponse["finishReason"] = "stop";
+    let tokensIn: number | undefined;
+    let tokensOut: number | undefined;
+    let refused = false;
+    let started_ = false;
+    let lastError: unknown;
+
+    const finish = async (): Promise<ModelResponse> => {
+      const usageIn = tokensIn ?? approx(scrubbed.messages.map((m) => m.content).join(" "));
+      const usageOut = tokensOut ?? approx(accumulated);
+      const cost = costMicro(def, usageIn, usageOut);
+      const postHits = checkOutput({ ...checkOpts, text: accumulated });
+      for (const h of postHits) flags.add(h.rule);
+
+      await this.writeAudit(ctx, {
+        auditId,
+        req,
+        def,
+        inputHash,
+        outputHash: await sha256Hex(accumulated),
+        tokensIn: usageIn,
+        tokensOut: usageOut,
+        cost,
+        latencyMs: elapsed(started),
+        toolCalls,
+        flags: [...flags],
+        outcome: refused ? "refused" : "ok"
+      });
+      await recordGuardrails(ctx, [...preHits, ...postHits], req.subjectRef ? { subjectRef: req.subjectRef } : {});
+      // The tokens were spent whether or not the reader was allowed the answer.
+      await charge(ctx, { tokensIn: usageIn, tokensOut: usageOut, costMicro: cost }, req.module);
+
+      return {
+        // The reader already has the emitted text; `text` is the whole answer
+        // for the caller that stores the run, and empty when refused for the
+        // same reason `complete()` empties it.
+        text: refused ? "" : rehydrate(accumulated, scrubbed.map),
+        toolCalls: refused ? [] : toolCalls,
+        model: def.model,
+        provider: def.provider,
+        tier: req.tier,
+        usage: { tokensIn: usageIn, tokensOut: usageOut, costMicro: cost },
+        latencyMs: elapsed(started),
+        finishReason: refused ? "refusal" : finishReason,
+        flags: [...flags],
+        auditId
+      };
+    };
+
+    for (const [i, link] of chain.entries()) {
+      const provider = this.pick(link.provider);
+      try {
+        // An adapter with no `stream` is served by its own `complete` in one
+        // chunk: slower for that provider, never a second shape for the caller.
+        const chunks: AsyncIterable<ProviderStreamChunk> = provider.stream
+          ? provider.stream(outbound, link.model, this.opts.env)
+          : oneChunk(provider, outbound, link.model, this.opts.env);
+
+        for await (const chunk of chunks) {
+          started_ = true;
+          if (chunk.toolCalls?.length) toolCalls = chunk.toolCalls;
+          if (chunk.finishReason) finishReason = chunk.finishReason;
+          if (chunk.tokensIn != null) tokensIn = chunk.tokensIn;
+          if (chunk.tokensOut != null) tokensOut = chunk.tokensOut;
+          if (!chunk.delta) continue;
+          accumulated += chunk.delta;
+          const step = guardChunk(guard, accumulated, false, checkOpts);
+          if (step.refused) {
+            refused = true;
+            break;
+          }
+          if (step.emit) yield { type: "delta", text: rehydrate(step.emit, scrubbed.map) };
+        }
+
+        def = link;
+        if (i > 0) flags.add("provider_fallback");
+        break;
+      } catch (err) {
+        lastError = err;
+        // Past the first byte there is no going back: another provider would
+        // continue somebody else's sentence.
+        if (started_ || requestFatal(err)) break;
+      }
+    }
+
+    if (!started_ && lastError) {
+      await this.writeAudit(ctx, {
+        auditId,
+        req,
+        def,
+        inputHash,
+        outputHash: null,
+        tokensIn: 0,
+        tokensOut: 0,
+        cost: 0,
+        latencyMs: elapsed(started),
+        toolCalls: [],
+        flags: [...flags, "provider_error"],
+        outcome: "error"
+      });
+      throw lastError instanceof Error ? lastError : new Error("model stream failed");
+    }
+
+    // Release the holdback now the answer cannot grow.
+    if (!refused) {
+      const tail = guardChunk(guard, accumulated, true, checkOpts);
+      if (tail.refused) refused = true;
+      else if (tail.emit) yield { type: "delta", text: rehydrate(tail.emit, scrubbed.map) };
+    }
+
+    yield { type: "done", response: await finish() };
   }
 
   /** bge-m3 covers ar+en in one space (docs/02 §5), so no per-locale index. */
@@ -537,4 +783,27 @@ function retryable(err: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Rough enough for a usage estimate a provider did not report; the audit row
+ *  says which model answered, so a later reconciliation has what it needs. */
+function approx(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/** A non-streaming adapter, presented as a stream of one. */
+async function* oneChunk(
+  provider: Provider,
+  req: ModelRequest,
+  model: string,
+  env: ProviderEnv
+): AsyncGenerator<ProviderStreamChunk> {
+  const result = await provider.complete(req, model, env);
+  yield {
+    delta: result.text,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+    toolCalls: result.toolCalls,
+    finishReason: result.finishReason
+  };
 }

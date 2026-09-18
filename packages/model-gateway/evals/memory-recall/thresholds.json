@@ -1,0 +1,6 @@
+{
+  "selectionAccuracyMin": 1.0,
+  "expiredLeakageMax": 0,
+  "purposeLeakageMax": 0,
+  "sensitivityLeakageMax": 0
+}

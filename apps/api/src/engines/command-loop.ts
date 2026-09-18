@@ -1,7 +1,7 @@
 import { id as newId, schema } from "@lyra/db";
 import { type Ctx } from "@lyra/core";
-import type { Gateway, Message, ToolCall } from "@lyra/model-gateway";
-import { isOrbitTool, recordToolCall, runOrbitTool } from "./orbit-tools.js";
+import { MAX_ROUNDS as LOOP_MAX_ROUNDS, offersTools, type Gateway, type Message, type ToolCall } from "@lyra/model-gateway";
+import { POLICY_FOR_TOOL, isOrbitTool, recordToolCall, runOrbitTool } from "./orbit-tools.js";
 import { toolsFor, type CommandToolDef } from "./command-tools.js";
 import { embedQuery } from "./vectorize.js";
 import type { Env } from "../env.js";
@@ -13,9 +13,16 @@ import type { Env } from "../env.js";
 // sees `proposed:<id>` back. A human actions it later through the module's real
 // path, where the approval gate fires exactly once.
 
-/** Hard ceiling on model rounds per run. A model that keeps asking for tools
- *  gets its last answer instead of an open tab on the tenant's budget. */
-export const MAX_ROUNDS = 6;
+/**
+ * Hard ceiling on model rounds per run. A model that keeps asking for tools
+ * gets its last answer instead of an open tab on the tenant's budget.
+ *
+ * Re-exported rather than declared: this loop and the ORBIT chat loop are the
+ * same shape, and docs/27 F33 is what two copies of that shape drifting apart
+ * looks like. The number and the "which rounds get tools" rule live together in
+ * the gateway (src/agent-loop.ts) where the eval can reach them.
+ */
+export const MAX_ROUNDS = LOOP_MAX_ROUNDS;
 
 /** docs/16 H2 / ADR-0049. The envelope decides which non-consequential tools
  *  auto-run; consequential tools propose under every level — no tenant setting
@@ -62,12 +69,6 @@ export interface LoopResult {
   finishReason: string;
   auditId: string;
 }
-
-/** The approval policy a consequential proposal gates under when actioned.
- *  Kept beside the registry so a new tool wires its gate in one place. */
-const POLICY_FOR_TOOL: Record<string, string> = {
-  create_endorsement_request: "axis.endorse"
-};
 
 interface ToolOutcome {
   outcome: "ok" | "error" | "proposed";
@@ -258,7 +259,12 @@ export async function runCommandLoop(
       ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
       ...(input.locale !== undefined ? { locale: input.locale } : {}),
       messages,
-      ...(seq === 0 ? { tools: defs.map(({ module: _m, ...def }) => def) } : {})
+      // docs/27 F33. This read `seq === 0`, so a loop advertised as bounded
+      // multi-round could in fact take tools exactly once: rounds two through
+      // six were toolless, and the model's only remaining move was to answer.
+      // `offersTools` is the shared rule — every round but the terminator, which
+      // stays toolless on purpose so the run always ends in prose.
+      ...(offersTools(seq) ? { tools: defs.map(({ module: _m, ...def }) => def) } : {})
     });
     usage = {
       tokensIn: usage.tokensIn + res.usage.tokensIn,
@@ -286,7 +292,16 @@ export async function runCommandLoop(
       });
       messages.push({ role: "assistant", content: last.text });
       messages.push({
+        // docs/27 F37. A tool result is third-party text — a partner payload, a
+        // harvested page, a row somebody else wrote — and this pushed it back as
+        // an ordinary user turn, where the injection screen only warns. Laundered
+        // provenance: the gateway blocks a jailbreak pattern in untrusted text
+        // and warns about the same pattern from a signed-in human, and this
+        // round-trip turned every one of these into the second kind. The ORBIT
+        // executor already returns `role: "tool"`, which the gateway screens as
+        // untrusted automatically; this loop formats its own, so it says so.
         role: "user",
+        untrusted: true,
         content: `tool ${call.name} → ${JSON.stringify(outcome.result).slice(0, 4000)}`
       });
     }
