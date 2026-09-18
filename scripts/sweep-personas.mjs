@@ -32,13 +32,21 @@ const seats = await personas(page);
 console.log(`${seats.length} demo seats x ${ROUTES.length} routes on ${BASE}\n`);
 
 const totals = { ok: 0, hit: 0, bad: 0, denied: 0 };
-for (const seat of seats) {
+for (const [i, seat] of seats.entries()) {
   await signOut(page).catch(() => {});
   await signIn(page, seat.email);
   const tally = { ok: 0, hit: 0, bad: 0, denied: 0 };
-  for (const path of ROUTES) {
+  for (const [n, path] of ROUTES.entries()) {
+    // sweep-detail.mjs writes down that "a slow run and a hung one read
+    // identically" without a line per route, and suppressing `ok` reintroduces
+    // exactly that: a seat that can open most of the product prints nothing at
+    // all between its sign-in and its summary, which on a loaded machine is
+    // twenty silent minutes. A counter on one rewritten line costs no scrollback
+    // and answers the only question being asked of it.
+    process.stderr.write(`\r  seat ${i + 1}/${seats.length}  route ${n + 1}/${ROUTES.length}   `);
     tally[await sweepRoute(page, path, { walls: false, quiet: true })]++;
   }
+  process.stderr.write("\r");
   for (const k of Object.keys(tally)) totals[k] += tally[k];
   console.log(
     `  ${seat.email}: ${tally.ok} ok, ${tally.denied} refused, ${tally.hit} flagged, ${tally.bad} broken\n`
