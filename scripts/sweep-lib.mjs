@@ -29,13 +29,14 @@ export function routePatterns({ param }) {
     .map((p) => (p.startsWith("/") ? p : `/${p}`));
   // Same file-as-text idiom as I18N_KEYS below: routing.ts is TypeScript and
   // this is a plain .mjs script, so the list is read rather than imported.
-  const workspaces = param
-    ? []
-    : [
-        ...readFileSync("apps/web/app/routing.ts", "utf8")
-          .match(/export const WORKSPACE_PATHS = \[([^\]]*)\]/s)?.[1]
-          .matchAll(/"([^"]+)"/g)
-      ].map((m) => m[1]);
+  const declaration = readFileSync("apps/web/app/routing.ts", "utf8").match(
+    /export const WORKSPACE_PATHS = \[([^\]]*)\]/s
+  );
+  // Loudly, not silently. A regex that stops matching would drop the workspace
+  // landings back out of the sweep and report "0 not swept" over a smaller
+  // list — which is the bug this whole function exists to have fixed.
+  if (!param && !declaration) throw new Error("routing.ts no longer declares WORKSPACE_PATHS as a literal array");
+  const workspaces = param ? [] : [...declaration[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   return [
     ...new Set(
       [...literals, ...workspaces]
@@ -179,12 +180,14 @@ export async function personas(page) {
   );
 }
 
-/** Sign out, so the next persona starts from no session rather than inheriting
- *  one. /logout is action-only (HIDDEN_ROUTES), so it is posted, not visited. */
+/**
+ * Sign out, so the next persona starts from no session rather than inheriting
+ * one. Dropping the cookie is the whole of it — the session lives in
+ * `lyra_session` and the login page reads nothing else — and it is preferred
+ * over posting to /logout because that route is action-only (HIDDEN_ROUTES) and
+ * a sweep that never submits a form should not start here.
+ */
 export async function signOut(page) {
-  await page.evaluate(async () => {
-    await fetch("/logout", { method: "POST" });
-  });
   await page.context().clearCookies();
 }
 
