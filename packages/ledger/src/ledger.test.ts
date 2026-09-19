@@ -101,6 +101,12 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
     { amountMinor: amount, withholdingMinor: Math.floor(amount * 0.05) },
     { amountMinor: amount },
     { netMinor: amount, taxMinor: tax },
+    // Takaful surplus (H8, docs/27 F45). Its own shape because the split is the
+    // thing worth fuzzing: the participants' share is floored and the operator
+    // takes the remainder, so the balance invariant is what proves the pair
+    // never loses a minor unit between two roundings. The share is seeded, so
+    // the fuzz walks the whole 0-100% range across runs.
+    { surplusMinor: amount, participantShareBps: Math.floor(r() * 10_001) },
     // Authored entries (docs/27 F2, F3): the caller supplies the lines, so the
     // generator has to as well. Last, so no derived recipe matches these first.
     {

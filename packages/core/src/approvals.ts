@@ -184,6 +184,19 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     policy({ key: "core.unmasked_export", module: "core", decide: "analytics:exports:unmasked", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "compliance.erasure", module: "core", decide: "compliance:erasure:execute", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "compliance.legal_hold_release", module: "core", decide: "compliance:legal_holds:write", dualControl: "always", neverAutoApprove: true }),
+    // docs/16 H8 "Shariah-board workflow (review lane like compliance
+    // pre-flight)", docs/27 F45. A board certifies that a product's structure
+    // is permissible; `SURPLUS-DIST`'s precondition then refuses to distribute
+    // out of a product whose ruling is missing or expired
+    // (packages/ledger/src/preconditions.ts).
+    //
+    // `dualControl: "always"` and `neverAutoApprove` together, and neither is
+    // decoration. A board is by definition more than one person, so a single
+    // signature is not a board ruling; and a tenant allowlist that could
+    // auto-certify would let a product sell as Shariah-compliant on nobody's
+    // authority at all, which is the one claim in this file that a customer
+    // cannot verify for themselves.
+    policy({ key: "compliance.shariah_certify", module: "core", decide: "compliance:shariah:certify", dualControl: "always", neverAutoApprove: true }),
     // ai
     policy({ key: "ai.autonomy_raise", module: "ai", decide: "ai:agents:write", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ai.prompt_publish", module: "ai", decide: "ai:prompts:write", dualControl: "never" }),

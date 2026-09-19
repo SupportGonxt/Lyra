@@ -224,6 +224,82 @@ export type GuardrailsJson = z.infer<typeof GuardrailsJson>;
  * below, which apps/api/src/resources.ts validates against. Read lenient, write
  * strict — the same shape could not be both.
  */
+/**
+ * `core_products.takaful_json` — docs/16 H8's "wakala fee, surplus rule, fund
+ * ref", plus the standing Shariah ruling on the product (docs/27 F45).
+ *
+ * The column held free-form JSON and the horizon seam test wrote
+ * `{model, surplusSharePct}` into it, so nothing could act on it: a surplus
+ * distribution has to know whose money it is splitting and by how much, and a
+ * percentage in prose is not a rule an engine can post from. Giving it a shape
+ * is what lets `SURPLUS-DIST` stop being a declared type with a borrowed
+ * recipe.
+ *
+ * Basis points, not a percentage, for the reason the rest of the ledger uses
+ * them: `surplusSharePct: 10` cannot express 12.5% and a takaful contract
+ * routinely does.
+ *
+ * `shariah` is the review lane docs/16 H8 asks for, held here rather than in
+ * its own table because it is one standing ruling per product with one open
+ * question at a time — the same reason `complianceStatus` sits on a creative.
+ * `approvalId` points at the `core_approvals` row that carries the two
+ * signatures, so the certification inherits dual control rather than
+ * re-implementing it.
+ */
+export const TakafulJson = z.object({
+  /** wakala: fee-based, operator takes no surplus. mudaraba: operator shares it. */
+  model: z.enum(["wakala", "mudaraba", "hybrid"]).default("wakala"),
+  /** The operator's management fee, deducted from contributions. */
+  wakalaFeeBps: z.number().int().min(0).max(10_000).default(0),
+  /**
+   * The participants' share of a declared surplus; the operator takes the
+   * remainder. Defaults to all of it, which is the wakala answer and the safe
+   * one — an unconfigured product distributes nothing to the operator rather
+   * than silently taking a share nobody agreed to.
+   */
+  participantShareBps: z.number().int().min(0).max(10_000).default(10_000),
+  /** The risk fund this product's contributions pool into. */
+  fundRef: z.string().optional(),
+  shariah: z
+    .object({
+      state: z.enum(["draft", "submitted", "certified", "withdrawn"]).default("draft"),
+      /** The approval row holding the board's decision (dual control). */
+      approvalId: z.string().optional(),
+      /** The board itself, and the ruling it issued. */
+      boardRef: z.string().optional(),
+      fatwaRef: z.string().optional(),
+      certifiedAt: z.number().int().optional(),
+      /** Rulings are reviewed periodically; past this the product is uncertified. */
+      expiresAt: z.number().int().optional()
+    })
+    .default({ state: "draft" })
+})
+  // `.prefault({})`, not `.default({})`, and the difference is the whole
+  // behaviour: zod 4 hands a `default` back unparsed, so `.default({})` makes
+  // a null column parse to a literal `{}` with no `shariah` on it and the
+  // first reader dereferences undefined. `prefault` feeds the value through
+  // the schema, so the field defaults actually apply.
+  //
+  // It matters because `structure = "takaful"` with `takaful_json` still null
+  // is the state every existing row is in, and the defaults are the safe
+  // reading of it — `state: "draft"`, so an unrecorded ruling is an absent
+  // ruling and never a permitted one.
+  .prefault({});
+export type TakafulJson = z.infer<typeof TakafulJson>;
+
+/**
+ * Whether a product may be sold, and a surplus distributed, as takaful right
+ * now. One function because three readers ask it — the precondition on
+ * `SURPLUS-DIST`, the certification endpoint, and the product screen — and
+ * "certified" alone is the wrong answer: a ruling with an expiry that has
+ * passed is not a current ruling, and a screen that says otherwise is the
+ * defect this exists to prevent.
+ */
+export function shariahCertified(takaful: TakafulJson, now: number): boolean {
+  if (takaful.shariah.state !== "certified") return false;
+  return takaful.shariah.expiresAt === undefined || takaful.shariah.expiresAt > now;
+}
+
 export const PaymentPlanJson = z.object({
   graceDays: z.number().int().nonnegative().default(0),
   lapseOnMissed: z.boolean().default(false),

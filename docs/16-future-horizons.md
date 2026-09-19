@@ -100,11 +100,20 @@ consented data sharing and product APIs.
 ## H8 — Takaful-native
 
 - **NOW:** product model fields `structure` (`conventional|takaful`),
-  `takaful_json` (wakala fee, surplus rule, fund ref); Hijri calendar support
-  already in the design system; disclosure templates keyed by structure.
+  `takaful_json` (wakala fee, surplus rule, fund ref — shaped by `TakafulJson`,
+  packages/db/src/json.ts); Hijri calendar support already in the design
+  system; disclosure templates keyed by structure. The Shariah-board review
+  lane is built (docs/27 F45): `POST /v1/compliance/shariah/{submit,certify}`,
+  gated on `compliance.shariah_certify` (dual control, never auto-approvable),
+  with the ruling refused through the generic product CRUD so the gate has no
+  second door. `SURPLUS-DIST` posts a real takaful split — 2040 participants'
+  fund out, 2050 participants' payable and 4095 operator share in — and its
+  precondition refuses a product whose ruling is missing or expired.
 - **LATER:** surplus-distribution statements to participants (ORBIT journey),
-  Shariah-board workflow (review lane like compliance pre-flight), takaful
-  fund reporting pack in NORTH.
+  takaful fund reporting pack in NORTH, and segregation of the tabarru' fund
+  under its own asset account with its own invariant — deliberately not folded
+  into the CBUAE client-money test (1010 ≥ 2010), which answers a different
+  regime.
 
 ## H9 — Embedded lending & flexible premium
 

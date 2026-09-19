@@ -37,6 +37,20 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   { code: "2300", en: "Deferred Revenue", ar: "إيرادات مؤجلة", type: "liability", normalSide: "credit" },
   { code: "2350", en: "Customer Deposits", ar: "ودائع العملاء", type: "liability", normalSide: "credit" },
   { code: "2400", en: "Refunds Payable", ar: "مبالغ مستردة مستحقة الدفع", type: "liability", normalSide: "credit" },
+  // Takaful (docs/16 H8, docs/27 F45). A takaful risk fund is the participants'
+  // money that the operator manages; it is never the operator's revenue, which
+  // is why a surplus distribution cannot be posted as a partner revenue share
+  // (5400/2100) the way SURPLUS-DIST's generic recipe used to. Two accounts,
+  // because declaring a surplus and paying it are two different facts: 2040 is
+  // what the fund holds, 2050 is what has been declared out of it and is owed.
+  //
+  // Not flagged `clientMoney`. The tabarru' fund is segregated under a takaful
+  // operator's own licence, not under the CBUAE client-money rules the 1010 >=
+  // 2010 invariant enforces, and folding it into that invariant would make one
+  // regulatory test answer for two regimes. Its own segregation test is H8
+  // LATER, and it needs its own asset account to be written against.
+  { code: "2040", en: "Takaful Participants' Fund", ar: "صندوق المشتركين التكافلي", type: "liability", normalSide: "credit" },
+  { code: "2050", en: "Takaful Surplus Payable", ar: "فائض تكافلي مستحق الدفع", type: "liability", normalSide: "credit" },
 
   // equity (docs/27 F3). Retained earnings are posted by YEAR-END-CLOSE, not
   // derived: a derived plug makes the balance sheet un-auditable and leaves
@@ -58,6 +72,12 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   { code: "4075", en: "Marketplace Revenue", ar: "إيرادات السوق", type: "income", normalSide: "credit" },
   { code: "4080", en: "Financing Commission", ar: "عمولة التمويل", type: "income", normalSide: "credit" },
   { code: "4090", en: "Service Fees", ar: "رسوم الخدمات", type: "income", normalSide: "credit" },
+  // The operator's own share of a declared takaful surplus. Under wakala the
+  // operator is paid a fee and takes none of the surplus, so this account stays
+  // at zero; under mudaraba it is the operator's agreed share. One account,
+  // because which model a product runs is a product attribute (core_products
+  // .takaful_json) and not a different posting shape.
+  { code: "4095", en: "Takaful Operator Surplus Share", ar: "حصة المشغّل من الفائض التكافلي", type: "income", normalSide: "credit" },
 
   // expense / contra-income
   { code: "5000", en: "Commission Clawback", ar: "استرداد العمولة", type: "expense", normalSide: "debit" },

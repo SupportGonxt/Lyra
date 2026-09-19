@@ -216,6 +216,56 @@ export function expenseAccrual(a: z.infer<typeof AccrualArgs>): PostingLine[] {
   );
 }
 
+/* ----------------------------------------------- C.2 takaful surplus (H8) */
+
+const TakafulSurplusArgs = z.object({
+  /** The surplus the fund declared for the period, in minor units. */
+  surplusMinor: Pos,
+  /** From core_products.takaful_json. 10000 = participants take all of it. */
+  participantShareBps: z.number().int().min(0).max(10_000).default(10_000),
+  /** The risk fund the surplus comes out of. */
+  fundAccount: z.string().default("2040"),
+  /** What the participants are now owed. */
+  payableAccount: z.string().default("2050"),
+  /** The operator's share, under mudaraba. Zero under wakala. */
+  operatorIncomeAccount: z.string().default("4095"),
+  memo: Memo,
+  dims: Dims
+});
+export type TakafulSurplusArgs = z.infer<typeof TakafulSurplusArgs>;
+
+/**
+ * docs/16 H8 / docs/27 F45. Declaring a takaful surplus moves participants'
+ * money out of the risk fund: what the participants are owed becomes payable,
+ * and under mudaraba the operator's agreed share becomes the operator's income.
+ *
+ * `SURPLUS-DIST` has been a declared transaction type with `ledger.surplus`
+ * approval since the type table was written, and its recipe was
+ * `expenseAccrual` pointed at 5400 Partner Revenue Share / 2100 Partner
+ * Payable. Nothing ever posted one, which is why nobody noticed that those are
+ * the wrong accounts by a whole regime: a surplus is not an expense the
+ * operator incurs and the participants are not a distribution partner. Both
+ * legs of the old posting were wrong, and the type tested green because no
+ * caller existed to test.
+ *
+ * The operator's share is the remainder rather than its own rounded
+ * calculation. Two independent `floor`s of the same amount lose a minor unit
+ * between them on most inputs, and an unbalanced journal is refused by
+ * `post()` — so the split is defined as "participants' share, then whatever is
+ * left", which balances for every input by construction. Where the dust lands
+ * is a decision, and it lands with the operator on purpose: rounding a
+ * participant's entitlement up out of a fund is not the operator's to do.
+ */
+export function takafulSurplus(a: TakafulSurplusArgs): PostingLine[] {
+  const participantMinor = Math.floor((a.surplusMinor * a.participantShareBps) / 10_000);
+  const operatorMinor = a.surplusMinor - participantMinor;
+  return lines(
+    line(a.fundAccount, "debit", a.surplusMinor, a.memo ?? "surplus declared", a.dims),
+    line(a.payableAccount, "credit", participantMinor, "participants' share", a.dims),
+    line(a.operatorIncomeAccount, "credit", operatorMinor, "operator's share", a.dims)
+  );
+}
+
 const PayoutArgs = z.object({
   amountMinor: Pos,
   payableAccount: z.string().default("2100"),
@@ -526,7 +576,9 @@ export const RECIPES: Record<string, RecipeSpec> = {
   "EXT-RSHARE": spec(CommissionArgs, commissionAccrual, { incomeAccount: "4075", receivableAccount: "1160" }),
   "RSHARE-ACCR": spec(AccrualArgs, expenseAccrual),
   "RSHARE-ADJUST": spec(AccrualArgs, expenseAccrual),
-  "SURPLUS-DIST": spec(AccrualArgs, expenseAccrual, { expenseAccount: "5400", payableAccount: "2100" }),
+  // docs/27 F45. Was `expenseAccrual` into 5400/2100 — a partner revenue share,
+  // which a takaful surplus is not on either leg. See `takafulSurplus`.
+  "SURPLUS-DIST": spec(TakafulSurplusArgs, takafulSurplus),
 
   // subscriptions & platform billing
   "SUB-INVOICE": spec(InvoiceArgs, invoiceRaised),

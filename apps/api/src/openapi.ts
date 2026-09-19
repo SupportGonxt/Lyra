@@ -270,6 +270,15 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/compliance/evidence-bundles/{id}/download", summary: "Download an assembled evidence bundle", permission: "compliance:evidence:read", tag: "compliance" },
   { method: "post", path: "/v1/compliance/retention/run", summary: "Run a retention class and record what it purged", permission: "compliance:retention:run", tag: "compliance", requestBody: true },
 
+  // docs/16 H8 Shariah-board review lane, docs/27 F45. Submitting asks the
+  // board a question; certifying answers it and is gated on
+  // `compliance.shariah_certify` (dual control, never auto-approvable). The
+  // ruling is refused through the generic product CRUD, so these are the only
+  // way into `core_products.takaful_json.shariah`.
+  { method: "post", path: "/v1/compliance/shariah/submit", summary: "Put a takaful product's terms in front of the Shariah board", permission: "compliance:shariah:read", tag: "compliance", requestBody: true },
+  { method: "post", path: "/v1/compliance/shariah/certify", summary: "Record the Shariah board's ruling on a takaful product", permission: "compliance:shariah:certify", tag: "compliance", requestBody: true },
+  { method: "get", path: "/v1/compliance/shariah/{productId}", summary: "A takaful product's structure and the standing Shariah ruling on it", permission: "compliance:shariah:read", tag: "compliance" },
+
   // docs/18 C7. Sponsored placement is gated on a disclosure shown first
   // (docs/19 §AD-PLACEMENT requires DISCLOSURE-PRESENT); this records the hash
   // of the exact wording shown, not the wording itself, as the evidence.
