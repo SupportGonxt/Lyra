@@ -278,6 +278,8 @@ flag any fifth they see.
 | `scout:signals:read` | The signals table; the integrator screen's similarity search |
 | `scout:signals:ingest` | Writing a signal — a harvester key's grant, not a person's |
 | `scout:clusters:read` | Clusters, and the Radar |
+| `scout:clusters:build` | Running the Clusterer over the persisted signal corpus |
+| `scout:panel_bench:build` | Running the Bench Builder — rebuilding the bench, which reading it does not imply |
 | `scout:whitespaces:read` | Whitespace rows and their commentary |
 | `scout:whitespaces:promote` | Moving a card, running the sweep, promoting to SIGNAL, and the negotiation pack |
 | `scout:panel_bench:read` | Panel, price and analytics screens; the wording differ |
@@ -716,6 +718,14 @@ numbers, so it needs the promote permission."* Pressing it downloads a PDF named
 for today's date; the download is a full document navigation, not an in-page
 fetch, and the response is marked never-cache. The export is audited.
 
+**Rebuild the bench.** The Bench Builder (module doc §3, nightly) on demand:
+*"Recomputes every counterparty x line x month cell from this workspace's own
+quote outcomes."* Gated on `scout:panel_bench:build`, which reading the bench
+does not imply — otherwise *"Rewriting the bench is a separate permission from
+reading it."* Idempotent: a cell is keyed (provider, line, period) and updated
+in place, so a second press writes the same numbers. Success says how many cells
+were rebuilt and how many were new.
+
 **Empty.** *"No bench rows for this period."*
 
 ### 10.4 Price benchmarks — `/scout/pricing`
@@ -865,11 +875,25 @@ have gone quiet."
 
 **Signal sources.** The six known sources — Search demand, Quote flow,
 Abandonment, Reviews, News, Regulatory — each **Ingesting**, **Quiet** (nothing
-in 14 days) or **Never ingested**. Counted from the signals themselves. A
-permanent notice explains the limit of the panel: *"Connectors are not
-configured here — The harvester's crawl politeness, robots handling and
-per-source credentials live with the harvester, not in a tenant setting. This
-panel reports what arrived; it cannot turn a source on."*
+in 14 days) or **Never ingested**. Counted from the signals themselves. Read as
+`adm.source.<kind>`: this row printed `source.search` and its five siblings as
+raw keys until `apps/web/app/routes/scout.labels.test.ts` was written.
+
+**Registered adapters.** Below the health counts, the registry itself
+(`GET /v1/scout/sources`, mirroring `describeSources` in
+`apps/api/src/engines/scout-ingest.ts`): each adapter's id and kind, badged
+**Reads rows LYRA already holds** or **Fetches from outside LYRA**. Nothing is
+badged external today, and the permanent notice says why: *"No source fetches
+from outside yet"* — search trends, review sites, news and regulatory feeds are
+third-party services, each needing a recorded decision first (ADR-0078), and
+they plug into this same registry when one is made.
+
+**Competitor and regulatory watch.** Each watched subject's last 30 days scored
+against the 30 before them, badged **Moving fast**, **Worth a look** or
+**Steady**, with the observation count and either the percent change or *"New to
+the watch"*. The card states that it is a reading and not a record: nothing on
+it is stored (`GET /v1/scout/watch`). Empty: *"Nothing is being watched yet"*,
+with the developer screen as its door.
 
 **Suppression floors.** The module floor, with: *"Compiled into the module, not
 a tenant setting: cuts below it are suppressed before a reader sees them.
@@ -1154,6 +1178,10 @@ Stated here rather than guessed:
   defaults and are not specified in SCOUT.
 - **How a cluster's momentum score is computed.** Screens display it, and the
   Radar plots against it; the clusterer's method is not documented here.
+  (`packages/core/src/momentum.ts` is the arithmetic —
+  volume x growth x novelty over two windows — and
+  `apps/api/src/engines/scout-cluster.ts` is what runs it over the persisted
+  corpus, placing a signal against VEC_MARKET before scoring.)
 - **Whether any SCOUT screen has ever been reviewed against a real Arabic
   corpus.** Every string is translated; the layout is logical-property clean;
   no RTL screenshot review is recorded.

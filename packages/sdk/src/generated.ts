@@ -2942,6 +2942,7 @@ export interface Operations {
   "POST /v1/portal/{tenantSlug}/track": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/realtime": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/clusters": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutClusters>>;
+  "POST /v1/scout/clusters/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/clusters/{id}": Op<{ id: string }, never, never, ScoutClusters>;
   "GET /v1/scout/data-products": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutDataProducts>>;
   "POST /v1/scout/data-products": Op<never, never, ScoutDataProducts, ScoutDataProducts>;
@@ -2949,6 +2950,7 @@ export interface Operations {
   "PATCH /v1/scout/data-products/{id}": Op<{ id: string }, never, ScoutDataProducts, ScoutDataProducts>;
   "GET /v1/scout/panel-bench": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutPanelBench>>;
   "GET /v1/scout/panel-bench/negotiation-pack": Op<never, never, never, Record<string, unknown>>;
+  "POST /v1/scout/panel-bench/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/panel-bench/{id}": Op<{ id: string }, never, never, ScoutPanelBench>;
   "GET /v1/scout/scout-experiments": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutScoutExperiments>>;
   "POST /v1/scout/scout-experiments": Op<never, never, ScoutScoutExperiments, ScoutScoutExperiments>;
@@ -2956,8 +2958,11 @@ export interface Operations {
   "PATCH /v1/scout/scout-experiments/{id}": Op<{ id: string }, never, ScoutScoutExperiments, ScoutScoutExperiments>;
   "GET /v1/scout/signals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutSignals>>;
   "POST /v1/scout/signals": Op<never, never, ScoutSignals, ScoutSignals>;
+  "POST /v1/scout/signals/harvest": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/scout/signals/similar": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/scout/signals/{id}": Op<{ id: string }, never, never, ScoutSignals>;
+  "GET /v1/scout/sources": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/scout/watch": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/whitespaces": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutWhitespaces>>;
   "GET /v1/scout/whitespaces/commentary": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/scout/whitespaces/compute": Op<never, never, never, Record<string, unknown>>;
@@ -3673,6 +3678,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/portal/{tenantSlug}/track": { tag: "portal", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP", permission: null, public: true },
   "GET /v1/realtime": { tag: "realtime", summary: "Server-Sent Events stream of the caller's own live updates", permission: null, public: false },
   "GET /v1/scout/clusters": { tag: "scout", summary: "List clusters", permission: "scout:clusters:read", public: false },
+  "POST /v1/scout/clusters/sweep": { tag: "scout", summary: "Run the Clusterer over the persisted signal corpus: places each signal against the market embedding index, re-scores momentum, stamps cluster ids", permission: "scout:clusters:build", public: false },
   "GET /v1/scout/clusters/{id}": { tag: "scout", summary: "Fetch one cluster", permission: "scout:clusters:read", public: false },
   "GET /v1/scout/data-products": { tag: "scout", summary: "List data-products", permission: "scout:data_products:read", public: false },
   "POST /v1/scout/data-products": { tag: "scout", summary: "Create a data product", permission: "scout:data_products:create", public: false },
@@ -3680,6 +3686,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/scout/data-products/{id}": { tag: "scout", summary: "Update a data product", permission: "scout:data_products:publish", public: false },
   "GET /v1/scout/panel-bench": { tag: "scout", summary: "List panel-bench", permission: "scout:panel_bench:read", public: false },
   "GET /v1/scout/panel-bench/negotiation-pack": { tag: "scout", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", public: false },
+  "POST /v1/scout/panel-bench/sweep": { tag: "scout", summary: "Run the Bench Builder: rebuild every provider x line x month cell from the panel's own quote outcomes", permission: "scout:panel_bench:build", public: false },
   "GET /v1/scout/panel-bench/{id}": { tag: "scout", summary: "Fetch one panel bench", permission: "scout:panel_bench:read", public: false },
   "GET /v1/scout/scout-experiments": { tag: "scout", summary: "List scout-experiments", permission: "scout:experiments:read", public: false },
   "POST /v1/scout/scout-experiments": { tag: "scout", summary: "Create a scout experiment", permission: "scout:experiments:create", public: false },
@@ -3687,8 +3694,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/scout/scout-experiments/{id}": { tag: "scout", summary: "Update a scout experiment", permission: "scout:experiments:decide", public: false },
   "GET /v1/scout/signals": { tag: "scout", summary: "List signals", permission: "scout:signals:read", public: false },
   "POST /v1/scout/signals": { tag: "scout", summary: "Create a signal", permission: "scout:signals:ingest", public: false },
+  "POST /v1/scout/signals/harvest": { tag: "scout", summary: "Run the Harvester: every registered signal source, plus any fed items, recorded once per (source, sourceRef)", permission: "scout:signals:ingest", public: false },
   "POST /v1/scout/signals/similar": { tag: "scout", summary: "Nearest signals to a phrase, from the market embedding index", permission: "scout:signals:read", public: false },
   "GET /v1/scout/signals/{id}": { tag: "scout", summary: "Fetch one signal", permission: "scout:signals:read", public: false },
+  "GET /v1/scout/sources": { tag: "scout", summary: "The registered signal sources — id, kind, and whether the adapter leaves LYRA (none do today, ADR-0078)", permission: "scout:signals:read", public: false },
+  "GET /v1/scout/watch": { tag: "scout", summary: "Competitor and regulatory watch: each watched subject's window scored against the one before it", permission: "scout:signals:read", public: false },
   "GET /v1/scout/whitespaces": { tag: "scout", summary: "List whitespaces", permission: "scout:whitespaces:read", public: false },
   "GET /v1/scout/whitespaces/commentary": { tag: "scout", summary: "Why each live whitespace is whitespace: the cached one-line commentary plus the evidence it was grounded against, for every candidate at once (the Radar's hover prefetch)", permission: "scout:whitespaces:read", public: false },
   "POST /v1/scout/whitespaces/compute": { tag: "scout", summary: "Run the whitespace sweep now against real quote demand vs. policy coverage", permission: "scout:whitespaces:promote", public: false },
