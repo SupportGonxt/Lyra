@@ -23,6 +23,25 @@ import {
   type Snapshot
 } from "./north-shared";
 
+/**
+ * Mirrors what `GET /v1/north/forecast` answers with — apps/api/src/routes/north.ts,
+ * built by packages/core/src/north-forecast.ts. Every field here exists there;
+ * `reason` is present only when `points` is empty.
+ */
+interface Forecast {
+  points: { period: string; p10: number; p50: number; p90: number }[];
+  fit: {
+    method: string;
+    alphaPpm: number;
+    betaPpm: number;
+    phiPpm: number;
+    intervalSource: "empirical" | "default";
+    observations: number;
+    lastObserved: string | null;
+  };
+  reason?: string;
+}
+
 // Metric Explorer (docs/modules/north.md §4 screen 2): one metric, its series,
 // and the definition it was computed from. The semantic layer is the only
 // source — the screen reads north_snapshots through the snapshots resource and
@@ -38,6 +57,11 @@ const WINDOW = 90;
 // screen answered HTTP 500 to every reader because of it.
 const MAX_PAGE = 200;
 const GRAINS = ["day", "week", "month"] as const;
+/**
+ * Six periods ahead: a half-year of months or most of a week of days — far
+ * enough to plan against, near enough that the band still means something.
+ */
+const HORIZON = 6;
 
 /* ------------------------------------------------------------------ labels */
 
@@ -62,6 +86,18 @@ const LABELS: Labels = {
     "series.none.title": "No snapshots for this metric yet",
     "series.none.body":
       "The snapshotter writes a row when the period closes. Run it from NORTH dev if you need one before the nightly window.",
+    "forecast.title": "What the next periods look like",
+    "forecast.caption": "Projected value per period, with the range the fit puts around it",
+    "forecast.period": "Period",
+    "forecast.low": "Low (p10)",
+    "forecast.mid": "Projected (p50)",
+    "forecast.high": "High (p90)",
+    "forecast.method": "Method",
+    "forecast.params": "Fitted",
+    "forecast.band.empirical": "Range measured from holdout error",
+    "forecast.band.default": "Range is the default width — too little history to measure one",
+    "forecast.basis": "Projected from {count} closed periods, the last of them {last}",
+    "forecast.none": "Not enough closed history to project from yet. The projection needs at least four closed periods.",
     "stat.latest": "Latest",
     "stat.periods": "Periods held",
     "stat.change": "Change on prior",
@@ -100,6 +136,18 @@ const LABELS: Labels = {
     "series.taken": "وقت اللقطة",
     "series.none.title": "لا توجد لقطات لهذا المؤشر بعد",
     "series.none.body": "يكتب المُلقِط صفاً عند إغلاق الفترة. شغّله من قسم تطوير نورث إذا احتجت لقطة قبل النافذة الليلية.",
+    "forecast.title": "كيف تبدو الفترات القادمة",
+    "forecast.caption": "القيمة المتوقعة لكل فترة، مع المدى الذي يضعه النموذج حولها",
+    "forecast.period": "الفترة",
+    "forecast.low": "الأدنى (p10)",
+    "forecast.mid": "المتوقع (p50)",
+    "forecast.high": "الأعلى (p90)",
+    "forecast.method": "الطريقة",
+    "forecast.params": "المعاملات",
+    "forecast.band.empirical": "المدى مقيس من خطأ فترة الاختبار",
+    "forecast.band.default": "المدى هو العرض الافتراضي — التاريخ أقصر من أن يُقاس منه",
+    "forecast.basis": "متوقع من {count} فترة مغلقة، آخرها {last}",
+    "forecast.none": "لا يوجد تاريخ مغلق كافٍ للتوقع بعد. يحتاج التوقع إلى أربع فترات مغلقة على الأقل.",
     "stat.latest": "الأحدث",
     "stat.periods": "عدد الفترات",
     "stat.change": "التغير عن السابق",
@@ -183,13 +231,29 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     : { data: [] as Snapshot[] };
   const snapshots = page ? page.data.filter((row) => !row.dimsHash).slice(0, WINDOW).reverse() : null;
 
-  return { metrics, metric, grain, snapshots };
+  // The projection (docs/27 F50). `north:forecasts:read` is its own permission,
+  // deliberately not implied by `north:snapshots:read` — a forward-looking
+  // number is a different disclosure from a recorded one — so a reader who
+  // lacks it loses this card and keeps the screen, which is what readable() is
+  // for. Week grain has no forecast: the endpoint projects the two grains the
+  // snapshotter writes.
+  const forecast =
+    metric && grain !== "week"
+      ? ((await readable(
+          api<Forecast>(
+            `/v1/north/forecast?metricKey=${encodeURIComponent(metric.key)}&grain=${grain}&horizon=${HORIZON}`,
+            opts
+          )
+        )) ?? null)
+      : null;
+
+  return { metrics, metric, grain, snapshots, forecast };
 }
 
 /* --------------------------------------------------------------- the screen */
 
 export default function NorthExplorer() {
-  const { metrics, metric, grain, snapshots } = useLoaderData<typeof loader>();
+  const { metrics, metric, grain, snapshots, forecast } = useLoaderData<typeof loader>();
   const shell = useNorthSessionData();
   const navigation = useNavigation();
 
@@ -305,6 +369,49 @@ export default function NorthExplorer() {
             </>
           )}
 
+          {/* Arithmetic, not a model (packages/core/src/north-forecast.ts), so no
+              marker: docs/15's mark is for what a model wrote, and marking a
+              damped Holt fit would make the mark mean less. The parameters
+              below are the inspectable "why" instead. */}
+          {forecast ? (
+            <Card>
+              <h2 className="mb-3 font-serif text-16 text-text">{l("forecast.title")}</h2>
+              {forecast.points.length === 0 ? (
+                <p className="font-ui text-13 text-subtle">{l("forecast.none")}</p>
+              ) : (
+                <>
+                  <Table
+                    caption={l("forecast.caption")}
+                    rows={forecast.points}
+                    rowKey={(row) => row.period}
+                    columns={[
+                      { key: "period", header: l("forecast.period"), render: (row) => row.period },
+                      { key: "p10", header: l("forecast.low"), numeric: true, render: (row) => shown(row.p10) },
+                      { key: "p50", header: l("forecast.mid"), numeric: true, render: (row) => shown(row.p50) },
+                      { key: "p90", header: l("forecast.high"), numeric: true, render: (row) => shown(row.p90) }
+                    ]}
+                  />
+                  <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <Definition term={l("forecast.method")} value={forecast.fit.method} mono />
+                    <Definition
+                      term={l("forecast.params")}
+                      value={`\u03b1 ${ppm(forecast.fit.alphaPpm)} \u00b7 \u03b2 ${ppm(forecast.fit.betaPpm)} \u00b7 \u03c6 ${ppm(forecast.fit.phiPpm)}`}
+                      mono
+                    />
+                  </dl>
+                  <p className="mt-3 font-ui text-13 text-subtle">
+                    {l(forecast.fit.intervalSource === "empirical" ? "forecast.band.empirical" : "forecast.band.default")}
+                  </p>
+                  {forecast.fit.lastObserved ? (
+                    <p className="mt-1 font-mono text-11 uppercase tracking-[0.14em] text-subtle">
+                      {l("forecast.basis", { count: String(forecast.fit.observations), last: forecast.fit.lastObserved })}
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </Card>
+          ) : null}
+
           {metric ? (
             <Card>
               <h2 className="mb-3 font-serif text-16 text-text">{l("definition.title")}</h2>
@@ -328,6 +435,9 @@ export default function NorthExplorer() {
     </div>
   );
 }
+
+/** A fitted parameter as a person reads it: 0.35, not 350000. */
+export const ppm = (value: number): string => (value / 1_000_000).toFixed(2);
 
 function Definition({ term, value, mono = false }: { term: string; value: React.ReactNode; mono?: boolean }) {
   return (

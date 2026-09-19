@@ -425,6 +425,9 @@ const HAND_WRITTEN: Op[] = [
   // set of columns off north_snapshots only, never a client SQL string.
   { method: "post", path: "/v1/north/explore", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", tag: "north", requestBody: true },
   { method: "get", path: "/v1/north/data-health", summary: "Staleness per metric, computed live from the snapshot table", permission: "north:metrics:read", tag: "north" },
+  // docs/27 F50. Reads closed snapshots only and answers with a band per
+  // period plus the fit that produced it; no model is in this path.
+  { method: "get", path: "/v1/north/forecast", summary: "Project a metric forward from its closed snapshots — damped Holt, p10/p50/p90, with the fitted parameters", permission: "north:forecasts:read", tag: "north" },
 
   // AXIS copilot and developer sandbox (routes/axis.ts).
   { method: "post", path: "/v1/axis/cases/{id}/copilot", summary: "Answer a question about a case, grounded only in its own documents, events and tasks", permission: "axis:cases:read", tag: "axis", requestBody: true },

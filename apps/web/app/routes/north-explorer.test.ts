@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api-error";
-import { deltaBps, headlineDirection } from "./north-explorer";
+import { deltaBps, headlineDirection, ppm } from "./north-explorer";
 
 vi.mock("../api.server", () => ({ api: vi.fn() }));
 vi.mock("../context", () => ({ cloudflare: { toString: () => "cloudflare-context" } }));
@@ -43,6 +43,14 @@ describe("headlineDirection", () => {
 
   it("reports nothing rather than a trend that isn't there", () => {
     expect(headlineDirection([100, 100])).toBeNull();
+  });
+});
+
+describe("ppm", () => {
+  it("shows a fitted parameter the way a person reads it", () => {
+    expect(ppm(350_000)).toBe("0.35");
+    expect(ppm(1_000_000)).toBe("1.00");
+    expect(ppm(0)).toBe("0.00");
   });
 });
 
@@ -90,6 +98,45 @@ describe("north-explorer loader asOf", () => {
       const limit = Number(new URL(url as string, "https://api.test").searchParams.get("limit"));
       expect(limit).toBeLessThanOrEqual(200);
     }
+  });
+
+  // docs/27 F50. The endpoint exists to be read by something; this is the
+  // something.
+  it("asks for a projection of the metric and grain being read", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ data: [{ key: "net_commission", grain: "month" }] });
+    vi.mocked(api).mockResolvedValueOnce({ data: [] });
+    vi.mocked(api).mockResolvedValueOnce({ points: [], fit: {} });
+    await loader({
+      request: new Request("https://lyra.test/north/explorer?metric=net_commission&grain=month"),
+      context: fakeContext()
+    } as never);
+    const forecastCall = vi.mocked(api).mock.calls.map(([url]) => url as string).find((url) => url.startsWith("/v1/north/forecast"));
+    expect(forecastCall).toContain("metricKey=net_commission");
+    expect(forecastCall).toContain("grain=month");
+    expect(forecastCall).toContain("horizon=6");
+  });
+
+  it("asks for no projection at week grain, which the snapshotter does not write", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ data: [{ key: "gwp", grain: "month" }] });
+    vi.mocked(api).mockResolvedValueOnce({ data: [] });
+    const out = (await loader({
+      request: new Request("https://lyra.test/north/explorer?grain=week"),
+      context: fakeContext()
+    } as never)) as { forecast: unknown };
+    expect(vi.mocked(api).mock.calls.some(([url]) => (url as string).startsWith("/v1/north/forecast"))).toBe(false);
+    expect(out.forecast).toBeNull();
+  });
+
+  it("loses the projection card, not the screen, when the reader lacks north:forecasts:read", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ data: [{ key: "gwp", grain: "day" }] });
+    vi.mocked(api).mockResolvedValueOnce({ data: [{ id: "s1", period: "2026-01-01", value: 1, dimsHash: "", ts: 1 }] });
+    vi.mocked(api).mockRejectedValueOnce(new ApiError({ title: "forbidden", status: 403 }, null));
+    const out = (await loader({
+      request: new Request("https://lyra.test/north/explorer"),
+      context: fakeContext()
+    } as never)) as { forecast: unknown; snapshots: unknown[] };
+    expect(out.forecast).toBeNull();
+    expect(out.snapshots).toHaveLength(1);
   });
 
   it("renders without the snapshots rather than crashing when the API refuses them", async () => {

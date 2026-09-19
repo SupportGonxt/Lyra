@@ -201,6 +201,11 @@ export const PERMISSIONS = [
   "north:briefings:read", "north:briefings:generate", "north:briefings:approve",
   "north:anomalies:read", "north:anomalies:assign",
   "north:scenarios:read", "north:scenarios:run",
+  // A forecast is a forward-looking number with a company-level implication,
+  // which is a materially different disclosure from `north:snapshots:read`'s
+  // recorded fact (gap-north-design §B.3): whoever may read yesterday's policy
+  // count does not thereby get next quarter's projected commission.
+  "north:forecasts:read",
   "north:boardpacks:read", "north:boardpacks:generate",
   "north:decisions:read", "north:decisions:write",
   "north:alerts:read", "north:alerts:write",
@@ -545,6 +550,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
   /** Board pack readers. Read-only by design — never grant write here. */
   "north.board": [
     "north:briefings:read", "north:boardpacks:read", "north:snapshots:read",
+    // A board reads the projection: it is half of what a board pack is for.
+    "north:forecasts:read",
     "north:decisions:read", "analytics:dashboards:read"
   ],
   "north.admin": [

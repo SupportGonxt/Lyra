@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isClosedPeriod, periodBounds, periodOf, previousPeriod } from "./north-period.js";
+import { isClosedPeriod, nextPeriod, periodBounds, periodOf, phaseOf, previousPeriod } from "./north-period.js";
 
 const at = (iso: string): number => Date.parse(iso);
 
@@ -25,6 +25,30 @@ describe("previousPeriod", () => {
 
   it("walks a month back inside a year", () => {
     expect(previousPeriod("month", "2026-03")).toBe("2026-02");
+  });
+});
+
+describe("nextPeriod", () => {
+  it("is previousPeriod's inverse, across every boundary", () => {
+    for (const [grain, period] of [
+      ["day", "2026-02-28"],
+      ["day", "2024-02-28"],
+      ["day", "2025-12-31"],
+      ["month", "2025-12"],
+      ["month", "2026-06"]
+    ] as const) {
+      expect(previousPeriod(grain, nextPeriod(grain, period))).toBe(period);
+    }
+    expect(nextPeriod("day", "2024-02-28")).toBe("2024-02-29");
+    expect(nextPeriod("month", "2025-12")).toBe("2026-01");
+  });
+});
+
+describe("phaseOf", () => {
+  it("is the weekday of a day and the month of a month", () => {
+    expect(phaseOf("day", "2026-03-02")).toBe(1); // a Monday
+    expect(phaseOf("day", "2026-03-09")).toBe(1); // and so is a week later
+    expect(phaseOf("month", "2026-03")).toBe(3);
   });
 });
 

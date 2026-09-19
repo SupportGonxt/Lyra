@@ -537,6 +537,64 @@ model becoming a candidate**, at which point a comparative A/B on a fixed brief 
 is both meaningful and cheap. Adding an `onprem` or second cloud key to
 `IMAGE_MODEL` (`models.ts:66`) fires that trigger by construction.
 
+### NORTH F48 / F49 / F50 — closed, and what stayed open, 2026-09-19
+
+*F48 — closed.* The anomaly baseline was `existing?.value`, the previous *write*
+of the same period (`north-snapshotter.ts`). Day grain therefore never fired at
+all — a day is written once per nightly run — and month grain fired a false
+critical on the first night of every month, when a fresh month-to-date collapses
+against a full prior month. Three changes: `Period.closed`, so an open period is
+written and displayed but is never an anomaly subject and never a baseline;
+`periodsFor` keys the month off *yesterday*, so the month that just ended gets
+exactly one closed write measured over its real window (before this, no month
+was ever snapshotted whole, so nothing could detect against one); and the
+baseline — headline and each dimensional slice — is read from
+`previousPeriod(grain, period)` in `packages/core/src/north-period.ts`, the
+module `narrator.ts` now shares, which had been doing the comparison correctly
+all along thirty metres away. ADR-0024's naive threshold is untouched: it was
+never the bug, and changing it here would have muddied the regression test.
+Spec §F.3's three named baselines and §F.7's history backfill are **not** built
+— `prior_period` is the floor the spec itself calls B1, and
+`seasonal_robust_z` needs history a fresh tenant does not have.
+
+*F49 — partly closed (ADR-0078).* `net_commission` is now the sum of `netMinor`
+over `commissionByDimension`, with its channel decomposition from the same call,
+so a clawback nets out by construction and the figure traces to the trial
+balance. `expense_ratio`'s numerator moved to `expenseMovementMinor`; there is
+now no SQL against `ledger_journal_lines` outside `packages/ledger`. That work
+found a second defect worth its own line: `commissionByDimension`'s account
+predicate was unbracketed, and `AND` binds tighter than `OR`, so **every 4xxx
+line the tenant had ever posted was counted in every period's commission
+report** — the window only ever constrained the 2100 side.
+
+Still open, and deliberately: `gwp` stays operational, because for a broker
+premium is not revenue — it enters client money and leaves again, and no
+account's balance is GWP. What is missing is the *reconciliation*: spec §E.3's
+`north_tieouts` row per money metric per period, and §E.2's board-safety filter,
+which is the enforcement point that keeps an unreconciled figure out of a board
+pack and out of the model's context. Both want a schema change. Until they
+exist, a board pack can still print a GWP nobody has tied to anything.
+
+*F50 — closed.* `GET /v1/north/forecast` (`north:forecasts:read`, a new
+permission: a forward-looking number is a materially different disclosure from a
+recorded one, so `north:snapshots:read` does not imply it). It reads closed
+snapshots only — projecting from a month-to-date as though it were a month is
+F48's bug in another hat — and hands them to
+`packages/core/src/north-forecast.ts`: damped Holt on the deseasonalised series,
+fitted by a 405-combination grid search on a holdout, answering p10/p50/p90 per
+period with the fitted α, β, φ and the seasonal index per phase. No model is in
+that path. `/north/explorer` reads it, because an endpoint nothing reads is the
+defect this register keeps recording.
+
+Two deliberate departures from spec §H, both written at the call site: the
+seasonal step needs two full cycles rather than 12 months / 56 days before the
+engine will answer at all, and the seasonal indices are ratio-to-moving-average
+rather than §H.2's `median{y : phase = i} / median{y}` — that form cannot tell a
+season from a trend, and on two years of a rising series it returns the trend,
+applied twice. Not built: §H.3's driver projection, §H.4's immutable versioned
+runs and nightly re-run, §H.5's variance report and coverage self-check. The
+endpoint is the read half; a stored run is a table and its own change.
+
 ## P2 — depth, not absence
 
 Commission is flat-rate only — no ladders, tiers, volume bonuses or overrides

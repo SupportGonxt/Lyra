@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, eq, inArray, max } from "drizzle-orm";
+import { and, asc, eq, inArray, max } from "drizzle-orm";
 import type { ReportTable } from "@lyra/ledger";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
-import { body, IsoDay } from "../http.js";
+import { actorRef, audit, forecast, isClosedPeriod, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
+import { body, IsoDay, parse } from "../http.js";
 import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateBriefing } from "../engines/narrator.js";
@@ -21,6 +21,14 @@ import type { App } from "../env.js";
 export const northRoutes = new Hono<App>();
 
 const ctxOf = (c: { get(k: "ctx"): Ctx }): Ctx => c.get("ctx");
+
+/**
+ * How far back a forecast reads. Three years of months or two of days is more
+ * than the damped Holt fit can use and less than a page of rows; the bound is
+ * here so a tenant with a decade of history cannot turn one request into a
+ * table scan.
+ */
+const HISTORY_LIMIT = 800;
 
 const GenerateBriefingBody = z.object({
   date: IsoDay,
@@ -169,6 +177,69 @@ northRoutes.post("/explore", async (c) => {
       )
     );
   return c.json({ rows });
+});
+
+const ForecastQuery = z.object({
+  metricKey: z.string().min(1),
+  grain: z.enum(["day", "month"]),
+  // A horizon is bounded because the band at the far end of an unbounded one is
+  // wider than the number it surrounds, and a projection nobody can act on is
+  // not a forecast (docs/modules/north.md §2.4).
+  horizon: z.coerce.number().int().min(1).max(36)
+});
+
+/**
+ * The forecast (docs/27 F50, spec §H). Reads *closed* snapshots only — a
+ * month-to-date row is a partial observation, and projecting from half a month
+ * as though it were a month is F48's bug wearing a different hat — hands them
+ * to the pure engine in packages/core, and answers with a band per period plus
+ * the fit that produced it. No model is in this path; the gateway may narrate a
+ * forecast, but the numbers are arithmetic.
+ *
+ * Nothing is stored. Spec §H.4 wants immutable versioned runs so a board pack
+ * from March still resolves the forecast it printed, and that wants two tables;
+ * this answers the question on demand from the same snapshots, deterministically
+ * — the same history is the same forecast — and is the read half of that design.
+ */
+northRoutes.get("/forecast", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:forecasts:read", { tenantId: ctx.tenantId, module: "north" });
+  const input = parse(ForecastQuery, c.req.query());
+
+  const [metric] = await ctx.db
+    .select()
+    .from(schema.northMetrics)
+    .where(and(eq(schema.northMetrics.tenantId, ctx.tenantId), eq(schema.northMetrics.key, input.metricKey)))
+    .limit(1);
+  if (!metric) throw notFound(`metric ${input.metricKey}`);
+
+  const rows = await ctx.db
+    .select({ period: schema.northSnapshots.period, value: schema.northSnapshots.value })
+    .from(schema.northSnapshots)
+    .where(
+      and(
+        eq(schema.northSnapshots.tenantId, ctx.tenantId),
+        eq(schema.northSnapshots.metricKey, input.metricKey),
+        eq(schema.northSnapshots.grain, input.grain),
+        eq(schema.northSnapshots.dimsHash, "") // the headline, never a dimensional split
+      )
+    )
+    .orderBy(asc(schema.northSnapshots.period))
+    .limit(HISTORY_LIMIT);
+
+  const history = rows.filter((row) => isClosedPeriod(input.grain, row.period, ctx.now));
+  const result = forecast(input.grain, history, input.horizon);
+
+  return c.json({
+    metricKey: metric.key,
+    nameJson: metric.nameJson,
+    unit: metric.unit,
+    currency: metric.currency,
+    horizon: input.horizon,
+    // `grain` comes from the result, which is the engine's own record of what
+    // it projected — one field, one writer.
+    ...result
+  });
 });
 
 // Data health: staleness per metric, computed live from the snapshot table —

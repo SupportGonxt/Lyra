@@ -53,6 +53,25 @@ export function previousPeriod(grain: Grain, period: string): string {
   return periodOf(grain, grain === "day" ? Date.UTC(y, m - 1, d - 1) : Date.UTC(y, m - 2, 1));
 }
 
+/** The label immediately after `period`. What a forecast projects into. */
+export function nextPeriod(grain: Grain, period: string): string {
+  const { y, m, d } = partsOf(grain, period);
+  return periodOf(grain, grain === "day" ? Date.UTC(y, m - 1, d + 1) : Date.UTC(y, m, 1));
+}
+
+/**
+ * The repeating position of a period inside its season: the UTC weekday for a
+ * day, the month of the year for a month. A forecast and a seasonal baseline
+ * both compare like with like, and "like" means same phase.
+ */
+export function phaseOf(grain: Grain, period: string): number {
+  const { y, m, d } = partsOf(grain, period);
+  return grain === "day" ? new Date(Date.UTC(y, m - 1, d)).getUTCDay() : m;
+}
+
+/** How many phases a full season has: a week of days, a year of months. */
+export const CYCLE: Record<Grain, number> = { day: 7, month: 12 };
+
 /**
  * Has this period's whole window elapsed? An *open* period is a partial
  * observation — a month-to-date row is rewritten every night — so it may be
