@@ -88,6 +88,36 @@ describe("loader", () => {
     expect(lines).toContain("node=tax");
     expect(opened).toMatchObject({ drilled: { node: "tax" } });
   });
+
+  // The file has to be the answer to the question on screen: the download
+  // carries the same period and currency the map was read with, and ends on a
+  // separator so the view only names the format.
+  it("hands the view an export address carrying the filters it read the map with", async () => {
+    stubFetchByUrl([
+      ["/v1/me", me(["ledger:journals:read"])],
+      ["/reports/value-flow?", json(MAP)]
+    ]);
+
+    const loaded = await loader(loaderArgs("?period=2026-06&currency=aed"));
+    expect(loaded).toMatchObject({ denied: false });
+    const url = (loaded as { exportUrl: string }).exportUrl;
+    expect(url.startsWith("https://api.test/v1/ledger/reports/value-flow/export?")).toBe(true);
+    expect(url).toContain("period=2026-06");
+    expect(url).toContain("currency=AED");
+    expect(url.endsWith("&")).toBe(true);
+  });
+
+  it("still ends on a separator when no filter was given", async () => {
+    stubFetchByUrl([
+      ["/v1/me", me(["ledger:journals:read"])],
+      ["/reports/value-flow?", json(MAP)]
+    ]);
+
+    const loaded = await loader(loaderArgs());
+    expect((loaded as { exportUrl: string }).exportUrl).toBe(
+      "https://api.test/v1/ledger/reports/value-flow/export?"
+    );
+  });
 });
 
 describe("layoutMap", () => {

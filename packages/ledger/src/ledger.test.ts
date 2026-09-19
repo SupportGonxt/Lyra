@@ -12,7 +12,7 @@ import { closeChecks, closePeriod, ensurePeriod, periodCode } from "./periods.js
 import { RECIPES, argFields, buildRecipe } from "./recipes.js";
 import { clientMoneyPosition, rebuildBalances, trialBalance } from "./reports.js";
 import { valueFlow, valueFlowLines, type MoneyMap } from "./money-map.js";
-import { reconcile } from "./recon.js";
+import { closeRun, decideMatch, reconSummary, reconcile } from "./recon.js";
 import { TXN_TYPES, autoApprovable } from "./types.js";
 
 // docs/19 §11. These are the invariants that may not be relaxed to make a test
@@ -113,7 +113,10 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
     { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 },
     // FX revaluation (docs/27 F18): signed base-currency adjustments, so the
     // amount is deliberately not a `Pos` and no earlier shape can match it.
-    { adjustments: [{ accountCode: "1100", deltaMinor: amount, currency: "USD" }] }
+    { adjustments: [{ accountCode: "1100", deltaMinor: amount, currency: "USD" }] },
+    // A write-off states its direction and its reason; nothing above carries
+    // either, so it sits last and matches only itself.
+    { amountMinor: amount, direction: "shortfall", reason: "fuzzed reconciliation residual" }
   ];
   for (const s of shapes) {
     if (spec.schema.safeParse({ ...spec.defaults, ...s }).success) return s;
@@ -652,6 +655,46 @@ describe("reconciliation", () => {
     });
     expect(result.matched).toBe(0);
   });
+
+  it("closes only once every open match has been decided, and names the closer", async () => {
+    await ctx.db.insert(schema.ledgerTxns).values({
+      ...baseTxn("tx_close", "CMSN-ACCR", 7_000),
+      idempotencyKey: "close-1",
+      state: "settled"
+    });
+    const result = await reconcile(ctx, {
+      process: "insurer",
+      period: "2026-06",
+      currency: "AED",
+      lines: [
+        { ref: "K1", ourRef: "close-1", amountMinor: 7_000, currency: "AED" },
+        { ref: "K2", ourRef: "nothing-of-ours", amountMinor: 120, currency: "AED" }
+      ]
+    });
+    expect(result.state).toBe("review");
+
+    // The straggler is open, so the run may not close. There is no force flag:
+    // rejecting it with a reason is the only way through.
+    await rejects(closeRun(ctx, result.runId), /open matches/);
+
+    const open = (await ctx.db.select().from(schema.ledgerReconMatches)).filter(
+      (m) => m.state === "proposed" || m.state === "unmatched"
+    );
+    expect(open).toHaveLength(1);
+    for (const m of open) await decideMatch(ctx, m.id, "rejected", "not_ours");
+
+    await closeRun(ctx, result.runId);
+    const summary = await reconSummary(ctx, result.runId);
+    expect(summary.state).toBe("closed");
+    expect(summary.open).toBe(0);
+
+    const [run] = await ctx.db
+      .select()
+      .from(schema.ledgerReconRuns)
+      .where(eq(schema.ledgerReconRuns.id, result.runId));
+    // A human close and a system close are different facts about the same run.
+    expect(run?.closedBy).toBe("user:u_test");
+  });
 });
 
 /* ---------------------------------------------------------- the catalogue */
@@ -832,5 +875,39 @@ describe("recipe argument fields", () => {
       expect(fields.length, code).toBeGreaterThan(0);
       for (const f of fields) expect(["integer", "text"], `${code}.${f.name}`).toContain(f.kind);
     }
+  });
+
+  it("offers a closed set as a closed set", () => {
+    const direction = argFields("RECON-WRITEOFF").find((f) => f.name === "direction");
+    expect(direction).toEqual({
+      name: "direction",
+      kind: "text",
+      required: true,
+      options: ["shortfall", "surplus"]
+    });
+  });
+
+  /**
+   * The inverse guard. `argFields` answers by probing, so it can only describe
+   * the shapes it was shown a sample of — and a *required* argument it cannot
+   * describe is a transaction type the generic open-transaction screen can
+   * never post, silently. This partitions every required key into published or
+   * excluded-for-a-named-reason and requires the leftover bucket to be empty.
+   */
+  it("publishes every argument a recipe requires, or names why it cannot", () => {
+    // Authored entries hand the ledger whole journal lines; no flat input can
+    // ask for those, which is why each has its own screen (F2, F3).
+    const STRUCTURED = new Set(["lines", "closingLines"]);
+    const undescribed: string[] = [];
+    for (const [code, spec] of Object.entries(RECIPES)) {
+      const shape = (spec.schema as unknown as { shape: Record<string, { safeParse(v: unknown): { success: boolean } }> }).shape;
+      const published = new Set(argFields(code).map((f) => f.name));
+      for (const [name, field] of Object.entries(shape)) {
+        if (name === "dims" || STRUCTURED.has(name)) continue;
+        const required = !field.safeParse(undefined).success;
+        if (required && !published.has(name)) undescribed.push(`${code}.${name}`);
+      }
+    }
+    expect(undescribed).toEqual([]);
   });
 });

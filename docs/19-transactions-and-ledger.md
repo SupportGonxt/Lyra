@@ -182,6 +182,7 @@ crediting income in any batch that debits the client-money asset.
 | `CM-RECEIPT` | Receipt into segregated client account | Liability recognised simultaneously |
 | `CM-TRANSFER` | Permitted transfer (commission entitlement out) | Only after entitlement crystallises |
 | `CM-RECON` | Client-money reconciliation performed | Evidence bundle; variance states |
+| `RECON-WRITEOFF` | Residual reconciliation difference written off | Dual control always; **never** touches client money — a shortfall there is `CM-BREACH-FLAG`, not a write-off |
 | `CM-BREACH-FLAG` | Segregation shortfall detected | **Hard alarm**, blocks further transfers |
 
 ### 4.7 Partner & embedded
@@ -249,7 +250,10 @@ Fees · `4030` Referral · `4040` Subscription · `4045` Membership · `4050` Us
 Financing Commission · `4090` Service Fees.
 **Expense / contra** `5000` Commission Clawback (contra-income) · `5100` Media
 Spend · `5150` Creator Spend · `5200` AI & Inference COGS · `5300` Payment
-Processing Fees · `5400` Partner Revenue Share · `5450` Recovery Written Off.
+Processing Fees · `5400` Partner Revenue Share · `5450` Recovery Written Off ·
+`5500` Reconciliation Write-Off (both directions: a residual given up is a
+debit, one the counterparty overpaid is a credit, so the period's net
+difference is one figure).
 
 ### 5.2 Worked entries (the flows that must be exactly right)
 

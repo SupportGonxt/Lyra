@@ -15,7 +15,7 @@ import {
 import { api, fetchMe } from "../api.server";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
-import { labelsFrom, safe, type Label } from "./detail-kit";
+import { labelsFrom, ReportDownloads, safe, type Label } from "./detail-kit";
 import { useShellData } from "./workspace";
 
 // docs/22 §1.2 — the Money Map. "Sankey of value flow for a period: premium in
@@ -346,7 +346,15 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       : Promise.resolve(null)
   ]);
 
-  return { denied: false as const, map, clientMoney: clientMoney?.data ?? null, drilled };
+  return {
+    denied: false as const,
+    map,
+    clientMoney: clientMoney?.data ?? null,
+    drilled,
+    // The same period and currency the map was read with, so the file and the
+    // diagram are one answer. Ends on a separator: the view names the format.
+    exportUrl: `${env.API_ORIGIN}/v1/ledger/reports/value-flow/export?${query.toString()}${query.size ? "&" : ""}`
+  };
 }
 
 /* --------------------------------------------------------------------- view */
@@ -430,6 +438,8 @@ export default function LedgerMoneyMap() {
           {t("common.apply")}
         </Button>
       </Form>
+
+      <ReportDownloads url={loaded.exportUrl} l={l} />
 
       {laid.nodes.length === 0 ? (
         <EmptyState title={l("empty")} body={l("empty.body")} />
