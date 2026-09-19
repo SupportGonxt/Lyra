@@ -25,6 +25,8 @@ export * from "./totp.js";
 export * from "./seed.js";
 export * from "./seed/period.js";
 export * from "./whitespace.js";
+export * from "./bench.js";
+export * from "./watch.js";
 export * from "./words.js";
 export * from "./wording-diff.js";
 export * from "./seams.js";
