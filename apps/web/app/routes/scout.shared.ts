@@ -30,6 +30,8 @@ export const PERM = {
   /** Promote *and* the whitespace sweep *and* the negotiation pack. */
   whitespacesPromote: "scout:whitespaces:promote",
   panelRead: "scout:panel_bench:read",
+  /** The Bench Builder sweep — rewriting the bench is not implied by reading it. */
+  panelBuild: "scout:panel_bench:build",
   experimentsRead: "scout:experiments:read",
   experimentsCreate: "scout:experiments:create",
   experimentsDecide: "scout:experiments:decide",
@@ -581,6 +583,11 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.pack": "Build the negotiation pack",
     "panel.packHint": "Volume delivered, competitive index and the wording gaps, as a PDF.",
     "panel.packDenied": "The pack quotes counterparty numbers, so it needs the promote permission.",
+    "panel.rebuild": "Rebuild the bench",
+    "panel.rebuildHint":
+      "Recomputes every counterparty x line x month cell from this workspace's own quote outcomes. It runs nightly; this is the same pass on demand, and running it twice writes the same numbers.",
+    "panel.rebuilt": "{cells} cells rebuilt, {created} of them new.",
+    "panel.rebuildDenied": "Rewriting the bench is a separate permission from reading it.",
     "panel.openPricing": "Price benchmarks",
     "panel.headlineCheaper": "{n} of {total} carriers are priced below the median.",
     "panel.headlineCount": "{n} carriers are on the bench for this period.",
@@ -963,6 +970,11 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.pack": "أنشئ ملف التفاوض",
     "panel.packHint": "الحجم المحوّل ومؤشر المنافسة وفروق الصياغة، في ملف بي دي إف.",
     "panel.packDenied": "الملف يذكر أرقام الأطراف الأخرى، لذا يحتاج صلاحية الترقية.",
+    "panel.rebuild": "أعد بناء المقارنة",
+    "panel.rebuildHint":
+      "يعيد حساب كل خلية طرف × خط × شهر من نتائج التسعير في مساحة العمل نفسها. يعمل ليليًا، وهذا المرور نفسه عند الطلب، وتشغيله مرتين يكتب الأرقام ذاتها.",
+    "panel.rebuilt": "أُعيد بناء {cells} خلية، {created} منها جديدة.",
+    "panel.rebuildDenied": "إعادة كتابة المقارنة صلاحية منفصلة عن قراءتها.",
     "panel.openPricing": "مقاييس السعر",
     "panel.headlineCheaper": "{n} من أصل {total} شركة تأمين مسعّرة دون الوسيط.",
     "panel.headlineCount": "{n} شركة تأمين على القائمة لهذه الفترة.",
