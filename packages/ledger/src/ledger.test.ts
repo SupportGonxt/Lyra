@@ -962,7 +962,9 @@ describe("recipe argument fields", () => {
   it("publishes every argument a recipe requires, or names why it cannot", () => {
     // Authored entries hand the ledger whole journal lines; no flat input can
     // ask for those, which is why each has its own screen (F2, F3).
-    const STRUCTURED = new Set(["lines", "closingLines"]);
+    // `adjustments` (FX-REVAL, F18) is the same shape: an array of per-account
+    // deltas, not a value a single text/integer field can hold.
+    const STRUCTURED = new Set(["lines", "closingLines", "adjustments"]);
     const undescribed: string[] = [];
     for (const [code, spec] of Object.entries(RECIPES)) {
       const shape = (spec.schema as unknown as { shape: Record<string, { safeParse(v: unknown): { success: boolean } }> }).shape;

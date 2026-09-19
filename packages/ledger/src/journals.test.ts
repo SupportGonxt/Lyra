@@ -348,7 +348,7 @@ describe("reconciliation write-off", () => {
   it("clears the residual off the clearing account and into the write-off expense", () => {
     const lines = buildRecipe("RECON-WRITEOFF", { amountMinor: 42, direction: "shortfall", reason: REASON_WO });
     expect(lines).toEqual([
-      expect.objectContaining({ accountCode: "5500", side: "debit", amountMinor: 42 }),
+      expect.objectContaining({ accountCode: "5510", side: "debit", amountMinor: 42 }),
       expect.objectContaining({ accountCode: "1100", side: "credit", amountMinor: 42 })
     ]);
   });
@@ -362,7 +362,7 @@ describe("reconciliation write-off", () => {
     });
     expect(lines).toEqual([
       expect.objectContaining({ accountCode: "1300", side: "debit", amountMinor: 42 }),
-      expect.objectContaining({ accountCode: "5500", side: "credit", amountMinor: 42 })
+      expect.objectContaining({ accountCode: "5510", side: "credit", amountMinor: 42 })
     ]);
   });
 

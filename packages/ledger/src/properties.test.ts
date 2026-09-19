@@ -99,7 +99,13 @@ function argsFor(code: string, amount: number, split: number): Record<string, un
       reason: "property-test authored entry for the balance invariant"
     },
     { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 },
-    { adjustments: [{ accountCode: "1100", deltaMinor: amount, currency: "USD" }] }
+    { adjustments: [{ accountCode: "1100", deltaMinor: amount, currency: "USD" }] },
+    // A write-off states its direction and its reason; nothing above carries
+    // either, so it sits here and matches only itself.
+    { amountMinor: amount, direction: "shortfall", reason: "property-test reconciliation residual" },
+    // A takaful surplus distribution: only `surplusMinor` is required, every
+    // account defaulted, so this is the shape that fits it and nothing earlier.
+    { surplusMinor: amount }
   ];
   for (const s of shapes) {
     if (spec.schema.safeParse({ ...spec.defaults, ...s }).success) return s;
