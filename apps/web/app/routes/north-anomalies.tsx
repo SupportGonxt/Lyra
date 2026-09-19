@@ -463,18 +463,21 @@ function AnomalyCard({
                   </li>
                 ))}
               </ul>
-              {analysis.method || analysis.baseline ? (
-                <p className="font-mono text-11 uppercase tracking-[0.12em] text-subtle">
-                  {[
-                    analysis.method ? `${l("drivers.method")}: ${words(analysis.method)}` : null,
-                    analysis.baseline ? `${l("drivers.baseline")}: ${words(analysis.baseline)}` : null
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              ) : null}
             </>
           )}
+          {/* Outside the drivers branch on purpose: a ratio has no additive
+              decomposition and still has a named baseline, and "no breakdown
+              was recorded" must not read as "nothing was compared". */}
+          {analysis.method || analysis.baseline ? (
+            <p className="font-mono text-11 uppercase tracking-[0.12em] text-subtle">
+              {[
+                analysis.method ? `${l("drivers.method")}: ${words(analysis.method)}` : null,
+                analysis.baseline ? `${l("drivers.baseline")}: ${words(analysis.baseline)}` : null
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
         </section>
 
         {canAct ? (

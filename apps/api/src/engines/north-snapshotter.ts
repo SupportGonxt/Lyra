@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, ne, notInArray, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { earnedBetween, emit, type Ctx } from "@lyra/core";
+import { earnedBetween, emit, isClosedPeriod, periodBounds, periodOf, previousPeriod, type Ctx } from "@lyra/core";
 
 // docs/modules/north.md §2.2/§3 — Snapshotter (nightly) + Anomaly Hunter
 // (post-snapshot). ADR-0024: a typed compute function per metric, not a
@@ -11,28 +11,47 @@ const DAY_MS = 86_400_000;
 /** Money metrics store minor units; ai_audit_log.cost_micro is 1e-6 of a major unit. */
 const MICRO_PER_MINOR = 10_000;
 
-function utcDay(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 10);
-}
-function utcMonth(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 7);
-}
-
 interface Period {
   grain: "day" | "month";
   /** YYYY-MM-DD or YYYY-MM */
   period: string;
   since: number;
   until: number;
+  /**
+   * Has the whole window elapsed? An open period is a partial observation —
+   * the month-to-date row is rewritten every night — so it is written and
+   * displayed but is never an anomaly subject and never a baseline (docs/27
+   * F48, spec §F.2).
+   */
+  closed: boolean;
 }
 
-/** Yesterday (closed) as a day period, and the current month-to-date, per seed.ts's stated timing model. */
+function monthPeriod(period: string, now: number): Period {
+  const bounds = periodBounds("month", period);
+  const closed = isClosedPeriod("month", period, now);
+  // An open month is measured up to now; a closed one is measured whole, so
+  // the last run of a month and the first run of the next agree on its total.
+  return { grain: "month", period, since: bounds.since, until: closed ? bounds.until : now, closed };
+}
+
+/**
+ * Yesterday as a day period, plus the month yesterday fell in, plus the
+ * current month when that is a different one.
+ *
+ * The month is keyed off *yesterday* rather than off now for the reason F48
+ * exists: on the 1st, the month that just ended has never been snapshotted
+ * whole, so nothing could ever detect against it. Keying off yesterday gives
+ * it exactly one closed write, on the first run after it ended, and the new
+ * month-to-date row is written beside it for the Today screen.
+ */
 function periodsFor(now: number): Period[] {
   const yesterdayStart = Math.floor(now / DAY_MS) * DAY_MS - DAY_MS;
-  const monthStart = new Date(new Date(now).toISOString().slice(0, 7) + "-01T00:00:00.000Z").getTime();
+  const yesterdayMonth = periodOf("month", yesterdayStart);
+  const thisMonth = periodOf("month", now);
   return [
-    { grain: "day", period: utcDay(yesterdayStart), since: yesterdayStart, until: yesterdayStart + DAY_MS },
-    { grain: "month", period: utcMonth(now), since: monthStart, until: now }
+    { grain: "day", period: periodOf("day", yesterdayStart), since: yesterdayStart, until: yesterdayStart + DAY_MS, closed: true },
+    monthPeriod(yesterdayMonth, now),
+    ...(thisMonth === yesterdayMonth ? [] : [monthPeriod(thisMonth, now)])
   ];
 }
 
@@ -860,17 +879,14 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
 
       // Dimensional slices of the same number, so an anomaly can name what moved.
       const sliced = SLICED[metric.key];
-      const prior = new Map<string, number>();
       let current: Slice[] = [];
       if (sliced) {
-        const prefix = `${sliced.dimension}=`;
-        const priorRows = new Map(rows.filter((row) => row.dimsHash.startsWith(prefix)).map((row) => [row.dimsHash, row]));
-        for (const [hash, row] of priorRows) prior.set(hash.slice(prefix.length), row.value);
+        const written = new Map(rows.filter((row) => row.dimsHash !== "").map((row) => [row.dimsHash, row]));
         current = await sliced.slice(ctx, p);
         for (const slice of current) {
           const dims = { [sliced.dimension]: slice.key };
           const hash = dimsHashOf(dims);
-          const before = priorRows.get(hash);
+          const before = written.get(hash);
           if (before) {
             await ctx.db
               .update(schema.northSnapshots)
@@ -904,7 +920,35 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
         alertsTriggered++;
       }
 
-      const prevValue = existing?.value;
+      // Anomaly detection, against the period that actually precedes this one
+      // (docs/27 F48). It ran against `existing` — the previous *write of this
+      // very period* — which meant day grain never fired at all (a day is
+      // written once) and every money metric fired a false critical on the
+      // first night of every month, when a fresh month-to-date collapses
+      // against a full prior month. An open period is neither subject nor
+      // baseline; the prior period is closed by construction, since a closed
+      // period's predecessor has also fully elapsed.
+      if (!p.closed) continue;
+      const priorRows = await ctx.db
+        .select({ value: schema.northSnapshots.value, dimsHash: schema.northSnapshots.dimsHash })
+        .from(schema.northSnapshots)
+        .where(
+          and(
+            eq(schema.northSnapshots.tenantId, ctx.tenantId),
+            eq(schema.northSnapshots.metricKey, metric.key),
+            eq(schema.northSnapshots.grain, p.grain),
+            eq(schema.northSnapshots.period, previousPeriod(p.grain, p.period))
+          )
+        );
+      const prior = new Map<string, number>();
+      if (sliced) {
+        const prefix = `${sliced.dimension}=`;
+        for (const row of priorRows) {
+          if (row.dimsHash.startsWith(prefix)) prior.set(row.dimsHash.slice(prefix.length), row.value);
+        }
+      }
+
+      const prevValue = priorRows.find((row) => row.dimsHash === "")?.value;
       if (prevValue !== undefined && prevValue !== 0) {
         const magnitudeBp = Math.round(((value - prevValue) / Math.abs(prevValue)) * 10_000);
         if (Math.abs(magnitudeBp) >= anomalyThresholdBp(metric.unit)) {
@@ -930,10 +974,7 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
               expected: prevValue,
               actual: value,
               state: "new",
-              // The basis is the previous run of the same period, not the previous period — say so.
-              driverAnalysisJson: drivers.length
-                ? JSON.stringify({ method: "dimensional_delta", baseline: "previous_snapshot", drivers })
-                : null,
+              driverAnalysisJson: JSON.stringify({ method: "dimensional_delta", baseline: "prior_period", drivers }),
               detectedAt: ctx.now
             });
             anomalies++;
