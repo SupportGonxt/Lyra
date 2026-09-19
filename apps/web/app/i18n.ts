@@ -89,12 +89,22 @@ export function langFor(locale: string): string {
 export function chosenLocale(request: Request): string | undefined {
   const cookie = readCookie(request.headers.get("cookie"), "lyra_locale");
   if (cookie === PSEUDO_LOCALE) return PSEUDO_LOCALE;
-  return cookie && CATALOGUES[cookie] ? cookie : undefined;
+  // Keyed on the *language* the cookie names, so `ar-SA` is a supported choice
+  // and not an unrecognised one — but the base is what comes back, because
+  // every caller of this function spends it on a catalogue. `formatLocaleFrom`
+  // is the one that needs the whole tag.
+  return cookie && CATALOGUES[baseLocale(cookie)] ? baseLocale(cookie) : undefined;
 }
 
 /**
  * Resolve a request to a supported locale: explicit choice first, then
  * Accept-Language, then English.
+ *
+ * This is the *catalogue* locale — `en`, `ar`, `pseudo` — and it is
+ * deliberately region-free. Roughly forty route-local label tables are indexed
+ * by what this returns (`LABELS[locale] ?? LABELS.en`), so a region subtag
+ * arriving here would not render Arabic-Saudi copy, it would render English.
+ * The tag that keeps its region is `formatLocaleFrom`.
  */
 export function localeFrom(request: Request): string {
   const chosen = chosenLocale(request);
@@ -108,13 +118,79 @@ export function localeFrom(request: Request): string {
 }
 
 /**
+ * The same request resolved to the tag every `Intl` formatter should run on:
+ * the catalogue locale, with its region subtag still attached when the reader
+ * asked for one.
+ *
+ * docs/27 F42. Resolution used to strip to the base subtag at the first step
+ * and never recover it, and the region is the entire input to two decisions
+ * `ar` alone cannot express. `Intl.NumberFormat("ar")` numbers in Latin digits;
+ * `ar-SA` numbers in Eastern Arabic-Indic ones (`١٢٣`), and `ar-MA` groups with
+ * `.` and points with `,`. So a Riyadh reader was shown Arabic prose around
+ * Western numerals, which no Saudi statement, invoice or policy schedule does.
+ *
+ * Two values rather than one because they answer different questions and have
+ * different domains: the language picks a string table and has two members, the
+ * region picks a numbering system and has as many members as CLDR does. Merging
+ * them is how the catalogue lookups break (see `localeFrom`).
+ *
+ * Only the region subtag survives — no `-u-` extensions, no script subtags —
+ * because this value reaches `Intl` and `<html lang>`, and a reader-supplied
+ * `ar-u-nu-latn` would be a way to ask the document to contradict itself.
+ */
+export function formatLocaleFrom(request: Request): string {
+  const base = localeFrom(request);
+  if (base === PSEUDO_LOCALE) return base;
+
+  const cookie = readCookie(request.headers.get("cookie"), "lyra_locale");
+  const header = (request.headers.get("accept-language") ?? "")
+    .split(",")
+    .map((part) => part.split(";")[0]?.trim() ?? "")
+    .find((tag) => baseLocale(tag) === base);
+
+  // The cookie wins only when it actually carries a region. A reader whose
+  // choice is plain `ar` and whose browser is Saudi has not said anything about
+  // numbering, so the browser still answers — which is the common case, since
+  // the settings picker writes a bare language (routes/settings.tsx).
+  const chosenRegion = cookie && baseLocale(cookie) === base && cookie.includes("-");
+  return withRegion(base, chosenRegion ? cookie : header);
+}
+
+/** ISO 3166-1 alpha-2, the only subtag shape `Intl` reads as a region. */
+const REGION = /^[A-Za-z]{2}$/;
+
+/** `base` carrying `tag`'s region, when it has one this runtime will honour. */
+function withRegion(base: string, tag: string | undefined): string {
+  const region = tag?.split("-")[1];
+  if (!region || !REGION.test(region)) return base;
+  const full = `${base}-${region.toUpperCase()}`;
+  // A region CLDR has never heard of makes `Intl` throw a RangeError from
+  // inside a render, which costs the whole route (the same failure mode
+  // calendar.ts timezoneFrom degrades away from). Ask the runtime, do not
+  // keep a list.
+  try {
+    new Intl.NumberFormat(full);
+    return full;
+  } catch {
+    return base;
+  }
+}
+
+/**
  * `overrides` is a tenant admin's per-key customisation (core_locale_overrides,
  * merged into /v1/me's response) — it wins over the static catalogue so a
  * relabel takes effect without a deploy. Optional and omittable: every
  * existing single-argument call site keeps working unchanged.
  */
 export function translator(locale: string, overrides?: Record<string, string>): Translate {
-  const catalogue = locale === PSEUDO_LOCALE ? PSEUDO_CATALOGUE : (CATALOGUES[locale] ?? CATALOGUES[DEFAULT_LOCALE]!);
+  // `baseLocale`, not `locale`: this function is also reached with a *formatting*
+  // locale — components/confirm.tsx binds `translator(useUiLocale())`, and that
+  // context carries the region-qualified tag (see `formatLocaleFrom`). Keyed
+  // raw, an `ar-SA` reader would get the English catalogue under an Arabic
+  // document. The catalogue is per language; the region only ever changes
+  // numbers, dates and money.
+  const catalogue =
+    locale === PSEUDO_LOCALE ? PSEUDO_CATALOGUE : (CATALOGUES[baseLocale(locale)] ?? CATALOGUES[DEFAULT_LOCALE]!);
   return (key, vars) => {
     // An unknown key renders as itself rather than as an empty box: a missing
     // string should look wrong in review, not invisible in production.
@@ -158,6 +234,14 @@ export function readCookie(header: string | null, name: string): string | undefi
   return undefined;
 }
 
-function baseOf(tag: string): string {
+/**
+ * The language a tag names, without its region: `ar-SA` -> `ar`. Every
+ * catalogue lookup keys on this, because a catalogue is per language and there
+ * is exactly one Arabic one. Exported so the split stays a named decision
+ * rather than a `.split("-")[0]` in each resolver.
+ */
+export function baseLocale(tag: string): string {
   return (tag.split("-")[0] ?? "").toLowerCase();
 }
+
+const baseOf = baseLocale;

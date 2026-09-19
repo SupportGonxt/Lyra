@@ -54,6 +54,17 @@ describe("numbers written in Arabic", () => {
     expect(normalizeDigits("1,234.50 on 2026-01-05")).toBe("1,234.50 on 2026-01-05");
   });
 
+  // docs/27 F42 and F46 are one finding seen from two ends: the renderer and
+  // the verifier have to agree about what a digit is. This is the join — the
+  // exact string `Intl` puts on an ar-SA screen, handed to the function the
+  // briefing gate runs on. The UI half is pinned in packages/ui/src/ui.test.ts.
+  it("reads back exactly what an ar-SA screen renders", () => {
+    expect(extractNumbers(new Intl.NumberFormat("ar-SA").format(1523))).toEqual([1523]);
+    expect(
+      extractNumbers(new Intl.NumberFormat("ar-SA", { style: "currency", currency: "AED" }).format(1234.5))
+    ).toEqual([1234.5]);
+  });
+
   it("catches a fabrication stated in Arabic digits", () => {
     const context = ["Case CAS-1: value 5000 AED."];
     expect(verifyGroundedness("قيمة هذه القضية ٥٠٠٠ درهم.", context).ok).toBe(true);
