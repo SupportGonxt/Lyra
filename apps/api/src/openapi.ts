@@ -231,6 +231,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/ledger/recon/runs", summary: "Match an imported statement against the ledger", permission: "ledger:recon:run", tag: "ledger", requestBody: true },
   { method: "get", path: "/v1/ledger/recon/runs/{id}", summary: "One reconciliation run with its matches and exceptions", permission: "ledger:recon:read", tag: "ledger" },
   { method: "post", path: "/v1/ledger/recon/matches/{id}/decide", summary: "Confirm or reject a proposed match", permission: "ledger:recon:confirm", tag: "ledger", requestBody: true },
+  { method: "post", path: "/v1/ledger/recon/runs/{id}/close", summary: "Close a reconciliation run once nothing is left open", permission: "ledger:recon:confirm", tag: "ledger" },
   { method: "post", path: "/v1/ledger/recon/runs/{id}/evidence-bundle", summary: "Assemble a reconciliation run's evidence as a signed, hash-manifested bundle", permission: "ledger:recon:export", tag: "ledger" },
   { method: "get", path: "/v1/ledger/recon/runs/{id}/evidence-bundle/download", summary: "Download an assembled recon evidence bundle", permission: "ledger:recon:export", tag: "ledger" },
 

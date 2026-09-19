@@ -636,6 +636,10 @@ export const LABELS: Record<string, Record<string, string>> = {
     "recon.runId": "Run id",
     "recon.started": "Run {id} started: {matched} matched, {variances} with a variance.",
     "recon.decided": "Match recorded as {decision}.",
+    "recon.close": "Close run",
+    "recon.closeConfirm":
+      "Close this run? It only closes if nothing is left awaiting a decision, and your name goes on the record.",
+    "recon.closed": "Run {id} closed.",
     "recon.pick": "Pick a run",
     "recon.pickBody": "Start a run above, or open one by its id.",
     "recon.linesInvalid": "Paste the statement before starting a run.",
@@ -1011,6 +1015,10 @@ export const LABELS: Record<string, Record<string, string>> = {
     "recon.runId": "معرّف التشغيل",
     "recon.started": "بدأ التشغيل {id}: {matched} مطابقة و{variances} فرقًا.",
     "recon.decided": "سُجّلت المطابقة على أنها {decision}.",
+    "recon.close": "إغلاق التشغيل",
+    "recon.closeConfirm":
+      "إغلاق هذا التشغيل؟ لا يُغلق إلا إذا لم يبقَ شيء بانتظار قرار، ويُسجَّل اسمك على ذلك.",
+    "recon.closed": "أُغلق التشغيل {id}.",
     "recon.pick": "اختر تشغيلًا",
     "recon.pickBody": "ابدأ تشغيلًا أعلاه أو افتح واحدًا بمعرّفه.",
     "recon.linesInvalid": "الصق الكشف قبل بدء التشغيل.",

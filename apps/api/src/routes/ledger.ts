@@ -17,6 +17,7 @@ import {
   clientMoneyPosition,
   closeChecks,
   closePeriod,
+  closeRun,
   commissionByDimension,
   decideMatch,
   ensurePeriod,
@@ -789,6 +790,22 @@ ledgerRoutes.post("/recon/matches/:id/decide", async (c) => {
   );
   await decideMatch(ctx, c.req.param("id"), input.decision, input.reasonCode);
   return c.body(null, 204);
+});
+
+/**
+ * Close a run. Same permission as deciding a match, because closing is the same
+ * judgement made once more: it asserts nothing is left open. The engine refuses
+ * while anything still is (`closeRun`, packages/ledger/src/recon.ts) and there
+ * is deliberately no force flag — the stragglers are rejected with a reason, one
+ * at a time, or the run stays in review. The fresh summary comes back so the
+ * caller renders the state the engine just wrote rather than one it assumed.
+ */
+ledgerRoutes.post("/recon/runs/:id/close", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:recon:confirm", { tenantId: ctx.tenantId, module: "ledger" });
+  const runId = c.req.param("id");
+  await closeRun(ctx, runId);
+  return c.json(await reconSummary(ctx, runId));
 });
 
 ledgerRoutes.post("/recon/runs/:id/evidence-bundle", async (c) => {

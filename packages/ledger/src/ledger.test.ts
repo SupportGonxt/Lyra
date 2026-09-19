@@ -12,7 +12,7 @@ import { closeChecks, closePeriod, ensurePeriod, periodCode } from "./periods.js
 import { RECIPES, argFields, buildRecipe } from "./recipes.js";
 import { clientMoneyPosition, rebuildBalances, trialBalance } from "./reports.js";
 import { valueFlow, valueFlowLines, type MoneyMap } from "./money-map.js";
-import { reconcile } from "./recon.js";
+import { closeRun, decideMatch, reconSummary, reconcile } from "./recon.js";
 import { TXN_TYPES, autoApprovable } from "./types.js";
 
 // docs/19 §11. These are the invariants that may not be relaxed to make a test
@@ -668,6 +668,46 @@ describe("reconciliation", () => {
       lines: [{ ref: "C1", ourRef: "cm-1", amountMinor: 5_001, currency: "AED" }]
     });
     expect(result.matched).toBe(0);
+  });
+
+  it("closes only once every open match has been decided, and names the closer", async () => {
+    await ctx.db.insert(schema.ledgerTxns).values({
+      ...baseTxn("tx_close", "CMSN-ACCR", 7_000),
+      idempotencyKey: "close-1",
+      state: "settled"
+    });
+    const result = await reconcile(ctx, {
+      process: "insurer",
+      period: "2026-06",
+      currency: "AED",
+      lines: [
+        { ref: "K1", ourRef: "close-1", amountMinor: 7_000, currency: "AED" },
+        { ref: "K2", ourRef: "nothing-of-ours", amountMinor: 120, currency: "AED" }
+      ]
+    });
+    expect(result.state).toBe("review");
+
+    // The straggler is open, so the run may not close. There is no force flag:
+    // rejecting it with a reason is the only way through.
+    await rejects(closeRun(ctx, result.runId), /open matches/);
+
+    const open = (await ctx.db.select().from(schema.ledgerReconMatches)).filter(
+      (m) => m.state === "proposed" || m.state === "unmatched"
+    );
+    expect(open).toHaveLength(1);
+    for (const m of open) await decideMatch(ctx, m.id, "rejected", "not_ours");
+
+    await closeRun(ctx, result.runId);
+    const summary = await reconSummary(ctx, result.runId);
+    expect(summary.state).toBe("closed");
+    expect(summary.open).toBe(0);
+
+    const [run] = await ctx.db
+      .select()
+      .from(schema.ledgerReconRuns)
+      .where(eq(schema.ledgerReconRuns.id, result.runId));
+    // A human close and a system close are different facts about the same run.
+    expect(run?.closedBy).toBe("user:u_test");
   });
 });
 

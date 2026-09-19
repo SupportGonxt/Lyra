@@ -229,3 +229,70 @@ describe("POST /v1/ledger/recon/runs/:id/evidence-bundle", () => {
     expect((await call("finance.controller", "GET", `/v1/ledger/recon/runs/${bare.body.runId}/evidence-bundle/download`)).status).toBe(404);
   });
 });
+
+// `closeRun` was written, exported and called by nothing, so a run could be
+// reviewed and never closed. These are the three answers the endpoint owes:
+// refuse while anything is open, close when nothing is, and gate on the same
+// permission deciding a match needs.
+describe("POST /v1/ledger/recon/runs/:id/close", () => {
+  let runId: string;
+  let openMatchIds: string[];
+
+  beforeAll(async () => {
+    const created = await call("finance.controller", "POST", "/v1/ledger/recon/runs", {
+      process: "psp",
+      period: "2026-05",
+      currency: "AED",
+      // Nothing of ours matches this reference, so the line lands `unmatched`:
+      // open, and decidable only by rejecting it with a reason.
+      lines: [{ ref: "stmt-close-1", amountMinor: 4200, currency: "AED" }]
+    });
+    expect(created.status).toBe(201);
+    runId = created.body.runId as string;
+
+    const matches = await database
+      .select()
+      .from(schema.ledgerReconMatches)
+      .where(eq(schema.ledgerReconMatches.runId, runId));
+    openMatchIds = matches.filter((m) => m.state === "proposed" || m.state === "unmatched").map((m) => m.id);
+    expect(openMatchIds.length).toBeGreaterThan(0);
+  });
+
+  it("refuses a run that still has open matches, and leaves it in review", async () => {
+    const res = await call("finance.controller", "POST", `/v1/ledger/recon/runs/${runId}/close`);
+    expect(res.status).toBe(409);
+
+    const [run] = await database
+      .select()
+      .from(schema.ledgerReconRuns)
+      .where(eq(schema.ledgerReconRuns.id, runId));
+    expect(run?.state).toBe("review");
+  });
+
+  it("is 403 without ledger:recon:confirm", async () => {
+    expect((await call("orbit.agent", "POST", `/v1/ledger/recon/runs/${runId}/close`)).status).toBe(403);
+  });
+
+  it("closes once every straggler has been rejected with a reason", async () => {
+    for (const id of openMatchIds) {
+      const decided = await call("finance.controller", "POST", `/v1/ledger/recon/matches/${id}/decide`, {
+        decision: "rejected",
+        reasonCode: "not_ours"
+      });
+      expect(decided.status).toBe(204);
+    }
+
+    const res = await call("finance.controller", "POST", `/v1/ledger/recon/runs/${runId}/close`);
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBe("closed");
+    expect(res.body.open).toBe(0);
+
+    const [run] = await database
+      .select()
+      .from(schema.ledgerReconRuns)
+      .where(eq(schema.ledgerReconRuns.id, runId));
+    expect(run?.state).toBe("closed");
+    // The closer is named: a system close and a human close are not the same fact.
+    expect(run?.closedBy).toMatch(/^user:/);
+  });
+});

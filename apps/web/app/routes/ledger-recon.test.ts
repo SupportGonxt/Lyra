@@ -98,3 +98,53 @@ describe("action / generate-evidence-bundle", () => {
     expect(result.bundle).toBeNull();
   });
 });
+
+// Closing is the one intent whose failure mode is routine: the engine refuses a
+// run with anything still open (409, no force flag), so the screen has to carry
+// that refusal rather than report a close that did not happen.
+
+const SUMMARY = {
+  runId: "rcn_1",
+  process: "insurer",
+  period: "2026-08",
+  state: "closed",
+  matchedCount: 3,
+  varianceCount: 0,
+  varianceMinor: 0,
+  currency: "AED",
+  open: 0
+};
+
+describe("action / close-run", () => {
+  it("posts to the run's close endpoint and returns the fresh summary", async () => {
+    const calls = stubFetch(json(SUMMARY));
+    const result = await action(args(form({ intent: "close-run", runId: "rcn_1" })));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://api.test/v1/ledger/recon/runs/rcn_1/close");
+    expect(calls[0]!.method).toBe("POST");
+    expect(result.problem).toBeNull();
+    expect(result.closed).toEqual(SUMMARY);
+  });
+
+  it("refuses without calling the API when no run is loaded", async () => {
+    const calls = stubFetch(json(SUMMARY));
+    const result = await action(args(form({ intent: "close-run", runId: "" })));
+
+    expect(calls).toHaveLength(0);
+    expect(result.problem).toEqual({ title: "runId", status: 400 });
+    expect(result.closed).toBeNull();
+  });
+
+  it("carries a still-open refusal back as problem and claims no close", async () => {
+    stubFetch(
+      json({ title: "conflict", status: 409, detail: "recon run rcn_1 still has 2 open matches" }, 409)
+    );
+    const result = await action(args(form({ intent: "close-run", runId: "rcn_1" })));
+
+    expect(result.closed).toBeNull();
+    expect(result.problem).toEqual(
+      expect.objectContaining({ status: 409, detail: "recon run rcn_1 still has 2 open matches" })
+    );
+  });
+});

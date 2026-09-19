@@ -184,11 +184,25 @@ export async function action({ request, context }: ActionFunctionArgs) {
     problem: null,
     started: null,
     decided: null,
+    closed: null as ReconSummary | null,
     rejected: [] as Array<{ row: number; text: string }>,
     bundle: null as EvidenceBundle | null
   };
 
   try {
+    if (intent === "close-run") {
+      const runId = String(form.get("runId") ?? "").trim();
+      if (!runId) return { ...empty, problem: { title: "runId", status: 400 } };
+      // The run id in the path is the whole request. A run with anything still
+      // open comes back 409 and lands in `problem` — the screen never claims a
+      // close the engine refused.
+      const closed = await api<ReconSummary>(
+        `/v1/ledger/recon/runs/${encodeURIComponent(runId)}/close`,
+        { env, request, method: "POST" }
+      );
+      return { ...empty, closed };
+    }
+
     if (intent === "generate-evidence-bundle") {
       const runId = String(form.get("runId") ?? "").trim();
       if (!runId) return { ...empty, problem: { title: "runId", status: 400 } };
@@ -361,8 +375,14 @@ export default function LedgerRecon() {
       header: l("recon.decide"),
       // A decision is offered only where one is still owed, and only to the
       // permission the API enforces. Otherwise the column is empty, not disabled.
+      //
+      // `unmatched` is owed a decision too, and that is what makes closing a run
+      // reachable: `closeRun` counts `proposed` *and* `unmatched` as open and
+      // has no force flag, so a run with a straggler no screen could reject
+      // could never be closed by anyone (recon.ts, "reject the stragglers with
+      // a reason instead"). `decideMatch` takes either state.
       render: (row) =>
-        loaded.canDecide && row.state === "proposed" ? (
+        loaded.canDecide && (row.state === "proposed" || row.state === "unmatched") ? (
           <Form method="post" className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="intent" value="decide" />
             <input type="hidden" name="matchId" value={row.id} />
@@ -415,11 +435,13 @@ export default function LedgerRecon() {
             })
           : result?.decided
             ? l("recon.decided", { decision: l(`match.${result.decided}`) })
-            : result?.bundle
-              ? result.bundle.state === "ready"
-                ? l("recon.evidenceReady", { count: String(result.bundle.manifest.files.length) })
-                : l("recon.evidenceFailed")
-              : ""}
+            : result?.closed
+              ? l("recon.closed", { id: result.closed.runId })
+              : result?.bundle
+                ? result.bundle.state === "ready"
+                  ? l("recon.evidenceReady", { count: String(result.bundle.manifest.files.length) })
+                  : l("recon.evidenceFailed")
+                : ""}
       </p>
 
       {result?.problem ? (
@@ -474,9 +496,30 @@ export default function LedgerRecon() {
           description={summary.runId}
           elevation="flat"
           actions={
-            <Badge tone={summary.state === "closed" ? "success" : "warning"}>
-              {l(`state.${summary.state}`)}
-            </Badge>
+            <span className="flex flex-wrap items-center gap-3">
+              <Badge tone={summary.state === "closed" ? "success" : "warning"}>
+                {l(`state.${summary.state}`)}
+              </Badge>
+              {/* Offered only while something is still open to close and only to
+                  the permission the API enforces. A run with matches still
+                  awaiting a decision comes back 409 — the count beside it says
+                  how many, so the refusal is never a surprise. */}
+              {loaded.canDecide && summary.state !== "closed" ? (
+                <Form method="post">
+                  <input type="hidden" name="intent" value="close-run" />
+                  <input type="hidden" name="runId" value={summary.runId} />
+                  <ConfirmButton
+                    type="submit"
+                    size="sm"
+                    variant="secondary"
+                    loading={busy}
+                    message={l("recon.closeConfirm")}
+                  >
+                    {l("recon.close")}
+                  </ConfirmButton>
+                </Form>
+              ) : null}
+            </span>
           }
         >
           <dl className="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-5">

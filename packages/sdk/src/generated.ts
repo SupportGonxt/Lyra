@@ -2748,6 +2748,7 @@ export interface Operations {
   "POST /v1/ledger/recon/matches/{id}/decide": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/ledger/recon/runs": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ledger/recon/runs/{id}": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/ledger/recon/runs/{id}/close": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/ledger/recon/runs/{id}/evidence-bundle": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/ledger/recon/runs/{id}/evidence-bundle/download": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/aged": Op<never, never, never, Record<string, unknown>>;
@@ -3479,6 +3480,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ledger/recon/matches/{id}/decide": { tag: "ledger", summary: "Confirm or reject a proposed match", permission: "ledger:recon:confirm", public: false },
   "POST /v1/ledger/recon/runs": { tag: "ledger", summary: "Match an imported statement against the ledger", permission: "ledger:recon:run", public: false },
   "GET /v1/ledger/recon/runs/{id}": { tag: "ledger", summary: "One reconciliation run with its matches and exceptions", permission: "ledger:recon:read", public: false },
+  "POST /v1/ledger/recon/runs/{id}/close": { tag: "ledger", summary: "Close a reconciliation run once nothing is left open", permission: "ledger:recon:confirm", public: false },
   "POST /v1/ledger/recon/runs/{id}/evidence-bundle": { tag: "ledger", summary: "Assemble a reconciliation run's evidence as a signed, hash-manifested bundle", permission: "ledger:recon:export", public: false },
   "GET /v1/ledger/recon/runs/{id}/evidence-bundle/download": { tag: "ledger", summary: "Download an assembled recon evidence bundle", permission: "ledger:recon:export", public: false },
   "GET /v1/ledger/reports/aged": { tag: "ledger", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", public: false },
