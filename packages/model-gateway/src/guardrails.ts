@@ -36,31 +36,31 @@ const REGULATED = [
   /\byou are (?:fully )?covered\b/i,
   /\brisk[- ]free\b/i,
   /\bno (?:exclusions|deductible|excess)\b/i,
-  // ar — "we guarantee" / "guaranteed". Two independent passes added Arabic
-  // coverage here (F41, F46) with different exact phrasing; kept as a
-  // superset rather than picked one, since a block-severity regulated-claim
-  // floor is safer wider than narrower and each pass's own eval cases target
-  // its own phrasing.
-  /(?<!\p{L})(?:نضمن|أضمن|مضمون(?:ة)?|ضمان\s+كامل)(?!\p{L})/u,
-  /نضمن|مضمون(?:ة|ًا)?/,
+  // ar — "we guarantee" / "guaranteed". Two independent passes (F41, F46)
+  // added Arabic coverage here with different exact phrasing over the same
+  // six claim categories, which is redundant rather than complementary
+  // (each doubled the mutation surface with no new test to kill either
+  // half) — consolidated into one pattern per category, union of every
+  // distinct phrase either pass had. `\b` is ASCII-only in JS regexes and
+  // bounds nothing between two Arabic letters; `(?<!\p{L})`/`(?!\p{L})`
+  // with the `u` flag is the equivalent that works in both scripts.
+  /(?<!\p{L})(?:نضمن|أضمن|مضمون(?:ة|ًا)?|ضمان\s+كامل)(?!\p{L})/u,
   // ar — "we will pay / cover / reimburse"
-  /(?<!\p{L})(?:سندفع|سنغطي|سنعوض|سوف\s+(?:ندفع|نغطي|نعوض))(?!\p{L})/u,
-  /س(?:ندفع|نغطي|نعوّض|نعوض)|سنقوم\s+ب(?:دفع|تغطية|تعويض)/,
+  /(?<!\p{L})(?:سندفع|سنغطي|سنعوض|سنعوّض|سوف\s+(?:ندفع|نغطي|نعوض)|سنقوم\s+ب(?:دفع|تغطية|تعويض))(?!\p{L})/u,
   // ar — "approved by the central bank / insurance authority / regulator"
-  /معتمد(?:ون|ة)?\s+من\s+(?:قبل\s+)?(?:ال)?(?:مصرف\s+المركزي|بنك\s+المركزي|هيئة\s+التأمين|جهة\s+التنظيمية)/u,
-  /معتمد(?:ة)?\s+من\s+(?:قِبل\s+|قبل\s+)?(?:المصرف\s+المركزي|البنك\s+المركزي|هيئة\s+التأمين|الجهة\s+التنظيمية)/,
+  /(?<!\p{L})معتمد(?:ون|ة)?\s+من\s+(?:قِبل\s+|قبل\s+)?(?:ال)?(?:مصرف\s+المركزي|بنك\s+المركزي|هيئة\s+التأمين|جهة\s+التنظيمية)(?!\p{L})/u,
   // ar — "you are (fully) covered"
-  /(?:(?:أنت|أنتِ|أنتم|إنك)\s+مغطى|التغطية\s+كاملة)/u,
-  /مغط(?:ى|اة)\s+بالكامل/,
+  /(?<!\p{L})(?:(?:أنت|أنتِ|أنتم|إنك)\s+مغطى|التغطية\s+كاملة|مغط(?:ى|اة)\s+بالكامل)(?!\p{L})/u,
   // ar — "risk-free"
-  /(?:بدون|بلا|خالٍ\s+من|خالي\s+من)\s+(?:أي\s+)?(?:ال)?مخاطر/u,
-  /خالي(?:ة)?\s+من\s+المخاطر/,
+  /(?<!\p{L})(?:بدون|بلا|خالٍ\s+من|خالي(?:ة)?\s+من)\s+(?:أي\s+)?(?:ال)?مخاطر(?!\p{L})/u,
   // ar — "no exclusions / no deductible / no excess". The negation is
-  // required in both sets: the nouns themselves (استثناءات, تحمل) are
-  // ordinary policy vocabulary and appear in the schedule of every
-  // compliant Arabic quote we send.
-  /(?:لا\s+(?:توجد|يوجد)|بدون|بلا)\s+(?:أي\s+)?(?:استثناءات|تحمل|مبلغ\s+تحمل|خصم\s+تحملي)/u,
-  /(?:لا\s+توجد|بدون|من\s+دون|دون)\s+(?:استثناءات|أي\s+استثناءات|تحمّل|تحمل|خصم)/
+  // required: the nouns themselves (استثناءات, تحمل) are ordinary policy
+  // vocabulary and appear in the schedule of every compliant Arabic quote
+  // we send. No leading boundary: the conjunction و ("and") attaches
+  // directly to لا with no space — "ولا توجد" — so `(?<!\p{L})` immediately
+  // before لا would refuse to match the single most common way this phrase
+  // actually appears in a sentence.
+  /(?:لا\s+(?:توجد|يوجد)|بدون|بلا|من\s+دون|دون)\s+(?:أي\s+)?(?:استثناءات|تحمّل|تحمل|مبلغ\s+تحمل|خصم\s+تحملي|خصم)(?!\p{L})/u
 ];
 
 const JAILBREAK = [
