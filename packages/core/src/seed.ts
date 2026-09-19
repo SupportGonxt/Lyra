@@ -5,8 +5,10 @@ import {
   EntitlementsJson,
   PolicyJson,
   TAX_RULEPACK,
+  TakafulJson,
   id,
-  schema
+  schema,
+  toJson
 } from "@lyra/db";
 import { ROLES, TENANT_ROLE_KEYS, isInternalRole, requiresMfa } from "./rbac.js";
 import { hashPassword } from "./password.js";
@@ -468,6 +470,27 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       line: "life",
       nameJson: JSON.stringify({ en: "Term life", ar: "تأمين على الحياة" }),
       structure: "takaful",
+      // docs/16 H8 / docs/27 F45. The column carried `structure: "takaful"` and
+      // nothing else, so the one takaful product in the demo could not be sold
+      // as takaful by its own rules: no wakala fee, no surplus rule, no board
+      // ruling, and `SURPLUS-DIST`'s precondition refuses all three absences.
+      // Wakala — a fee, and the participants keep the whole surplus — because
+      // that is the common Gulf retail structure and the conservative default.
+      takafulJson: toJson(TakafulJson, {
+        model: "wakala",
+        wakalaFeeBps: 2_000,
+        participantShareBps: 10_000,
+        fundRef: "fund:gonxt-family-takaful",
+        shariah: {
+          state: "certified",
+          boardRef: "board:gonxt-shariah-supervisory",
+          fatwaRef: "FTW-2026-014",
+          certifiedAt: now - 30 * DAY,
+          // Rulings are reviewed; a demo whose certificate never expires cannot
+          // show the screen that says one has.
+          expiresAt: now + 335 * DAY
+        }
+      }),
       status: "active",
       createdAt: now,
       updatedAt: now

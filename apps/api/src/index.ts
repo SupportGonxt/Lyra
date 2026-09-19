@@ -19,6 +19,7 @@ import { nudgeApiKeyRotation } from "./engines/api-key-rotation.js";
 import { runBudgetAutopilot } from "./engines/signal-autopilot.js";
 import { runAcquisitionSweep } from "./engines/signal-outreach.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
+import { sweepAiDrift } from "./engines/ai-drift.js";
 import { expireDelegations } from "./engines/staff.js";
 import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions } from "./auth.js";
 import { mountAll } from "./crud.js";
@@ -260,6 +261,13 @@ export default {
               await sweepPanelBench(ctx);
               if (nowDate.getUTCDay() === 1) await sweepSignalClusters(ctx, gatewayFor(env), env);
             }
+            // docs/12 §4 / docs/13 §3.5, docs/27 F47: re-score a sample of this
+            // week's real traffic against the deterministic gates, per locale,
+            // so a model or prompt that drifted is visible beside the eval suite
+            // it drifted from. Offered a tick a night; the sweep's own week
+            // guard is what makes it weekly, so the cadence lives with the job
+            // rather than in the shape of this condition.
+            if (isBackupWindow) await sweepAiDrift(ctx);
           } catch (err) {
             console.error("scheduled tick failed for tenant", {
               tenantId,

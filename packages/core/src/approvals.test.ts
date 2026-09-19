@@ -120,6 +120,9 @@ describe("APPROVAL_POLICIES", () => {
       "core.unmasked_export": { key: "core.unmasked_export", module: "core", decide: "analytics:exports:unmasked", dualControl: "always", neverAutoApprove: true },
       "compliance.erasure": { key: "compliance.erasure", module: "core", decide: "compliance:erasure:execute", dualControl: "always", neverAutoApprove: true },
       "compliance.legal_hold_release": { key: "compliance.legal_hold_release", module: "core", decide: "compliance:legal_holds:write", dualControl: "always", neverAutoApprove: true },
+      // docs/16 H8 / docs/27 F45 — the Shariah board's standing ruling on a
+      // takaful product, gating SURPLUS-DIST through its precondition.
+      "compliance.shariah_certify": { key: "compliance.shariah_certify", module: "core", decide: "compliance:shariah:certify", dualControl: "always", neverAutoApprove: true },
       "ai.autonomy_raise": { key: "ai.autonomy_raise", module: "ai", decide: "ai:agents:write", dualControl: "always", neverAutoApprove: true },
       "ai.prompt_publish": { key: "ai.prompt_publish", module: "ai", decide: "ai:prompts:write", dualControl: "never" },
       "ai.budget_raise": { key: "ai.budget_raise", module: "ai", decide: "ai:budgets:write", dualControl: "above_threshold" }

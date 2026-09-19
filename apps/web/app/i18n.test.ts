@@ -1,7 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { chosenLocale, langFor, localeFrom, moduleName, pseudoText, translator } from "./i18n";
+import {
+  baseLocale,
+  chosenLocale,
+  formatLocaleFrom,
+  langFor,
+  localeFrom,
+  moduleName,
+  pseudoText,
+  translator
+} from "./i18n";
 import { en } from "./i18n/en";
 import { labelsIn } from "./routes/search-results";
 
@@ -34,6 +43,76 @@ describe("localeFrom", () => {
   it("falls back to Accept-Language, then English", () => {
     expect(localeFrom(request({ "accept-language": "ar-SA,ar;q=0.9" }))).toBe("ar");
     expect(localeFrom(request({ "accept-language": "fr-FR" }))).toBe("en");
+  });
+
+  // It stays region-free, and that is a contract rather than an oversight:
+  // ~40 route-local label tables index on what this returns, so `ar-SA` here
+  // would not render Saudi Arabic copy, it would miss `LABELS` and render
+  // English. The region lives on `formatLocaleFrom`.
+  it("names a language and never a region", () => {
+    expect(localeFrom(request({ cookie: "lyra_locale=ar-SA" }))).toBe("ar");
+  });
+});
+
+// docs/27 F42. Resolution stripped to the base subtag at the first step and
+// never recovered it, so `ar-SA` — the tag a Riyadh browser actually sends —
+// could not reach an `Intl` formatter, and Eastern Arabic-Indic digits were
+// unreachable by construction. The digits themselves are pinned in
+// packages/ui/src/ui.test.ts; this is the resolution half.
+describe("formatLocaleFrom", () => {
+  it("keeps the region the browser asked for", () => {
+    expect(formatLocaleFrom(request({ "accept-language": "ar-SA,ar;q=0.9" }))).toBe("ar-SA");
+    expect(formatLocaleFrom(request({ "accept-language": "en-GB,en;q=0.9" }))).toBe("en-GB");
+  });
+
+  it("keeps the region an explicit choice carries, ahead of the browser's", () => {
+    expect(
+      formatLocaleFrom(request({ cookie: "lyra_locale=ar-SA", "accept-language": "en-GB" }))
+    ).toBe("ar-SA");
+  });
+
+  // The cookie only names a language. A reader whose browser is Saudi and whose
+  // choice is Arabic gets Saudi Arabic, which is the common case and the one
+  // the finding is about.
+  it("takes the region from the browser when the choice agrees on the language", () => {
+    expect(formatLocaleFrom(request({ cookie: "lyra_locale=ar", "accept-language": "ar-SA" }))).toBe(
+      "ar-SA"
+    );
+  });
+
+  // Direction is the script's property, the catalogue is the language's, and
+  // only the numbers are the region's. All three have to keep agreeing.
+  it("does not let a region drag the catalogue somewhere else", () => {
+    expect(localeFrom(request({ "accept-language": "ar-SA" }))).toBe("ar");
+    expect(translator("ar-SA")("common.save")).toBe(translator("ar")("common.save"));
+    expect(translator("ar-SA")("common.save")).not.toBe(translator("en")("common.save"));
+  });
+
+  it("ignores a region the browser asked for in a language we do not have", () => {
+    expect(formatLocaleFrom(request({ "accept-language": "fr-CA" }))).toBe("en");
+  });
+
+  // An unknown or malformed subtag reaches `Intl` on every render; a RangeError
+  // there takes the whole route to the error boundary.
+  it.each(["ar-ZZZZ", "ar-u-nu-latn", "ar-", "ar-1"])("degrades %s to the bare language", (tag) => {
+    expect(formatLocaleFrom(request({ cookie: `lyra_locale=${tag}` }))).toBe("ar");
+  });
+
+  it("leaves the pseudo locale alone, since it has no region to have", () => {
+    expect(formatLocaleFrom(request({ cookie: "lyra_locale=pseudo" }))).toBe("pseudo");
+    expect(langFor(formatLocaleFrom(request({ cookie: "lyra_locale=pseudo" })))).toBe("en-x-pseudo");
+  });
+});
+
+describe("baseLocale", () => {
+  it.each([
+    ["ar-SA", "ar"],
+    ["AR-sa", "ar"],
+    ["ar", "ar"],
+    ["pseudo", "pseudo"],
+    ["", ""]
+  ])("reduces %s to %s", (tag, expected) => {
+    expect(baseLocale(tag)).toBe(expected);
   });
 });
 

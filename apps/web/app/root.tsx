@@ -13,7 +13,15 @@ import {
 import { UiTextProvider, UiTimeZoneProvider } from "@lyra/ui";
 import "./app.css";
 import { ErrorPanel } from "./components/error-panel";
-import { DEFAULT_LOCALE, dirFor, langFor, localeFrom, readCookie, translator } from "./i18n";
+import {
+  DEFAULT_LOCALE,
+  dirFor,
+  formatLocaleFrom,
+  langFor,
+  localeFrom,
+  readCookie,
+  translator
+} from "./i18n";
 
 // Only the two first-paint faces (packages/ui/FONTS.md §Preload; ADR-0026).
 // The mono, the four Arabic cuts, and Instrument Serif are discovered when
@@ -55,7 +63,16 @@ function themeFrom(request: Request): "dark" | "light" {
 }
 
 export function loader({ request }: LoaderFunctionArgs) {
-  return { locale: localeFrom(request), theme: themeFrom(request) };
+  // Two locales, on purpose (docs/27 F42, apps/web/app/i18n.ts). `locale` picks
+  // the string catalogue and is region-free; `formatLocale` keeps the region
+  // subtag, because that is the whole input to which digits a number renders in
+  // — `ar` is Latin numerals, `ar-SA` is ١٢٣. Both come off the one request, so
+  // the server pass and the first client pass cannot disagree.
+  return {
+    locale: localeFrom(request),
+    formatLocale: formatLocaleFrom(request),
+    theme: themeFrom(request)
+  };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -63,9 +80,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // to render, so fall back rather than throw a second time.
   const data = useRouteLoaderData<typeof loader>("root");
   const locale = data?.locale ?? DEFAULT_LOCALE;
+  // `<html lang>` takes the region-qualified tag: it is what a screen reader
+  // announces numbers from, and it is the tag a browser's own number rendering
+  // reads. `dirFor` is unaffected — direction is a property of the script.
+  const formatLocale = data?.formatLocale ?? locale;
 
   return (
-    <html lang={langFor(locale)} dir={dirFor(locale)} data-theme={data?.theme}>
+    <html lang={langFor(formatLocale)} dir={dirFor(locale)} data-theme={data?.theme}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -77,7 +98,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* One locale for every @lyra/ui surface below: kit chrome, <Money>,
             <DateTime>. Without it the kit formats in English under an Arabic
             document, and 98 Table call sites each have to remember a prop. */}
-        <UiTextProvider locale={locale}>
+        <UiTextProvider locale={formatLocale}>
           {/* Timestamps render UTC on the server and on the first client pass,
               then the reader's own zone once mounted. Unpinned, the two passes
               disagree and React drops the route to the error boundary.

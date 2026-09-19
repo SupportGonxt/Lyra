@@ -261,6 +261,15 @@ export const PERMISSIONS = [
   "compliance:evidence:read", "compliance:evidence:export",
   "compliance:incidents:read", "compliance:incidents:write",
   "compliance:rulepacks:read", "compliance:rulepacks:apply",
+  // docs/16 H8's "Shariah-board workflow (review lane like compliance
+  // pre-flight)", docs/27 F45. In the compliance namespace and not AXIS's,
+  // because that is what it is: a standing ruling on whether a product may be
+  // sold at all, issued by a board that sits outside the underwriting desk. The
+  // namespace also does the role wiring on its own — `compliance:*:read` and
+  // `compliance:*:*` already grant these to the reader and officer roles, so a
+  // Shariah lane arrives without a role-table edit and without ADR-0025's
+  // unscoped-grant hazard.
+  "compliance:shariah:read", "compliance:shariah:certify",
   "compliance:thresholds:read", "compliance:thresholds:write",
 
   // analytics & reporting

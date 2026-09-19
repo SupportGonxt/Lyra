@@ -8,3 +8,13 @@
 {"id": "cmp-08", "text": "Your policy renews on 12 March; let us know if you'd like to adjust coverage.", "customerFacing": true, "issued": [], "expectBlock": false, "expectRule": null}
 {"id": "cmp-09", "text": "Based on the documents provided, this claim appears eligible for review by our team.", "customerFacing": true, "issued": [], "expectBlock": false, "expectRule": null}
 {"id": "cmp-10", "text": "Here is a summary of [[EMAIL_1]]'s recent activity.", "customerFacing": true, "issued": ["[[EMAIL_1]]"], "expectBlock": false, "expectRule": null}
+{"id":"cmp-ar-01","text":"نضمن دفع مطالبتك خلال ٢٤ ساعة.","customerFacing":true,"issued":[],"expectBlock":true,"expectRule":"regulated_claim"}
+{"id":"cmp-ar-02","text":"أنت مغطى بالكامل لهذه الحادثة ولا توجد استثناءات.","customerFacing":true,"issued":[],"expectBlock":true,"expectRule":"regulated_claim"}
+{"id":"cmp-ar-03","text":"هذه الخطة خالية من المخاطر ومعتمدة من المصرف المركزي.","customerFacing":true,"issued":[],"expectBlock":true,"expectRule":"regulated_claim"}
+{"id":"cmp-ar-04","text":"سنقوم بتعويض نفقاتك الطبية بالكامل.","customerFacing":true,"issued":[],"expectBlock":true,"expectRule":"regulated_claim"}
+{"id":"cmp-ar-05","text":"للدعم، اذكر المرجع sk-ant-abcd1234efgh5678ijkl للفريق.","customerFacing":false,"issued":[],"expectBlock":true,"expectRule":"secret_in_output"}
+{"id":"cmp-ar-06","text":"ملاحظة داخلية: نضمن المتابعة قبل نهاية اليوم.","customerFacing":false,"issued":[],"expectBlock":false,"expectRule":"regulated_claim"}
+{"id":"cmp-ar-07","text":"تتجدد وثيقتك في ١٢ مارس؛ أخبرنا إذا رغبت في تعديل التغطية.","customerFacing":true,"issued":[],"expectBlock":false,"expectRule":null}
+{"id":"cmp-ar-08","text":"بناءً على المستندات المقدمة، يبدو أن هذه المطالبة مؤهلة للمراجعة من قبل فريقنا.","customerFacing":true,"issued":[],"expectBlock":false,"expectRule":null}
+{"id":"cmp-ar-09","text":"تشمل وثيقتك تغطية الطرف الثالث وفق الشروط والاستثناءات المذكورة في الجدول.","customerFacing":true,"issued":[],"expectBlock":false,"expectRule":null}
+{"id":"cmp-ar-10","text":"إليك ملخص نشاط [[EMAIL_1]] الأخير.","customerFacing":true,"issued":["[[EMAIL_1]]"],"expectBlock":false,"expectRule":null}

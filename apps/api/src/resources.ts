@@ -168,7 +168,39 @@ export const CORE = register(
     read: "core:consents:read",
     create: "core:consents:create"
   }, { immutable: true }),
-  r("products", schema.products, "prd", "core", rw("core:products"), { searchable: ["name", "code"] }),
+  r("products", schema.products, "prd", "core", rw("core:products"), {
+    searchable: ["name", "code"],
+    // docs/16 H8, docs/27 F45. A product's Shariah ruling is issued by a board
+    // through POST /v1/compliance/shariah/certify, which gates on
+    // `compliance.shariah_certify` — dual control, never auto-approvable. This
+    // path replaces `takafulJson` wholesale under `core:products:write`, so
+    // without this an operations admin could grant their own product a
+    // certificate and `SURPLUS-DIST`'s precondition would wave it through. The
+    // same reasoning as the tenants/autoApprove guard above, and the same
+    // sentence applies: a guard on one of two doors is not a guard.
+    //
+    // Terms stay editable here; only the ruling is refused. That is the split
+    // that matters — a desk may change the wakala fee and must then resubmit,
+    // which is exactly what the submit endpoint does to the ruling.
+    beforeWrite: (_ctx, values) => {
+      const raw = values.takafulJson;
+      if (raw === undefined || raw === null) return values;
+      let parsed: unknown = raw;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw badRequest("takafulJson is not valid JSON");
+        }
+      }
+      if (parsed && typeof parsed === "object" && "shariah" in parsed) {
+        throw badRequest(
+          "a Shariah ruling is not written here — submit the product at POST /v1/compliance/shariah/submit and have the board certify it"
+        );
+      }
+      return values;
+    }
+  }),
   r("providers", schema.providers, "prv", "core", rw("core:providers"), { searchable: ["name", "code"] }),
   r("files", schema.files, "fil", "core", {
     read: "core:files:read",

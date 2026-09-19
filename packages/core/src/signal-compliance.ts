@@ -25,6 +25,25 @@ const BANNED_CLAIMS: Array<{ re: RegExp; rule: ComplianceFinding["rule"]; note: 
     rule: "no_guarantee_of_cover",
     re: /\b(guaranteed?|100% accepted|always accepted)\b/i,
     note: "Acceptance is the underwriter's decision, not ours. Never publishable in this form."
+  },
+  // ar (docs/27 F46). SIGNAL publishes Arabic creative — the seed's own
+  // offerings carry `nameAr` — and this pre-flight read none of it, so an
+  // Arabic superlative reached review-ready with a `passed` badge on it.
+  //
+  // Separate entries rather than an alternation bolted onto the English ones,
+  // because `\b` cannot be reused: JS word boundaries are ASCII-defined, and an
+  // Arabic word has none. The `note` stays in English on purpose — it is the
+  // reviewer-facing "why" (docs/15 §4), and the reviewer reads it in the shell
+  // catalogue's language, not the creative's.
+  {
+    rule: "comparison_claim_requires_source",
+    re: /الأرخص|الأقل\s+سعرًا|الأفضل\s+في\s+(?:السوق|الإمارات|المنطقة)|رقم\s+١\s+في\s+السوق/,
+    note: "A superlative against the whole market needs a source (panel size, published pricing) or it must be dropped."
+  },
+  {
+    rule: "no_guarantee_of_cover",
+    re: /مضمون(?:ة|ًا)?|قبول\s+(?:مضمون|مؤكد)|(?:١٠٠|100)\s*٪?%?\s*(?:قبول|مقبول)|قبول\s+(?:١٠٠|100)\s*[٪%]|نقبل\s+الجميع/,
+    note: "Acceptance is the underwriter's decision, not ours. Never publishable in this form."
   }
 ];
 

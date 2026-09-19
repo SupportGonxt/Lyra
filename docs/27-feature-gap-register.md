@@ -284,6 +284,65 @@ cases; north, compliance, injection, signal and axis-copilot have **zero** —
 exactly the safety gates (**F46**). `docs/12:79` claims drift monitors sample
 production weekly; nothing implements it (**F47**).
 
+**F42. Closed.** Locale resolution now carries two values, because they answer
+different questions: `localeFrom` stays the region-free *catalogue* locale that
+~40 route-local `LABELS[locale]` tables index on, and `formatLocaleFrom`
+(`apps/web/app/i18n.ts`) keeps the region subtag the reader asked for. root.tsx
+spends it on `<html lang>` and `UiTextProvider`, the one mount every `<Money>`,
+`<DateTime>` and `Intl.NumberFormat` in @lyra/ui reads — the kit already
+base-stripped for exactly this and had never been handed a tag with a region on
+it. Goldens in `packages/ui/src/ui.test.ts` beside the Hijri ones: the `ar` /
+`ar-SA` pair is the assertion, since the digits are the only thing the region
+changes and no test of the Arabic *catalogue* could have caught it.
+
+**F45. Closed.** The review lane is `POST /v1/compliance/shariah/{submit,
+certify}`, gated on `compliance.shariah_certify` — dual control, never
+auto-approvable — with the ruling refused through the generic product CRUD
+(`beforeWrite` on `products`, the same two-door reasoning as the
+tenants/autoApprove guard), so the policy has no second entrance.
+`core_products.takaful_json` is now shaped (`TakafulJson`, basis points rather
+than a percentage a contract routinely outgrows) and carries the standing
+ruling with an expiry, because "certified" alone is not "current".
+`SURPLUS-DIST` stops borrowing `expenseAccrual` into 5400/2100 — a partner
+revenue share, which a takaful surplus is not on either leg — and posts
+`takafulSurplus`: the fund out (2040), the participants' share in (2050), the
+operator's remainder in (4095). The remainder, not a second `floor`, so the
+journal balances for every input; the dust lands with the operator because
+rounding a participant's entitlement up out of their own fund is not the
+operator's to do. Its precondition refuses a product that is not takaful, or
+whose ruling is absent or lapsed. Still LATER (docs/16 H8): participant
+statements, the NORTH reporting pack, and segregating the tabarru' fund under
+its own invariant rather than the CBUAE client-money one.
+
+**F46. Closed.** 43 Arabic cases across the five gates, at the density of the
+axis set. They were written failing, and the failures named four holes rather
+than one. The sharpest: `extractNumbers`
+(`packages/core/src/narrator-verify.ts`) matched ASCII digits only, so an
+Arabic-Indic briefing contained no numbers at all and `verifyNumericClaims`
+returned ok for *any* fabrication — NORTH's briefing gate, AXIS's copilot,
+ORBIT's drafter, SCOUT's commentary and the command loop all reporting a
+verification none of them performed. `normalizeDigits` folds U+0660-0669,
+U+06F0-06F9, the Arabic decimal and thousands separators, and strips the bidi
+controls `Intl` interleaves with Arabic currency output. `REGULATED`
+(guardrails.ts) gained one Arabic entry per English rule, `JAILBREAK` the two
+its Arabic set was missing, and `BANNED_CLAIMS` (signal-compliance.ts) its
+Arabic pair. No `\b` in any of them: JS word boundaries are ASCII-defined, so
+every Arabic letter is a non-word character.
+
+**F47. Closed.** `sweepAiDrift` (`apps/api/src/engines/ai-drift.ts`), offered a
+tick a night and weekly by its own guard. It re-scores a sample of the week's
+real traffic with the deterministic gates the eval suite already uses —
+`checkOutput` over what we said, `checkInput` over what was said to us — and
+calls no model. The design point is what it refuses to claim: production has no
+labels, so docs/13 §3.3's "recall ≥ 0.98" cannot be applied to it, and the
+metric is a rate whose gate is *movement* against that same locale's own last
+recorded week. Per locale and never blended (that is the parity claim), with a
+tolerance for sampling noise and a floor under the sample size, because a quiet
+week in the smaller locale is the normal state of the locale the parity metric
+exists to watch. Rows land in `ai_evals`, so a regression shows up beside the
+suite it drifted from, with the failing message refs — never the text — in
+`detailJson`.
+
 *NORTH.* The anomaly detector compares a period against the previous *write of
 the same period* (`north-snapshotter.ts:305-336`), so day-grain anomalies never
 fire and month-grain anomalies cry wolf at every month start (**F48**). NORTH's

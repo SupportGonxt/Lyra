@@ -145,3 +145,86 @@ describe("TXN_PRECONDITIONS[DPROD-DELIVER]", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+/* ------------------------------------------------------------ takaful H8 */
+
+// docs/16 H8, docs/27 F45. The Shariah lane and the surplus distribution are
+// joined here and nowhere else: this precondition is the only thing standing
+// between a declared surplus and a fund whose structure no board has ruled on.
+describe("TXN_PRECONDITIONS[SURPLUS-DIST]", () => {
+  const precondition = TXN_PRECONDITIONS["SURPLUS-DIST"]!;
+
+  async function product(over: Record<string, unknown> = {}): Promise<string> {
+    const id = `prd_${Math.random().toString(36).slice(2, 8)}`;
+    await ctx.db.insert(schema.products).values({
+      id,
+      tenantId: ctx.tenantId,
+      line: "life",
+      nameJson: JSON.stringify({ en: "Term life" }),
+      structure: "takaful",
+      takafulJson: JSON.stringify({
+        model: "wakala",
+        participantShareBps: 10_000,
+        shariah: { state: "certified", boardRef: "board:x", certifiedAt: ctx.now - 1000 }
+      }),
+      status: "active",
+      createdAt: ctx.now,
+      updatedAt: ctx.now,
+      ...over
+    });
+    return id;
+  }
+
+  it("allows a distribution out of a certified takaful product", async () => {
+    await expect(precondition(ctx, { productId: await product() })).resolves.toBeUndefined();
+  });
+
+  it("refuses a product that is not takaful at all", async () => {
+    // Not a permission failure and not a typo: 2040 is a liability, so
+    // debiting it for a product that never credited it leaves a debit balance
+    // that reads exactly like an ordinary prepayment. Nothing downstream can
+    // find this afterwards, which is why it is refused before the write.
+    const id = await product({ structure: "conventional" });
+    await rejects(precondition(ctx, { productId: id }), /not takaful/i);
+  });
+
+  it("refuses a product whose board has not ruled", async () => {
+    const id = await product({ takafulJson: JSON.stringify({ shariah: { state: "submitted" } }) });
+    await rejects(precondition(ctx, { productId: id }), /"submitted", not "certified"/);
+  });
+
+  it("refuses a product with no takaful terms recorded at all", async () => {
+    // The state this column was in before F45: structure says takaful, the
+    // terms are null, and the default state is draft — so the absence refuses
+    // rather than defaulting to permitted.
+    const id = await product({ takafulJson: null });
+    await rejects(precondition(ctx, { productId: id }), /"draft", not "certified"/);
+  });
+
+  it("refuses a ruling that has expired, which 'certified' alone would not catch", async () => {
+    const id = await product({
+      takafulJson: JSON.stringify({
+        shariah: { state: "certified", certifiedAt: ctx.now - 10_000, expiresAt: ctx.now - 1 }
+      })
+    });
+    await rejects(precondition(ctx, { productId: id }), /expired/i);
+  });
+
+  it("treats a ruling expiring in the future as current", async () => {
+    const id = await product({
+      takafulJson: JSON.stringify({
+        shariah: { state: "certified", certifiedAt: ctx.now - 10_000, expiresAt: ctx.now + 1 }
+      })
+    });
+    await expect(precondition(ctx, { productId: id })).resolves.toBeUndefined();
+  });
+
+  it("refuses a product belonging to another tenant", async () => {
+    const id = await product({ tenantId: "t_other" });
+    await rejects(precondition(ctx, { productId: id }), /not found/i);
+  });
+
+  it("requires a productId, rather than deciding without one", async () => {
+    await rejects(precondition(ctx, {}), /productId is required/);
+  });
+});

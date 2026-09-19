@@ -36,18 +36,31 @@ const REGULATED = [
   /\byou are (?:fully )?covered\b/i,
   /\brisk[- ]free\b/i,
   /\bno (?:exclusions|deductible|excess)\b/i,
-  // ar — "we guarantee" / "guaranteed"
+  // ar — "we guarantee" / "guaranteed". Two independent passes added Arabic
+  // coverage here (F41, F46) with different exact phrasing; kept as a
+  // superset rather than picked one, since a block-severity regulated-claim
+  // floor is safer wider than narrower and each pass's own eval cases target
+  // its own phrasing.
   /(?<!\p{L})(?:نضمن|أضمن|مضمون(?:ة)?|ضمان\s+كامل)(?!\p{L})/u,
+  /نضمن|مضمون(?:ة|ًا)?/,
   // ar — "we will pay / cover / reimburse"
   /(?<!\p{L})(?:سندفع|سنغطي|سنعوض|سوف\s+(?:ندفع|نغطي|نعوض))(?!\p{L})/u,
+  /س(?:ندفع|نغطي|نعوّض|نعوض)|سنقوم\s+ب(?:دفع|تغطية|تعويض)/,
   // ar — "approved by the central bank / insurance authority / regulator"
   /معتمد(?:ون|ة)?\s+من\s+(?:قبل\s+)?(?:ال)?(?:مصرف\s+المركزي|بنك\s+المركزي|هيئة\s+التأمين|جهة\s+التنظيمية)/u,
+  /معتمد(?:ة)?\s+من\s+(?:قِبل\s+|قبل\s+)?(?:المصرف\s+المركزي|البنك\s+المركزي|هيئة\s+التأمين|الجهة\s+التنظيمية)/,
   // ar — "you are (fully) covered"
   /(?:(?:أنت|أنتِ|أنتم|إنك)\s+مغطى|التغطية\s+كاملة)/u,
+  /مغط(?:ى|اة)\s+بالكامل/,
   // ar — "risk-free"
   /(?:بدون|بلا|خالٍ\s+من|خالي\s+من)\s+(?:أي\s+)?(?:ال)?مخاطر/u,
-  // ar — "no exclusions / no deductible / no excess"
-  /(?:لا\s+(?:توجد|يوجد)|بدون|بلا)\s+(?:أي\s+)?(?:استثناءات|تحمل|مبلغ\s+تحمل|خصم\s+تحملي)/u
+  /خالي(?:ة)?\s+من\s+المخاطر/,
+  // ar — "no exclusions / no deductible / no excess". The negation is
+  // required in both sets: the nouns themselves (استثناءات, تحمل) are
+  // ordinary policy vocabulary and appear in the schedule of every
+  // compliant Arabic quote we send.
+  /(?:لا\s+(?:توجد|يوجد)|بدون|بلا)\s+(?:أي\s+)?(?:استثناءات|تحمل|مبلغ\s+تحمل|خصم\s+تحملي)/u,
+  /(?:لا\s+توجد|بدون|من\s+دون|دون)\s+(?:استثناءات|أي\s+استثناءات|تحمّل|تحمل|خصم)/
 ];
 
 const JAILBREAK = [
@@ -60,7 +73,13 @@ const JAILBREAK = [
   // guard with a hole the size of half the product's locales.
   /تجاهل\s+(?:كل\s+)?(?:التعليمات|الأوامر)/,
   /(?:اكشف|أظهر)\s+(?:عن\s+)?(?:موجه|تعليمات)\s*(?:النظام)?/,
-  /تظاهر\s+أنك/
+  /تظاهر\s+أنك/,
+  // docs/27 F46. The Arabic set mirrored three of the five English patterns and
+  // stopped; "developer mode" and "forget your instructions" are the two the
+  // golden set walked straight through. `انسَ` carries a fatha the keyboard
+  // often drops, so both spellings.
+  /وضع\s+المطور/,
+  /(?:انسَ|انس|تناسَ)\s+(?:كل\s+)?(?:التعليمات|الأوامر)/
 ];
 
 /** Placeholders the model invented rather than echoed — a sign it is hallucinating PII. */

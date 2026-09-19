@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { and, eq, gte, inArray, isNull, lt, lte } from "drizzle-orm";
-import { NameJson, id, schema } from "@lyra/db";
+import { NameJson, TakafulJson, id, parseJson, schema, shariahCertified, toJson } from "@lyra/db";
 import {
   actorRef,
   audit,
   badRequest,
   canonicalJson,
   emit,
+  gate,
   notFound,
   require_,
   scoped,
@@ -586,3 +587,154 @@ for (const [path, permission, endpoint] of RUN_ONLY) {
     throw badRequest(`this record is produced by a run, not written directly — use ${endpoint}`);
   });
 }
+
+/* --------------------------------------------------- Shariah review lane */
+
+// docs/16 H8 "Shariah-board workflow (review lane like compliance pre-flight)",
+// docs/27 F45. A takaful product carries a standing ruling in
+// core_products.takaful_json; `SURPLUS-DIST`'s precondition
+// (packages/ledger/src/preconditions.ts) refuses to distribute out of a product
+// whose ruling is missing or expired.
+//
+// These two endpoints exist because the state is otherwise writable through the
+// generic product CRUD, which knows nothing about `compliance.shariah_certify`.
+// An approval policy no write routes through is a declared gate nothing passes
+// — so the lane is a route, and the CRUD field is refused below.
+
+const ShariahSubmit = z.object({
+  productId: z.string().min(1),
+  model: z.enum(["wakala", "mudaraba", "hybrid"]).optional(),
+  wakalaFeeBps: z.number().int().min(0).max(10_000).optional(),
+  participantShareBps: z.number().int().min(0).max(10_000).optional(),
+  fundRef: z.string().max(200).optional()
+});
+
+const ShariahCertify = z.object({
+  productId: z.string().min(1),
+  boardRef: z.string().min(1).max(200),
+  fatwaRef: z.string().min(1).max(200),
+  /** When the ruling lapses and the product stops being certified. */
+  expiresAt: InstantMs.optional()
+});
+
+async function takafulProduct(ctx: Ctx, productId: string) {
+  const [row] = await ctx.db
+    .select({
+      id: schema.products.id,
+      structure: schema.products.structure,
+      takafulJson: schema.products.takafulJson
+    })
+    .from(schema.products)
+    .where(and(eq(schema.products.tenantId, ctx.tenantId), eq(schema.products.id, productId)))
+    .limit(1);
+  if (!row) throw notFound(`product ${productId} not found`);
+  if (row.structure !== "takaful") {
+    throw badRequest(`product ${productId} is ${row.structure}; only a takaful product has a Shariah ruling`);
+  }
+  return { row, takaful: parseJson(TakafulJson, row.takafulJson) };
+}
+
+async function writeTakaful(ctx: Ctx, productId: string, next: TakafulJson): Promise<void> {
+  await ctx.db
+    .update(schema.products)
+    .set({ takafulJson: toJson(TakafulJson, next), updatedAt: ctx.now })
+    .where(and(eq(schema.products.tenantId, ctx.tenantId), eq(schema.products.id, productId)));
+}
+
+/** Put a product's terms in front of the board. Not itself consequential —
+ *  submitting asks a question, it does not answer one. */
+complianceRoutes.post("/shariah/submit", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "compliance:shariah:read", { tenantId: ctx.tenantId, module: "compliance" });
+  const input = await body(c, ShariahSubmit);
+  const { takaful } = await takafulProduct(ctx, input.productId);
+
+  const next: TakafulJson = {
+    ...takaful,
+    ...(input.model !== undefined ? { model: input.model } : {}),
+    ...(input.wakalaFeeBps !== undefined ? { wakalaFeeBps: input.wakalaFeeBps } : {}),
+    ...(input.participantShareBps !== undefined ? { participantShareBps: input.participantShareBps } : {}),
+    ...(input.fundRef !== undefined ? { fundRef: input.fundRef } : {}),
+    // Resubmitting drops the old ruling rather than keeping it beside new
+    // terms: a board certified the terms it was shown, and a certificate that
+    // survives an edit to the surplus rule is a certificate for something else.
+    shariah: { state: "submitted" }
+  };
+  await writeTakaful(ctx, input.productId, next);
+  await audit(ctx, {
+    action: "compliance.shariah.submit",
+    subjectRef: `product:${input.productId}`,
+    before: takaful,
+    after: next
+  });
+  return c.json({ productId: input.productId, shariah: next.shariah });
+});
+
+/** The board's ruling. Gated: dual control, never auto-approvable. */
+complianceRoutes.post("/shariah/certify", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "compliance:shariah:certify", { tenantId: ctx.tenantId, module: "compliance" });
+  const input = await body(c, ShariahCertify);
+  const { takaful } = await takafulProduct(ctx, input.productId);
+
+  if (takaful.shariah.state === "certified") {
+    throw badRequest(`product ${input.productId} is already certified; resubmit it before certifying again`);
+  }
+
+  const approval = await gate(ctx, {
+    policyKey: "compliance.shariah_certify",
+    subjectRef: `product:${input.productId}`,
+    context: input
+  });
+
+  const next: TakafulJson = {
+    ...takaful,
+    shariah: {
+      state: "certified",
+      // `gate` returns null only on an auto-approval path, and
+      // `compliance.shariah_certify` is `neverAutoApprove` — so a null here
+      // would mean the policy lost that flag, and the ruling would be recorded
+      // with nothing behind it. Recorded as an absent id rather than asserted,
+      // because the row must not claim an approval it does not have.
+      ...(approval ? { approvalId: approval.id } : {}),
+      boardRef: input.boardRef,
+      fatwaRef: input.fatwaRef,
+      certifiedAt: ctx.now,
+      ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {})
+    }
+  };
+  await writeTakaful(ctx, input.productId, next);
+  await audit(ctx, {
+    action: "compliance.shariah.certify",
+    subjectRef: `product:${input.productId}`,
+    before: takaful,
+    after: next
+  });
+  await emit(ctx, {
+    type: "compliance.shariah.certified",
+    module: "core",
+    subject: `product:${input.productId}`,
+    data: { productId: input.productId, fatwaRef: input.fatwaRef, certifiedAt: ctx.now }
+  });
+  return c.json({ productId: input.productId, shariah: next.shariah });
+});
+
+/** What the board has said, for a screen that has to show it. */
+complianceRoutes.get("/shariah/:productId", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "compliance:shariah:read", { tenantId: ctx.tenantId, module: "compliance" });
+  const productId = c.req.param("productId");
+  const { takaful } = await takafulProduct(ctx, productId);
+  return c.json({
+    productId,
+    model: takaful.model,
+    wakalaFeeBps: takaful.wakalaFeeBps,
+    participantShareBps: takaful.participantShareBps,
+    ...(takaful.fundRef !== undefined ? { fundRef: takaful.fundRef } : {}),
+    shariah: takaful.shariah,
+    // The question every reader actually has, answered once here rather than
+    // recomputed per screen — "certified" alone is not the answer, an expired
+    // ruling is still `state: "certified"`.
+    current: shariahCertified(takaful, ctx.now)
+  });
+});

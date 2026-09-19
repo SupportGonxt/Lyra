@@ -2599,6 +2599,9 @@ export interface Operations {
   "GET /v1/compliance/screenings": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ComplianceScreenings>>;
   "POST /v1/compliance/screenings/run": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/compliance/screenings/{id}": Op<{ id: string }, never, never, ComplianceScreenings>;
+  "POST /v1/compliance/shariah/certify": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/compliance/shariah/submit": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/compliance/shariah/{productId}": Op<{ productId: string }, never, never, Record<string, unknown>>;
   "GET /v1/core/api-keys": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreApiKeys>>;
   "POST /v1/core/api-keys": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/core/api-keys/{id}": Op<{ id: string }, never, never, CoreApiKeys>;
@@ -3360,6 +3363,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/compliance/screenings": { tag: "compliance", summary: "List screenings", permission: "compliance:screenings:read", public: false },
   "POST /v1/compliance/screenings/run": { tag: "compliance", summary: "Screen a customer or name against the watchlists and record the hashed query", permission: "compliance:screenings:run", public: false },
   "GET /v1/compliance/screenings/{id}": { tag: "compliance", summary: "Fetch one screening", permission: "compliance:screenings:read", public: false },
+  "POST /v1/compliance/shariah/certify": { tag: "compliance", summary: "Record the Shariah board's ruling on a takaful product", permission: "compliance:shariah:certify", public: false },
+  "POST /v1/compliance/shariah/submit": { tag: "compliance", summary: "Put a takaful product's terms in front of the Shariah board", permission: "compliance:shariah:read", public: false },
+  "GET /v1/compliance/shariah/{productId}": { tag: "compliance", summary: "A takaful product's structure and the standing Shariah ruling on it", permission: "compliance:shariah:read", public: false },
   "GET /v1/core/api-keys": { tag: "core", summary: "List api-keys", permission: "core:api_keys:read", public: false },
   "POST /v1/core/api-keys": { tag: "core", summary: "Mint an API key; the plaintext is returned once and never again", permission: "core:api_keys:create", public: false },
   "GET /v1/core/api-keys/{id}": { tag: "core", summary: "Fetch one api key", permission: "core:api_keys:read", public: false },
