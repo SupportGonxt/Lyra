@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { schema } from "@lyra/db";
-import { actorRef, audit, require_, diffWords, withIdempotency, type Ctx } from "@lyra/core";
+import { actorRef, audit, require_, diffWords, withIdempotency, SIGNAL_SOURCE_KINDS, type Ctx } from "@lyra/core";
 import type { WhitespaceCandidate } from "@lyra/core";
 import { body } from "../http.js";
 import {
@@ -12,6 +12,10 @@ import {
   whitespaceCommentary
 } from "../engines/scout-whitespace.js";
 import { promoteWhitespace } from "../engines/scout-promote.js";
+import { describeSources, harvestSignals } from "../engines/scout-ingest.js";
+import { sweepSignalClusters } from "../engines/scout-cluster.js";
+import { sweepPanelBench } from "../engines/scout-bench.js";
+import { runWatch } from "../engines/scout-watch.js";
 import { suggestTargeting } from "../engines/signal-audience.js";
 import { planCampaign } from "../engines/signal-campaign-plan.js";
 import { generateCreatives } from "../engines/signal-creative.js";
@@ -80,6 +84,78 @@ scoutRoutes.post("/whitespaces/:id/promote-to-signal", async (c) => {
       promoteWhitespace(ctx, c.get("gateway"), generateCreatives, suggestTargeting, planCampaign, whitespaceId)
   );
   return c.json(result, 201);
+});
+
+/**
+ * The Harvester (docs/modules/scout.md §3). Runs every registered
+ * `SignalSource` and records what is new. Idempotent at the engine — a second
+ * call in the same window ingests nothing — so it needs no idempotency key and
+ * can be scheduled, retried or pressed twice by a person without consequence.
+ *
+ * `fed` is the feed API §4 screen 7 names: items an integrator supplies
+ * directly, which travel the same path a connector's would. No adapter in this
+ * build calls anything outside LYRA (ADR-0078).
+ */
+const FedSignal = z.object({
+  source: z.enum(SIGNAL_SOURCE_KINDS),
+  sourceRef: z.string().min(1).max(200),
+  payload: z.record(z.string(), z.unknown()).default({}),
+  observedAt: z.number().int(),
+  // Defaulted rather than optional: `exactOptionalPropertyTypes` makes
+  // `weight?: number` and `weight: number | undefined` different types, and one
+  // observation weighing 1 is the right reading of a body that omitted it.
+  weight: z.number().int().min(1).max(1_000).default(1)
+});
+const HarvestBody = z.object({ fed: z.array(FedSignal).max(200).default([]) });
+
+scoutRoutes.post("/signals/harvest", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:signals:ingest", { tenantId: ctx.tenantId, module: "scout" });
+  const input = c.req.header("content-type")?.includes("json") ? await body(c, HarvestBody) : { fed: [] };
+  const report = await harvestSignals(ctx, c.get("gateway"), c.env, { fed: input.fed });
+  await audit(ctx, { action: "scout.signals.harvest", subjectRef: "signals", after: report });
+  return c.json(report, 201);
+});
+
+/** The registry itself — what can arrive, without running anything. The source
+ *  manager (§4 screen 6) renders this instead of claiming a connector table. */
+scoutRoutes.get("/sources", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:signals:read", { tenantId: ctx.tenantId, module: "scout" });
+  return c.json({ data: describeSources(ctx) });
+});
+
+/** The Clusterer (docs §3, weekly). Reads VEC_MARKET to place a signal in an
+ *  existing cluster and stamps `scout_signals.cluster_id`. Idempotent. */
+scoutRoutes.post("/clusters/sweep", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:clusters:build", { tenantId: ctx.tenantId, module: "scout" });
+  const report = await sweepSignalClusters(ctx, c.get("gateway"), c.env);
+  await audit(ctx, { action: "scout.clusters.sweep", subjectRef: "clusters", after: report });
+  return c.json(report, 201);
+});
+
+/** The Bench Builder (docs §3, nightly). Rebuilds every provider x line x month
+ *  cell from the panel's own answers. Idempotent; emits `scout.bench.updated`. */
+scoutRoutes.post("/panel-bench/sweep", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:panel_bench:build", { tenantId: ctx.tenantId, module: "scout" });
+  const report = await sweepPanelBench(ctx);
+  await audit(ctx, { action: "scout.bench.sweep", subjectRef: "panel-bench", after: report });
+  return c.json(report, 201);
+});
+
+/**
+ * The competitor and regulatory watch (docs §2.1). A derivation over the
+ * signals already recorded, never a write — see engines/scout-watch.ts for why
+ * a persisted finding would have to answer a question this shape cannot.
+ */
+scoutRoutes.get("/watch", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:signals:read", { tenantId: ctx.tenantId, module: "scout" });
+  const days = Number(c.req.query("days"));
+  const windowMs = Number.isFinite(days) && days >= 1 && days <= 180 ? days * 86_400_000 : undefined;
+  return c.json(await runWatch(ctx, windowMs));
 });
 
 const WordingDiffBody = z.object({ textA: z.string().max(50_000), textB: z.string().max(50_000) });
