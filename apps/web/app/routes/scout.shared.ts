@@ -450,7 +450,10 @@ export function verdictKey(row: ExperimentRow): { key: string; tone: "success" |
 
 export type Label = (key: string, vars?: Record<string, string>) => string;
 
-const LABELS: Record<string, Record<string, string>> = {
+/** Exported for `scout.labels.test.ts`, which holds every reader of this
+ *  catalogue to the keys it actually contains — `labelsIn` cannot, because a
+ *  miss returns the key itself. */
+export const LABELS: Record<string, Record<string, string>> = {
   en: {
     /* shared */
     none: "—",
@@ -735,9 +738,9 @@ const LABELS: Record<string, Record<string, string>> = {
     "adm.live": "Ingesting",
     "adm.quiet": "Quiet",
     "adm.neverIngested": "Never ingested",
-    "adm.noConnectors": "Connectors are not configured here",
+    "adm.noConnectors": "No source fetches from outside yet",
     "adm.noConnectorsWhy":
-      "The harvester's crawl politeness, robots handling and per-source credentials live with the harvester, not in a tenant setting. This panel reports what arrived; it cannot turn a source on.",
+      "Every adapter listed above reads what this workspace already holds, or takes what an integrator fed it. Search trends, review sites, news and regulatory feeds are third-party services: each needs a recorded decision before it is switched on, and the adapters plug into the same registry when it is. Crawl politeness, robots handling and per-source credentials travel with the adapter, not with a setting on this screen.",
     "adm.floors": "Suppression floors",
     "adm.floorsHint": "The k-anonymity guarantee behind every data product and every panel benchmark.",
     "adm.defaultFloor": "Module floor",
@@ -771,6 +774,25 @@ const LABELS: Record<string, Record<string, string>> = {
     "adm.source.reviews": "Reviews",
     "adm.source.news": "News",
     "adm.source.regulatory": "Regulatory",
+    "adm.registry": "Registered adapters",
+    "adm.registryHint":
+      "What can arrive, as the module declares it. An adapter marked outside LYRA fetches from a third party; none does today.",
+    "adm.adapterInternal": "Reads rows LYRA already holds",
+    "adm.adapterExternal": "Fetches from outside LYRA",
+    "adm.watch": "Competitor and regulatory watch",
+    "adm.watchHint":
+      "Each watched subject's last {days} days scored against the {days} before them. A reading, not a record — nothing here is stored.",
+    "adm.watchNone": "Nothing is being watched yet",
+    "adm.watchNone.body":
+      "News, review and regulatory signals appear here once they are ingested. Feed one through the signals API, or open the developer screen for the shape it takes.",
+    "adm.watchCount": "{n} observations",
+    "adm.watchNew": "New to the watch",
+    "adm.watchDelta": "{pct}% against the window before",
+    "watch.kind.competitor": "Competitor",
+    "watch.kind.regulatory": "Regulatory",
+    "watch.severity.urgent": "Moving fast",
+    "watch.severity.attention": "Worth a look",
+    "watch.severity.info": "Steady",
 
     /* dev */
     "dev.title": "SCOUT for integrators",
@@ -1094,9 +1116,9 @@ const LABELS: Record<string, Record<string, string>> = {
     "adm.live": "يستقبل",
     "adm.quiet": "هادئ",
     "adm.neverIngested": "لم يستقبل قط",
-    "adm.noConnectors": "الموصلات لا تُضبط هنا",
+    "adm.noConnectors": "لا مصدر يجلب من الخارج بعد",
     "adm.noConnectorsWhy":
-      "أدب الزحف ومعالجة robots وبيانات اعتماد كل مصدر تعيش مع الحاصد لا في إعداد للمستأجر. هذه اللوحة تُبلغ بما وصل، ولا تستطيع تشغيل مصدر.",
+      "كل موصل في الأعلى يقرأ ما تملكه مساحة العمل أصلًا أو يأخذ ما يرسله المُكامِل. اتجاهات البحث ومواقع المراجعات وخلاصات الأخبار والتنظيم خدمات طرف ثالث: لكل منها قرار مسجَّل قبل تشغيله، وتتصل بالسجل نفسه عند تشغيلها. أدب الزحف ومعالجة robots وبيانات الاعتماد تسافر مع الموصل لا مع إعداد في هذه الشاشة.",
     "adm.floors": "حدود الكبت",
     "adm.floorsHint": "ضمان إخفاء الهوية خلف كل منتج معرفي وكل مقارنة لوحة.",
     "adm.defaultFloor": "حد الوحدة",
@@ -1130,6 +1152,25 @@ const LABELS: Record<string, Record<string, string>> = {
     "adm.source.reviews": "المراجعات",
     "adm.source.news": "الأخبار",
     "adm.source.regulatory": "تنظيمي",
+    "adm.registry": "الموصلات المسجَّلة",
+    "adm.registryHint":
+      "ما الذي يمكن أن يصل، كما تعلنه الوحدة. الموصل المعلَّم بأنه خارج ليرا يجلب من طرف ثالث، ولا موصل كذلك اليوم.",
+    "adm.adapterInternal": "يقرأ صفوفًا تملكها ليرا أصلًا",
+    "adm.adapterExternal": "يجلب من خارج ليرا",
+    "adm.watch": "مراقبة المنافسين والتنظيم",
+    "adm.watchHint":
+      "كل موضوع مراقَب: آخر {days} يومًا مقيسة على {days} يومًا قبلها. قراءة لا سجل — لا يُخزَّن شيء هنا.",
+    "adm.watchNone": "لا شيء تحت المراقبة بعد",
+    "adm.watchNone.body":
+      "تظهر هنا إشارات الأخبار والمراجعات والتنظيم بعد استقبالها. أرسل واحدة عبر واجهة الإشارات، أو افتح شاشة المطوِّر لترى شكلها.",
+    "adm.watchCount": "{n} ملاحظة",
+    "adm.watchNew": "جديد على المراقبة",
+    "adm.watchDelta": "{pct}٪ مقابل النافذة السابقة",
+    "watch.kind.competitor": "منافس",
+    "watch.kind.regulatory": "تنظيمي",
+    "watch.severity.urgent": "يتحرك بسرعة",
+    "watch.severity.attention": "يستحق النظر",
+    "watch.severity.info": "مستقر",
 
     /* dev */
     "dev.title": "سكاوت للمطوِّرين",

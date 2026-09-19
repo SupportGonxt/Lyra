@@ -78,6 +78,43 @@ export interface SourceHealth {
   quiet: boolean;
 }
 
+/** `GET /v1/scout/sources` — mirrors `describeSources`
+ *  (apps/api/src/engines/scout-ingest.ts), which is the registry itself. */
+export interface AdapterRow {
+  id: string;
+  kind: string;
+  external: boolean;
+}
+
+/** `GET /v1/scout/watch` — mirrors `WatchReport` (apps/api/src/engines/scout-watch.ts). */
+export interface WatchFindingRow {
+  kind: "competitor" | "regulatory";
+  key: string;
+  source: string;
+  subject: string | null;
+  count: number;
+  priorCount: number;
+  deltaPct: number | null;
+  severity: "urgent" | "attention" | "info";
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export interface WatchReport {
+  windowMs: number;
+  findings: WatchFindingRow[];
+  counts: { urgent: number; attention: number; info: number };
+}
+
+/** Days of the watch window, for the sentence that explains what is compared. */
+export const watchDays = (windowMs: number): number => Math.max(1, Math.round(windowMs / DAY));
+
+const SEVERITY_TONE: Record<WatchFindingRow["severity"], "warning" | "info" | "neutral"> = {
+  urgent: "warning",
+  attention: "info",
+  info: "neutral"
+};
+
 export function healthOf(source: string, page: Page<SignalRow>, now: number): SourceHealth {
   const lastAt = page.data[0]?.observedAt ?? null;
   return {
@@ -135,7 +172,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
   const now = Date.now();
 
-  const [sources, products, thresholds, approvals] = await Promise.all([
+  const [sources, adapters, watch, products, thresholds, approvals] = await Promise.all([
     Promise.all(
       SIGNAL_SOURCES.map(async (source) => {
         const page = await safe(
@@ -149,6 +186,15 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
         return healthOf(source, page, now);
       })
     ),
+    // The registry and the watch are both reads the SCOUT admin owns: what can
+    // arrive, and what the arrivals say. `safe` because a reader without
+    // `scout:signals:read` still has a settings screen to look at.
+    safe(() => api<{ data: AdapterRow[] }>("/v1/scout/sources", { env, request }), { data: [] as AdapterRow[] }),
+    safe(() => api<WatchReport>("/v1/scout/watch", { env, request }), {
+      windowMs: 30 * DAY,
+      findings: [] as WatchFindingRow[],
+      counts: { urgent: 0, attention: 0, info: 0 }
+    }),
     safe(
       () => api<Page<ProductRow>>("/v1/scout/data-products?limit=100", { env, request }),
       emptyPage<ProductRow>()
@@ -169,6 +215,8 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
   return {
     sources,
+    adapters: adapters.data,
+    watch,
     overrides: floorOverrides(products.data),
     thresholds: currentThresholds(thresholds.data),
     approvals: approvals.data,
@@ -198,7 +246,9 @@ export default function ScoutAdmin() {
         <ul className="mt-3 flex flex-col gap-3">
           {loaded.sources.map((one) => (
             <li key={one.source} className="flex flex-wrap items-baseline gap-3 border-b border-line pb-3 last:border-0">
-              <span className="min-w-40 font-ui text-13 text-text">{l(`source.${one.source}`)}</span>
+              {/* `adm.source.*` is what the catalogue holds: `source.*` fell
+                  through `labelsIn` and printed its own key on this row. */}
+              <span className="min-w-40 font-ui text-13 text-text">{l(`adm.source.${one.source}`)}</span>
               <span className="font-ui text-13 tabular-nums text-muted">{one.count.toLocaleString(locale)}</span>
               <span className="font-ui text-12 text-subtle">
                 {ingested === 0 ? l("none") : `${Math.round((one.count / ingested) * 100)}%`}
@@ -212,7 +262,51 @@ export default function ScoutAdmin() {
             </li>
           ))}
         </ul>
+        <h3 className="mt-5 font-ui text-13 font-medium text-text">{l("adm.registry")}</h3>
+        <p className="mt-1 max-w-prose font-ui text-12 text-subtle">{l("adm.registryHint")}</p>
+        <ul className="mt-2 flex flex-col gap-2">
+          {loaded.adapters.map((one) => (
+            <li key={one.id} className="flex flex-wrap items-baseline gap-2">
+              <span className="font-ui text-13 text-text">{one.id}</span>
+              <span className="font-ui text-12 text-subtle">{l(`adm.source.${one.kind}`)}</span>
+              <Badge tone={one.external ? "warning" : "neutral"} size="sm">
+                {one.external ? l("adm.adapterExternal") : l("adm.adapterInternal")}
+              </Badge>
+            </li>
+          ))}
+        </ul>
         <GuardrailNotice tone="info" title={l("adm.noConnectors")} reason={l("adm.noConnectorsWhy")} />
+      </Card>
+
+      <Card title={l("adm.watch")} description={l("adm.watchHint", { days: String(watchDays(loaded.watch.windowMs)) })}>
+        {loaded.watch.findings.length === 0 ? (
+          <EmptyState title={l("adm.watchNone")} body={l("adm.watchNone.body")} />
+        ) : (
+          <ul className="mt-3 flex flex-col gap-3">
+            {loaded.watch.findings.map((one) => (
+              <li key={one.key} className="flex flex-col gap-1 border-b border-line pb-3 last:border-0">
+                <span className="flex flex-wrap items-center gap-2">
+                  <Badge tone={SEVERITY_TONE[one.severity]} size="sm">
+                    {l(`watch.severity.${one.severity}`)}
+                  </Badge>
+                  <span className="font-ui text-13 text-text">{one.subject ?? l(`adm.source.${one.source}`)}</span>
+                  <span className="font-ui text-12 text-subtle">{l(`watch.kind.${one.kind}`)}</span>
+                </span>
+                <span className="flex flex-wrap items-baseline gap-3">
+                  <span className="font-ui text-12 tabular-nums text-muted">
+                    {l("adm.watchCount", { n: one.count.toLocaleString(locale) })}
+                  </span>
+                  <span className="font-ui text-12 text-subtle">
+                    {one.deltaPct === null
+                      ? l("adm.watchNew")
+                      : l("adm.watchDelta", { pct: one.deltaPct.toLocaleString(locale) })}
+                  </span>
+                  <DateTime value={one.lastSeen} locale={locale} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">

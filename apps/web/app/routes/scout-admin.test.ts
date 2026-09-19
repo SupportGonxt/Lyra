@@ -5,7 +5,9 @@ import {
   floorOverrides,
   healthOf,
   QUIET_AFTER_DAYS,
+  SIGNAL_SOURCES,
   thresholdValue,
+  watchDays,
   type SourceHealth,
   type ThresholdRow
 } from "./scout-admin";
@@ -167,5 +169,27 @@ describe("adminHeadline", () => {
 
   it("falls back to the title with nothing pending and every source live", () => {
     expect(adminHeadline(0, [source()], l)).toBe(l("adm.title"));
+  });
+});
+
+/* ------------------------------------------------------------------ watch */
+
+describe("watchDays", () => {
+  it("reads the window back in days, so the sentence and the data agree", () => {
+    expect(watchDays(30 * 86_400_000)).toBe(30);
+    expect(watchDays(7 * 86_400_000)).toBe(7);
+  });
+
+  it("never claims a zero-day window", () => {
+    expect(watchDays(0)).toBe(1);
+    expect(watchDays(3_600_000)).toBe(1);
+  });
+});
+
+describe("the source manager's vocabulary", () => {
+  it("names every source kind the module declares", () => {
+    // The screen renders `adm.source.<kind>`; a kind with no label prints its
+    // own key, which is what this screen did before scout.labels.test.ts.
+    for (const source of SIGNAL_SOURCES) expect(l(`adm.source.${source}`)).not.toBe(`adm.source.${source}`);
   });
 });
