@@ -163,6 +163,53 @@ describe("the parsers refuse what they cannot represent", () => {
   });
 });
 
+describe("OFX parsing does not backtrack catastrophically (CodeQL js/polynomial-redos)", () => {
+  // Both regressions are shaped the same way: a lazy or overlapping quantifier
+  // that only blows up when the overall match ultimately FAILS, because that
+  // is what forces the engine to exhaust every way of placing the ambiguous
+  // part before giving up. A bounded-time assertion is the regression guard —
+  // reintroducing either vulnerable pattern makes this test time out, not
+  // just run slow.
+
+  it("splits a run of unclosed <STMTTRN> tags in linear time", () => {
+    // The vulnerable splitter was `<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|(?=<STMTTRN>)|(?=<\/BANKTRANLIST>))`:
+    // a lazy `[\s\S]*?` with three ways to stop, so a long run of tags that
+    // never close gave the old regex exponentially many candidate stop points
+    // before it found (or failed to find) a match at each start position.
+    const body = "<STMTTRN>".repeat(4000);
+    const ofx = `OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS>${body}</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`;
+    const started = Date.now();
+    // badRequest()'s argument lands on AppError.detail, not .message (which
+    // stays the fixed "Bad request" title) — assert on the property that
+    // actually carries it.
+    expect(() => parseStatement(ofx)).toThrow(expect.objectContaining({ detail: expect.stringMatching(/has no amount/) }));
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("resolves a reference-shaped memo without exponential backtracking on a non-match", () => {
+    // The vulnerable ref-finder was `[A-Z]{2,6}-[A-Z0-9-]*\d[A-Z0-9-]*`: the
+    // two starred groups either side of the required digit share the same
+    // character class, so a long run of one repeated member followed by a
+    // character that can never complete the match forces the engine to try
+    // every split point between the two groups before concluding failure.
+    const memo = `ABC-${"0".repeat(20_000)}!`; // trailing "!" makes the whole token unmatchable
+    const ofx = [
+      "OFXHEADER:100",
+      "<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS>",
+      "<STMTTRN><TRNAMT>10.00<DTPOSTED>20260601<MEMO>",
+      memo,
+      "</STMTTRN>",
+      "</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>"
+    ].join("\n");
+    const started = Date.now();
+    const parsed = parseStatement(ofx);
+    expect(Date.now() - started).toBeLessThan(1000);
+    // No digit-bearing reference could be extracted from an unmatchable
+    // token, so the line still parses — just without `ourRef`.
+    expect(parsed.lines[0]?.ourRef).toBeUndefined();
+  });
+});
+
 describe("what the reconciler gets", () => {
   it("hands back exactly the shape reconcile() takes, with no reconciliation done", () => {
     const parsed = parseStatement(CAMT);

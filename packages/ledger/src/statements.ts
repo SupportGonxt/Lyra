@@ -206,14 +206,42 @@ function ofxValue(block: string, name: string): string | null {
   return m?.[1]?.trim() || null;
 }
 
+/**
+ * Splits the transaction blocks by scanning literal markers rather than a
+ * regex: the equivalent pattern (a lazy `[\s\S]*?` closed off by an
+ * alternation of a close tag, a lookahead for the next open tag, or a
+ * lookahead for the list's end) is the classic catastrophic-backtracking
+ * shape CodeQL flags — a run of unclosed `<STMTTRN>` tags gives the engine
+ * exponentially many ways to place the lazy match before it fails. A plain
+ * `indexOf` scan is O(n) and reads the same three terminators (closing tag,
+ * next block, end of list), whichever comes first.
+ */
+function ofxTransactionBlocks(text: string): string[] {
+  const OPEN = "<STMTTRN>";
+  const CLOSE = "</STMTTRN>";
+  const LIST_END = "</BANKTRANLIST>";
+  const blocks: string[] = [];
+  let searchFrom = 0;
+  for (;;) {
+    const start = text.indexOf(OPEN, searchFrom);
+    if (start === -1) break;
+    const contentStart = start + OPEN.length;
+    const stops = [text.indexOf(CLOSE, contentStart), text.indexOf(OPEN, contentStart), text.indexOf(LIST_END, contentStart)].filter(
+      (i) => i !== -1
+    );
+    const stop = stops.length ? Math.min(...stops) : text.length;
+    blocks.push(text.slice(contentStart, stop));
+    searchFrom = stop;
+  }
+  return blocks;
+}
+
 function parseOfx(text: string): ParsedStatement {
   const currency = ofxValue(text, "CURDEF");
   const accountRef = ofxValue(text, "ACCTID");
   const lines: StatementLine[] = [];
 
-  const re = /<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|(?=<STMTTRN>)|(?=<\/BANKTRANLIST>))/gi;
-  for (let m = re.exec(text), i = 0; m; m = re.exec(text), i++) {
-    const block = m[1] ?? "";
+  for (const [i, block] of ofxTransactionBlocks(text).entries()) {
     const raw = ofxValue(block, "TRNAMT");
     if (!raw) throw badRequest(`OFX transaction ${i + 1} has no amount`);
     // OFX carries the sign on the amount itself, which is why there is no
@@ -245,8 +273,18 @@ function ofxDate(raw: string): number {
   return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
-/** An upper-case token with a hyphen and a digit: POL-88431, INV-2026-4. */
+/**
+ * An upper-case token with a hyphen and a digit: POL-88431, INV-2026-4.
+ *
+ * The two `[A-Z0-9-]*` groups either side of the required `\d` overlap the
+ * same character class, so on a non-matching tail the engine can place the
+ * split point between them in exponentially many ways before giving up —
+ * the CodeQL-flagged shape. One greedy group plus a separate digit check
+ * removes the ambiguity without changing which strings match: a token still
+ * has to start `[A-Z]{2,6}-` and contain a digit somewhere in the rest.
+ */
 function refFromText(text: string | undefined): string | undefined {
   if (!text) return undefined;
-  return /\b([A-Z]{2,6}-[A-Z0-9-]*\d[A-Z0-9-]*)\b/.exec(text)?.[1];
+  const m = /\b[A-Z]{2,6}-[A-Z0-9-]+\b/.exec(text)?.[0];
+  return m && /\d/.test(m) ? m : undefined;
 }
