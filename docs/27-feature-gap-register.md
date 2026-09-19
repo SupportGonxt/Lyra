@@ -150,7 +150,7 @@ recon screen has a real file input.
 nothing". `taxTreatment` (`core/src/tax.ts`) resolves the market rulepack's
 rate or **throws**; `quoteCommission` honours a stated rate and refuses an
 omitted one. `policy.taxMarket` is the jurisdiction dimension docs/29 found
-missing. ADR-0078.
+missing. ADR-0080.
 
 **F18** *Closed.* `fxRevaluationPlan` (`reports.ts`) values every open foreign
 monetary position at the closing rate and reports the difference; `FX-REVAL`
@@ -710,7 +710,7 @@ Spec §F.3's three named baselines and §F.7's history backfill are **not** buil
 — `prior_period` is the floor the spec itself calls B1, and
 `seasonal_robust_z` needs history a fresh tenant does not have.
 
-*F49 — partly closed (ADR-0078).* `net_commission` is now the sum of `netMinor`
+*F49 — partly closed (ADR-0082).* `net_commission` is now the sum of `netMinor`
 over `commissionByDimension`, with its channel decomposition from the same call,
 so a clawback nets out by construction and the figure traces to the trial
 balance. `expense_ratio`'s numerator moved to `expenseMovementMinor`; there is
@@ -879,11 +879,9 @@ predating this work, `YEAR-END-CLOSE`'s `fiscalYear`, a bounded integer that
 refuses the probe value `1` — so those types could never be posted from the
 generic open-transaction screen at all.
 
-**Act in bulk** stays open by decision, not by omission: an ADR (filed
-independently by two agents working this register in parallel — see the
-renumbering note under "Suggested order") records the constraints a bulk
-decide must satisfy and leaves the product question (may a reviewer *confirm*
-in bulk, or only reject?) to the owner.
+**Act in bulk** stays open by decision, not by omission: **ADR-0081** records
+the constraints a bulk decide must satisfy and leaves the product question
+(may a reviewer *confirm* in bulk, or only reject?) to the owner.
 
 - `axis-doc-intel.tsx` still requires caller-supplied `rawText` ("OCR is out of
   scope", `routes/axis.ts:73-78`).
@@ -1084,3 +1082,16 @@ which are depth rather than absence.
 
 Every item above is a finding, not an approved change. P1s that alter a
 documented seam or add a third-party service need an ADR first.
+
+**A numbering note, 2026-09-19.** Four agents closing separate P1s in this
+register on the same day independently authored an ADR each, and all four
+picked the same next-free number, 0078, having no visibility into one
+another's work. Renumbered by content once merged: SCOUT's external-sources
+proposal kept 0078 (the number's own code citations — `seams.ts`,
+`scout-ingest.ts`, `scout-pipeline.test.ts`, the OpenAPI summary — are
+SCOUT's), tax-market-rulepack became **ADR-0080**, bulk-reconciliation-decide
+**ADR-0081**, and NORTH's money-metrics-read-the-ledger **ADR-0082**. The
+general shape worth naming: a number picked by reading the tree at branch time
+is a race the moment two branches close in parallel, and nothing caught it
+until merge because each branch's own tests only ever asserted its own ADR
+existed, never that the number was unique across the set.

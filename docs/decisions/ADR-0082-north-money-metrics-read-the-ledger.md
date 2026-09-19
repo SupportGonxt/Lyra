@@ -1,4 +1,4 @@
-# ADR-0078 — NORTH's money metrics are adapters over the ledger's reports, and GWP is the named exception
+# ADR-0082 — NORTH's money metrics are adapters over the ledger's reports, and GWP is the named exception
 
 **Date:** 2026-09-19
 **Status:** Accepted

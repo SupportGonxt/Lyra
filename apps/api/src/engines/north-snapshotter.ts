@@ -127,7 +127,7 @@ const quoteLatencyP95: Compute = async (ctx, p) => {
 };
 
 /**
- * Gross written premium, and deliberately *not* read from the ledger (ADR-0078,
+ * Gross written premium, and deliberately *not* read from the ledger (ADR-0082,
  * docs/27 F49). For a broker, premium is not revenue: it lands in segregated
  * client money (1010 debit / 2010 credit) and leaves again on remittance, so no
  * general-ledger account's balance is GWP and inventing one to satisfy a

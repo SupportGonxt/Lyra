@@ -1,4 +1,4 @@
-# ADR-0078 — Deciding reconciliation matches in bulk
+# ADR-0081 — Deciding reconciliation matches in bulk
 
 Status: open · 2026-09-19
 Context: docs/19-transactions-and-ledger.md §6 (reconciliation, variance states),

@@ -1,4 +1,4 @@
-# ADR-0078 — Tax is stated by a market rulepack, and an unstated tax is a refusal
+# ADR-0080 — Tax is stated by a market rulepack, and an unstated tax is a refusal
 
 **Date:** 2026-09-18
 **Status:** Accepted
