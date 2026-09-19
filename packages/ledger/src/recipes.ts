@@ -349,6 +349,66 @@ export function chargebackWon(a: z.infer<typeof ChargebackArgs>): PostingLine[] 
   );
 }
 
+/* --------------------------------- G. reconciliation write-off (docs/27) */
+
+const WriteOffArgs = z.object({
+  amountMinor: Pos,
+  /**
+   * Which way the residual runs, stated rather than inferred from a sign: a
+   * signed amount inverts silently when a caller flips an operand, and the two
+   * directions post to opposite sides of the same two accounts.
+   *
+   * `shortfall` — the counterparty paid less than we booked and we are giving
+   * up the rest, so the balance clears against the write-off expense.
+   * `surplus`   — they paid more, so the same expense is credited back.
+   */
+  direction: z.enum(["shortfall", "surplus"]),
+  /** The account carrying the residual: 1100 commission receivable, 1300 PSP clearing, 2100 payable. */
+  clearingAccount: z.string().regex(/^\d{4}$/, "account code is four digits").default("1100"),
+  writeOffAccount: z.string().regex(/^5\d{3}$/, "a write-off lands in an expense account").default("5500"),
+  /** A write-off has no business event behind it; the reason is the only thing an auditor can read. */
+  reason: z.string().min(10).max(500),
+  dims: Dims
+});
+export type WriteOffArgs = z.infer<typeof WriteOffArgs>;
+
+/**
+ * docs/27 "thin screens": reconciliation leaves residual differences — a few
+ * fils of premium tax rounding, a PSP fee booked to the cent — and without an
+ * instrument for them a run can never reach nothing-left-open, so it can never
+ * close. This is that instrument and nothing more: two lines, balanced by
+ * construction, against one named clearing account.
+ *
+ * It refuses the two things a write-off must never be able to do. Client money
+ * is segregated (CBUAE): a shortfall there is a reportable breach to escalate,
+ * not a difference to make disappear, and writing it off would leave 1010 < 2010
+ * with the journal saying it was fine. Equity moves only at the year-end close.
+ * The same two refusals `manualJournal` makes, for the same reasons.
+ */
+export function reconWriteOff(a: WriteOffArgs): PostingLine[] {
+  for (const code of [a.clearingAccount, a.writeOffAccount]) {
+    if (account(code)?.clientMoney) {
+      throw badRequest(
+        `a write-off may not touch client money account ${code}; a client-money difference is a breach to escalate`
+      );
+    }
+    if (code.startsWith("3")) {
+      throw badRequest(`a write-off may not touch equity account ${code}; use YEAR-END-CLOSE`);
+    }
+  }
+  if (!account(a.clearingAccount)) throw badRequest(`unknown account ${a.clearingAccount}`);
+  if (!account(a.writeOffAccount)) throw badRequest(`unknown account ${a.writeOffAccount}`);
+
+  const [debit, credit] =
+    a.direction === "shortfall"
+      ? [a.writeOffAccount, a.clearingAccount]
+      : [a.clearingAccount, a.writeOffAccount];
+  return lines(
+    line(debit, "debit", a.amountMinor, a.reason, a.dims),
+    line(credit, "credit", a.amountMinor, a.reason, a.dims)
+  );
+}
+
 /* ------------------------------- H. manual & structural entries (F2, F3) */
 
 const AuthoredLine = z.object({
@@ -541,6 +601,9 @@ export const RECIPES: Record<string, RecipeSpec> = {
   "MEDIA-SPEND": spec(AccrualArgs, expenseAccrual, { expenseAccount: "5100", payableAccount: "2250" }),
   BOOST: spec(AccrualArgs, expenseAccrual, { expenseAccount: "5100", payableAccount: "2250" }),
 
+  // reconciliation
+  "RECON-WRITEOFF": spec(WriteOffArgs, reconWriteOff),
+
   // manual & structural (docs/27 F2, F3)
   "MANUAL-JRNL": spec(AuthoredArgs, manualJournal),
   "OPEN-BAL": spec(AuthoredArgs, openingBalance),
@@ -558,6 +621,8 @@ export interface ArgField {
   required: boolean;
   /** What the recipe posts to if the operator says nothing. */
   default?: string | number;
+  /** A closed set the answer must come from: the UI offers these and nothing else. */
+  options?: string[];
 }
 
 /**
@@ -568,7 +633,22 @@ export interface ArgField {
  * Kind and optionality are probed through `safeParse` rather than read off zod
  * internals: the answer is then whatever the schema actually accepts, and it
  * survives a zod upgrade.
+ *
+ * A probe only ever answers with the samples it was shown, which is how a field
+ * a recipe *requires* can drop out of the list entirely and leave a type nothing
+ * can post. Two shapes did: an enum (`"sample text"` is not one of its members)
+ * and a pattern-constrained string (`clearingAccount` is four digits). So the
+ * probe list carries the field's own default and its own members — `options` is
+ * a public accessor, not an internal — and the UI renders a closed set as a
+ * picker rather than as free text.
  */
+function memberOptions(field: z.ZodType): string[] | null {
+  const raw = (field as unknown as { options?: unknown }).options;
+  return Array.isArray(raw) && raw.length > 0 && raw.every((v) => typeof v === "string")
+    ? (raw as string[])
+    : null;
+}
+
 export function argFields(code: string): ArgField[] {
   const s = RECIPES[code];
   if (!s) return [];
@@ -576,20 +656,29 @@ export function argFields(code: string): ArgField[] {
   return Object.entries(shape).flatMap(([name, field]) => {
     // Dimensions are free-form analysis tags, not a question with an answer.
     if (name === "dims") return [];
+    const blank = field.safeParse(undefined);
+    const options = memberOptions(field);
+    const declared = s.defaults?.[name] ?? (blank.success ? blank.data : undefined);
     // The text probe has to clear a minimum length: a one-character sample would
     // report an auditable-reason field as unrenderable rather than as text.
-    const kind = field.safeParse(1).success ? "integer" : field.safeParse("sample text").success ? "text" : null;
+    const samples = ["sample text", ...(options ?? []), ...(typeof declared === "string" ? [declared] : [])];
+    // `1` is not a fiscal year: a bounded integer refuses it and would drop out
+    // of the list, so the probe carries a number inside the ranges this file
+    // actually declares as well.
+    const numbers = [1, 2026, ...(typeof declared === "number" ? [declared] : [])];
+    const kind = numbers.some((sample) => field.safeParse(sample).success)
+      ? "integer"
+      : samples.some((sample) => field.safeParse(sample).success)
+        ? "text"
+        : null;
     if (!kind) return [];
-    const blank = field.safeParse(undefined);
-    const fallback = s.defaults?.[name] ?? (blank.success ? blank.data : undefined);
     return [
       {
         name,
         kind,
         required: !blank.success,
-        ...(typeof fallback === "string" || typeof fallback === "number"
-          ? { default: fallback }
-          : {})
+        ...(typeof declared === "string" || typeof declared === "number" ? { default: declared } : {}),
+        ...(options ? { options } : {})
       } satisfies ArgField
     ];
   });

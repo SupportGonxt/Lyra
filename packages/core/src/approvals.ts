@@ -81,6 +81,11 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     // gate is the act itself, and no tenant setting may automate it.
     policy({ key: "ledger.opening_balance", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.year_end_close", module: "ledger", decide: "ledger:periods:year_end", dualControl: "always", neverAutoApprove: true }),
+    // A reconciliation write-off has no amount worth thresholding: it is small
+    // by definition, and a difference small enough to write off unchecked is
+    // exactly the size a leak is drawn in. The gate is the act, and the second
+    // seat is the same one that posts a manual journal.
+    policy({ key: "ledger.write_off", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.period_close_force", module: "ledger", decide: "ledger:periods:force_close", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.period_reopen", module: "ledger", decide: "ledger:periods:reopen", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.remit", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true }),

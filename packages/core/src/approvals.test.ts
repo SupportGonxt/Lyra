@@ -70,6 +70,7 @@ describe("APPROVAL_POLICIES", () => {
       "ledger.manual_journal": { key: "ledger.manual_journal", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true },
       "ledger.opening_balance": { key: "ledger.opening_balance", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true },
       "ledger.year_end_close": { key: "ledger.year_end_close", module: "ledger", decide: "ledger:periods:year_end", dualControl: "always", neverAutoApprove: true },
+      "ledger.write_off": { key: "ledger.write_off", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true },
       "ledger.period_close_force": { key: "ledger.period_close_force", module: "ledger", decide: "ledger:periods:force_close", dualControl: "always", neverAutoApprove: true },
       "ledger.period_reopen": { key: "ledger.period_reopen", module: "ledger", decide: "ledger:periods:reopen", dualControl: "always", neverAutoApprove: true },
       "ledger.remit": { key: "ledger.remit", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true },

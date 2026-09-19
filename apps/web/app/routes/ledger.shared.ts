@@ -116,6 +116,8 @@ export interface ArgField {
   kind: "integer" | "text";
   required: boolean;
   default?: string | number;
+  /** A closed set the answer must come from; rendered as a picker, not free text. */
+  options?: string[];
 }
 
 /**
@@ -640,6 +642,27 @@ export const LABELS: Record<string, Record<string, string>> = {
     "recon.closeConfirm":
       "Close this run? It only closes if nothing is left awaiting a decision, and your name goes on the record.",
     "recon.closed": "Run {id} closed.",
+    "recon.writeOff": "Write off the residual",
+    "recon.writeOffIntro":
+      "Clears a small difference off the account it is sitting on, as a transaction: two balanced lines, your reason on the record, and a second person's approval before it posts.",
+    "recon.writeOffAmount": "Amount to write off",
+    "recon.writeOffAmountHint": "Prefilled with this run's variance. Change it to write off part of it.",
+    "recon.writeOffAmountInvalid": "Enter an amount above zero to write off.",
+    "recon.writeOffDirection": "Which way it runs",
+    "recon.writeOffShortfall": "They paid less than we booked",
+    "recon.writeOffSurplus": "They paid more than we booked",
+    "recon.writeOffAccount": "Account carrying it",
+    "recon.writeOffAccountHint": "1100 commission receivable, 1300 payment-provider clearing, 2100 partner payable.",
+    "recon.writeOffReason": "Why",
+    "recon.writeOffReasonHint":
+      "At least ten characters, and the only thing an auditor will have to go on. Say what the difference was.",
+    "recon.writeOffConfirm":
+      "Write this off? It posts a journal entry in your name once a second person approves it, and it cannot be undone — only reversed.",
+    "recon.wroteOff": "Write-off {id} recorded.",
+    "recon.writeOffApproval": "The write-off is waiting for a second pair of eyes",
+    "recon.writeOffApprovalBody":
+      "Nothing has posted yet. A write-off always needs someone other than you to approve it; it is in the approvals queue now.",
+    "recon.approvalsInbox": "Open approvals",
     "recon.pick": "Pick a run",
     "recon.pickBody": "Start a run above, or open one by its id.",
     "recon.linesInvalid": "Paste the statement before starting a run.",
@@ -1019,6 +1042,26 @@ export const LABELS: Record<string, Record<string, string>> = {
     "recon.closeConfirm":
       "إغلاق هذا التشغيل؟ لا يُغلق إلا إذا لم يبقَ شيء بانتظار قرار، ويُسجَّل اسمك على ذلك.",
     "recon.closed": "أُغلق التشغيل {id}.",
+    "recon.writeOff": "شطب الفرق المتبقي",
+    "recon.writeOffIntro":
+      "يُزيل فرقًا صغيرًا من الحساب الذي يحمله، كمعاملة: قيدان متوازنان، وسببك مسجَّل، وموافقة شخص ثانٍ قبل الترحيل.",
+    "recon.writeOffAmount": "المبلغ المراد شطبه",
+    "recon.writeOffAmountHint": "مُعبَّأ بفرق هذا التشغيل. غيّره لشطب جزء منه.",
+    "recon.writeOffAmountInvalid": "أدخل مبلغًا أكبر من صفر للشطب.",
+    "recon.writeOffDirection": "اتجاه الفرق",
+    "recon.writeOffShortfall": "دفعوا أقل مما سجّلنا",
+    "recon.writeOffSurplus": "دفعوا أكثر مما سجّلنا",
+    "recon.writeOffAccount": "الحساب الذي يحمله",
+    "recon.writeOffAccountHint": "1100 عمولات مستحقة، 1300 تسوية مزود الدفع، 2100 مستحقات الشركاء.",
+    "recon.writeOffReason": "السبب",
+    "recon.writeOffReasonHint": "عشرة أحرف على الأقل، وهو كل ما سيجده المدقّق. اذكر ما كان عليه الفرق.",
+    "recon.writeOffConfirm":
+      "شطب هذا الفرق؟ يُرحَّل قيد باسمك بعد موافقة شخص ثانٍ، ولا يمكن التراجع عنه — بل عكسه فقط.",
+    "recon.wroteOff": "سُجّل الشطب {id}.",
+    "recon.writeOffApproval": "الشطب بانتظار مراجعة ثانية",
+    "recon.writeOffApprovalBody":
+      "لم يُرحَّل شيء بعد. الشطب يحتاج دائمًا موافقة شخص غيرك، وهو الآن في قائمة الموافقات.",
+    "recon.approvalsInbox": "فتح الموافقات",
     "recon.pick": "اختر تشغيلًا",
     "recon.pickBody": "ابدأ تشغيلًا أعلاه أو افتح واحدًا بمعرّفه.",
     "recon.linesInvalid": "الصق الكشف قبل بدء التشغيل.",

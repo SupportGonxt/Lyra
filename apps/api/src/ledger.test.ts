@@ -230,6 +230,48 @@ describe("POST /v1/ledger/recon/runs/:id/evidence-bundle", () => {
   });
 });
 
+// The write-off is the instrument reconciliation needed to reach
+// nothing-left-open. What matters at this level is that it is a transaction
+// like any other: gated, keyed, and refused where it must never reach.
+describe("POST /v1/ledger/txn/RECON-WRITEOFF", () => {
+  const reason = "insurer statement rounds premium tax; 42 fils left on the receivable";
+
+  it("stops at the approval gate — a write-off is dual control always", async () => {
+    const res = await call("finance.controller", "POST", "/v1/ledger/txn/RECON-WRITEOFF", {
+      idempotencyKey: "writeoff:gate:shortfall:42",
+      currency: "AED",
+      grossMinor: 42,
+      reason,
+      args: { amountMinor: 42, direction: "shortfall", reason }
+    });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("approval_required");
+    expect(res.body.policy_key).toBe("ledger.write_off");
+  });
+
+  it("refuses a client-money account before it ever reaches the gate", async () => {
+    const res = await call("finance.controller", "POST", "/v1/ledger/txn/RECON-WRITEOFF", {
+      idempotencyKey: "writeoff:cm:shortfall:42",
+      currency: "AED",
+      grossMinor: 42,
+      reason,
+      args: { amountMinor: 42, direction: "shortfall", clearingAccount: "1010", reason }
+    });
+    expect(res.status).toBe(400);
+    expect(String(res.body.detail)).toMatch(/client money/);
+  });
+
+  it("publishes its arguments on the type catalogue, so the UI can ask for them", async () => {
+    const res = await call("finance.controller", "GET", "/v1/ledger/txn-types");
+    const type = (res.body.data as Array<{ code: string; financial: boolean; approval: string | null; args: Array<{ name: string }> }>)
+      .find((t) => t.code === "RECON-WRITEOFF");
+    expect(type).toMatchObject({ financial: true, approval: "ledger.write_off" });
+    expect(type?.args.map((a) => a.name)).toEqual(
+      expect.arrayContaining(["amountMinor", "direction", "clearingAccount", "reason"])
+    );
+  });
+});
+
 // `closeRun` was written, exported and called by nothing, so a run could be
 // reviewed and never closed. These are the three answers the endpoint owes:
 // refuse while anything is open, close when nothing is, and gate on the same

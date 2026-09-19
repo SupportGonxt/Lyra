@@ -148,3 +148,104 @@ describe("action / close-run", () => {
     );
   });
 });
+
+// A write-off is money, so what the action owes is the transaction envelope:
+// one idempotency key derived from the write-off itself (not the press), the
+// recipe's arguments where the recipe expects them, and an approval gate read
+// as a pause rather than a refusal.
+
+describe("action / write-off", () => {
+  const FIELDS = {
+    intent: "write-off",
+    runId: "rcn_1",
+    amountMinor: "42",
+    direction: "shortfall",
+    clearingAccount: "1100",
+    currency: "AED",
+    reason: "insurer statement rounds premium tax; 42 fils left over"
+  };
+
+  it("posts one RECON-WRITEOFF transaction, keyed on the write-off itself", async () => {
+    const calls: Array<{ url: string; method: string; body: any; key: string | null }> = [];
+    vi.stubGlobal("fetch", (input: URL | string, init: RequestInit = {}) => {
+      calls.push({
+        url: String(input),
+        method: init.method ?? "GET",
+        body: JSON.parse(String(init.body ?? "{}")),
+        key: new Headers(init.headers).get("idempotency-key")
+      });
+      return Promise.resolve(json({ txn: { id: "txn_1", state: "settled" } }, 201));
+    });
+
+    const result = await action(args(form(FIELDS)));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://api.test/v1/ledger/txn/RECON-WRITEOFF");
+    expect(calls[0]!.method).toBe("POST");
+    // The same residual written off twice is one transaction; a different
+    // amount or direction is a different write-off.
+    expect(calls[0]!.key).toBe("writeoff:rcn_1:shortfall:42");
+    expect(calls[0]!.body.idempotencyKey).toBe("writeoff:rcn_1:shortfall:42");
+    expect(calls[0]!.body.grossMinor).toBe(42);
+    expect(calls[0]!.body.args).toEqual({
+      amountMinor: 42,
+      direction: "shortfall",
+      clearingAccount: "1100",
+      reason: FIELDS.reason
+    });
+    expect(result.wroteOff).toEqual({ id: "txn_1", state: "settled" });
+    expect(result.problem).toBeNull();
+  });
+
+  it.each([
+    [{ amountMinor: "0" }, "amount"],
+    [{ amountMinor: "" }, "amount"],
+    [{ reason: "" }, "reason"],
+    [{ runId: "" }, "runId"]
+  ])("refuses %o without calling the API", async (patch, title) => {
+    const calls = stubFetch(json({ txn: { id: "txn_1", state: "settled" } }, 201));
+    const result = await action(args(form({ ...FIELDS, ...patch })));
+
+    expect(calls).toHaveLength(0);
+    expect(result.problem).toEqual({ title, status: 400 });
+    expect(result.wroteOff).toBeNull();
+  });
+
+  it("reads the approval gate as a pause, not a refusal", async () => {
+    stubFetch(
+      json(
+        { title: "Approval required", status: 403, code: "approval_required", policy_key: "ledger.write_off" },
+        403
+      )
+    );
+    const result = await action(args(form(FIELDS)));
+
+    expect(result.approval).toBe("ledger.write_off");
+    expect(result.problem).toBeNull();
+    expect(result.wroteOff).toBeNull();
+  });
+
+  it("carries a recipe refusal back as problem, naming the argument", async () => {
+    stubFetch(
+      json(
+        {
+          title: "Bad request",
+          status: 400,
+          detail: "a write-off may not touch client money account 1010",
+          errors: { clearingAccount: "a write-off may not touch client money" }
+        },
+        400
+      )
+    );
+    const result = await action(args(form({ ...FIELDS, clearingAccount: "1010" })));
+
+    expect(result.wroteOff).toBeNull();
+    expect(result.approval).toBeNull();
+    expect(result.problem).toEqual(
+      expect.objectContaining({
+        status: 400,
+        errors: { clearingAccount: "a write-off may not touch client money" }
+      })
+    );
+  });
+});

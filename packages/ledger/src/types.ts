@@ -166,6 +166,12 @@ export const TXN_TYPES: Record<string, TxnTypeDef> = def([
   ["CM-RECEIPT", true, null, { clientMoney: true }],
   ["CM-TRANSFER", true, "ledger.client_money_transfer", { clientMoney: true }],
   ["CM-RECON", false, null],
+  // A write-off makes a difference disappear, which is also what concealment
+  // looks like — so it is dual control always and may never be auto-approved,
+  // on the same footing as a manual journal (docs/19 §7, docs/27 thin screens).
+  // It may not touch client money: the recipe refuses those accounts outright,
+  // because a client-money shortfall is a breach to escalate, not a residual.
+  ["RECON-WRITEOFF", true, "ledger.write_off"],
   ["CM-BREACH-FLAG", false, null],
 
   // 4.7 partner & embedded

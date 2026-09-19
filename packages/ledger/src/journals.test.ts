@@ -336,6 +336,88 @@ describe("F3 — the balance sheet stops plugging equity", () => {
   });
 });
 
+/**
+ * docs/27 "thin screens": reconciliation had no instrument for the residual it
+ * is guaranteed to produce. What is asserted here is the shape of the one it has
+ * now — balanced both ways, refusing the two account families a write-off must
+ * never reach, and gated always.
+ */
+describe("reconciliation write-off", () => {
+  const REASON_WO = "insurer statement rounds premium tax; 42 fils left on the receivable";
+
+  it("clears the residual off the clearing account and into the write-off expense", () => {
+    const lines = buildRecipe("RECON-WRITEOFF", { amountMinor: 42, direction: "shortfall", reason: REASON_WO });
+    expect(lines).toEqual([
+      expect.objectContaining({ accountCode: "5500", side: "debit", amountMinor: 42 }),
+      expect.objectContaining({ accountCode: "1100", side: "credit", amountMinor: 42 })
+    ]);
+  });
+
+  it("runs the other way when the counterparty overpaid", () => {
+    const lines = buildRecipe("RECON-WRITEOFF", {
+      amountMinor: 42,
+      direction: "surplus",
+      clearingAccount: "1300",
+      reason: REASON_WO
+    });
+    expect(lines).toEqual([
+      expect.objectContaining({ accountCode: "1300", side: "debit", amountMinor: 42 }),
+      expect.objectContaining({ accountCode: "5500", side: "credit", amountMinor: 42 })
+    ]);
+  });
+
+  // A client-money shortfall is a reportable breach (CBUAE), so writing it off
+  // would leave 1010 < 2010 with the journal saying everything was fine.
+  it.each(["1010", "2010"])("refuses client-money account %s", (code) => {
+    expect(() =>
+      buildRecipe("RECON-WRITEOFF", { amountMinor: 42, direction: "shortfall", clearingAccount: code, reason: REASON_WO })
+    ).toThrow();
+  });
+
+  it("refuses to touch equity, and refuses an unknown clearing account", () => {
+    expect(() =>
+      buildRecipe("RECON-WRITEOFF", { amountMinor: 42, direction: "shortfall", clearingAccount: "3100", reason: REASON_WO })
+    ).toThrow();
+    expect(() =>
+      buildRecipe("RECON-WRITEOFF", { amountMinor: 42, direction: "shortfall", clearingAccount: "9999", reason: REASON_WO })
+    ).toThrow();
+  });
+
+  it("refuses a reason nobody could audit, and a zero amount", () => {
+    expect(() => buildRecipe("RECON-WRITEOFF", { amountMinor: 42, direction: "shortfall", reason: "typo" })).toThrow();
+    expect(() => buildRecipe("RECON-WRITEOFF", { amountMinor: 0, direction: "shortfall", reason: REASON_WO })).toThrow();
+  });
+
+  it("is financial, gated by ledger.write_off, and never auto-approvable", async () => {
+    expect(TXN_TYPES["RECON-WRITEOFF"]).toMatchObject({ financial: true, approval: "ledger.write_off" });
+    const args = { amountMinor: 42, direction: "shortfall", reason: REASON_WO };
+    await rejects(
+      runTxn(
+        ctx,
+        { type: "RECON-WRITEOFF", idempotencyKey: "wo-gate", grossMinor: 42 },
+        { recipe: { lines: buildRecipe("RECON-WRITEOFF", args), reason: REASON_WO }, args }
+      ),
+      /ledger\.write_off/
+    );
+  });
+
+  it("posts once approved, and replays the same key as a no-op", async () => {
+    const args = { amountMinor: 42, direction: "shortfall", reason: REASON_WO };
+    const opts = {
+      recipe: { lines: buildRecipe("RECON-WRITEOFF", args), reason: REASON_WO },
+      args,
+      preApproved: true
+    };
+    const txn = await runTxn(ctx, { type: "RECON-WRITEOFF", idempotencyKey: "wo-1", grossMinor: 42 }, opts);
+    expect(txn.state).toBe("settled");
+    expect(txn.ledgerBatchId).toBeTruthy();
+
+    const again = await runTxn(ctx, { type: "RECON-WRITEOFF", idempotencyKey: "wo-1", grossMinor: 42 }, opts);
+    expect(again.id).toBe(txn.id);
+    expect(again.ledgerBatchId).toBe(txn.ledgerBatchId);
+  });
+});
+
 describe("D10 — closing a period is itself an approved act", () => {
   it("gates a forced close on ledger.period_close_force", async () => {
     await ensurePeriod(ctx, "2025-04");

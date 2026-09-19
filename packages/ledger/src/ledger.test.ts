@@ -110,7 +110,10 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
       ],
       reason: "fuzzed authored entry for the balance invariant"
     },
-    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 }
+    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 },
+    // A write-off states its direction and its reason; nothing above carries
+    // either, so it sits last and matches only itself.
+    { amountMinor: amount, direction: "shortfall", reason: "fuzzed reconciliation residual" }
   ];
   for (const s of shapes) {
     if (spec.schema.safeParse({ ...spec.defaults, ...s }).success) return s;
@@ -884,5 +887,39 @@ describe("recipe argument fields", () => {
       expect(fields.length, code).toBeGreaterThan(0);
       for (const f of fields) expect(["integer", "text"], `${code}.${f.name}`).toContain(f.kind);
     }
+  });
+
+  it("offers a closed set as a closed set", () => {
+    const direction = argFields("RECON-WRITEOFF").find((f) => f.name === "direction");
+    expect(direction).toEqual({
+      name: "direction",
+      kind: "text",
+      required: true,
+      options: ["shortfall", "surplus"]
+    });
+  });
+
+  /**
+   * The inverse guard. `argFields` answers by probing, so it can only describe
+   * the shapes it was shown a sample of — and a *required* argument it cannot
+   * describe is a transaction type the generic open-transaction screen can
+   * never post, silently. This partitions every required key into published or
+   * excluded-for-a-named-reason and requires the leftover bucket to be empty.
+   */
+  it("publishes every argument a recipe requires, or names why it cannot", () => {
+    // Authored entries hand the ledger whole journal lines; no flat input can
+    // ask for those, which is why each has its own screen (F2, F3).
+    const STRUCTURED = new Set(["lines", "closingLines"]);
+    const undescribed: string[] = [];
+    for (const [code, spec] of Object.entries(RECIPES)) {
+      const shape = (spec.schema as unknown as { shape: Record<string, { safeParse(v: unknown): { success: boolean } }> }).shape;
+      const published = new Set(argFields(code).map((f) => f.name));
+      for (const [name, field] of Object.entries(shape)) {
+        if (name === "dims" || STRUCTURED.has(name)) continue;
+        const required = !field.safeParse(undefined).success;
+        if (required && !published.has(name)) undescribed.push(`${code}.${name}`);
+      }
+    }
+    expect(undescribed).toEqual([]);
   });
 });

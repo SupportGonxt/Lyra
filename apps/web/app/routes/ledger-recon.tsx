@@ -171,6 +171,11 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     runs: runs?.data ?? [],
     canRun: held.has(PERM.reconRun),
     canDecide: held.has(PERM.reconConfirm),
+    // A write-off is an ordinary transaction, so it is the transaction
+    // endpoint's gate that decides: `ledger:txns:create`, or `journals:draft`
+    // alone, which may originate a type that cannot settle without a second
+    // seat — and RECON-WRITEOFF is dual control always (apps/api routes/ledger.ts).
+    canWriteOff: held.has(PERM.txnsCreate) || held.has(PERM.journalsDraft),
     canExport: held.has(PERM.reconExport),
     apiOrigin: env.API_ORIGIN
   };
@@ -185,6 +190,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
     started: null,
     decided: null,
     closed: null as ReconSummary | null,
+    wroteOff: null as { id: string; state: string } | null,
+    /** The policy key a write-off is waiting on, when the gate held it. */
+    approval: null as string | null,
     rejected: [] as Array<{ row: number; text: string }>,
     bundle: null as EvidenceBundle | null
   };
@@ -213,6 +221,48 @@ export async function action({ request, context }: ActionFunctionArgs) {
         { env, request, method: "POST" }
       );
       return { ...empty, bundle };
+    }
+
+    if (intent === "write-off") {
+      const runId = String(form.get("runId") ?? "").trim();
+      const amountMinor = Number(String(form.get("amountMinor") ?? "").trim());
+      const direction = String(form.get("direction") ?? "");
+      const reason = String(form.get("reason") ?? "").trim();
+      if (!runId) return { ...empty, problem: { title: "runId", status: 400 } };
+      if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
+        return { ...empty, problem: { title: "amount", status: 400 } };
+      }
+      if (!reason) return { ...empty, problem: { title: "reason", status: 400 } };
+
+      const clearingAccount = String(form.get("clearingAccount") ?? "").trim();
+      // The key is the write-off, not the press: the same residual written off
+      // twice is one transaction (the unique index answers the second call with
+      // the first row), while a different amount or direction is a different
+      // write-off and gets its own. Nothing here is validated beyond the number
+      // — the recipe owns the schema and names the argument it refused.
+      const key = `writeoff:${runId}:${direction}:${amountMinor}`;
+      const result = await api<{ txn: { id: string; state: string } }>("/v1/ledger/txn/RECON-WRITEOFF", {
+        env,
+        request,
+        method: "POST",
+        headers: { "idempotency-key": key },
+        body: {
+          idempotencyKey: key,
+          grossMinor: amountMinor,
+          ...(String(form.get("currency") ?? "").trim()
+            ? { currency: String(form.get("currency")).trim() }
+            : {}),
+          reason,
+          subjectRefs: { recon: `recon:${runId}` },
+          args: {
+            amountMinor,
+            direction,
+            reason,
+            ...(clearingAccount ? { clearingAccount } : {})
+          }
+        }
+      });
+      return { ...empty, wroteOff: result.txn };
     }
 
     if (intent === "decide") {
@@ -258,7 +308,14 @@ export async function action({ request, context }: ActionFunctionArgs) {
     });
     return { ...empty, started: result };
   } catch (error) {
-    if (error instanceof ApiError) return { ...empty, problem: error.problem };
+    if (error instanceof ApiError) {
+      // An approval gate is a pause, not a failure: the transaction is waiting
+      // in the queue, so the screen says where it went rather than showing the
+      // 403 as a refusal (same reading as ledger-open-txn.tsx).
+      const p = error.problem as { code?: string; policy_key?: string };
+      if (p.code === "approval_required") return { ...empty, approval: p.policy_key ?? "" };
+      return { ...empty, problem: error.problem };
+    }
     throw error;
   }
 }
@@ -437,11 +494,13 @@ export default function LedgerRecon() {
             ? l("recon.decided", { decision: l(`match.${result.decided}`) })
             : result?.closed
               ? l("recon.closed", { id: result.closed.runId })
-              : result?.bundle
-                ? result.bundle.state === "ready"
-                  ? l("recon.evidenceReady", { count: String(result.bundle.manifest.files.length) })
-                  : l("recon.evidenceFailed")
-                : ""}
+              : result?.wroteOff
+                ? l("recon.wroteOff", { id: result.wroteOff.id })
+                : result?.bundle
+                  ? result.bundle.state === "ready"
+                    ? l("recon.evidenceReady", { count: String(result.bundle.manifest.files.length) })
+                    : l("recon.evidenceFailed")
+                  : ""}
       </p>
 
       {result?.problem ? (
@@ -453,9 +512,26 @@ export default function LedgerRecon() {
                 ? { title: l("reasonRequired") }
                 : result.problem.title === "runId"
                   ? { title: l("recon.evidenceRunIdInvalid") }
-                  : result.problem
+                  : result.problem.title === "amount"
+                    ? { title: l("recon.writeOffAmountInvalid") }
+                    : result.problem
           }
         />
+      ) : null}
+
+      {result?.approval !== null && result?.approval !== undefined ? (
+        <div
+          role="status"
+          className="flex flex-col gap-2 rounded-lg border border-accent/40 bg-accent/10 p-5"
+        >
+          <p className="font-serif text-18 leading-[1.3] text-text">{l("recon.writeOffApproval")}</p>
+          <p className="max-w-prose font-ui text-13 text-muted">{l("recon.writeOffApprovalBody")}</p>
+          <div>
+            <Button asChild variant="secondary">
+              <Link to="/approvals">{l("recon.approvalsInbox")}</Link>
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {result?.rejected?.length ? (
@@ -628,6 +704,59 @@ export default function LedgerRecon() {
           ]}
         />
       </section>
+
+      {/* The residual a reconciliation leaves behind — rounded premium tax, a
+          PSP fee booked to the cent — needs an instrument, or the difference
+          sits on a clearing account forever. It is a transaction like any
+          other: idempotency key, dual control always, two balanced lines
+          (docs/19 §5, CLAUDE.md §12). Offered only on an open run: a closed one
+          is a period a controller has already signed. */}
+      {loaded.canWriteOff && summary && summary.state !== "closed" ? (
+        <Card title={l("recon.writeOff")} description={l("recon.writeOffIntro")} elevation="flat">
+          <Form method="post" className="flex flex-col gap-4">
+            <input type="hidden" name="intent" value="write-off" />
+            <input type="hidden" name="runId" value={summary.runId} />
+            <input type="hidden" name="currency" value={summary.currency} />
+            <div className="flex flex-wrap items-end gap-3">
+              <Field label={l("recon.writeOffAmount")} hint={l("recon.writeOffAmountHint")} required className="w-52">
+                <MoneyField
+                  name="amountMinor"
+                  currency={summary.currency}
+                  locale={locale}
+                  min={0}
+                  defaultMinor={Math.abs(summary.varianceMinor)}
+                  required
+                />
+              </Field>
+              <Field label={l("recon.writeOffDirection")} required className="w-56">
+                <Select
+                  name="direction"
+                  defaultValue="shortfall"
+                  options={[
+                    { value: "shortfall", label: l("recon.writeOffShortfall") },
+                    { value: "surplus", label: l("recon.writeOffSurplus") }
+                  ]}
+                />
+              </Field>
+              <Field
+                label={l("recon.writeOffAccount")}
+                hint={l("recon.writeOffAccountHint")}
+                className="w-44"
+              >
+                <Input name="clearingAccount" defaultValue="1100" maxLength={4} />
+              </Field>
+            </div>
+            <Field label={l("recon.writeOffReason")} hint={l("recon.writeOffReasonHint")} required>
+              <Textarea name="reason" rows={2} minLength={10} maxLength={500} required />
+            </Field>
+            <div>
+              <ConfirmButton type="submit" loading={busy} message={l("recon.writeOffConfirm")}>
+                {l("recon.writeOff")}
+              </ConfirmButton>
+            </div>
+          </Form>
+        </Card>
+      ) : null}
 
       {loaded.canExport && loaded.runId ? (
         <Card title={l("recon.evidence")} description={l("recon.evidenceIntro")} elevation="flat">

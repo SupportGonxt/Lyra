@@ -66,7 +66,12 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   { code: "5200", en: "AI & Inference COGS", ar: "تكلفة الذكاء الاصطناعي والاستدلال", type: "expense", normalSide: "debit" },
   { code: "5300", en: "Payment Processing Fees", ar: "رسوم معالجة المدفوعات", type: "expense", normalSide: "debit" },
   { code: "5400", en: "Partner Revenue Share", ar: "حصة الشركاء من الإيرادات", type: "expense", normalSide: "debit" },
-  { code: "5450", en: "Recovery Written Off", ar: "استرداد مشطوب", type: "expense", normalSide: "debit" }
+  { code: "5450", en: "Recovery Written Off", ar: "استرداد مشطوب", type: "expense", normalSide: "debit" },
+  // One account for both directions of a reconciliation write-off: a residual
+  // we give up collecting is a debit here, one the counterparty overpaid is a
+  // credit, and the period's net difference is then a single figure a
+  // controller can be asked about. Splitting it in two would hide the netting.
+  { code: "5500", en: "Reconciliation Write-Off", ar: "فروق تسوية مشطوبة", type: "expense", normalSide: "debit" }
 ];
 
 const BY_CODE = new Map(CHART_OF_ACCOUNTS.map((a) => [a.code, a]));
