@@ -1,6 +1,11 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, ne, notInArray, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { earnedBetween, emit, type Ctx } from "@lyra/core";
+import { earnedBetween, emit, isClosedPeriod, periodBounds, periodOf, previousPeriod, type Ctx } from "@lyra/core";
+// docs/27 F49 / spec §E.2: NORTH's money metrics are adapters over the
+// ledger's own reports. packages/ledger is a shared package, not another
+// module, so this is not the cross-module import CLAUDE.md §6 forbids — and it
+// is the reason NORTH contains no SQL against ledger_journal_lines.
+import { commissionByDimension, expenseMovementMinor, type CommissionByDimension } from "@lyra/ledger";
 
 // docs/modules/north.md §2.2/§3 — Snapshotter (nightly) + Anomaly Hunter
 // (post-snapshot). ADR-0024: a typed compute function per metric, not a
@@ -11,28 +16,47 @@ const DAY_MS = 86_400_000;
 /** Money metrics store minor units; ai_audit_log.cost_micro is 1e-6 of a major unit. */
 const MICRO_PER_MINOR = 10_000;
 
-function utcDay(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 10);
-}
-function utcMonth(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 7);
-}
-
 interface Period {
   grain: "day" | "month";
   /** YYYY-MM-DD or YYYY-MM */
   period: string;
   since: number;
   until: number;
+  /**
+   * Has the whole window elapsed? An open period is a partial observation —
+   * the month-to-date row is rewritten every night — so it is written and
+   * displayed but is never an anomaly subject and never a baseline (docs/27
+   * F48, spec §F.2).
+   */
+  closed: boolean;
 }
 
-/** Yesterday (closed) as a day period, and the current month-to-date, per seed.ts's stated timing model. */
+function monthPeriod(period: string, now: number): Period {
+  const bounds = periodBounds("month", period);
+  const closed = isClosedPeriod("month", period, now);
+  // An open month is measured up to now; a closed one is measured whole, so
+  // the last run of a month and the first run of the next agree on its total.
+  return { grain: "month", period, since: bounds.since, until: closed ? bounds.until : now, closed };
+}
+
+/**
+ * Yesterday as a day period, plus the month yesterday fell in, plus the
+ * current month when that is a different one.
+ *
+ * The month is keyed off *yesterday* rather than off now for the reason F48
+ * exists: on the 1st, the month that just ended has never been snapshotted
+ * whole, so nothing could ever detect against it. Keying off yesterday gives
+ * it exactly one closed write, on the first run after it ended, and the new
+ * month-to-date row is written beside it for the Today screen.
+ */
 function periodsFor(now: number): Period[] {
   const yesterdayStart = Math.floor(now / DAY_MS) * DAY_MS - DAY_MS;
-  const monthStart = new Date(new Date(now).toISOString().slice(0, 7) + "-01T00:00:00.000Z").getTime();
+  const yesterdayMonth = periodOf("month", yesterdayStart);
+  const thisMonth = periodOf("month", now);
   return [
-    { grain: "day", period: utcDay(yesterdayStart), since: yesterdayStart, until: yesterdayStart + DAY_MS },
-    { grain: "month", period: utcMonth(now), since: monthStart, until: now }
+    { grain: "day", period: periodOf("day", yesterdayStart), since: yesterdayStart, until: yesterdayStart + DAY_MS, closed: true },
+    monthPeriod(yesterdayMonth, now),
+    ...(thisMonth === yesterdayMonth ? [] : [monthPeriod(thisMonth, now)])
   ];
 }
 
@@ -102,6 +126,17 @@ const quoteLatencyP95: Compute = async (ctx, p) => {
   return rows[idx]!.latencyMs as number;
 };
 
+/**
+ * Gross written premium, and deliberately *not* read from the ledger (ADR-0078,
+ * docs/27 F49). For a broker, premium is not revenue: it lands in segregated
+ * client money (1010 debit / 2010 credit) and leaves again on remittance, so no
+ * general-ledger account's balance is GWP and inventing one to satisfy a
+ * tie-out would be worse than the operational sum. It stays a production
+ * figure from the policy table; what is missing — and is recorded as the open
+ * half of F49 rather than pretended away — is the periodic reconciliation
+ * against premium collected, and the board/investor filter that would keep an
+ * unreconciled figure out of a pack.
+ */
 const gwp: Compute = async (ctx, p) => {
   const [row] = await ctx.db
     .select({ v: sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)` })
@@ -112,15 +147,30 @@ const gwp: Compute = async (ctx, p) => {
   return row?.v ?? 0;
 };
 
-const netCommission: Compute = async (ctx, p) => {
-  const [row] = await ctx.db
-    .select({ v: sql<number>`coalesce(sum(${schema.axisPolicies.commissionMinor}), 0)` })
-    .from(schema.axisPolicies)
-    .where(
-      and(eq(schema.axisPolicies.tenantId, ctx.tenantId), gte(schema.axisPolicies.createdAt, p.since), lt(schema.axisPolicies.createdAt, p.until))
-    );
-  return row?.v ?? 0;
+/**
+ * Our share of the commission, from the general ledger (docs/27 F49).
+ *
+ * It summed `axis_policies.commission_minor` over policies *created* in the
+ * window, which is three wrong things at once: gross of the channel's share
+ * (a credit to 2100, invisible to that sum), blind to every clawback (a contra
+ * batch that changes no policy row), and tied to nothing a CFO can reconcile —
+ * so the briefing narrated a figure that could not be traced to the trial
+ * balance, and `verifyNumericClaims` faithfully confirmed the prose matched it.
+ *
+ * `commissionByDimension` is the ledger's own reader of those accounts;
+ * reversals are debits to the same ones and net out by construction. NORTH
+ * writes no SQL against journal lines — packages/ledger is the only place that
+ * reads them.
+ */
+const commissionSlices = async (ctx: Ctx, p: Period): Promise<CommissionByDimension[]> => {
+  const rows = await commissionByDimension(ctx, "channel", { window: { from: p.since, to: p.until } });
+  // A snapshot is one integer in the metric's currency, and this metric's
+  // currency is the tenant's base. A line posted in another currency is not
+  // summable into it without an fx opinion NORTH does not own.
+  return rows.filter((row) => row.currency === ctx.policy.currency);
 };
+
+const netCommission: Compute = async (ctx, p) => (await commissionSlices(ctx, p)).reduce((sum, row) => sum + row.netMinor, 0);
 
 /** Point-in-time gauge: "as of now", not scoped to the period window. */
 const activePolicies: Compute = async (ctx, p) => {
@@ -271,25 +321,13 @@ const lossRatio: Compute = async (ctx, p) => {
   return earned > 0 ? Math.round((claimsRow / earned) * 10_000) : null;
 };
 
+/** Expense over earned premium. The numerator is the ledger's, read through the ledger's own report (F49). */
 const expenseRatio: Compute = async (ctx, p) => {
-  const [expenseRow, earned] = await Promise.all([
-    ctx.db
-      .select({
-        v: sql<number>`coalesce(sum(case when ${schema.ledgerJournalLines.side} = 'debit' then ${schema.ledgerJournalLines.amountMinor} else -${schema.ledgerJournalLines.amountMinor} end), 0)`
-      })
-      .from(schema.ledgerJournalLines)
-      .where(
-        and(
-          eq(schema.ledgerJournalLines.tenantId, ctx.tenantId),
-          sql`${schema.ledgerJournalLines.accountCode} like '5%'`,
-          gte(schema.ledgerJournalLines.postedAt, p.since),
-          lt(schema.ledgerJournalLines.postedAt, p.until)
-        )
-      )
-      .then((r) => r[0]?.v ?? 0),
+  const [expense, earned] = await Promise.all([
+    expenseMovementMinor(ctx, { from: p.since, to: p.until }),
     earnedPremiumForPeriod(ctx, p)
   ]);
-  return earned > 0 ? Math.round((expenseRow / earned) * 10_000) : null;
+  return earned > 0 ? Math.round((expense / earned) * 10_000) : null;
 };
 
 /** §F: "computed from the two snapshots, not re-queried" — reads already-written rows, run after loss_ratio/expense_ratio (see sort in runSnapshotter). */
@@ -739,9 +777,15 @@ const SLICED: Record<string, { dimension: string; slice: (ctx: Ctx, p: Period) =
     dimension: "channel",
     slice: policiesBy(schema.axisPolicies.channelId, sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)`)
   },
+  // Sliced from the same ledger call the grand total sums, keyed by the
+  // `channel` dimension stamped on the journal line — the same key space the
+  // policy-table slices use, since both hold a dist_channels id.
   net_commission: {
     dimension: "channel",
-    slice: policiesBy(schema.axisPolicies.channelId, sql<number>`coalesce(sum(${schema.axisPolicies.commissionMinor}), 0)`)
+    slice: async (ctx, p) =>
+      (await commissionSlices(ctx, p))
+        .filter((row) => row.value !== "unattributed")
+        .map((row) => ({ key: row.value, value: row.netMinor }))
   }
 };
 
@@ -860,17 +904,14 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
 
       // Dimensional slices of the same number, so an anomaly can name what moved.
       const sliced = SLICED[metric.key];
-      const prior = new Map<string, number>();
       let current: Slice[] = [];
       if (sliced) {
-        const prefix = `${sliced.dimension}=`;
-        const priorRows = new Map(rows.filter((row) => row.dimsHash.startsWith(prefix)).map((row) => [row.dimsHash, row]));
-        for (const [hash, row] of priorRows) prior.set(hash.slice(prefix.length), row.value);
+        const written = new Map(rows.filter((row) => row.dimsHash !== "").map((row) => [row.dimsHash, row]));
         current = await sliced.slice(ctx, p);
         for (const slice of current) {
           const dims = { [sliced.dimension]: slice.key };
           const hash = dimsHashOf(dims);
-          const before = priorRows.get(hash);
+          const before = written.get(hash);
           if (before) {
             await ctx.db
               .update(schema.northSnapshots)
@@ -904,7 +945,35 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
         alertsTriggered++;
       }
 
-      const prevValue = existing?.value;
+      // Anomaly detection, against the period that actually precedes this one
+      // (docs/27 F48). It ran against `existing` — the previous *write of this
+      // very period* — which meant day grain never fired at all (a day is
+      // written once) and every money metric fired a false critical on the
+      // first night of every month, when a fresh month-to-date collapses
+      // against a full prior month. An open period is neither subject nor
+      // baseline; the prior period is closed by construction, since a closed
+      // period's predecessor has also fully elapsed.
+      if (!p.closed) continue;
+      const priorRows = await ctx.db
+        .select({ value: schema.northSnapshots.value, dimsHash: schema.northSnapshots.dimsHash })
+        .from(schema.northSnapshots)
+        .where(
+          and(
+            eq(schema.northSnapshots.tenantId, ctx.tenantId),
+            eq(schema.northSnapshots.metricKey, metric.key),
+            eq(schema.northSnapshots.grain, p.grain),
+            eq(schema.northSnapshots.period, previousPeriod(p.grain, p.period))
+          )
+        );
+      const prior = new Map<string, number>();
+      if (sliced) {
+        const prefix = `${sliced.dimension}=`;
+        for (const row of priorRows) {
+          if (row.dimsHash.startsWith(prefix)) prior.set(row.dimsHash.slice(prefix.length), row.value);
+        }
+      }
+
+      const prevValue = priorRows.find((row) => row.dimsHash === "")?.value;
       if (prevValue !== undefined && prevValue !== 0) {
         const magnitudeBp = Math.round(((value - prevValue) / Math.abs(prevValue)) * 10_000);
         if (Math.abs(magnitudeBp) >= anomalyThresholdBp(metric.unit)) {
@@ -930,10 +999,7 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
               expected: prevValue,
               actual: value,
               state: "new",
-              // The basis is the previous run of the same period, not the previous period — say so.
-              driverAnalysisJson: drivers.length
-                ? JSON.stringify({ method: "dimensional_delta", baseline: "previous_snapshot", drivers })
-                : null,
+              driverAnalysisJson: JSON.stringify({ method: "dimensional_delta", baseline: "prior_period", drivers }),
               detectedAt: ctx.now
             });
             anomalies++;

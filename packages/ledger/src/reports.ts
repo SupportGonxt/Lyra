@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, account, schema } from "@lyra/db";
 import { applyPpm, badRequest, notFound, type Ctx } from "@lyra/core";
 import { fxRateFor } from "./posting.js";
@@ -862,6 +862,34 @@ export async function agedOpenItems(
   return out.sort((a, b) => b.totalMinor - a.totalMinor);
 }
 
+/**
+ * Half-open `[from, to)`, the window convention every metric compute windows
+ * on. A period code cannot express a month-to-date, and NORTH's money metrics
+ * are read through here rather than by NORTH querying journal lines itself
+ * (docs/27 F49) — so the reports take the window.
+ */
+export interface ReportWindow {
+  from: number;
+  to: number;
+}
+
+/**
+ * Expense movement (5xxx) in base currency over a window: debits less the
+ * credits that relieve them, so a corrected or reversed cost nets out. This is
+ * `profitAndLoss(...).expense.totalMinor` for an arbitrary window rather than
+ * a whole month.
+ */
+export async function expenseMovementMinor(ctx: Ctx, window: ReportWindow): Promise<number> {
+  const l = schema.ledgerJournalLines;
+  const [row] = await ctx.db
+    .select({
+      v: sql<number>`coalesce(sum(case when ${l.side} = 'debit' then ${l.baseAmountMinor} else -${l.baseAmountMinor} end), 0)`
+    })
+    .from(l)
+    .where(and(eq(l.tenantId, ctx.tenantId), sql`${l.accountCode} like '5%'`, gte(l.postedAt, window.from), lt(l.postedAt, window.to)));
+  return row?.v ?? 0;
+}
+
 export interface CommissionByDimension {
   dimension: string;
   value: string;
@@ -879,13 +907,19 @@ export interface CommissionByDimension {
 export async function commissionByDimension(
   ctx: Ctx,
   dimension: string,
-  opts: { periodCode?: string } = {}
+  opts: { periodCode?: string; window?: ReportWindow } = {}
 ): Promise<CommissionByDimension[]> {
   const l = schema.ledgerJournalLines;
-  const where = [eq(l.tenantId, ctx.tenantId), sql`${l.accountCode} like '40%' or ${l.accountCode} = '2100'`];
+  // Parenthesised, and that is load-bearing: `AND` binds tighter than `OR`, so
+  // an unbracketed `tenant AND code like '40%' or code = '2100' AND window`
+  // parses as `(tenant AND 40%) OR (2100 AND window)` — every commission line
+  // the tenant ever posted, whatever window was asked for.
+  const where = [eq(l.tenantId, ctx.tenantId), sql`(${l.accountCode} like '40%' or ${l.accountCode} = '2100')`];
   if (opts.periodCode) {
     const w = periodWindow(opts.periodCode);
     where.push(gte(l.postedAt, w.from), lte(l.postedAt, w.to));
+  } else if (opts.window) {
+    where.push(gte(l.postedAt, opts.window.from), lt(l.postedAt, opts.window.to));
   }
   const rows = await ctx.db
     .select()
