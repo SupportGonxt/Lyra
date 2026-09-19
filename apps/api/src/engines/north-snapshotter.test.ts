@@ -733,6 +733,117 @@ describe("runSnapshotter: combined_ratio", () => {
   });
 });
 
+// docs/27 F49: the briefing narrates net commission, and `verifyNumericClaims`
+// confirms the prose matches the snapshot. It did. The bug was in the number:
+// a sum of `axis_policies.commission_minor` is gross of the channel's share,
+// blind to every clawback, and ties to nothing in the trial balance.
+describe("runSnapshotter: net_commission reads the ledger", () => {
+  const FEB_14 = Date.UTC(2026, 1, 14);
+  const MAR_1 = Date.UTC(2026, 2, 1);
+
+  const jline = (id: string, code: string, side: "debit" | "credit", amountMinor: number, postedAt: number, channel?: string) => ({
+    id,
+    tenantId: "t_1",
+    batchId: `b_${id}`,
+    txnId: `tx_${id}`,
+    seq: 1,
+    accountCode: code,
+    side,
+    amountMinor,
+    currency: "AED",
+    baseAmountMinor: amountMinor,
+    baseCurrency: "AED",
+    ...(channel ? { dimsJson: JSON.stringify({ channel }) } : {}),
+    postedAt
+  });
+
+  beforeEach(async () => {
+    await seedMetric("net_commission", "month");
+    await seedProviderAndCustomer();
+    // The figure the old compute would have returned: gross, un-clawed-back.
+    await ctx.db.insert(schema.axisPolicies).values({
+      id: "pol_1",
+      tenantId: ctx.tenantId,
+      customerId: "cu_1",
+      providerId: "prov_1",
+      policyNo: "P-1",
+      channelId: "ch_web",
+      startAt: FEB_14,
+      endAt: FEB_14 + 365 * DAY,
+      premiumMinor: 1_000_000,
+      commissionMinor: 900_000,
+      currency: "AED",
+      status: "active",
+      createdAt: FEB_14,
+      updatedAt: FEB_14
+    });
+  });
+
+  it("is our share of the commission, net of the channel's and net of a clawback", async () => {
+    await ctx.db.insert(schema.ledgerJournalLines).values([
+      jline("c1", "1100", "debit", 100_000, FEB_14, "ch_web"),
+      jline("c2", "4000", "credit", 70_000, FEB_14, "ch_web"),
+      jline("c3", "2100", "credit", 30_000, FEB_14, "ch_web"), // the channel's 30%, never ours
+      // Cooling-off cancellation, posted as a contra batch a week later.
+      jline("c4", "4000", "debit", 20_000, FEB_14 + 7 * DAY, "ch_web"),
+      jline("c5", "2100", "debit", 8_000, FEB_14 + 7 * DAY, "ch_web")
+    ]);
+
+    ctx.now = MAR_1 + 2 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    const rows = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.metricKey, "net_commission")));
+    const february = rows.find((r) => r.period === "2026-02" && r.dimsHash === "");
+    expect(february!.value).toBe(50_000); // 70,000 earned less 20,000 clawed back
+  });
+
+  it("decomposes by the channel the ledger line was stamped with", async () => {
+    await ctx.db.insert(schema.ledgerJournalLines).values([
+      jline("w1", "4000", "credit", 40_000, FEB_14, "ch_web"),
+      jline("b1", "4000", "credit", 60_000, FEB_14, "ch_broker"),
+      jline("b2", "2100", "credit", 25_000, FEB_14, "ch_broker")
+    ]);
+
+    ctx.now = MAR_1 + 2 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    const slices = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(
+        and(
+          eq(schema.northSnapshots.tenantId, ctx.tenantId),
+          eq(schema.northSnapshots.metricKey, "net_commission"),
+          eq(schema.northSnapshots.period, "2026-02")
+        )
+      );
+    expect(slices.find((s) => s.dimsHash === "channel=ch_web")!.value).toBe(40_000);
+    expect(slices.find((s) => s.dimsHash === "channel=ch_broker")!.value).toBe(60_000);
+    // The slices are the grand total cut up, so they have to add back to it.
+    expect(slices.find((s) => s.dimsHash === "")!.value).toBe(100_000);
+  });
+
+  it("a month the ledger recorded no commission in is a zero, not the policy table's opinion", async () => {
+    ctx.now = MAR_1 + 2 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    const [february] = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(
+        and(
+          eq(schema.northSnapshots.tenantId, ctx.tenantId),
+          eq(schema.northSnapshots.metricKey, "net_commission"),
+          eq(schema.northSnapshots.period, "2026-02"),
+          eq(schema.northSnapshots.dimsHash, "")
+        )
+      );
+    expect(february!.value).toBe(0);
+  });
+});
 describe("runSnapshotter: gross_written_premium / net_written_premium", () => {
   it("sums premium+tax+fees for gross, premium only for net, filtered by effectiveFrom in period", async () => {
     await seedMetric("gross_written_premium", "day");

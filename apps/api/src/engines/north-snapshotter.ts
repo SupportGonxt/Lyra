@@ -1,6 +1,11 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, ne, notInArray, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import { earnedBetween, emit, isClosedPeriod, periodBounds, periodOf, previousPeriod, type Ctx } from "@lyra/core";
+// docs/27 F49 / spec §E.2: NORTH's money metrics are adapters over the
+// ledger's own reports. packages/ledger is a shared package, not another
+// module, so this is not the cross-module import CLAUDE.md §6 forbids — and it
+// is the reason NORTH contains no SQL against ledger_journal_lines.
+import { commissionByDimension, expenseMovementMinor, type CommissionByDimension } from "@lyra/ledger";
 
 // docs/modules/north.md §2.2/§3 — Snapshotter (nightly) + Anomaly Hunter
 // (post-snapshot). ADR-0024: a typed compute function per metric, not a
@@ -121,6 +126,17 @@ const quoteLatencyP95: Compute = async (ctx, p) => {
   return rows[idx]!.latencyMs as number;
 };
 
+/**
+ * Gross written premium, and deliberately *not* read from the ledger (ADR-0078,
+ * docs/27 F49). For a broker, premium is not revenue: it lands in segregated
+ * client money (1010 debit / 2010 credit) and leaves again on remittance, so no
+ * general-ledger account's balance is GWP and inventing one to satisfy a
+ * tie-out would be worse than the operational sum. It stays a production
+ * figure from the policy table; what is missing — and is recorded as the open
+ * half of F49 rather than pretended away — is the periodic reconciliation
+ * against premium collected, and the board/investor filter that would keep an
+ * unreconciled figure out of a pack.
+ */
 const gwp: Compute = async (ctx, p) => {
   const [row] = await ctx.db
     .select({ v: sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)` })
@@ -131,15 +147,30 @@ const gwp: Compute = async (ctx, p) => {
   return row?.v ?? 0;
 };
 
-const netCommission: Compute = async (ctx, p) => {
-  const [row] = await ctx.db
-    .select({ v: sql<number>`coalesce(sum(${schema.axisPolicies.commissionMinor}), 0)` })
-    .from(schema.axisPolicies)
-    .where(
-      and(eq(schema.axisPolicies.tenantId, ctx.tenantId), gte(schema.axisPolicies.createdAt, p.since), lt(schema.axisPolicies.createdAt, p.until))
-    );
-  return row?.v ?? 0;
+/**
+ * Our share of the commission, from the general ledger (docs/27 F49).
+ *
+ * It summed `axis_policies.commission_minor` over policies *created* in the
+ * window, which is three wrong things at once: gross of the channel's share
+ * (a credit to 2100, invisible to that sum), blind to every clawback (a contra
+ * batch that changes no policy row), and tied to nothing a CFO can reconcile —
+ * so the briefing narrated a figure that could not be traced to the trial
+ * balance, and `verifyNumericClaims` faithfully confirmed the prose matched it.
+ *
+ * `commissionByDimension` is the ledger's own reader of those accounts;
+ * reversals are debits to the same ones and net out by construction. NORTH
+ * writes no SQL against journal lines — packages/ledger is the only place that
+ * reads them.
+ */
+const commissionSlices = async (ctx: Ctx, p: Period): Promise<CommissionByDimension[]> => {
+  const rows = await commissionByDimension(ctx, "channel", { window: { from: p.since, to: p.until } });
+  // A snapshot is one integer in the metric's currency, and this metric's
+  // currency is the tenant's base. A line posted in another currency is not
+  // summable into it without an fx opinion NORTH does not own.
+  return rows.filter((row) => row.currency === ctx.policy.currency);
 };
+
+const netCommission: Compute = async (ctx, p) => (await commissionSlices(ctx, p)).reduce((sum, row) => sum + row.netMinor, 0);
 
 /** Point-in-time gauge: "as of now", not scoped to the period window. */
 const activePolicies: Compute = async (ctx, p) => {
@@ -290,25 +321,13 @@ const lossRatio: Compute = async (ctx, p) => {
   return earned > 0 ? Math.round((claimsRow / earned) * 10_000) : null;
 };
 
+/** Expense over earned premium. The numerator is the ledger's, read through the ledger's own report (F49). */
 const expenseRatio: Compute = async (ctx, p) => {
-  const [expenseRow, earned] = await Promise.all([
-    ctx.db
-      .select({
-        v: sql<number>`coalesce(sum(case when ${schema.ledgerJournalLines.side} = 'debit' then ${schema.ledgerJournalLines.amountMinor} else -${schema.ledgerJournalLines.amountMinor} end), 0)`
-      })
-      .from(schema.ledgerJournalLines)
-      .where(
-        and(
-          eq(schema.ledgerJournalLines.tenantId, ctx.tenantId),
-          sql`${schema.ledgerJournalLines.accountCode} like '5%'`,
-          gte(schema.ledgerJournalLines.postedAt, p.since),
-          lt(schema.ledgerJournalLines.postedAt, p.until)
-        )
-      )
-      .then((r) => r[0]?.v ?? 0),
+  const [expense, earned] = await Promise.all([
+    expenseMovementMinor(ctx, { from: p.since, to: p.until }),
     earnedPremiumForPeriod(ctx, p)
   ]);
-  return earned > 0 ? Math.round((expenseRow / earned) * 10_000) : null;
+  return earned > 0 ? Math.round((expense / earned) * 10_000) : null;
 };
 
 /** §F: "computed from the two snapshots, not re-queried" — reads already-written rows, run after loss_ratio/expense_ratio (see sort in runSnapshotter). */
@@ -758,9 +777,15 @@ const SLICED: Record<string, { dimension: string; slice: (ctx: Ctx, p: Period) =
     dimension: "channel",
     slice: policiesBy(schema.axisPolicies.channelId, sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)`)
   },
+  // Sliced from the same ledger call the grand total sums, keyed by the
+  // `channel` dimension stamped on the journal line — the same key space the
+  // policy-table slices use, since both hold a dist_channels id.
   net_commission: {
     dimension: "channel",
-    slice: policiesBy(schema.axisPolicies.channelId, sql<number>`coalesce(sum(${schema.axisPolicies.commissionMinor}), 0)`)
+    slice: async (ctx, p) =>
+      (await commissionSlices(ctx, p))
+        .filter((row) => row.value !== "unattributed")
+        .map((row) => ({ key: row.value, value: row.netMinor }))
   }
 };
 
