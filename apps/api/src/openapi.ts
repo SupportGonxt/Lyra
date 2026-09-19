@@ -223,7 +223,9 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/ledger/reports/chart-of-accounts", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", tag: "ledger" },
   // One handler for every report above. The permission is the report's own —
   // `ledger:journals:read` for all of them except client-money, which needs
-  // `ledger:client_money:read`.
+  // `ledger:client_money:read`. Two reports are downloadable without a
+  // `/reports/*` JSON route of their own: `account-statement` (name the account
+  // with `?code=`) and `value-flow`, the money map.
   { method: "get", path: "/v1/ledger/reports/{report}/export", summary: "Render any ledger report to xlsx, pdf, csv or json", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/accounts/{code}/statement", summary: "Every line that hit one account, in order", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/accounts/{code}/balance", summary: "One account's balance as at a moment", permission: "ledger:journals:read", tag: "ledger" },

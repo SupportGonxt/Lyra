@@ -120,8 +120,54 @@ describe("finance report exports", () => {
     expect(table.totals.debitMinor).toBe(table.totals.creditMinor);
   });
 
+  // docs/27 "thin screens": the statement and the money map had no export at
+  // all, so a controller could read either on screen and hand nothing to an
+  // auditor. Both are driven by the very functions their JSON routes call.
+  it("exports the account statement, with its two figures as totals", async () => {
+    const res = await fetchAs(CONTROLLER, "/v1/ledger/reports/account-statement/export?format=json&code=1000");
+    expect(res.status).toBe(200);
+    const table = (await res.json()) as {
+      title: string;
+      columns: { key: string; kind: string }[];
+      rows: Record<string, unknown>[];
+      totals: Record<string, number>;
+    };
+    expect(table.title).toContain("1000");
+    expect(table.columns.find((c) => c.key === "runningMinor")?.kind).toBe("money");
+    expect(table.rows.length).toBeGreaterThan(0);
+    // Opening and closing are the figures the statement is read for and neither
+    // is a row, so they travel as totals or they are lost in the file.
+    expect(table.totals).toHaveProperty("openingMinor");
+    expect(table.totals).toHaveProperty("closingMinor");
+  });
+
+  it("refuses an account statement with no account named", async () => {
+    expect((await fetchAs(CONTROLLER, "/v1/ledger/reports/account-statement/export?format=csv")).status).toBe(400);
+  });
+
+  it("exports the money map, one row per stage of the flow", async () => {
+    const res = await fetchAs(CONTROLLER, "/v1/ledger/reports/value-flow/export?format=json&period=2026-06");
+    expect(res.status).toBe(200);
+    const table = (await res.json()) as {
+      title: string;
+      rows: { node: string; amountMinor: number }[];
+      totals: Record<string, number>;
+    };
+    expect(table.title).toContain("2026-06");
+    expect(table.rows.map((r) => r.node)).toContain("premium-in");
+    expect(table.totals).toHaveProperty("carriedMinor");
+  });
+
   it("exports every report the screen can show", async () => {
-    for (const key of ["trial-balance", "pnl", "balance-sheet", "aged", "commission", "client-money"]) {
+    for (const key of [
+      "trial-balance",
+      "pnl",
+      "balance-sheet",
+      "aged",
+      "commission",
+      "client-money",
+      "value-flow"
+    ]) {
       const res = await fetchAs(CONTROLLER, `/v1/ledger/reports/${key}/export?format=csv`);
       expect(res.status, key).toBe(200);
       const text = await res.text();

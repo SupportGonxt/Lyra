@@ -396,7 +396,9 @@ ledgerRoutes.get("/reports/chart-of-accounts", (c) => {
 
 /* ---------------------------------------------------------- report exports */
 
-// The six finance reports as files. Every builder calls the very function its
+// The finance reports as files — the six on /reports/*, plus the account
+// statement and the money map, which are reports a controller downloads even
+// though their JSON lives elsewhere. Every builder calls the very function its
 // JSON route calls, so the spreadsheet a controller emails and the screen they
 // read are the same numbers — a second summing path is the first thing to
 // disagree with the ledger (docs/19 §9).
@@ -455,6 +457,63 @@ const SECTION_COLUMNS: Col[] = [
 ];
 
 const REPORT_EXPORTS: Record<string, ExportSpec> = {
+  // Two of these are not on /reports/* as a JSON route — an account statement
+  // is `/accounts/:code/statement` and the money map is `/reports/value-flow` —
+  // but they are reports a controller downloads all the same, and the renderer
+  // is keyed by report name, not by path. The account code travels as `?code=`
+  // so one handler still serves every export.
+  "account-statement": {
+    permission: "ledger:journals:read",
+    build: async (ctx, q) => {
+      const code = q("code")?.trim();
+      if (!code) throw badRequest("account-statement needs ?code=<account code>");
+      const from = instantParam(q("from"));
+      const to = instantParam(q("to"));
+      const statement = await accountStatement(ctx, code, {
+        ...(q("currency") ? { currency: q("currency") as string } : {}),
+        ...(from !== undefined ? { from } : {}),
+        ...(to !== undefined ? { to } : {}),
+        limit: 1000
+      });
+      return {
+        table: {
+          title: `Account statement ${code}`,
+          columns: [
+            { key: "postedAt", label: "Posted", kind: "date" },
+            text("side", "Side"),
+            text("currency", "Currency"),
+            money("amountMinor", "Amount"),
+            money("runningMinor", "Running balance"),
+            text("txnId", "Transaction"),
+            text("memo", "Memo")
+          ],
+          rows: statement.lines as unknown as Record<string, unknown>[],
+          generatedAt: ctx.now
+        },
+        // The two figures the statement is read for, and neither is a row.
+        totals: { openingMinor: statement.openingMinor, closingMinor: statement.closingMinor }
+      };
+    }
+  },
+  "value-flow": {
+    permission: "ledger:journals:read",
+    build: async (ctx, q) => {
+      const map = await valueFlow(ctx, {
+        periodCode: q("period") ?? periodCode(ctx.now),
+        ...(q("currency") ? { currency: q("currency") as string } : {})
+      });
+      return {
+        table: {
+          title: `Money map ${map.periodCode}`,
+          columns: [text("node", "Stage"), money("amountMinor", "Amount")],
+          rows: map.nodes.map((n) => ({ node: n.key, amountMinor: n.amountMinor })),
+          currency: map.currency,
+          generatedAt: map.asOf
+        },
+        totals: { carriedMinor: map.carriedMinor }
+      };
+    }
+  },
   "trial-balance": {
     permission: "ledger:journals:read",
     build: async (ctx, q) => {
@@ -578,7 +637,7 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
 };
 
 /**
- * LED-REP. The same six reports, downloadable. Permission-for-permission with the
+ * LED-REP. The same reports, downloadable. Permission-for-permission with the
  * JSON route beside it, tenant-scoped by the report functions themselves, and
  * audited — a finance export leaving the building is a read worth a record.
  */
