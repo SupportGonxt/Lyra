@@ -20,7 +20,24 @@ const REGULATED = [
   /\bapproved by (?:the )?(?:central bank|insurance authority|regulator)\b/i,
   /\byou are (?:fully )?covered\b/i,
   /\brisk[- ]free\b/i,
-  /\bno (?:exclusions|deductible|excess)\b/i
+  /\bno (?:exclusions|deductible|excess)\b/i,
+  // ar (docs/27 F46), one entry per English rule above rather than a loose set:
+  // this floor decides whether a sentence may reach a customer, and it was
+  // English-only while half the product's locales are Arabic — an Arabic
+  // promise to pay was not warned about, it was not seen.
+  //
+  // No `\b` anywhere below. JS word boundaries are defined against [A-Za-z0-9_],
+  // so every Arabic letter is a non-word character and `\bضمان\b` matches in
+  // places nothing sensible does. The alternations are written out instead.
+  /نضمن|مضمون(?:ة|ًا)?/,
+  /س(?:ندفع|نغطي|نعوّض|نعوض)|سنقوم\s+ب(?:دفع|تغطية|تعويض)/,
+  /معتمد(?:ة)?\s+من\s+(?:قِبل\s+|قبل\s+)?(?:المصرف\s+المركزي|البنك\s+المركزي|هيئة\s+التأمين|الجهة\s+التنظيمية)/,
+  /مغط(?:ى|اة)\s+بالكامل/,
+  /خالي(?:ة)?\s+من\s+المخاطر/,
+  // "بدون تحمل" / "لا توجد استثناءات". Note the negation is required: the
+  // nouns themselves (استثناءات, تحمل) are ordinary policy vocabulary and
+  // appear in the schedule of every compliant Arabic quote we send.
+  /(?:لا\s+توجد|بدون|من\s+دون|دون)\s+(?:استثناءات|أي\s+استثناءات|تحمّل|تحمل|خصم)/
 ];
 
 const JAILBREAK = [
@@ -33,7 +50,13 @@ const JAILBREAK = [
   // guard with a hole the size of half the product's locales.
   /تجاهل\s+(?:كل\s+)?(?:التعليمات|الأوامر)/,
   /(?:اكشف|أظهر)\s+(?:عن\s+)?(?:موجه|تعليمات)\s*(?:النظام)?/,
-  /تظاهر\s+أنك/
+  /تظاهر\s+أنك/,
+  // docs/27 F46. The Arabic set mirrored three of the five English patterns and
+  // stopped; "developer mode" and "forget your instructions" are the two the
+  // golden set walked straight through. `انسَ` carries a fatha the keyboard
+  // often drops, so both spellings.
+  /وضع\s+المطور/,
+  /(?:انسَ|انس|تناسَ)\s+(?:كل\s+)?(?:التعليمات|الأوامر)/
 ];
 
 /** Placeholders the model invented rather than echoed — a sign it is hallucinating PII. */

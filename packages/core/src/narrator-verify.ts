@@ -43,9 +43,39 @@ export function displayValue(m: Pick<SnapshotMetric, "unit" | "value">): number 
 
 const NUMBER_RE = /\d[\d,]*(?:\.\d+)?/g;
 
+/**
+ * The same digits, written the way half this product's locales write them.
+ *
+ * docs/27 F46. `NUMBER_RE` is ASCII, so an Arabic briefing numbered in
+ * Arabic-Indic digits contains no numbers as far as the verifier is concerned,
+ * `mismatches` comes back empty and `verifyNumericClaims` returns ok for any
+ * fabrication at all. A gate that answers "clean" because it could not read the
+ * sentence is worse than no gate: it reports a verification that never happened.
+ * So normalisation belongs here, at the one function both verifiers extract
+ * through, and not at any call site.
+ *
+ * Four groups, each a real thing an `ar-*` renderer emits:
+ *   U+0660-0669  Arabic-Indic digits          — `Intl.NumberFormat("ar-SA")`
+ *   U+06F0-06F9  Extended Arabic-Indic digits — fa/ur, ahead of docs/16 H11
+ *   U+066B       Arabic decimal separator ٫   — becomes "."
+ *   U+066C       Arabic thousands separator ٬ — becomes "," so the existing
+ *                grouping branch of NUMBER_RE strips it unchanged
+ * plus the bidi controls (U+200E/200F/061C, the isolates U+2066-2069) that
+ * `Intl` interleaves with Arabic currency and percent output — left in place
+ * they split one number into two, each of which then matches nothing.
+ */
+export function normalizeDigits(text: string): string {
+  return text
+    .replace(/[‎‏؜⁦-⁩]/g, "")
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/٫/g, ".")
+    .replace(/٬/g, ",");
+}
+
 /** Every bare number in the text — a straightforward regex, not a claim parser. */
 export function extractNumbers(text: string): number[] {
-  return [...text.matchAll(NUMBER_RE)]
+  return [...normalizeDigits(text).matchAll(NUMBER_RE)]
     .map((m) => Number(m[0].replace(/,/g, "")))
     .filter((n) => Number.isFinite(n));
 }
