@@ -10,7 +10,7 @@ import { balanceOf, post, reverse } from "./posting.js";
 import { openTxn, reverseTxn, runSaga, runTxn, transition } from "./txn.js";
 import { closeChecks, closePeriod, ensurePeriod, periodCode } from "./periods.js";
 import { RECIPES, argFields, buildRecipe } from "./recipes.js";
-import { clientMoneyPosition, rebuildBalances, trialBalance } from "./reports.js";
+import { clientMoneyPosition, commissionByDimension, expenseMovementMinor, rebuildBalances, trialBalance } from "./reports.js";
 import { valueFlow, valueFlowLines, type MoneyMap } from "./money-map.js";
 import { reconcile } from "./recon.js";
 import { TXN_TYPES, autoApprovable } from "./types.js";
@@ -465,6 +465,65 @@ describe("reports", () => {
     }
     const drift = (await rebuildBalances(ctx)).filter((d) => d.drifted);
     expect(drift).toEqual([]);
+  });
+
+  /**
+   * docs/27 F49: NORTH's money metrics read the ledger through these two, and
+   * a month-to-date metric is windowed on [since, now), which no period code
+   * can express.
+   */
+  describe("an arbitrary window, not only a period code", () => {
+    const JAN = Date.UTC(2026, 0, 1);
+    const line = (id: string, code: string, side: "debit" | "credit", amountMinor: number, postedAt: number, channel?: string) => ({
+      id,
+      tenantId: "t_test",
+      batchId: `b_${id}`,
+      txnId: `tx_${id}`,
+      seq: 1,
+      accountCode: code,
+      side,
+      amountMinor,
+      currency: "AED",
+      baseAmountMinor: amountMinor,
+      baseCurrency: "AED",
+      ...(channel ? { dimsJson: JSON.stringify({ channel }) } : {}),
+      postedAt
+    });
+
+    it("commissionByDimension counts only the lines inside the window", async () => {
+      await ctx.db.insert(schema.ledgerJournalLines).values([
+        line("l1", "4000", "credit", 70_000, JAN + 5 * 86_400_000, "ch_web"),
+        line("l2", "2100", "credit", 30_000, JAN + 5 * 86_400_000, "ch_web"),
+        // The same commission clawed back later in the month: contra lines, not an edit.
+        line("l3", "4000", "debit", 20_000, JAN + 9 * 86_400_000, "ch_web"),
+        // Outside the window on both sides.
+        line("l4", "4000", "credit", 999_000, JAN - 86_400_000, "ch_web"),
+        line("l5", "4000", "credit", 888_000, JAN + 20 * 86_400_000, "ch_web")
+      ]);
+
+      const rows = await commissionByDimension(ctx, "channel", {
+        window: { from: JAN, to: JAN + 10 * 86_400_000 }
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ value: "ch_web", netMinor: 50_000, channelShareMinor: 30_000, grossMinor: 80_000 });
+    });
+
+    it("expenseMovementMinor nets 5xxx debits against their credits in base currency", async () => {
+      await ctx.db.insert(schema.ledgerJournalLines).values([
+        line("e1", "5100", "debit", 15_000, JAN + 2 * 86_400_000),
+        line("e2", "5300", "debit", 2_000, JAN + 3 * 86_400_000),
+        line("e3", "5100", "credit", 1_000, JAN + 4 * 86_400_000),
+        line("e4", "4000", "credit", 500_000, JAN + 4 * 86_400_000), // income is not expense
+        line("e5", "5100", "debit", 777_000, JAN + 40 * 86_400_000) // outside the window
+      ]);
+
+      expect(await expenseMovementMinor(ctx, { from: JAN, to: JAN + 10 * 86_400_000 })).toBe(16_000);
+    });
+
+    it("a window with nothing in it is zero, not a missing report", async () => {
+      expect(await expenseMovementMinor(ctx, { from: JAN, to: JAN + 86_400_000 })).toBe(0);
+      expect(await commissionByDimension(ctx, "channel", { window: { from: JAN, to: JAN + 86_400_000 } })).toEqual([]);
+    });
   });
 });
 
