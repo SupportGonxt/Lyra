@@ -3,6 +3,7 @@ import { id as newId, schema } from "@lyra/db";
 import {
   displayValue,
   extractNumbers,
+  previousPeriod,
   verifyNumericClaims,
   type BriefingSnapshot,
   type Ctx,
@@ -23,19 +24,6 @@ import type { Gateway } from "@lyra/model-gateway";
 // from this module needs to change.
 
 export { displayValue, extractNumbers, verifyNumericClaims, type BriefingSnapshot, type SnapshotMetric, type Unit };
-
-function previousDay(day: string): string {
-  const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function previousMonth(month: string): string {
-  const [y, m] = month.split("-").map(Number);
-  const d = new Date(Date.UTC(y!, m! - 1, 1));
-  d.setUTCMonth(d.getUTCMonth() - 1);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 async function snapshotValue(
   ctx: Ctx,
@@ -76,12 +64,12 @@ export async function buildSnapshot(ctx: Ctx, date: string): Promise<BriefingSna
   for (const m of metricRows) {
     const grain = m.grain === "week" ? null : (m.grain as "day" | "month"); // ponytail: no metric seeds week grain yet
     if (!grain) continue;
-    const period = grain === "month" ? date.slice(0, 7) : previousDay(date);
+    const period = grain === "month" ? date.slice(0, 7) : previousPeriod("day", date);
     const value = await snapshotValue(ctx, m.key, grain, period);
     if (value === null) continue; // nothing rolled up for this metric yet — not narratable
 
-    const previousPeriod = grain === "month" ? previousMonth(period) : previousDay(period);
-    const previousValue = await snapshotValue(ctx, m.key, grain, previousPeriod);
+    const prior = previousPeriod(grain, period);
+    const previousValue = await snapshotValue(ctx, m.key, grain, prior);
     const deltaBps =
       previousValue !== null && previousValue !== 0
         ? Math.round(((value - previousValue) / previousValue) * 10_000)
@@ -95,7 +83,7 @@ export async function buildSnapshot(ctx: Ctx, date: string): Promise<BriefingSna
       grain,
       period,
       value,
-      previousPeriod: previousValue !== null ? previousPeriod : null,
+      previousPeriod: previousValue !== null ? prior : null,
       previousValue,
       deltaBps
     });
