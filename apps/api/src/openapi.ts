@@ -377,6 +377,11 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/scout/whitespaces/{id}/commentary", summary: "One candidate's commentary, evidence and AI provenance", permission: "scout:whitespaces:read", tag: "scout" },
   { method: "post", path: "/v1/scout/whitespaces/{id}/promote-to-signal", summary: "Promote a whitespace into a draft SIGNAL campaign with AI-drafted brief and creative variants (approval-gated, idempotent, nothing sent)", permission: "scout:whitespaces:promote", tag: "scout" },
   { method: "post", path: "/v1/scout/signals/similar", summary: "Nearest signals to a phrase, from the market embedding index", permission: "scout:signals:read", tag: "scout", requestBody: true },
+  { method: "post", path: "/v1/scout/signals/harvest", summary: "Run the Harvester: every registered signal source, plus any fed items, recorded once per (source, sourceRef)", permission: "scout:signals:ingest", tag: "scout", requestBody: true },
+  { method: "get", path: "/v1/scout/sources", summary: "The registered signal sources — id, kind, and whether the adapter leaves LYRA (none do today, ADR-0078)", permission: "scout:signals:read", tag: "scout" },
+  { method: "post", path: "/v1/scout/clusters/sweep", summary: "Run the Clusterer over the persisted signal corpus: places each signal against the market embedding index, re-scores momentum, stamps cluster ids", permission: "scout:clusters:build", tag: "scout" },
+  { method: "post", path: "/v1/scout/panel-bench/sweep", summary: "Run the Bench Builder: rebuild every provider x line x month cell from the panel's own quote outcomes", permission: "scout:panel_bench:build", tag: "scout" },
+  { method: "get", path: "/v1/scout/watch", summary: "Competitor and regulatory watch: each watched subject's window scored against the one before it", permission: "scout:signals:read", tag: "scout" },
   { method: "post", path: "/v1/scout/wording-diff", summary: "Word-level diff of two coverage-wording texts (PDF extraction deferred, see ADR-0016)", permission: "scout:panel_bench:read", tag: "scout", requestBody: true },
   { method: "get", path: "/v1/scout/panel-bench/negotiation-pack", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", tag: "scout" },
 

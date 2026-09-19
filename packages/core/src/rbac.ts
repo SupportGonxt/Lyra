@@ -191,9 +191,12 @@ export const PERMISSIONS = [
 
   // SCOUT — product intelligence
   "scout:signals:read", "scout:signals:ingest",
-  "scout:clusters:read",
+  // The Clusterer and the Bench Builder are sweeps, not CRUD: they rewrite a
+  // whole table from evidence, so running one is its own grant and not implied
+  // by reading what it produced (same split /whitespaces/compute already makes).
+  "scout:clusters:read", "scout:clusters:build",
   "scout:whitespaces:read", "scout:whitespaces:promote",
-  "scout:panel_bench:read",
+  "scout:panel_bench:read", "scout:panel_bench:build",
   "scout:experiments:read", "scout:experiments:create", "scout:experiments:decide",
   "scout:data_products:read", "scout:data_products:create", "scout:data_products:publish",
 
@@ -523,6 +526,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     ...readsOf("scout"), "scout:ai:invoke", "ai:suggestions:read", "ai:command:read",
     "scout:experiments:create", "scout:experiments:decide",
     "scout:whitespaces:promote", "scout:data_products:create",
+    // A lead reruns the Clusterer and the Bench Builder; ingest stays admin.
+    "scout:clusters:build", "scout:panel_bench:build",
     "core:products:read", "core:providers:read", "core:approvals:read", "core:approvals:decide",
     "analytics:reports:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download"
   ],

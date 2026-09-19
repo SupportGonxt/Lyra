@@ -689,6 +689,71 @@ applied twice. Not built: §H.3's driver projection, §H.4's immutable versioned
 runs and nightly re-run, §H.5's variance report and coverage self-check. The
 endpoint is the read half; a stored run is a table and its own change.
 
+---
+
+### F51/F52 revisited — SCOUT ingestion, clustering, bench and watch, 2026-09-19
+
+F51 named four absences and F52 one dead seam. Four of the five close here; the
+fifth is recorded as proposed in **ADR-0078** rather than built, because it is
+the one that needs a third-party service.
+
+*Closed.*
+
+- **Signal ingestion.** The seam is `SignalSource`
+  (`packages/core/src/seams.ts`), beside `Channel` and `IdentityVerifier` where
+  docs/02 §11 says extension seams live. The Harvester is
+  `apps/api/src/engines/scout-ingest.ts`: three adapters, all `external: false`
+  — `internal.quotes`, `internal.abandonment` and `internal.feed`, the last
+  being what an integrator posts to `POST /v1/scout/signals/harvest`. Idempotent
+  on (source, sourceRef), so a schedule needs no lock, and every new row is
+  embedded through the same `embedUpsert` the CRUD ingest path uses.
+  `GET /v1/scout/sources` is the registry; `/scout/admin` renders it.
+- **Live clustering.** `apps/api/src/engines/scout-cluster.ts` clusters the
+  *persisted* corpus — `sweepWhitespace` only ever clustered quote demand — and
+  stamps `scout_signals.cluster_id`, a documented column nothing outside the
+  seed had written. It also fills `trail_json`, which the Radar's sparkline
+  needs and nothing was writing. `POST /v1/scout/clusters/sweep`,
+  `scout:clusters:build`.
+- **Bench Builder.** `apps/api/src/engines/scout-bench.ts` with the arithmetic
+  in `packages/core/src/bench.ts`: a provider's median premium indexed to the
+  panel median in basis points, win rate off `selectedAt`, and the requests the
+  panel answered that this provider did not. `scout_panel_bench` held seed rows
+  only, so the panel screen, the negotiation-pack PDF and the provider-facing
+  k-anonymity gate were all standing on a fixture. Idempotent per
+  (provider, line, period); emits `scout.bench.updated` (module doc §6).
+  `POST /v1/scout/panel-bench/sweep`, `scout:panel_bench:build`, reachable from
+  `/scout/panel`.
+- **Competitor and regulatory watch.** `apps/api/src/engines/scout-watch.ts`
+  over `packages/core/src/watch.ts`: each watched subject's window scored
+  against the window before it, severity from newness, regulation and growth.
+  Deliberately a derivation and not a write — a persisted finding would have to
+  decide when last night's finding is tonight's, and a window comparison cannot
+  answer that. `GET /v1/scout/watch`, rendered on `/scout/admin`.
+- **F52.** `VEC_MARKET` now has the reader it was written for. The Clusterer
+  asks the index, once per known theme, which of this tenant's vectors sit near
+  it, and places a signal into that cluster above `SIMILARITY_FLOOR` — the one
+  question an embedding answers that `GROUP BY source` cannot. Two readers
+  existed already (`POST /v1/scout/signals/similar`, the command loop's recall);
+  what was missing was the one inside clustering. A deployment with no
+  Vectorize binding still clusters, by source.
+
+*ADR'd instead of built.*
+
+- **External sources** — search-trend connectors, app/review scraping,
+  news/regulatory RSS, competitor page monitors. Each is a third party and none
+  is on docs/02 §9's list. **ADR-0078** proposes them one at a time, each with
+  its vendor, legal basis, crawl politeness and credential home named, and
+  records that the seam is the insertion point: an adapter file plus one line in
+  `sourcesFor`, with no engine, route, table or screen change.
+
+*Found on the way.* `/scout/admin` was rendering `l(`source.${one.source}`)`
+against a catalogue that holds `adm.source.*`, so all six rows of the signal-
+source panel printed raw i18n keys. Sighting 10's shape in a second catalogue.
+The guard is `apps/web/app/routes/scout.labels.test.ts`, which selects its
+subjects from the import graph rather than a list and checks static keys, the
+literal prefix of a built key, and any key-shaped literal in a namespace this
+catalogue owns.
+
 ## P2 — depth, not absence
 
 Commission is flat-rate only — no ladders, tiers, volume bonuses or overrides

@@ -7,6 +7,9 @@ import { sweepPremiumFinancing } from "./engines/premium-financing.js";
 import { sweepRenewals } from "./engines/renewals.js";
 import { sweepRouting } from "./engines/orbit-routing.js";
 import { advanceJourneyRuns } from "./engines/orbit-journeys.js";
+import { harvestSignals } from "./engines/scout-ingest.js";
+import { sweepSignalClusters } from "./engines/scout-cluster.js";
+import { sweepPanelBench } from "./engines/scout-bench.js";
 import { sweepBilling } from "./engines/billing.js";
 import { sweepConversationDrafts } from "./engines/orbit-draft.js";
 import { runSnapshotter } from "./engines/north-snapshotter.js";
@@ -246,6 +249,17 @@ export default {
             if (isBackupWindow) await nudgeApiKeyRotation(ctx);
             // docs/modules/north.md §3 Snapshotter: nightly, 02:00Z per seed.ts's timing model (ADR-0024).
             if (isBackupWindow) await runSnapshotter(ctx);
+            // docs/modules/scout.md §3. Harvester "schedules per source" and
+            // Bench Builder "nightly" run in the same window; the Clusterer is
+            // weekly, so it gates on the day as well as the hour. All three are
+            // idempotent, so a tick that runs twice writes the same rows — and
+            // the harvest takes a week's lookback rather than the route's six
+            // months, because only the first run would ever need the rest.
+            if (isBackupWindow) {
+              await harvestSignals(ctx, gatewayFor(env), env, { lookbackMs: 7 * 86_400_000 });
+              await sweepPanelBench(ctx);
+              if (nowDate.getUTCDay() === 1) await sweepSignalClusters(ctx, gatewayFor(env), env);
+            }
           } catch (err) {
             console.error("scheduled tick failed for tenant", {
               tenantId,

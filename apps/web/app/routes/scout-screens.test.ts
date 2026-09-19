@@ -20,7 +20,7 @@ import {
 import { action as experimentsAction, experimentsHeadline } from "./scout-experiments";
 import { action as analyticsAction, analyticsHeadline } from "./scout-analytics";
 import { radarHeadline } from "./scout-radar";
-import { panelHeadline } from "./scout-panel";
+import { action as panelAction, panelHeadline } from "./scout-panel";
 import { priceHeadline } from "./scout-pricing";
 
 const l = labelsIn("en");
@@ -292,6 +292,34 @@ const roll = (over: Partial<ProviderRoll> = {}): ProviderRoll => ({
   lines: ["motor"],
   gaps: 0,
   ...over
+});
+
+describe("scout-panel action", () => {
+  it("runs the Bench Builder and reports what it rewrote", async () => {
+    const calls = stubFetch(json({ quotes: 40, cells: 6, created: 2, updated: 4, periods: ["2026-06"] }));
+    const result = (await panelAction(args(form({ intent: "rebuild" })))) as { problem: null; done: unknown };
+    expect(result.problem).toBeNull();
+    expect(result.done).toEqual({ intent: "rebuild", cells: 6, created: 2, updated: 4 });
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.url).toBe("https://api.test/v1/scout/panel-bench/sweep");
+  });
+
+  it("hands the build permission's refusal back as a Problem rather than throwing", async () => {
+    stubFetch(json({ title: "Forbidden", status: 403, code: "forbidden" }, 403));
+    const result = (await panelAction(args(form({ intent: "rebuild" })))) as {
+      problem: { code?: string } | null;
+      done: null;
+    };
+    expect(result.problem?.code).toBe("forbidden");
+    expect(result.done).toBeNull();
+  });
+
+  it("refuses an intent it does not know before calling the API", async () => {
+    const calls = stubFetch(json({}));
+    const result = (await panelAction(args(form({ intent: "sweep" })))) as { problem: { code?: string } | null };
+    expect(result.problem?.code).toBe("bad_intent");
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("panelHeadline", () => {

@@ -64,6 +64,53 @@ export interface DataInConnector {
   fetch(subjectRef: string): Promise<Record<string, unknown>>;
 }
 
+/**
+ * SCOUT's Harvester seam (docs/modules/scout.md §2.1, §5 "connector framework").
+ * Same shape as `DataInConnector` above and `ChannelAdapter` below: the module
+ * declares what a source must answer, and an adapter implements it. Every
+ * adapter that ships today is `external: false` — it reads rows LYRA already
+ * holds, or takes a payload an integrator fed the feed API. The external
+ * built-ins the spec names (search-trend connectors, review scraping, news/
+ * regulatory RSS, competitor page monitors) are **not** integrated: each is a
+ * third-party service and needs an ADR first (ADR-0078, docs/02 §9). They wire
+ * in behind this interface without a rewrite — that is the whole point of the
+ * seam.
+ */
+export const SIGNAL_SOURCE_KINDS = ["search", "quotes", "abandonment", "reviews", "news", "regulatory"] as const;
+export type SignalSourceKind = (typeof SIGNAL_SOURCE_KINDS)[number];
+
+export function isSignalSourceKind(s: string): s is SignalSourceKind {
+  return (SIGNAL_SOURCE_KINDS as readonly string[]).includes(s);
+}
+
+/** One observation an adapter hands back. `sourceRef` is the dedupe key: the
+ *  harvester writes a `scout_signals` row per (source, sourceRef) exactly once,
+ *  which is what makes a re-run idempotent rather than a second copy. */
+export interface HarvestedSignal {
+  readonly source: SignalSourceKind;
+  readonly sourceRef: string;
+  readonly payload: Record<string, unknown>;
+  readonly observedAt: number;
+  /** Defaults to 1 when the adapter has no reason to weight one item higher. */
+  readonly weight?: number;
+}
+
+export interface HarvestWindow {
+  readonly since: number;
+  readonly until: number;
+}
+
+export interface SignalSource {
+  /** Stable id — also the i18n key suffix the source manager renders. */
+  readonly id: string;
+  readonly kind: SignalSourceKind;
+  /** True only for an adapter that calls a service outside LYRA. None ship
+   *  today; the flag exists so the admin screen can say which sources leave
+   *  the building without reading each adapter. */
+  readonly external: boolean;
+  harvest(window: HarvestWindow): Promise<readonly HarvestedSignal[]>;
+}
+
 /** H5 — produces the `core_identity_verifications` row. No KYC touchpoint
  * consumes `evidenceLevel` yet — accepted gap, ADR-0018. */
 export interface IdentityVerifier {
