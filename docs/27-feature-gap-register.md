@@ -568,6 +568,25 @@ recipe field list from `GET /txn-types`). `ledger-recon.tsx` cannot import a
 file, close a run, write off a variance, or act in bulk. `ledger-account.tsx`,
 `ledger-reports.tsx` and `ledger-money-map.tsx` export no action, so nothing
 can be exported from the UI even though the API exports six reports.
+
+*Partly closed, 2026-09-19.* Three of those four ledger items ship.
+**Close a run**: `closeRun` had no callers at all (it is named under "dead code
+in the money path" above); `POST /v1/ledger/recon/runs/:id/close` is the caller,
+and the per-row decide control now covers `unmatched` as well as `proposed`,
+without which no run with a straggler could ever reach nothing-left-open.
+**Write off a variance**: `RECON-WRITEOFF` (`packages/ledger/src/recipes.ts`,
+account `5500`), dual control always, refusing client money and equity — see
+docs/19 §4.6. **Export**: `account-statement` and `value-flow` join
+`REPORT_EXPORTS`, and all three screens render the shared `ReportDownloads`.
+**Act in bulk** stays open by decision, not by omission: ADR-0078 records the
+constraints a bulk decide must satisfy and leaves the product question (may a
+reviewer *confirm* in bulk, or only reject?) to the owner. Importing a statement
+file is still unbuilt — the paste path is all there is.
+Two live defects fell out of the write-off work and are also closed: `argFields`
+silently dropped every **required** recipe argument its two probes could not
+describe — an enum, a pattern-constrained string, and `YEAR-END-CLOSE`'s
+`fiscalYear`, a bounded integer that refuses the probe value `1` — so those
+types could never be posted from the generic open-transaction screen.
 `axis-board.tsx` has no transitions (self-documented at `:36-40`) and sorts by
 lateness rather than value × risk × SLA. `axis-doc-intel.tsx` requires
 caller-supplied `rawText` ("OCR is out of scope", `routes/axis.ts:73-78`).
