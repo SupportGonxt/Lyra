@@ -263,6 +263,61 @@ export const DATASETS: Record<string, Dataset> = {
       avgCompetition: { label: "Average competition score", kind: "number", agg: "avg", column: "competition_score" }
     }
   },
+  // docs/27 P2: only signals and whitespaces were registered, so a caller
+  // asking "how are clusters trending", "how are our experiments doing" or
+  // "what data products have we published" could not build a report at all —
+  // the same semantic layer that already answers those questions for every
+  // other SCOUT table.
+  //
+  // Deliberately NOT here: scout_panel_bench. `runReport` aggregates whatever
+  // the caller's filters and group-by select, with no floor check — the exact
+  // re-identification risk `checkKAnonymity`/`rowVisible` exist to close on the
+  // CRUD path (docs/modules/scout.md §2.5, resources.ts panel-bench). A generic
+  // report grouped by provider+line+period would hand back a thin cell's exact
+  // number and name the one counterparty behind it. scout-analytics.tsx already
+  // documents this same decision for the export card; the two agree on purpose.
+  clusters: {
+    table: "scout_clusters",
+    module: "scout",
+    permission: "scout:clusters:read",
+    timeColumn: "last_seen",
+    dimensions: {
+      theme: { column: "theme", label: "Theme", kind: "text" }
+    },
+    metrics: {
+      clusters: { label: "Clusters", kind: "number", agg: "count" },
+      avgMomentum: { label: "Average momentum", kind: "number", agg: "avg", column: "momentum_score" },
+      size: { label: "Signal count", kind: "number", agg: "sum", column: "size" }
+    }
+  },
+  experiments: {
+    table: "scout_experiments",
+    module: "scout",
+    permission: "scout:experiments:read",
+    timeColumn: "created_at",
+    dimensions: {
+      whitespaceId: { column: "whitespace_id", label: "Whitespace", kind: "text" },
+      state: { column: "state", label: "State", kind: "text" }
+    },
+    metrics: {
+      experiments: { label: "Experiments", kind: "number", agg: "count" }
+    }
+  },
+  dataProducts: {
+    table: "scout_data_products",
+    module: "scout",
+    permission: "scout:data_products:read",
+    timeColumn: "created_at",
+    dimensions: {
+      name: { column: "name", label: "Name", kind: "text" },
+      status: { column: "status", label: "Status", kind: "text" },
+      delivery: { column: "delivery", label: "Delivery", kind: "text" }
+    },
+    metrics: {
+      dataProducts: { label: "Data products", kind: "number", agg: "count" },
+      avgFloor: { label: "Average k-anonymity floor", kind: "number", agg: "avg", column: "aggregation_min" }
+    }
+  },
   boardpacks: {
     table: "north_boardpacks",
     module: "north",

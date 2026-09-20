@@ -5,7 +5,7 @@ import {
   checkKAnonymity,
   clusterSignals,
   computeWhitespaceCandidates,
-  DEFAULT_K_FLOOR,
+  kAnonymityFloor,
   notFound,
   verifyGroundedness,
   type CoverageInput
@@ -118,9 +118,13 @@ export async function sweepWhitespace(ctx: Ctx, gateway: Gateway): Promise<numbe
   const coverageByLine = await coveragePerLine(ctx);
   const coverage: CoverageInput[] = [...coverageByLine].map(([category, policyCount]) => ({ category, policyCount }));
 
-  const candidates = computeWhitespaceCandidates(signals, coverage, ctx.now, COLD_START_WINDOW_MS).filter(
-    (c) => c.visible
-  );
+  const candidates = computeWhitespaceCandidates(
+    signals,
+    coverage,
+    ctx.now,
+    COLD_START_WINDOW_MS,
+    kAnonymityFloor(ctx.policy, "scout")
+  ).filter((c) => c.visible);
   if (!candidates.length) return 0;
 
   const live = await ctx.db
@@ -381,6 +385,7 @@ async function commentaryFor(ctx: Ctx, rows: readonly CommentaryRow[]): Promise<
   const coverageByLine = await coveragePerLine(ctx);
   const nouns = promptNouns(ctx.policy.domainPack);
   const sizes = await clusterSizes(ctx, rows.map((r) => r.clusterId));
+  const floor = kAnonymityFloor(ctx.policy, "scout");
 
   const evidenceOf = (row: CommentaryRow): WhitespaceEvidence => ({
     category: row.category ?? "",
@@ -396,7 +401,7 @@ async function commentaryFor(ctx: Ctx, rows: readonly CommentaryRow[]): Promise<
   const wantProvenance = rows.filter((row) => {
     const ev = evidenceOf(row);
     return (
-      checkKAnonymity(ev.signalCount, DEFAULT_K_FLOOR).allowed &&
+      checkKAnonymity(ev.signalCount, floor).allowed &&
       row.category !== null &&
       !isFallbackDescription(row.description, ev)
     );
@@ -409,7 +414,7 @@ async function commentaryFor(ctx: Ctx, rows: readonly CommentaryRow[]): Promise<
     // k-anonymity (docs/modules/scout.md §2.5): below the floor nothing about the
     // cell leaves — not the sentence, not the counts, not the evidence lines the
     // sentence was grounded against.
-    if (!checkKAnonymity(ev.signalCount, DEFAULT_K_FLOOR).allowed) {
+    if (!checkKAnonymity(ev.signalCount, floor).allowed) {
       return { ...base, commentary: null, evidence: null, why: [], ai: null, suppressed: true };
     }
     return {

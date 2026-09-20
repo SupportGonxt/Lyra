@@ -9,11 +9,11 @@ import {
   canPolicyTransition,
   checkKAnonymity,
   CUSTOMER_PII,
-  DEFAULT_K_FLOOR,
   emit,
   gate,
   isClaimState,
   isPolicyState,
+  kAnonymityFloor,
   scoped,
   sealFields
 } from "@lyra/core";
@@ -850,8 +850,10 @@ export const SCOUT = register(
     // docs/modules/scout.md §2.5 — a bench row is one provider x line x
     // period cut; below the k-anonymity floor it names the one counterparty
     // behind it, so it is hidden (404) rather than served thin.
-    rowVisible: ((_ctx, row) =>
-      checkKAnonymity(row.volume as number, DEFAULT_K_FLOOR).allowed) as NonNullable<Resource["rowVisible"]>
+    rowVisible: ((ctx, row) =>
+      checkKAnonymity(row.volume as number, kAnonymityFloor(ctx.policy, "scout")).allowed) as NonNullable<
+      Resource["rowVisible"]
+    >
   }),
   r("scout-experiments", schema.scoutExperiments, "sxp", "scout", {
     read: "scout:experiments:read",
