@@ -17,9 +17,98 @@ export function applyPpm(amountMinor: number, ppm: number): number {
   return sign * Math.floor((Math.abs(amountMinor) * ppm + PPM / 2) / PPM);
 }
 
+// ADR-0083. Depth beyond a flat rate: a ladder over the premium/volume of a
+// single sale, a bonus once a producer crosses a cumulative period volume, and
+// an override a second party earns on top. All three are optional and additive
+// to the flat-rate shape above them — a caller that passes none of them gets
+// exactly the arithmetic this file always had.
+
+/** One band of a ladder. The last tier omits `uptoMinor` — open-ended. */
+export interface CommissionTier {
+  /** Cumulative amount up to which this rate applies, minor units. */
+  uptoMinor?: number;
+  ratePpm: number;
+}
+
+export interface VolumeBonusInput {
+  /** Cumulative volume already earned in the period, before this sale. Caller-supplied: see ADR-0083. */
+  priorVolumeMinor: number;
+  /** Once prior + this sale crosses this cumulative volume, the bonus applies to the portion above it. */
+  thresholdMinor: number;
+  /** Extra rate, ppm of the portion of this sale above the threshold. */
+  bonusPpm: number;
+}
+
+export interface CommissionOverrideInput {
+  /** A second party's share of our gross commission, ppm — paid on top, not deducted from netMinor. */
+  overridePpm: number;
+}
+
+/** A stored `dist_commission_rates.structure_json`, parsed. */
+export interface CommissionStructure {
+  tiers?: CommissionTier[];
+  volumeBonus?: Omit<VolumeBonusInput, "priorVolumeMinor">;
+  overridePpm?: number;
+}
+
+/**
+ * The ladder's commission over `amountMinor`, banded from zero. Each band is
+ * rounded with the same round-half-up `applyPpm` every other figure here uses.
+ * The last tier must be open-ended: a ladder that stops short of the amount
+ * would otherwise silently under-credit the tail rather than say so.
+ */
+export function tieredCommissionMinor(amountMinor: number, tiers: readonly CommissionTier[]): number {
+  if (!tiers.length) throw badRequest("tiers must not be empty");
+  let remaining = amountMinor;
+  let from = 0;
+  let total = 0;
+  for (const [i, tier] of tiers.entries()) {
+    if (tier.ratePpm < 0 || tier.ratePpm > PPM) throw badRequest("tier rate out of range");
+    const isLast = i === tiers.length - 1;
+    if (isLast && tier.uptoMinor !== undefined) {
+      throw badRequest("the last tier must be open-ended (no uptoMinor)");
+    }
+    if (tier.uptoMinor !== undefined && tier.uptoMinor <= from) {
+      throw badRequest("tier bands must be strictly increasing");
+    }
+    const bandWidth = tier.uptoMinor === undefined ? remaining : Math.min(remaining, tier.uptoMinor - from);
+    if (bandWidth > 0) {
+      total += applyPpm(bandWidth, tier.ratePpm);
+      remaining -= bandWidth;
+    }
+    from = tier.uptoMinor ?? from;
+    if (remaining <= 0) break;
+  }
+  return total;
+}
+
+/**
+ * The bonus applies only to the slice of *this* sale that sits above the
+ * threshold — a sale that alone crosses it is bonused only on the excess, one
+ * already over it beforehand is bonused in full.
+ */
+export function volumeBonusMinor(amountMinor: number, bonus: VolumeBonusInput): number {
+  if (bonus.bonusPpm < 0 || bonus.bonusPpm > PPM) throw badRequest("bonus rate out of range");
+  const cumulativeAfter = bonus.priorVolumeMinor + amountMinor;
+  if (cumulativeAfter <= bonus.thresholdMinor) return 0;
+  const overThreshold = Math.min(amountMinor, cumulativeAfter - bonus.thresholdMinor);
+  return applyPpm(overThreshold, bonus.bonusPpm);
+}
+
+/** Defensive: a malformed or absent `structure_json` resolves as flat, never a throw at read time. */
+export function commissionStructureOf(json: string | null | undefined): CommissionStructure {
+  if (!json) return {};
+  try {
+    const parsed = JSON.parse(json) as CommissionStructure;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export interface CommissionInput {
   premiumMinor: number;
-  /** What the underwriter pays us, ppm of premium. */
+  /** What the underwriter pays us, ppm of premium. Ignored when `tiers` is given. */
   baseCommissionPpm: number;
   /** Share of *our commission* passed to the channel, ppm. 0 for b2c. */
   channelSharePpm?: number;
@@ -27,16 +116,26 @@ export interface CommissionInput {
   flatFeeMinor?: number;
   /** Tax withheld on our net commission (VAT on brokerage), ppm. */
   taxPpm?: number;
+  /** ADR-0083. Replaces `baseCommissionPpm` when present. */
+  tiers?: CommissionTier[];
+  /** ADR-0083. Added on top of the (flat or tiered) base gross. */
+  volumeBonus?: VolumeBonusInput;
+  /** ADR-0083. A second party's cut of gross, reported, never deducted here. */
+  override?: CommissionOverrideInput;
 }
 
 export interface CommissionSplit {
-  /** Receivable from the underwriter. */
+  /** Receivable from the underwriter. Includes any volume bonus. */
   grossMinor: number;
   /** Payable to the channel. */
   channelMinor: number;
   taxMinor: number;
   /** What we keep: gross - channel - tax. */
   netMinor: number;
+  /** ADR-0083. Already included in grossMinor; broken out for the statement. */
+  bonusMinor: number;
+  /** ADR-0083. Ppm of grossMinor for a second party, on top — not subtracted from netMinor. */
+  overrideMinor: number;
 }
 
 /**
@@ -44,18 +143,38 @@ export interface CommissionSplit {
  * a mis-configured rate, not a loss to absorb silently.
  */
 export function splitCommission(input: CommissionInput): CommissionSplit {
-  const { premiumMinor, baseCommissionPpm } = input;
+  const { premiumMinor } = input;
   if (premiumMinor < 0) throw badRequest("premium must not be negative");
-  if (baseCommissionPpm < 0 || baseCommissionPpm > PPM) throw badRequest("base commission out of range");
+
+  let baseGrossMinor: number;
+  if (input.tiers) {
+    baseGrossMinor = tieredCommissionMinor(premiumMinor, input.tiers);
+  } else {
+    if (input.baseCommissionPpm < 0 || input.baseCommissionPpm > PPM) {
+      throw badRequest("base commission out of range");
+    }
+    baseGrossMinor = applyPpm(premiumMinor, input.baseCommissionPpm);
+  }
+
+  const bonusMinor = input.volumeBonus ? volumeBonusMinor(premiumMinor, input.volumeBonus) : 0;
+  const grossMinor = baseGrossMinor + bonusMinor;
+
   const sharePpm = input.channelSharePpm ?? 0;
   if (sharePpm < 0 || sharePpm > PPM) throw badRequest("channel share out of range");
 
-  const grossMinor = applyPpm(premiumMinor, baseCommissionPpm);
   const channelMinor = applyPpm(grossMinor, sharePpm) + (input.flatFeeMinor ?? 0);
   if (channelMinor > grossMinor) throw badRequest("channel commission exceeds the commission received");
 
   const taxMinor = applyPpm(grossMinor - channelMinor, input.taxPpm ?? 0);
-  return { grossMinor, channelMinor, taxMinor, netMinor: grossMinor - channelMinor - taxMinor };
+  const overrideMinor = input.override ? applyPpm(grossMinor, input.override.overridePpm) : 0;
+  return {
+    grossMinor,
+    channelMinor,
+    taxMinor,
+    bonusMinor,
+    overrideMinor,
+    netMinor: grossMinor - channelMinor - taxMinor
+  };
 }
 
 export interface RateQuery {
@@ -131,6 +250,8 @@ export async function quoteCommission(
     taxMarket?: string;
     /** Rulepack code; defaults to `commission`. */
     taxCode?: string;
+    /** ADR-0083: cumulative volume already earned this period, for the winning rate's volumeBonus, if any. */
+    priorVolumeMinor?: number;
     at?: number;
   }
 ): Promise<
@@ -191,12 +312,18 @@ export async function quoteCommission(
           return { ppm: taxPpmOf(t), ruleId: t.ruleId };
         })();
 
+  const structure = commissionStructureOf(rate?.structureJson);
   const split = splitCommission({
     premiumMinor: args.premiumMinor,
     baseCommissionPpm: basePpm,
     channelSharePpm: sharePpm,
     flatFeeMinor: rate?.flatFeeMinor ?? 0,
-    taxPpm: tax.ppm
+    taxPpm: tax.ppm,
+    ...(structure.tiers ? { tiers: structure.tiers } : {}),
+    ...(structure.volumeBonus
+      ? { volumeBonus: { priorVolumeMinor: args.priorVolumeMinor ?? 0, ...structure.volumeBonus } }
+      : {}),
+    ...(structure.overridePpm !== undefined ? { override: { overridePpm: structure.overridePpm } } : {})
   });
   return { ...split, rateId: rate?.id ?? null, basePpm, sharePpm, taxRuleId: tax.ruleId };
 }

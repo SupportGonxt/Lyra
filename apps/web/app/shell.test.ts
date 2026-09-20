@@ -158,6 +158,8 @@ describe("domain-pack nouns are resolved with the tenant's pack", () => {
   // Files that quote a pack key for a reason other than resolving a label.
   const notLabels: Record<string, string> = {
     "routes/axis-quote-desk.tsx": 'form field names ("policyNo", "premiumMinor"), not label keys',
+    "routes/ledger-reports.tsx":
+      'the bordereaux table\'s own column/row key ("policyNo"), a finance report field name, not a label key — the file\'s labelIn(locale) never resolves a domain-pack noun, only this screen\'s own LABELS',
     "routes/orbit-dev.tsx": 'PERSONAS[].key === "renewal" — a simulator scenario id, not a noun'
   };
 

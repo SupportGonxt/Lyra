@@ -16,7 +16,8 @@ import {
   isCaseState,
   isClaimState,
   isPolicyState,
-  quoteEndorsement
+  quoteEndorsement,
+  unearnedShareMinor
 } from "./lifecycle.js";
 
 describe("policy lifecycle", () => {
@@ -220,5 +221,31 @@ describe("quoteEndorsement", () => {
     const q = quoteEndorsement({ current, term, effectiveFrom: 0, premiumMinor: 1_200_00 });
     expect(q.proRataDays).toBe(100);
     expect(q.chargeMinor).toBe(200_00);
+  });
+});
+
+describe("unearnedShareMinor", () => {
+  const DAY = 86_400_000;
+  const term = { startAt: 0, endAt: 100 * DAY };
+
+  it("claws back half the commission at the exact midpoint of the term", () => {
+    expect(unearnedShareMinor(20_000, term, 50 * DAY)).toBe(10_000);
+  });
+
+  it("claws back everything cancelled at inception", () => {
+    expect(unearnedShareMinor(20_000, term, 0)).toBe(20_000);
+  });
+
+  it("claws back nothing once the term has fully run", () => {
+    expect(unearnedShareMinor(20_000, term, 100 * DAY)).toBe(0);
+    expect(unearnedShareMinor(20_000, term, 150 * DAY)).toBe(0);
+  });
+
+  it("claws back nothing for a date before inception, clamped rather than negative", () => {
+    expect(unearnedShareMinor(20_000, term, -10 * DAY)).toBe(20_000);
+  });
+
+  it("refuses a term whose end is not after its start", () => {
+    expect(() => unearnedShareMinor(1, { startAt: 10, endAt: 10 }, 5)).toThrow();
   });
 });

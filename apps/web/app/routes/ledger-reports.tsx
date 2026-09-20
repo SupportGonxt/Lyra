@@ -119,6 +119,19 @@ interface ClientMoneyRow {
   asOf: number;
 }
 
+interface BordereauxRow {
+  policyNo: string;
+  providerId: string;
+  customerId: string;
+  currency: string;
+  premiumMinor: number;
+  commissionMinor: number;
+  kind: string;
+  earnedAt: number;
+  startAt: number;
+  endAt: number;
+}
+
 /** Discriminated so the view switch narrows without a cast per branch. */
 type Report =
   | { key: "trial-balance"; data: TrialBalance }
@@ -126,7 +139,8 @@ type Report =
   | { key: "balance-sheet"; data: BalanceSheet }
   | { key: "aged"; data: { data: AgedRow[] } }
   | { key: "commission"; data: { dimension: string; data: CommissionRow[] } }
-  | { key: "client-money"; data: { data: ClientMoneyRow[] } };
+  | { key: "client-money"; data: { data: ClientMoneyRow[] } }
+  | { key: "bordereaux"; data: { data: BordereauxRow[] } };
 
 type ReportKey = Report["key"];
 
@@ -169,7 +183,14 @@ const REPORTS: Record<ReportKey, ReportSpec> = {
       { name: "period", kind: "month" }
     ]
   },
-  "client-money": { permission: CLIENT_MONEY, params: [{ name: "currency", kind: "text" }] }
+  "client-money": { permission: CLIENT_MONEY, params: [{ name: "currency", kind: "text" }] },
+  bordereaux: {
+    permission: JOURNALS,
+    params: [
+      { name: "providerId", kind: "text" },
+      { name: "period", kind: "month" }
+    ]
+  }
 };
 
 const ORDER = Object.keys(REPORTS) as ReportKey[];
@@ -207,17 +228,20 @@ export const LABELS: Record<string, Record<string, string>> = {
     "report.aged": "Aged analysis",
     "report.commission": "Commission statement",
     "report.client-money": "Client money check",
+    "report.bordereaux": "Bordereaux",
     params: "Report parameters",
     "param.period": "Period",
     "param.asOf": "As at",
     "param.currency": "Currency",
     "param.accounts": "Accounts",
     "param.by": "Group by",
+    "param.providerId": "Provider",
     "hint.period": "Month, e.g. 2026-07",
     "hint.asOf": "Includes everything posted up to the end of that day",
     "hint.currency": "ISO code, e.g. AED",
     "hint.accounts": "Account codes, comma separated",
     "hint.by": "A dimension stamped on the journal line, e.g. provider",
+    "hint.providerId": "Leave blank for every provider",
     asOf: "As at",
     "col.account": "Account",
     "col.name": "Name",
@@ -278,6 +302,13 @@ export const LABELS: Record<string, Record<string, string>> = {
     "cm.breachTitle": "Client money is short",
     "cm.breachBody":
       "The client bank position is below what is owed to clients. This is a reportable breach: escalate it today, before the next remittance run.",
+    "bord.policy": "Policy",
+    "bord.provider": "Provider",
+    "bord.earned": "Earned",
+    "bord.term": "Term",
+    "bord.premium": "Premium",
+    "bord.commission": "Commission",
+    "bord.kind": "Kind",
     "denied.title": "You cannot open this report",
     // `download*` moved to detail-kit's SHARED table: the account statement and
     // the money map offer the same four formats against the same export route.
@@ -297,17 +328,20 @@ export const LABELS: Record<string, Record<string, string>> = {
     "report.aged": "أعمار الأرصدة",
     "report.commission": "كشف العمولات",
     "report.client-money": "فحص أموال العملاء",
+    "report.bordereaux": "كشف تفصيلي (بوردرو)",
     params: "معايير التقرير",
     "param.period": "الفترة",
     "param.asOf": "كما في",
     "param.currency": "العملة",
     "param.accounts": "الحسابات",
     "param.by": "التجميع حسب",
+    "param.providerId": "المزود",
     "hint.period": "الشهر، مثال 2026-07",
     "hint.asOf": "يشمل كل ما رُحِّل حتى نهاية ذلك اليوم",
     "hint.currency": "رمز العملة، مثال AED",
     "hint.accounts": "أرقام الحسابات مفصولة بفواصل",
     "hint.by": "بُعد مسجَّل على قيد اليومية، مثال provider",
+    "hint.providerId": "اتركه فارغًا لكل مزود",
     asOf: "كما في",
     "col.account": "الحساب",
     "col.name": "الاسم",
@@ -366,6 +400,13 @@ export const LABELS: Record<string, Record<string, string>> = {
     "cm.breachTitle": "أموال العملاء ناقصة",
     "cm.breachBody":
       "رصيد بنك أموال العملاء أقل من المستحق لهم. هذا خرق واجب الإبلاغ: صعِّده اليوم قبل دورة التحويل التالية.",
+    "bord.policy": "الوثيقة",
+    "bord.provider": "المزود",
+    "bord.earned": "تاريخ الاستحقاق",
+    "bord.term": "المدة",
+    "bord.premium": "القسط",
+    "bord.commission": "العمولة",
+    "bord.kind": "النوع",
     "denied.title": "لا يمكنك فتح هذا التقرير",
     "denied.body": "يتطلب صلاحية لا يملكها دورك. يمكن للمسؤول منحها."
   }
@@ -416,6 +457,8 @@ export function reportsHeadline(report: Report | null, l: Label, locale: string)
         ? l("headline.cmBreach", { name, count: String(breached) })
         : l("headline.cmClear", { name });
     }
+    case "bordereaux":
+      return l("headline.count", { name, count: String(report.data.data.length) });
   }
 }
 
@@ -641,6 +684,8 @@ function ReportView({ report, ...rest }: ViewProps & { report: Report }) {
       return <CommissionView dimension={report.data.dimension} rows={report.data.data} {...rest} />;
     case "client-money":
       return <ClientMoneyView rows={report.data.data} {...rest} />;
+    case "bordereaux":
+      return <BordereauxView rows={report.data.data} {...rest} />;
   }
 }
 
@@ -1017,7 +1062,52 @@ function CommissionView({
   );
 }
 
-/* --------------------------------------------------------- 6. client money */
+/* ------------------------------------------------------------ 6. bordereaux */
+// docs/27 P2. Outbound only (see the API-side note beside `bordereauxRows`):
+// the per-policy premium/commission listing an insurer expects from us, one
+// row per commission entry rather than a settlement-grain total.
+
+function BordereauxView({ rows, locale, l, t }: ViewProps & { rows: BordereauxRow[] }) {
+  const currency = (row: BordereauxRow) => row.currency;
+  const columns: Array<Column<BordereauxRow>> = [
+    { key: "policyNo", header: l("bord.policy"), render: (row) => row.policyNo },
+    { key: "providerId", header: l("bord.provider"), render: (row) => row.providerId },
+    {
+      key: "earnedAt",
+      header: l("bord.earned"),
+      render: (row) => <DateTime value={row.earnedAt} locale={locale} />
+    },
+    {
+      key: "term",
+      header: l("bord.term"),
+      render: (row) => (
+        <>
+          <DateTime value={row.startAt} locale={locale} /> – <DateTime value={row.endAt} locale={locale} />
+        </>
+      )
+    },
+    moneyColumn("premium", l("bord.premium"), (row) => row.premiumMinor, currency, locale),
+    moneyColumn("commission", l("bord.commission"), (row) => row.commissionMinor, currency, locale),
+    { key: "kind", header: l("bord.kind"), render: (row) => row.kind }
+  ];
+  return (
+    <Table
+      columns={columns}
+      rows={rows}
+      rowKey={(row) => `${row.policyNo}|${row.earnedAt}`}
+      caption={`${l("title")} — ${l("report.bordereaux")}`}
+      density="compact"
+      empty={<Empty t={t} />}
+      footer={
+        <span className="font-ui text-12 tabular-nums text-subtle">
+          {t("common.rows", { count: String(rows.length) })}
+        </span>
+      }
+    />
+  );
+}
+
+/* --------------------------------------------------------- 7. client money */
 
 function ClientMoneyView({ rows, locale, l, t }: ViewProps & { rows: ClientMoneyRow[] }) {
   const currency = (row: ClientMoneyRow) => row.currency;

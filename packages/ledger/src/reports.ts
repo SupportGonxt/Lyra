@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, ne, sql } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, account, schema } from "@lyra/db";
 import { applyPpm, badRequest, notFound, type Ctx } from "@lyra/core";
 import { fxRateFor } from "./posting.js";
@@ -942,6 +942,71 @@ export async function commissionByDimension(
     out.set(k, row);
   }
   return [...out.values()].sort((a, b) => b.grossMinor - a.grossMinor);
+}
+
+/* -------------------------------------------------------- bordereaux (P2) */
+// docs/27 P2 "no bordereaux, inbound or outbound — zero hits in code or docs".
+// Scoped conservatively: this is the OUTBOUND half only — the periodic,
+// per-policy premium/commission listing an insurer or producer expects from
+// us. INBOUND bordereaux (an insurer's own listing, reconciled against ours)
+// is out of scope for this pass: it needs an import/reconciliation pipeline
+// of its own, the same shape as the bank-statement importer
+// (packages/ledger/src/statements.ts), and nothing here builds toward it.
+
+export interface BordereauxRow {
+  policyNo: string;
+  providerId: string;
+  productId: string | null;
+  customerId: string;
+  currency: string;
+  premiumMinor: number;
+  commissionMinor: number;
+  kind: string;
+  earnedAt: number;
+  startAt: number;
+  endAt: number;
+}
+
+/**
+ * One row per commission entry earning against a bound policy, joined to the
+ * policy for the fields a bordereaux states that the entry itself does not
+ * (`policyNo`, the term). The same source `settlementEntries` and
+ * `providerSettlementEntries` (apps/api/src/engines/settlement.ts) read, at
+ * policy grain instead of settlement grain — a bordereaux is the detail a
+ * remittance advice already totals.
+ */
+export async function bordereauxRows(
+  ctx: Ctx,
+  opts: { providerId?: string; periodCode?: string } = {}
+): Promise<BordereauxRow[]> {
+  const e = schema.distCommissionEntries;
+  const p = schema.axisPolicies;
+  const earned = sql<number>`coalesce(${e.earnedAt}, ${e.createdAt})`;
+  const where = [eq(e.tenantId, ctx.tenantId), ne(e.state, "written_off")];
+  if (opts.providerId) where.push(eq(e.providerId, opts.providerId));
+  if (opts.periodCode) {
+    const w = periodWindow(opts.periodCode);
+    where.push(gte(earned, w.from), lte(earned, w.to));
+  }
+
+  return ctx.db
+    .select({
+      policyNo: p.policyNo,
+      providerId: e.providerId,
+      productId: p.productId,
+      customerId: p.customerId,
+      currency: e.currency,
+      premiumMinor: e.premiumMinor,
+      commissionMinor: e.grossCommissionMinor,
+      kind: e.kind,
+      earnedAt: earned,
+      startAt: p.startAt,
+      endAt: p.endAt
+    })
+    .from(e)
+    .innerJoin(p, and(eq(p.tenantId, e.tenantId), eq(p.id, e.policyId)))
+    .where(and(...where))
+    .orderBy(asc(earned));
 }
 
 /** Flat rows for the XLSX/PDF exporters — one shape, every report. */
