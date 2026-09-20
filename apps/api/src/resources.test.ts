@@ -985,6 +985,97 @@ describe("scout/data-products: ROLE-028 scopes provider.viewer to its own provid
   });
 });
 
+describe("scout/data-products: publishing below the k-anonymity floor is refused server-side", () => {
+  // docs/27 P2 K_FLOOR follow-up. The only place this was enforced was
+  // apps/web's scout-data-products.tsx action, using a hardcoded literal — a
+  // caller that PATCHes the API directly (any client other than that one web
+  // route) bypassed the check entirely, and a tenant with a raised floor
+  // override was not protected by it either. This belongs in beforeWrite,
+  // where every writer of this resource passes.
+  const resource = () => {
+    const r = BY_MODULE.scout?.find((x) => x.path === "data-products");
+    if (!r) throw new Error("no scout/data-products resource");
+    return r;
+  };
+  const publisher: Ctx["actor"] = {
+    kind: "user",
+    id: "u_scout_publisher",
+    tenantId: "t_test",
+    grants: [{ roleKey: "scout.admin", permissions: ["scout:*:*"] }]
+  };
+
+  beforeAll(async () => {
+    await ctx.db.insert(schema.scoutDataProducts).values([
+      {
+        id: "dtp_below_default_floor",
+        tenantId: "t_test",
+        name: "below the default floor",
+        definitionJson: "{}",
+        consentBasis: "contract",
+        status: "draft",
+        aggregationMin: 19,
+        createdAt: NOW,
+        updatedAt: NOW
+      },
+      {
+        id: "dtp_at_default_floor",
+        tenantId: "t_test",
+        name: "exactly at the default floor",
+        definitionJson: "{}",
+        consentBasis: "contract",
+        status: "draft",
+        aggregationMin: 20,
+        createdAt: NOW,
+        updatedAt: NOW
+      }
+    ]);
+  });
+
+  it("refuses to publish a product whose aggregationMin is under the default floor (20)", async () => {
+    const res = await send(router(resource(), { actor: publisher }), "PATCH", "/dtp_below_default_floor", {
+      status: "published"
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("allows publishing a product whose aggregationMin exactly meets the default floor", async () => {
+    const res = await send(router(resource(), { actor: publisher }), "PATCH", "/dtp_at_default_floor", {
+      status: "published"
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("reads a tenant's own raised floor override, not just the compiled default", async () => {
+    const overriddenPolicy = PolicyJson.parse({
+      moduleConfig: { scout: { enabled: true, settings: { kAnonymityFloor: 25 } } }
+    });
+    // aggregationMin 20 cleared the default floor above; a tenant that raised
+    // its own floor to 25 must refuse the exact same row now.
+    const res = await send(router(resource(), { actor: publisher, policy: overriddenPolicy }), "PATCH", "/dtp_at_default_floor", {
+      status: "draft"
+    });
+    expect(res.status).toBe(200);
+    const res2 = await send(router(resource(), { actor: publisher, policy: overriddenPolicy }), "PATCH", "/dtp_at_default_floor", {
+      status: "published"
+    });
+    expect(res2.status).toBe(400);
+  });
+
+  it("does not gate a transition that leaves published status untouched", async () => {
+    // Editing the name of an already-published, under-floor-by-later-edit
+    // product must not be blocked by a check meant for the publish action —
+    // status is the only field this guard reads.
+    await ctx.db
+      .update(schema.scoutDataProducts)
+      .set({ status: "published" })
+      .where(eq(schema.scoutDataProducts.id, "dtp_below_default_floor"));
+    const res = await send(router(resource(), { actor: publisher }), "PATCH", "/dtp_below_default_floor", {
+      name: "renamed, still below floor"
+    });
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("scout negotiation pack: provider.viewer cannot download LYRA's own negotiation prep", () => {
   // scout:panel_bench:read is held by provider.viewer too (rbac.ts), and the
   // pack bakes every provider's price index/win-rate into one PDF — so the
@@ -1026,6 +1117,59 @@ describe("scout negotiation pack: provider.viewer cannot download LYRA's own neg
     );
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/pdf");
+  });
+});
+
+describe("GET /scout/config: the resolved k-anonymity floor, for the screens that display it", () => {
+  // docs/27 P2 K_FLOOR follow-up. scout-admin.tsx, scout-data-products.tsx,
+  // scout-panel.tsx and scout-pricing.tsx all showed the compiled
+  // DEFAULT_K_FLOOR literal even for a tenant that overrode it — this is the
+  // seam they read the resolved value from instead. Gated on any of the three
+  // real SCOUT read permissions those screens already require (not
+  // scout:signals:read alone, which provider.viewer does not hold and two of
+  // those four screens are reachable by).
+  const scoutApp = (over: Partial<Ctx> = {}): Hono<App> => {
+    const app = new Hono<App>();
+    app.onError(onError);
+    app.notFound((c) => onError(notFound(c.req.path), c));
+    app.use("*", async (c, next) => {
+      c.set("ctx", { ...ctx, ...over });
+      await next();
+    });
+    app.route("/", scoutRoutes);
+    return app;
+  };
+
+  it("a provider.viewer (data_products:read, panel_bench:read) can read it", async () => {
+    const viewer: Ctx["actor"] = {
+      kind: "user",
+      id: "u_provider_viewer",
+      tenantId: "t_test",
+      grants: [{ roleKey: "provider.viewer", permissions: ["scout:data_products:read", "scout:panel_bench:read"] }]
+    };
+    const res = await send(scoutApp({ actor: viewer }), "GET", "/config");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ kFloor: 20 });
+  });
+
+  it("returns a tenant's own raised floor override, not the compiled default", async () => {
+    const overriddenPolicy = PolicyJson.parse({
+      moduleConfig: { scout: { enabled: true, settings: { kAnonymityFloor: 30 } } }
+    });
+    const res = await send(scoutApp({ policy: overriddenPolicy }), "GET", "/config");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ kFloor: 30 });
+  });
+
+  it("refuses an actor with no SCOUT read permission at all", async () => {
+    const outsider: Ctx["actor"] = {
+      kind: "user",
+      id: "u_outsider",
+      tenantId: "t_test",
+      grants: [{ roleKey: "axis.adjuster", permissions: ["axis:claims:read"] }]
+    };
+    const res = await send(scoutApp({ actor: outsider }), "GET", "/config");
+    expect(res.status).toBe(403);
   });
 });
 

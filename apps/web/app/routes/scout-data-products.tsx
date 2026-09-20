@@ -149,9 +149,9 @@ export const activeSubscribers = (row: DataProductRow): Subscriber[] =>
  * however high the floor is (the seeded latency benchmark is exactly this, and
  * it is why that product is suspended).
  */
-export function warningsFor(row: DataProductRow): string[] {
+export function warningsFor(row: DataProductRow, floor: number = K_FLOOR): string[] {
   const out: string[] = [];
-  if (row.aggregationMin < K_FLOOR) out.push("belowFloor");
+  if (row.aggregationMin < floor) out.push("belowFloor");
   if (definitionOf(row).dimensions.includes("providerId")) out.push("singleCounterparty");
   const refresh = definitionOf(row).refreshState;
   if (row.status === "published" && (refresh === "stale" || refresh === "halted")) out.push("staleFeed");
@@ -175,10 +175,10 @@ export function nextProductStates(from: string): string[] {
 /** The one sentence the catalogue opens with — publish and warning counts
  *  already on every row, no ✦ (arithmetic, not an agent's finding, CLAUDE.md
  *  §11). */
-export function dtpHeadline(rows: DataProductRow[], l: Label): string {
+export function dtpHeadline(rows: DataProductRow[], l: Label, floor: number = K_FLOOR): string {
   if (rows.length === 0) return l("dtp.title");
   const published = rows.filter((row) => row.status === "published").length;
-  const flagged = rows.filter((row) => warningsFor(row).length > 0).length;
+  const flagged = rows.filter((row) => warningsFor(row, floor).length > 0).length;
   if (flagged > 0) return l("dtp.headlineFlagged", { n: String(flagged), total: String(rows.length) });
   return l("dtp.headlinePublished", { n: String(published), total: String(rows.length) });
 }
@@ -194,6 +194,14 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   );
   const rows = page.data;
   const product = rows.find((row) => row.id === chosen) ?? rows[0] ?? null;
+
+  // docs/27 P2 K_FLOOR follow-up: the resolved tenant value, not the compiled
+  // default — falls back to it on a permission or network failure, same as
+  // every other best-effort read on this loader.
+  const kFloor = await safe(
+    () => api<{ kFloor: number }>("/v1/scout/config", { env, request }).then((r) => r.kFloor),
+    K_FLOOR
+  );
 
   const [named, deliveries] = await Promise.all([
     names(
@@ -219,7 +227,8 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     named,
     deliveries: deliveries.data,
     moves: product === null ? [] : nextProductStates(product.status),
-    key: mintKey("scout-dtp")
+    key: mintKey("scout-dtp"),
+    kFloor
   };
 }
 
@@ -244,9 +253,19 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
 
   // The floor is the whole guarantee. Publishing a cut floored under the
   // module's k-anonymity floor is the one move this screen refuses outright —
-  // lower the cells or raise the floor, but not from a publish button.
+  // lower the cells or raise the floor, but not from a publish button. The
+  // authoritative check is resources.ts's beforeWrite on this resource (any
+  // caller, any tenant floor); this is a same-request pre-check against the
+  // resolved value, for the polished bilingual message instead of a bare
+  // ApiError round trip.
   const floor = Number(form.get("floor") ?? "0");
-  if (to === "published" && Number.isFinite(floor) && floor < K_FLOOR) return refuse("floor_too_low");
+  if (to === "published" && Number.isFinite(floor)) {
+    const kFloor = await safe(
+      () => api<{ kFloor: number }>("/v1/scout/config", { env, request }).then((r) => r.kFloor),
+      K_FLOOR
+    );
+    if (floor < kFloor) return refuse("floor_too_low");
+  }
 
   try {
     await api<DataProductRow>(`/v1/scout/data-products/${encodeURIComponent(id)}`, {
@@ -281,7 +300,7 @@ export default function ScoutDataProducts() {
       <div className="flex flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h1 className="font-serif text-22 leading-[1.2] text-text">{dtpHeadline(loaded.rows, l)}</h1>
+            <h1 className="font-serif text-22 leading-[1.2] text-text">{dtpHeadline(loaded.rows, l, loaded.kFloor)}</h1>
             <p className="font-ui text-13 text-muted">{l("dtp.lede")}</p>
           </div>
         </header>
@@ -291,10 +310,10 @@ export default function ScoutDataProducts() {
   }
 
   const published = loaded.rows.filter((row) => row.status === "published");
-  const flagged = loaded.rows.filter((row) => warningsFor(row).length > 0);
+  const flagged = loaded.rows.filter((row) => warningsFor(row, loaded.kFloor).length > 0);
   const definition = definitionOf(product);
   const subscribers = subscribersOf(product);
-  const warnings = warningsFor(product);
+  const warnings = warningsFor(product, loaded.kFloor);
 
   return (
     <div className="flex flex-col gap-6">
@@ -314,7 +333,7 @@ export default function ScoutDataProducts() {
       <Card title={l("dtp.monitor")} description={l("dtp.monitorHint")}>
         <dl className="mt-3 grid gap-4 sm:grid-cols-4">
           <Metric label={l("dtp.published")} value={String(published.length)} />
-          <Metric label={l("dtp.floor")} value={String(K_FLOOR)} />
+          <Metric label={l("dtp.floor")} value={String(loaded.kFloor)} />
           <Metric label={l("dtp.subscribing")} value={String(new Set(published.flatMap((row) => activeSubscribers(row).map((one) => one.providerId))).size)} />
           <Metric label={l("dtp.flagged")} value={String(flagged.length)} />
         </dl>
@@ -346,9 +365,9 @@ export default function ScoutDataProducts() {
                     <span className="font-ui text-12 text-subtle">
                       {l("dtp.k", { floor: String(row.aggregationMin) })}
                     </span>
-                    {warningsFor(row).length > 0 ? (
+                    {warningsFor(row, loaded.kFloor).length > 0 ? (
                       <Badge tone="warning" size="sm">
-                        {l(`dtp.warn.${warningsFor(row)[0]}`)}
+                        {l(`dtp.warn.${warningsFor(row, loaded.kFloor)[0]}`)}
                       </Badge>
                     ) : null}
                   </span>
@@ -395,7 +414,7 @@ export default function ScoutDataProducts() {
                 key={warning}
                 tone="warning"
                 title={l(`dtp.warn.${warning}`)}
-                reason={l(`dtp.warnWhy.${warning}`, { floor: String(K_FLOOR) })}
+                reason={l(`dtp.warnWhy.${warning}`, { floor: String(loaded.kFloor) })}
               />
             ))}
           </Card>

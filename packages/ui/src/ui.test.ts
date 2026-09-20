@@ -73,26 +73,38 @@ describe("tokens.css covers docs/01 §3–4", () => {
     }
   );
 
-  // docs/27 P2: `.exec` above finds only the *first* --module-axis in the
+  // docs/27 P2: `.exec` above finds only the *first* --module-<mod> in the
   // file — the dark default at :root — so the two light-mode definition sites
   // (the `prefers-color-scheme: light` media query and the explicit
   // `[data-theme="light"]` override) could drift from docs/01-brand.md:83
-  // unnoticed, and did: both shipped `#b45309` where the doc names
-  // `#A2660B`. Guarded the same way, just against the light row instead of
-  // the dark one.
-  it("defines --module-axis's light-mode row as docs/01-brand.md:83 names it", () => {
-    const axisLight = /AXIS\s+`#[0-9A-Fa-f]{6}`\s*\([^)]*\)\s*\/\s*`(#[0-9A-Fa-f]{6})`\s*\(light\)/.exec(colour);
-    expect(axisLight, "docs/01-brand.md must still name AXIS's light hue").not.toBeNull();
-    const lightHex = (axisLight?.[1] as string).toLowerCase();
+  // unnoticed, and did for AXIS: both shipped `#b45309` where the doc names
+  // `#A2660B`. Fixing that one and re-reading the same line for the other
+  // four found the same shape smaller — ORBIT, SIGNAL, SCOUT and NORTH's
+  // light hues each differed from the doc too. Generalised to all five
+  // rather than re-adding a fifth AXIS-shaped test one module at a time.
+  const moduleLight = [
+    ...colour.matchAll(
+      /\b(AXIS|ORBIT|SIGNAL|SCOUT|NORTH)\s+`#[0-9A-Fa-f]{6}`\s*\([^)]*\)\s*\/\s*`(#[0-9A-Fa-f]{6})`\s*\(light\)/g
+    )
+  ];
 
-    // Two definition sites; the dark default at :root is the first
-    // --module-axis in the file and is not one of these.
-    const lightSites = [...tokens.matchAll(/--module-axis:\s*(#[0-9A-Fa-f]{6});/g)].slice(1);
-    expect(lightSites, "tokens.css should declare --module-axis in both light-mode blocks").toHaveLength(2);
-    for (const [, hex] of lightSites) {
-      expect((hex as string).toLowerCase()).toBe(lightHex);
-    }
+  it("names all five module accents' light-mode hues", () => {
+    expect(moduleLight).toHaveLength(5);
   });
+
+  it.each(moduleLight.map((m) => [(m[1] as string).toLowerCase(), m[2] as string]))(
+    "defines --module-%s's light-mode row as docs/01-brand.md:83 names it",
+    (mod, hex) => {
+      const lightHex = (hex as string).toLowerCase();
+      // Two definition sites; the dark default at :root is the first
+      // --module-<mod> in the file and is not one of these.
+      const lightSites = [...tokens.matchAll(new RegExp(`--module-${mod}:\\s*(#[0-9A-Fa-f]{6});`, "g"))].slice(1);
+      expect(lightSites, `tokens.css should declare --module-${mod} in both light-mode blocks`).toHaveLength(2);
+      for (const [, siteHex] of lightSites) {
+        expect((siteHex as string).toLowerCase()).toBe(lightHex);
+      }
+    }
+  );
 
   const fontRoles = ["Space Grotesk", "Inter", "IBM Plex Mono", "IBM Plex Sans Arabic"];
   it.each(fontRoles)("wires the %s type role", (font) => {

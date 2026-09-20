@@ -172,6 +172,13 @@ describe("k-anonymity monitor", () => {
     expect(warningsFor(product({ aggregationMin: 5 }))).toContain("belowFloor");
   });
 
+  it("checks against a passed-in floor, not just the compiled default", () => {
+    // 20 clears the compiled default with room to spare, but not a tenant
+    // that raised its own floor to 25.
+    expect(warningsFor(product({ aggregationMin: 20 }), 25)).toContain("belowFloor");
+    expect(warningsFor(product({ aggregationMin: 20 }), 15)).not.toContain("belowFloor");
+  });
+
   it("flags a cut keyed on the counterparty however high the floor is", () => {
     // Every cell of a providerId-keyed cut names one carrier; the floor cannot
     // fix that, which is why the seeded latency benchmark ships suspended.
@@ -232,12 +239,26 @@ describe("changing status", () => {
   });
 
   it("refuses to publish a cut floored below the module floor", async () => {
-    const calls = stubFetch();
+    const calls = stubFetch(json({ kFloor: 20 }));
     const result = await action(
       args(form({ intent: "move", productId: "dtp_1", from: "draft", to: "published", floor: "5" }))
     );
     expect(result.problem?.code).toBe("floor_too_low");
-    expect(calls).toHaveLength(0);
+    // One call to resolve the tenant's floor, none to actually PATCH — the
+    // pre-check refuses before the write is attempted.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.test/v1/scout/config");
+  });
+
+  it("reads the tenant's own resolved floor, not the compiled default", async () => {
+    // aggregationMin 25 clears the compiled default (20) but not a tenant that
+    // raised its own floor to 30 — the pre-check has to ask, not assume.
+    const calls = stubFetch(json({ kFloor: 30 }));
+    const result = await action(
+      args(form({ intent: "move", productId: "dtp_1", from: "draft", to: "published", floor: "25" }))
+    );
+    expect(result.problem?.code).toBe("floor_too_low");
+    expect(calls[0]?.url).toBe("https://api.test/v1/scout/config");
   });
 
   it("still allows suspending a product whose floor is too low", async () => {
@@ -252,14 +273,15 @@ describe("changing status", () => {
   });
 
   it("patches the row with the new status and nothing else", async () => {
-    const calls = stubFetch(json({ id: "dtp_1", status: "published" }));
+    const calls = stubFetch(json({ kFloor: 20 }), json({ id: "dtp_1", status: "published" }));
     const result = await action(
       args(form({ intent: "move", productId: "dtp_1", from: "draft", to: "published", floor: "20", key: "idem_1" }))
     );
-    expect(calls[0]?.url).toBe("https://api.test/v1/scout/data-products/dtp_1");
-    expect(calls[0]?.method).toBe("PATCH");
-    expect(calls[0]?.key).toBe("idem_1");
-    expect(calls[0]?.body).toEqual({ status: "published" });
+    expect(calls[0]?.url).toBe("https://api.test/v1/scout/config");
+    expect(calls[1]?.url).toBe("https://api.test/v1/scout/data-products/dtp_1");
+    expect(calls[1]?.method).toBe("PATCH");
+    expect(calls[1]?.key).toBe("idem_1");
+    expect(calls[1]?.body).toEqual({ status: "published" });
     expect(result.done).toEqual({ status: "published" });
   });
 

@@ -67,6 +67,13 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     () => api<Page<PanelRow>>(`/v1/scout/panel-bench?sort=period&order=desc&limit=${LIMIT}`, { env, request }),
     emptyPage<PanelRow>()
   );
+  // docs/27 P2 K_FLOOR follow-up: the resolved tenant value, not the compiled
+  // default — falls back to it on a permission or network failure, same as
+  // every other best-effort read on this loader.
+  const kFloor = await safe(
+    () => api<{ kFloor: number }>("/v1/scout/config", { env, request }).then((r) => r.kFloor),
+    K_FLOOR
+  );
 
   const period = latestPeriod(bench.data);
   const rows = inPeriod(bench.data, period);
@@ -77,7 +84,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     rolls.map((roll) => roll.providerId),
     { env, request }
   );
-  return { period, rolls, resolved, thin: bench.data.length === 0 };
+  return { period, rolls, resolved, thin: bench.data.length === 0, kFloor };
 }
 
 export interface ActionResult {
@@ -174,7 +181,7 @@ export default function ScoutPanel() {
       <GuardrailNotice
         tone="info"
         title={l("kFloor")}
-        reason={l("kFloorWhy", { k: String(K_FLOOR) })}
+        reason={l("kFloorWhy", { k: String(loaded.kFloor) })}
       />
 
       {may.has(PERM.panelBuild) ? (

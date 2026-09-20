@@ -874,6 +874,25 @@ export const SCOUT = register(
     create: "scout:data_products:create",
     update: "scout:data_products:publish"
   }, {
+    // docs/27 P2 K_FLOOR follow-up: apps/web's scout-data-products.tsx action
+    // already refused this transition client-side, but with a hardcoded
+    // literal and only on the one path that goes through that route — a
+    // direct PATCH bypassed it, and a tenant with a raised floor override was
+    // not protected either. beforeWrite is where every writer of this
+    // resource passes, so this is the seam the check belongs at; the web
+    // action's own check stays as a same-request UX pre-check.
+    beforeWrite: (ctx, values, existing) => {
+      if (values.status !== "published") return values;
+      const aggregationMin = (values.aggregationMin as number | undefined) ??
+        (existing as { aggregationMin?: number } | undefined)?.aggregationMin;
+      const floor = kAnonymityFloor(ctx.policy, "scout");
+      if (typeof aggregationMin === "number" && !checkKAnonymity(aggregationMin, floor).allowed) {
+        throw badRequest(
+          `cannot publish: this product's floor (${aggregationMin}) is below the scout k-anonymity floor (${floor})`
+        );
+      }
+      return values;
+    },
     // ROLE-028 (ADR-0025): provider.viewer only has scout:data_products:read,
     // so without this it sees every draft/suspended product tenant-wide, not
     // just what's published. Publishers (scout:data_products:publish) still

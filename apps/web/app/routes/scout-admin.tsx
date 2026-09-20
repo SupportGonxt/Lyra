@@ -155,8 +155,8 @@ export function thresholdValue(row: Pick<ThresholdRow, "valueJson">): string {
 }
 
 /** Products whose own floor differs from the module default — the rest inherit. */
-export const floorOverrides = (rows: ProductRow[]): ProductRow[] =>
-  rows.filter((row) => row.aggregationMin !== K_FLOOR).sort((a, b) => a.aggregationMin - b.aggregationMin);
+export const floorOverrides = (rows: ProductRow[], floor: number = K_FLOOR): ProductRow[] =>
+  rows.filter((row) => row.aggregationMin !== floor).sort((a, b) => a.aggregationMin - b.aggregationMin);
 
 /** The one sentence admin opens with — pending approvals and quiet sources
  *  already on the loader, no ✦ (arithmetic, not an agent's finding, CLAUDE.md
@@ -172,7 +172,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
   const now = Date.now();
 
-  const [sources, adapters, watch, products, thresholds, approvals] = await Promise.all([
+  const [sources, adapters, watch, products, thresholds, approvals, kFloor] = await Promise.all([
     Promise.all(
       SIGNAL_SOURCES.map(async (source) => {
         const page = await safe(
@@ -210,17 +210,22 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
           request
         }),
       emptyPage<ApprovalRow>()
-    )
+    ),
+    // docs/27 P2 K_FLOOR follow-up: the resolved tenant value, not the
+    // compiled default — falls back to it on a permission or network failure,
+    // same as every other best-effort read on this loader.
+    safe(() => api<{ kFloor: number }>("/v1/scout/config", { env, request }).then((r) => r.kFloor), K_FLOOR)
   ]);
 
   return {
     sources,
     adapters: adapters.data,
     watch,
-    overrides: floorOverrides(products.data),
+    overrides: floorOverrides(products.data, kFloor),
     thresholds: currentThresholds(thresholds.data),
     approvals: approvals.data,
-    pending: approvals.data.filter((row) => row.decision === "pending").length
+    pending: approvals.data.filter((row) => row.decision === "pending").length,
+    kFloor
   };
 }
 
@@ -313,7 +318,7 @@ export default function ScoutAdmin() {
         <Card title={l("adm.floors")} description={l("adm.floorsHint")}>
           <dl className="mt-3 flex flex-col gap-1">
             <dt className="font-ui text-12 text-subtle">{l("adm.defaultFloor")}</dt>
-            <dd className="font-serif text-20 text-text">{K_FLOOR}</dd>
+            <dd className="font-serif text-20 text-text">{loaded.kFloor}</dd>
           </dl>
           <p className="mt-2 max-w-prose font-ui text-12 text-subtle">{l("adm.defaultFloorWhy")}</p>
           <h3 className="mt-4 font-ui text-13 font-medium text-text">{l("adm.overrides")}</h3>
@@ -324,7 +329,7 @@ export default function ScoutAdmin() {
               {loaded.overrides.map((row) => (
                 <li key={row.id} className="flex flex-wrap items-baseline gap-2">
                   <span className="font-ui text-13 text-text">{row.name}</span>
-                  <Badge tone={row.aggregationMin < K_FLOOR ? "warning" : "neutral"} size="sm">
+                  <Badge tone={row.aggregationMin < loaded.kFloor ? "warning" : "neutral"} size="sm">
                     {l("dtp.k", { floor: String(row.aggregationMin) })}
                   </Badge>
                   <span className="font-ui text-12 text-subtle">{l(`dtp.status.${row.status}`)}</span>

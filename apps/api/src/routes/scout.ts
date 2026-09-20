@@ -2,7 +2,18 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { schema } from "@lyra/db";
-import { actorRef, audit, require_, diffWords, withIdempotency, SIGNAL_SOURCE_KINDS, type Ctx } from "@lyra/core";
+import {
+  actorRef,
+  audit,
+  can,
+  diffWords,
+  ForbiddenError,
+  kAnonymityFloor,
+  require_,
+  withIdempotency,
+  SIGNAL_SOURCE_KINDS,
+  type Ctx
+} from "@lyra/core";
 import type { WhitespaceCandidate } from "@lyra/core";
 import { body } from "../http.js";
 import {
@@ -156,6 +167,23 @@ scoutRoutes.get("/watch", async (c) => {
   const days = Number(c.req.query("days"));
   const windowMs = Number.isFinite(days) && days >= 1 && days <= 180 ? days * 86_400_000 : undefined;
   return c.json(await runWatch(ctx, windowMs));
+});
+
+// docs/27 P2 K_FLOOR follow-up: scout-admin.tsx, scout-data-products.tsx,
+// scout-panel.tsx and scout-pricing.tsx all show/validate against the SCOUT
+// k-anonymity floor, and until now read a compiled literal that could not see
+// a tenant's own override (moduleConfig.scout.settings.kAnonymityFloor). This
+// is the seam they read the resolved value from. Gated on any of the three
+// real SCOUT read permissions those screens require — not scout:signals:read
+// alone, which provider.viewer (reachable on two of the four) does not hold.
+scoutRoutes.get("/config", (c) => {
+  const ctx = ctxOf(c);
+  const subject = { tenantId: ctx.tenantId, module: "scout" };
+  const allowed = (
+    ["scout:signals:read", "scout:data_products:read", "scout:panel_bench:read"] as const
+  ).some((p) => can(ctx.actor, p, subject));
+  if (!allowed) throw new ForbiddenError("scout:signals:read");
+  return c.json({ kFloor: kAnonymityFloor(ctx.policy, "scout") });
 });
 
 const WordingDiffBody = z.object({ textA: z.string().max(50_000), textB: z.string().max(50_000) });
