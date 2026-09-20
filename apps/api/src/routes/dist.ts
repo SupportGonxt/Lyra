@@ -14,10 +14,11 @@ import {
   quoteCommission,
   require_,
   sha256Hex,
+  unearnedShareMinor,
   withIdempotency,
   type Ctx
 } from "@lyra/core";
-import { body, created, listParams } from "../http.js";
+import { body, created, listParams, InstantMs } from "../http.js";
 import { isUniqueViolation } from "../crud.js";
 import { one } from "../rows.js";
 import type { QuoteOutcome } from "../engines/rating.js";
@@ -344,66 +345,131 @@ distRoutes.post("/commission-entries/accrue", async (c) => {
   );
 });
 
+const ClawbackBody = z.object({
+  reason: z.string().min(3).max(500),
+  /**
+   * docs/27 P2 "clawback posts but nothing computes what is clawable". The
+   * instant the clawback is priced as of — a mid-term cancellation, not "now"
+   * if the request lags it. Defaults to now.
+   */
+  asOf: InstantMs.optional()
+});
+
 /**
- * Reverse an accrual. Never edits the original: a clawback is its own entry
- * pointing at what it reverses, so a statement reproduces to the cent.
+ * What of an accrual is still clawable as of `asOf`: the unearned share of a
+ * mid-term cancellation, proportional to the policy's remaining term — the
+ * same day math `priceCancellation` (engines/axis-lifecycle.ts) already prices
+ * a policy cancellation with, so a policy's own cancel and its commission
+ * clawback never disagree about what "unearned" means.
+ *
+ * Every real commission entry's `policyId` is a live `axis_policies` row (the
+ * column is `notNull`), so this resolves for every entry a live system posts.
+ * The one case it falls through — no such policy — is a caller-supplied
+ * `policyId` that names nothing on this tenant, and a full reversal is the
+ * only honest answer to "prorate against what": there is no term to prorate.
+ */
+async function clawableAmounts(
+  ctx: Ctx,
+  entry: typeof schema.distCommissionEntries.$inferSelect,
+  asOf: number
+): Promise<{ premiumMinor: number; grossCommissionMinor: number; channelCommissionMinor: number; netCommissionMinor: number; taxMinor: number }> {
+  const policy = await one(ctx, schema.axisPolicies, entry.policyId);
+  if (!policy) {
+    return {
+      premiumMinor: entry.premiumMinor,
+      grossCommissionMinor: entry.grossCommissionMinor,
+      channelCommissionMinor: entry.channelCommissionMinor,
+      netCommissionMinor: entry.netCommissionMinor,
+      taxMinor: entry.taxMinor
+    };
+  }
+  const term = { startAt: policy.startAt, endAt: policy.endAt };
+  const unearned = (amountMinor: number): number => unearnedShareMinor(amountMinor, term, asOf);
+  return {
+    premiumMinor: unearned(entry.premiumMinor),
+    grossCommissionMinor: unearned(entry.grossCommissionMinor),
+    channelCommissionMinor: unearned(entry.channelCommissionMinor),
+    netCommissionMinor: unearned(entry.netCommissionMinor),
+    taxMinor: unearned(entry.taxMinor)
+  };
+}
+
+/**
+ * Reverse an accrual — or, when the underlying policy has a term to prorate
+ * against, the unearned share of it. Never edits the original: a clawback is
+ * its own entry pointing at what it reverses, so a statement reproduces to
+ * the cent.
  */
 distRoutes.post("/commission-entries/:id/clawback", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "dist:commissions:adjust", { tenantId: ctx.tenantId, module: "dist" });
   const entryId = c.req.param("id");
-  const { reason } = await body(c, z.object({ reason: z.string().min(3).max(500) }));
+  const { reason, asOf } = await body(c, ClawbackBody);
+  const effectiveAt = asOf ?? ctx.now;
 
   // A reversal is money (CLAUDE.md §12), so it takes the same idempotency
   // wrapper as every other money route: a retried submit replays the stored
   // reversal instead of racing the state check and crediting it twice.
-  const row = await withIdempotency(ctx, c.req.header("idempotency-key"), "dist.clawback", { entryId, reason }, async () => {
-    const entry = await one(ctx, schema.distCommissionEntries, entryId);
-    if (!entry) throw notFound("commission entry");
-    if (entry.reversalOf) throw conflict("cannot claw back a reversal");
-    // Before the gate: an approval lives for 24h against (subject, policy), so
-    // without this the same approval reverses the same accrual twice and credits
-    // the reversal twice (CLAUDE.md §12).
-    if (entry.state === "clawed_back") throw conflict("entry has already been clawed back");
+  const row = await withIdempotency(
+    ctx,
+    c.req.header("idempotency-key"),
+    "dist.clawback",
+    // The idempotency payload carries only what the caller stated, not the
+    // resolved `effectiveAt` — a replay omitting `asOf` defaults to "now" both
+    // times and must hash the same both times, or every replay of an
+    // undated clawback would read as a payload mismatch and 409 instead of
+    // replaying (asOf's own default is `ctx.now`, which moves).
+    { entryId, reason, asOf },
+    async () => {
+      const entry = await one(ctx, schema.distCommissionEntries, entryId);
+      if (!entry) throw notFound("commission entry");
+      if (entry.reversalOf) throw conflict("cannot claw back a reversal");
+      // Before the gate: an approval lives for 24h against (subject, policy), so
+      // without this the same approval reverses the same accrual twice and credits
+      // the reversal twice (CLAUDE.md §12).
+      if (entry.state === "clawed_back") throw conflict("entry has already been clawed back");
 
-    await gate(ctx, {
-      policyKey: "dist.commission_adjust",
-      subjectRef: entry.id,
-      amountMinor: entry.grossCommissionMinor,
-      context: { reason }
-    });
+      const clawable = await clawableAmounts(ctx, entry, effectiveAt);
 
-    const reversal: typeof schema.distCommissionEntries.$inferInsert = {
-      ...entry,
-      id: newId("ce", ctx.now),
-      kind: "clawback",
-      premiumMinor: -entry.premiumMinor,
-      grossCommissionMinor: -entry.grossCommissionMinor,
-      channelCommissionMinor: -entry.channelCommissionMinor,
-      netCommissionMinor: -entry.netCommissionMinor,
-      taxMinor: -entry.taxMinor,
-      reversalOf: entry.id,
-      providerSettlementId: null,
-      channelSettlementId: null,
-      state: "accrued",
-      createdAt: ctx.now,
-      updatedAt: ctx.now
-    };
-    await ctx.db.insert(schema.distCommissionEntries).values(reversal);
-    await ctx.db
-      .update(schema.distCommissionEntries)
-      .set({ state: "clawed_back", updatedAt: ctx.now })
-      .where(and(eq(schema.distCommissionEntries.tenantId, ctx.tenantId), eq(schema.distCommissionEntries.id, entry.id)));
+      await gate(ctx, {
+        policyKey: "dist.commission_adjust",
+        subjectRef: entry.id,
+        amountMinor: clawable.grossCommissionMinor,
+        context: { reason, asOf: effectiveAt, fullAmountMinor: entry.grossCommissionMinor }
+      });
 
-    await audit(ctx, { action: "dist.commission.clawback", subjectRef: reversal.id, before: entry, after: reversal });
-    await emit(ctx, {
-      module: "dist",
-      type: "dist.commission.clawed_back",
-      subject: reversal.id,
-      data: { reversalOf: entry.id, reason }
-    });
-    return reversal;
-  });
+      const reversal: typeof schema.distCommissionEntries.$inferInsert = {
+        ...entry,
+        id: newId("ce", ctx.now),
+        kind: "clawback",
+        premiumMinor: -clawable.premiumMinor,
+        grossCommissionMinor: -clawable.grossCommissionMinor,
+        channelCommissionMinor: -clawable.channelCommissionMinor,
+        netCommissionMinor: -clawable.netCommissionMinor,
+        taxMinor: -clawable.taxMinor,
+        reversalOf: entry.id,
+        providerSettlementId: null,
+        channelSettlementId: null,
+        state: "accrued",
+        createdAt: ctx.now,
+        updatedAt: ctx.now
+      };
+      await ctx.db.insert(schema.distCommissionEntries).values(reversal);
+      await ctx.db
+        .update(schema.distCommissionEntries)
+        .set({ state: "clawed_back", updatedAt: ctx.now })
+        .where(and(eq(schema.distCommissionEntries.tenantId, ctx.tenantId), eq(schema.distCommissionEntries.id, entry.id)));
+
+      await audit(ctx, { action: "dist.commission.clawback", subjectRef: reversal.id, before: entry, after: reversal });
+      await emit(ctx, {
+        module: "dist",
+        type: "dist.commission.clawed_back",
+        subject: reversal.id,
+        data: { reversalOf: entry.id, reason, unearnedOfMinor: entry.grossCommissionMinor, clawedBackMinor: clawable.grossCommissionMinor }
+      });
+      return reversal;
+    }
+  );
   return created(c, row as { id: string });
 });
 

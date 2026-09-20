@@ -815,6 +815,12 @@ catalogue owns.
 
 ## P2 — depth, not absence
 
+*Four items below are now closed, 2026-09-20 — commission depth, clawback
+computation, insurer statements and outbound bordereaux — see the note after
+this paragraph. The paragraph is kept as written, per the standing convention
+above (a finding written as prose rots the moment someone fixes it, and the
+closing note is where a reader looks first).*
+
 Commission is flat-rate only — no ladders, tiers, volume bonuses or overrides
 (`core/src/commission.ts:84-108`); clawback posts but nothing computes what is
 clawable; no producer statements (`settlement.ts:39` serves partner, creator
@@ -837,6 +843,29 @@ not exist despite the CLAUDE.md target layout and `docs/02:59` — the runtime i
 `#A2660B`; `tokens.css` ships `#b45309` at both definition sites
 (`:523,618`) — only the dark-mode values are guarded by a test, so the light
 row can drift from its own doc unnoticed.
+
+*Closed, 2026-09-20.* **Commission depth**: `splitCommission`/`quoteCommission`
+(`packages/core/src/commission.ts`) now take `tiers`, `volumeBonus` and
+`override`, additive to the flat rate they always had — ADR-0083, and
+`dist_commission_rates.structure_json` is the reserved column a rate row
+stores them on. **Clawback**: `unearnedShareMinor`
+(`packages/core/src/lifecycle.ts`) is `quoteEndorsement`'s own day math,
+extracted; `POST /v1/dist/commission-entries/:id/clawback` now prices the
+unearned share against the entry's policy term instead of always reversing
+the whole accrual, falling back to a full reversal only when the entry's
+`policyId` names no real policy (a caller-supplied id, never a live system's
+own accrual). **Insurer statements**: `statementTable`
+(`apps/api/src/engines/settlement.ts`) routes an `insurer`-kind settlement
+through `providerSettlementEntries`, the provider-dimension mirror of
+`settlementEntries` that `providerSettlementId` was always reserved for
+(sighting 11's own comment named it) — the remittance advice was correct all
+along and simply never reached. **Bordereaux**: outbound only, scoped
+deliberately — `bordereauxRows` (`packages/ledger/src/reports.ts`) and the
+`bordereaux` entry in `REPORT_EXPORTS`
+(`apps/api/src/routes/ledger.ts`) reuse the same export infrastructure as the
+account statement and the money map. Inbound bordereaux (reconciling an
+insurer's own listing against ours) needs an import pipeline of its own and
+is untouched.
 
 **Thin screens.** *Re-read at source 2026-09-18/19; all seven claims are now
 closed in code and the paragraph never caught up in between. Kept, not

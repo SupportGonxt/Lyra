@@ -497,6 +497,115 @@ describe("defect 5: clawback reverses the same accrual twice", () => {
   });
 });
 
+/* --------------------------- P2: clawback computes the unearned share --- */
+
+describe("clawback prorates against the policy's remaining term (docs/27 P2)", () => {
+  const DAY = 86_400_000;
+  let entryId: string;
+  let policyId: string;
+
+  beforeAll(async () => {
+    const now = Date.now();
+    // A year term, cancelled at the exact midpoint: half is earned, half is
+    // clawable — neither the full amount nor zero, which is what a blind full
+    // reversal or a since-fixed no-op would each get wrong.
+    policyId = newId("pol", now);
+    await database.insert(schema.axisPolicies).values({
+      id: policyId,
+      tenantId: seeded.tenantId,
+      customerId: "cus_clawback_prorate_test",
+      providerId: "prv_clawback_prorate_test",
+      policyNo: `POL-CLAWBACK-PRORATE-${now}`,
+      startAt: now - 182 * DAY,
+      endAt: now + 183 * DAY,
+      premiumMinor: 1_000_00,
+      currency: "AED",
+      commissionMinor: 100_00,
+      status: "active",
+      versionSeq: 1,
+      createdAt: now,
+      updatedAt: now
+    });
+    entryId = newId("ce", now);
+    await database.insert(schema.distCommissionEntries).values({
+      id: entryId,
+      tenantId: seeded.tenantId,
+      policyId,
+      providerId: "prv_clawback_prorate_test",
+      channelId: "chn_clawback_prorate_test",
+      kind: "new_business",
+      premiumMinor: 1_000_00,
+      grossCommissionMinor: 100_00,
+      channelCommissionMinor: 40_00,
+      netCommissionMinor: 60_00,
+      taxMinor: 0,
+      currency: "AED",
+      state: "accrued",
+      createdAt: now,
+      updatedAt: now
+    });
+  });
+
+  it("claws back roughly the unearned half, not the full accrual", async () => {
+    const res = await throughApproval(
+      "finance.controller",
+      "finance.approver",
+      "POST",
+      `/v1/dist/commission-entries/${entryId}/clawback`,
+      { reason: "policy cancelled at the midpoint of its term" }
+    );
+    expect(res.status).toBe(201);
+
+    const [reversal] = await database
+      .select()
+      .from(schema.distCommissionEntries)
+      .where(eq(schema.distCommissionEntries.reversalOf, entryId));
+    expect(reversal).toBeDefined();
+    // Full reversal would be exactly -10,000; a computed no-op would be 0.
+    // Roughly half, allowing for day-rounding either side of the midpoint.
+    expect(reversal!.grossCommissionMinor).toBeLessThan(0);
+    expect(reversal!.grossCommissionMinor).toBeGreaterThan(-100_00);
+    expect(Math.abs(reversal!.grossCommissionMinor + 50_00)).toBeLessThan(1_00);
+  });
+
+  it("falls back to a full reversal when the entry's policyId names no real policy", async () => {
+    const now = Date.now();
+    const orphanEntryId = newId("ce", now + 1);
+    await database.insert(schema.distCommissionEntries).values({
+      id: orphanEntryId,
+      tenantId: seeded.tenantId,
+      policyId: `pol_no_such_policy_${now}`,
+      providerId: "prv_clawback_fallback_test",
+      channelId: "chn_clawback_fallback_test",
+      kind: "new_business",
+      premiumMinor: 500_00,
+      grossCommissionMinor: 50_00,
+      channelCommissionMinor: 20_00,
+      netCommissionMinor: 30_00,
+      taxMinor: 0,
+      currency: "AED",
+      state: "accrued",
+      createdAt: now,
+      updatedAt: now
+    });
+
+    const res = await throughApproval(
+      "finance.controller",
+      "finance.approver",
+      "POST",
+      `/v1/dist/commission-entries/${orphanEntryId}/clawback`,
+      { reason: "no term to prorate against" }
+    );
+    expect(res.status).toBe(201);
+
+    const [reversal] = await database
+      .select()
+      .from(schema.distCommissionEntries)
+      .where(eq(schema.distCommissionEntries.reversalOf, orphanEntryId));
+    expect(reversal!.grossCommissionMinor).toBe(-50_00);
+  });
+});
+
 describe("the retired generic CRUD door onto commission-entries is gone", () => {
   let entryId: string;
 

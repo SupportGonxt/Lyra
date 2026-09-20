@@ -115,6 +115,13 @@ function channelOf(counterpartyRef: string): string {
   return channelId;
 }
 
+/** The provider dimension an insurer (money-in) settlement's ref names. */
+function providerOf(counterpartyRef: string): string {
+  const providerId = counterpartyRef.startsWith("provider:") ? counterpartyRef.slice("provider:".length) : "";
+  if (!providerId) throw badRequest(`counterpartyRef must be provider:{id}, got ${counterpartyRef}`);
+  return providerId;
+}
+
 /* ------------------------------------------------------------------- terms */
 
 function readMinPayout(json: string | null): number | undefined {
@@ -239,6 +246,42 @@ export async function settlementEntries(
         or(
           isNull(schema.distCommissionEntries.channelSettlementId),
           eq(schema.distCommissionEntries.channelSettlementId, settlement.id)
+        ),
+        lt(earned, endAt)
+      )
+    )
+    .orderBy(asc(schema.distCommissionEntries.createdAt), asc(schema.distCommissionEntries.id));
+}
+
+/**
+ * The mirror of `settlementEntries` for the receivable side: everything the
+ * given insurer owes us, keyed by `providerId` rather than `channelId` and
+ * stamped on `providerSettlementId` rather than `channelSettlementId` — the
+ * two columns `dist_commission_entries` already carries for exactly this
+ * (docs/27 P2 "no producer statements for insurer-kind counterparties";
+ * `PAYABLE_KINDS`'s own comment above named `providerSettlementId` as the
+ * insurer mirror before anything read it). No `resolveTerms`: that resolves a
+ * *channel's* partner agreement, and an insurer settlement has no channel.
+ */
+export async function providerSettlementEntries(
+  ctx: Ctx,
+  settlement: Pick<SettlementRow, "id" | "counterpartyRef" | "period" | "currency">
+): Promise<EntryRow[]> {
+  const { endAt } = monthBounds(settlement.period);
+  const earned = sql`coalesce(${schema.distCommissionEntries.earnedAt}, ${schema.distCommissionEntries.createdAt})`;
+  return ctx.db
+    .select()
+    .from(schema.distCommissionEntries)
+    .where(
+      scoped(
+        ctx,
+        schema.distCommissionEntries,
+        eq(schema.distCommissionEntries.providerId, providerOf(settlement.counterpartyRef)),
+        eq(schema.distCommissionEntries.currency, settlement.currency),
+        ne(schema.distCommissionEntries.state, EXCLUDED_ENTRY_STATE),
+        or(
+          isNull(schema.distCommissionEntries.providerSettlementId),
+          eq(schema.distCommissionEntries.providerSettlementId, settlement.id)
         ),
         lt(earned, endAt)
       )
@@ -662,17 +705,23 @@ export async function statementTable(
   ctx: Ctx,
   settlement: SettlementRow
 ): Promise<{ table: ReportTable; totals: Record<string, number>; terms: SettlementTerms }> {
-  // Commission entries are keyed by channel, so only a payable counterparty has
-  // lines at all: an insurer settlement is money *in* against a provider
-  // remittance (`assertPayable`) and its ref is `provider:{id}`, which
-  // `channelOf` rejects. Both readers used to inherit that 400 as a crash — the
-  // detail screen swallowed only 403 — so every insurer settlement in the seed
-  // served a 500. The advice is still the advice; it just has no lines.
+  // docs/27 P2. Commission entries carry both dimensions — `channelId` for what
+  // we owe out, `providerId` for what an insurer owes in — so an insurer
+  // settlement is not an absence of lines, only a different key and a
+  // different stamp column (`providerSettlementId`, sighting 11's comment
+  // named it before anything read it). `resolveTerms` stays payable-only: it
+  // resolves a *channel's* partner agreement, and an insurer settlement has no
+  // channel to resolve one for.
   const payable = (PAYABLE_KINDS as readonly string[]).includes(settlement.counterpartyKind);
+  const insurer = settlement.counterpartyKind === "insurer";
   const terms = payable
     ? await resolveTerms(ctx, channelOf(settlement.counterpartyRef))
     : { minPayoutMinor: 0, agreementId: null, agreementVersion: null };
-  const entries = payable ? await settlementEntries(ctx, settlement) : [];
+  const entries = payable
+    ? await settlementEntries(ctx, settlement)
+    : insurer
+      ? await providerSettlementEntries(ctx, settlement)
+      : [];
   const { startAt } = monthBounds(settlement.period);
   const agreement = terms.agreementVersion === null ? "—" : `v${terms.agreementVersion}`;
 

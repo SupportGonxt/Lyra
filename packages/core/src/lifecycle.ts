@@ -251,3 +251,20 @@ export function quoteEndorsement(input: EndorsementInput): EndorsementQuote {
     refundMinor: chargeMinor < 0 ? -chargeMinor : 0
   };
 }
+
+/**
+ * docs/27 P2 "clawback posts but nothing computes what is clawable". Same day
+ * math as `quoteEndorsement`'s `proRataDays`/`termDays`, extracted so a
+ * clawback and an endorsement price the same term the same way: the days
+ * already on risk were earned, only the remainder is unearned and clawable.
+ *
+ * Pure and clamped to `[0, amountMinor]` — a term that has already fully run
+ * (`asOf >= term.endAt`) claws back nothing; one clawed back at inception
+ * claws back all of it.
+ */
+export function unearnedShareMinor(amountMinor: number, term: { startAt: number; endAt: number }, asOf: number): number {
+  if (term.endAt <= term.startAt) throw new Error("term.endAt must be after term.startAt");
+  const termDays = Math.max(1, Math.ceil((term.endAt - term.startAt) / ENDORSE_DAY_MS));
+  const remainingDays = Math.min(termDays, Math.max(0, Math.ceil((term.endAt - asOf) / ENDORSE_DAY_MS)));
+  return Math.round((amountMinor * remainingDays) / termDays);
+}

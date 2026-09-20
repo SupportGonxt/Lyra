@@ -158,6 +158,38 @@ describe("finance report exports", () => {
     expect(table.totals).toHaveProperty("carriedMinor");
   });
 
+  // docs/27 P2 "no bordereaux, inbound or outbound". Outbound only: the
+  // per-policy premium/commission listing an insurer expects, reusing the same
+  // export infrastructure as the account statement and the money map above.
+  it("exports a bordereaux, one row per commission entry with its policy's term", async () => {
+    const res = await fetchAs(CONTROLLER, "/v1/ledger/reports/bordereaux/export?format=json");
+    expect(res.status).toBe(200);
+    const table = (await res.json()) as {
+      title: string;
+      columns: { key: string; kind: string }[];
+      rows: Record<string, unknown>[];
+    };
+    expect(table.rows.length).toBeGreaterThan(0);
+    expect(table.columns.find((c) => c.key === "commissionMinor")?.kind).toBe("money");
+    for (const key of ["policyNo", "providerId", "earnedAt", "startAt", "endAt"]) {
+      expect(table.rows[0]).toHaveProperty(key);
+    }
+  });
+
+  it("narrows a bordereaux to one provider and period", async () => {
+    const all = (await (await fetchAs(CONTROLLER, "/v1/ledger/reports/bordereaux/export?format=json")).json()) as {
+      rows: { providerId: string }[];
+    };
+    const someProvider = all.rows[0]!.providerId;
+    const res = await fetchAs(
+      CONTROLLER,
+      `/v1/ledger/reports/bordereaux/export?format=json&providerId=${encodeURIComponent(someProvider)}`
+    );
+    const table = (await res.json()) as { rows: { providerId: string }[] };
+    expect(table.rows.length).toBeGreaterThan(0);
+    expect(table.rows.every((r) => r.providerId === someProvider)).toBe(true);
+  });
+
   it("exports every report the screen can show", async () => {
     for (const key of [
       "trial-balance",
@@ -166,7 +198,8 @@ describe("finance report exports", () => {
       "aged",
       "commission",
       "client-money",
-      "value-flow"
+      "value-flow",
+      "bordereaux"
     ]) {
       const res = await fetchAs(CONTROLLER, `/v1/ledger/reports/${key}/export?format=csv`);
       expect(res.status, key).toBe(200);
