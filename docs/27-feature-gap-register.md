@@ -834,9 +834,16 @@ hardcoded (`scout.shared.ts:40`). Only 2 of 6 SCOUT tables export
 rulepack review, no Egypt/FRA pack. `packages/agents/` and `apps/agents/` do
 not exist despite the CLAUDE.md target layout and `docs/02:59` — the runtime is
 `api/src/engines/`. `docs/01-brand.md:83` names the light-mode AXIS hue
-`#A2660B`; `tokens.css` ships `#b45309` at both definition sites
-(`:523,618`) — only the dark-mode values are guarded by a test, so the light
-row can drift from its own doc unnoticed.
+`#A2660B`; `tokens.css` shipped `#b45309` at both definition sites — only the
+dark-mode value was guarded by a test, so the light row could drift from its
+own doc unnoticed. **Closed.** Both sites now read `#a2660b`; `ui.test.ts`
+("defines --module-axis's light-mode row as docs/01-brand.md:83 names it")
+extracts AXIS's light hex from the doc and asserts both definition sites in
+`tokens.css` equal it, mirroring the existing dark-mode guard beside it. The
+other four module accents' light-mode hues (ORBIT, SIGNAL, SCOUT, NORTH) were
+found to differ from docs/01-brand.md too while chasing this one down, by a
+smaller margin each — out of scope for this finding, which named AXIS only;
+worth its own pass.
 
 **Thin screens.** *Re-read at source 2026-09-18/19; all seven claims are now
 closed in code and the paragraph never caught up in between. Kept, not
@@ -886,6 +893,27 @@ the constraints a bulk decide must satisfy and leaves the product question
 - `axis-doc-intel.tsx` still requires caller-supplied `rawText` ("OCR is out of
   scope", `routes/axis.ts:73-78`).
 
+### Saved views are written, listed, and never applied, 2026-09-18 — closed
+
+**Closed.** Spec added first (ui.md §7.0), then `module.tsx`'s loader reads
+`GET /v1/analytics/saved-views?route=${spec.path}/${tab.key}` — the resource-tab
+path, never the bespoke screen a segment away — best-effort, and applies the
+chosen (or, on a pristine first load, the `isDefault`) view's `queryJson`
+through `queryFromSavedView` (`modules/spec.ts`), which keeps only the query
+keys this tab still recognises (`q`, `sort`, `order`, a declared
+`FilterSpec.name`) and drops the rest silently rather than forwarding a stale
+key into `crud.ts`'s `filterSql`, which 400s on any column it does not
+recognise — two of the six seeded views (`/orbit/renewals`'s `status`/
+`withinDays`, `/analytics/exports`'s `piiMasked`) name keys exactly this shape,
+confirmed at source rather than assumed. `columnsJson` stays untouched — it
+implies a per-user column selection `module.tsx` has no concept of, and that is
+a separate spec change. Tests: `apps/web/app/modules/spec.saved-views.test.ts`
+(the pure narrowing function) and `apps/web/app/routes/module.saved-views.test.ts`
+(the loader, including the two stale-key seeded views by name).
+
+<details>
+<summary>Original finding</summary>
+
 ### New finding — saved views are written, listed, and never applied, 2026-09-18
 
 Found by asking what the API sends that nothing reads, which is how dead seam 15
@@ -918,6 +946,8 @@ against the route tree. And `columnsJson` implies per-user column selection,
 which `module.tsx` does not have at all; applying `queryJson` alone is the
 smaller, coherent first step. A finding, not a backlog: it needs a spec update
 before any screen changes.
+
+</details>
 
 ---
 

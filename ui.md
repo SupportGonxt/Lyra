@@ -425,6 +425,55 @@ Two route files render all of these:
   `remove` is held, the `recordLink` out to a deeper bespoke screen, and the
   state-change `actions` the API owns.
 
+### 7.0 Saved views on the list screen
+
+`GET /v1/analytics/saved-views?route=<path>` (docs/27 "saved views are written,
+listed, and never applied", closed) answers the exact question a list screen
+asks: what views exist for this resource tab, `isDefault` ordered first. The
+list screen — `module.tsx` — is now that reader.
+
+**The `route` value is the resource-tab path, never the bespoke screen one
+segment away.** A saved view for the ledger transaction list is stored with
+`route: "/ledger/txns"` — `${spec.path}/${tab.key}`, the generated list this
+file renders — and not `/ledger/transactions`, which is `ledger-open-txn.tsx`,
+a hand-built screen with no `ResourceSpec` and no saved views of its own. The
+two differ by one path segment and nothing before this compared either against
+the route tree; get this wrong and a view is fetched and applied to a screen
+its author never saw. `module.tsx`'s loader always asks with
+`${spec.path}/${tab.key}` — the same string a `ResourceSpec.recordLink`
+already interpolates against — never a link's `href`.
+
+**What "apply" means.** Only `queryJson` — the loader's own query state
+(`q`, `sort`/`order`, and each declared `FilterSpec.name`) — is ever applied.
+`columnsJson` is read by nothing: it implies a per-user column selection
+`module.tsx` has no concept of at all, and adding one is a separate spec
+change, not a corollary of this one.
+
+**A saved view's `queryJson` may name a key this tab no longer recognises** —
+a column that was never given a `FilterSpec` (`piiMasked` on `/analytics/exports`
+has no declared filter, though it is a real column), or a key that matches
+nothing on the resource at all (a saved view can go stale exactly the way a
+seed row can). `crud.ts`'s generic list throws `badRequest("unknown filter
+column …")` on any query key it does not recognise as a column, so forwarding
+one straight through would turn "apply a saved view" into a 400 that crashes
+the list underneath it. `queryFromSavedView` (`modules/spec.ts`) is the
+narrowing point: it keeps only the keys `q`, `sort`, `order`, and a
+`FilterSpec.name` declared on *this* tab, and drops everything else
+silently — a narrower view is the honest degradation, not a crash.
+
+**When it applies.** The tenant's (or the actor's own private) saved views for
+the current route are fetched on every load of that tab, best-effort — an
+actor without `analytics:saved_views:read` still gets the ordinary list, just
+no picker (the same 4xx-except-401-swallowed shape `north-shared.tsx`'s
+`readable()` uses elsewhere). A picker renders above the filter bar whenever at
+least one view exists. On the *pristine* first visit to the tab — no `q`,
+`sort` or declared filter already present in the URL — the `isDefault: true`
+view, if one exists, is pre-applied automatically; the API already orders
+`isDefault` first, so "the first one" and "the default one" are the same row.
+Picking a different view, or "All", replaces the filter/sort state with that
+view's (or with nothing) via `?view=<id>`; it never merges with whatever the
+reader had already typed into the filter bar.
+
 The spec is the contract ([spec.ts](apps/web/app/modules/spec.ts)):
 
 | Field | Meaning |

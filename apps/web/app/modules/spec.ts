@@ -268,6 +268,49 @@ export function tabOf(spec: WorkspaceSpec, key: string | undefined): ResourceSpe
   return key ? spec.tabs.find((tab) => tab.key === key) : spec.tabs[0];
 }
 
+/* ---------------------------------------------------------------- saved views */
+// docs/27 "saved views are written, listed, and never applied", closed. Full
+// contract in ui.md §7.0 — `route` is the resource-tab path (`${spec.path}/
+// ${tab.key}`), never the bespoke screen a segment away, and only `queryJson`
+// is ever applied; `columnsJson` implies per-user column selection module.tsx
+// does not have and stays untouched.
+
+/**
+ * The query keys `module.tsx`'s loader recognises for this tab: the reserved
+ * ones every list understands (`q`, `sort`, `order`) plus every `FilterSpec`
+ * name this tab itself declares. Nothing wider — a filter the tab never wired
+ * up is not a key a saved view may reach through, whatever column it names on
+ * the API side.
+ */
+export function recognizedQueryKeys(tab: ResourceSpec): Set<string> {
+  const keys = new Set<string>(["q", "sort", "order"]);
+  for (const filter of tab.filters ?? []) keys.add(filter.name);
+  return keys;
+}
+
+/**
+ * A saved view's stored `queryJson`, narrowed to what this tab still
+ * recognises and turned into the string values the loader's own query state
+ * holds. A view is written once and a tab's filters can change under it —
+ * `crud.ts`'s generic list throws `badRequest("unknown filter column …")` on
+ * any key it does not find as a column, so forwarding a stale key straight
+ * through would turn "apply a saved view" into a crash. Dropping what this tab
+ * no longer recognises is the honest degradation: a narrower view, not a 400.
+ */
+export function queryFromSavedView(
+  tab: ResourceSpec,
+  queryJson: Record<string, unknown>
+): Record<string, string> {
+  const recognized = recognizedQueryKeys(tab);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(queryJson)) {
+    if (!recognized.has(key)) continue;
+    if (value === null || value === undefined) continue;
+    out[key] = String(value);
+  }
+  return out;
+}
+
 /** Tabs this actor may read. The API would 403 the rest; better to not offer them. */
 export function visibleTabs(spec: WorkspaceSpec, permissions: readonly string[]): ResourceSpec[] {
   const held = new Set(permissions);
