@@ -14,6 +14,7 @@ import { BY_MODULE } from "./resources.js";
 import { onError } from "./mw.js";
 import { MAX_POINTS_PER_BATCH, TelematicsIngest, type PolicyRow } from "./engines/telematics.js";
 import type { App } from "./env.js";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 
 // docs/27 F5 (Group E, task 5). Route-level coverage for the two doorways onto
 // telematics/UBI: `/telemetry` (a machine/device authority) and `/reprice` (a
@@ -84,6 +85,7 @@ async function seedTenantAndPolicy(opts: { permissions?: string[] } = {}): Promi
     policy: PolicyJson.parse({ currency: "ZAR", autoApprove: ["axis.endorse"] }),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
 
   await ctx.db.insert(schema.products).values({
     id: "prod_ubi",

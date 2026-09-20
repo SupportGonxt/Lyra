@@ -2,13 +2,12 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   CLIENT_MONEY_ACCOUNT,
   CLIENT_MONEY_LIABILITY_ACCOUNT,
-  account,
   atomically,
   id,
   schema,
   type Write
 } from "@lyra/db";
-import { PPM, actorRef, applyPpm, badRequest, conflict, type Ctx } from "@lyra/core";
+import { PPM, actorRef, applyPpm, badRequest, conflict, tenantAccount, type Ctx } from "@lyra/core";
 import { assertPostable, ensurePeriod, periodCode } from "./periods.js";
 
 // docs/19 §5. The double-entry engine. Every financial transaction in the system
@@ -108,12 +107,22 @@ function chain(err: unknown): string {
  * docs/19 §5.2 B: client money is a pass-through, never a revenue source. The
  * check is on the client-money *asset* — CM-TRANSFER legitimately debits the
  * 2010 liability to move an earned commission into own funds.
+ *
+ * ADR-0083: reads the tenant's own chart (via `chart`, built once by the
+ * caller) rather than the static `CHART_OF_ACCOUNTS`, so an account a tenant
+ * added at runtime is subject to the same client-money shape rule as a
+ * seeded one.
  */
-function assertClientMoneyShape(lines: readonly PostingLine[]): void {
-  const debitsClientMoney = lines.some((l) => {
-    const a = account(l.accountCode);
-    return l.side === "debit" && Boolean(a?.clientMoney) && a?.type === "asset";
-  });
+async function assertClientMoneyShape(ctx: Ctx, lines: readonly PostingLine[]): Promise<void> {
+  let debitsClientMoney = false;
+  for (const l of lines) {
+    if (l.side !== "debit") continue;
+    const a = await tenantAccount(ctx, l.accountCode);
+    if (a?.clientMoney && a.type === "asset") {
+      debitsClientMoney = true;
+      break;
+    }
+  }
   if (!debitsClientMoney) return;
   const bad = lines.find((l) => l.side === "credit" && INCOME_OR_EXPENSE.test(l.accountCode));
   if (bad) {
@@ -164,13 +173,17 @@ export async function post(ctx: Ctx, input: PostInput): Promise<PostedBatch> {
   if (!fxRatePpm) throw badRequest(`no fx rate supplied for ${input.currency} -> ${baseCurrency}`);
   if (fxRatePpm <= 0) throw badRequest("fx rate must be positive");
 
-  const prepared = input.lines.map((l, i) => {
+  const prepared: (PostingLine & { baseAmountMinor: number })[] = [];
+  for (let i = 0; i < input.lines.length; i++) {
+    const l = input.lines[i]!;
     assertAmount(l.amountMinor, `line ${i} amount`);
-    if (!account(l.accountCode)) throw badRequest(`unknown account ${l.accountCode}`);
+    // ADR-0083: an account a tenant added at runtime must be postable, not
+    // only a code from the static default chart.
+    if (!(await tenantAccount(ctx, l.accountCode))) throw badRequest(`unknown account ${l.accountCode}`);
     const base = l.baseAmountMinor ?? applyPpm(l.amountMinor, fxRatePpm);
     assertAmount(base, `line ${i} base amount`);
-    return { ...l, baseAmountMinor: base };
-  });
+    prepared.push({ ...l, baseAmountMinor: base });
+  }
 
   const debit = prepared.filter((l) => l.side === "debit").reduce((a, l) => a + l.amountMinor, 0);
   const credit = prepared.filter((l) => l.side === "credit").reduce((a, l) => a + l.amountMinor, 0);
@@ -178,7 +191,7 @@ export async function post(ctx: Ctx, input: PostInput): Promise<PostedBatch> {
   if (debit === 0) throw badRequest("a journal batch may not be all zeroes");
 
   balanceBase(prepared);
-  assertClientMoneyShape(prepared);
+  await assertClientMoneyShape(ctx, prepared);
 
   const code = input.periodCode ?? periodCode(postedAt);
   const period = await ensurePeriod(ctx, code);
@@ -364,7 +377,7 @@ export async function balanceOf(ctx: Ctx, accountCode: string, currency: string)
     baseDebitMinor: 0,
     baseCreditMinor: 0
   };
-  const normal = account(accountCode)?.normalSide ?? "debit";
+  const normal = (await tenantAccount(ctx, accountCode))?.normalSide ?? "debit";
   const signed = normal === "debit" ? r.debitMinor - r.creditMinor : r.creditMinor - r.debitMinor;
   return {
     accountCode,
@@ -378,10 +391,10 @@ export async function balanceOf(ctx: Ctx, accountCode: string, currency: string)
 }
 
 /** A delta applied to a balance, signed by that account's normal side. */
-function signedDelta(accountCode: string, agg: Map<string, Delta>): number {
+async function signedDelta(ctx: Ctx, accountCode: string, agg: Map<string, Delta>): Promise<number> {
   const d = agg.get(accountCode);
   if (!d) return 0;
-  return (account(accountCode)?.normalSide ?? "debit") === "debit"
+  return ((await tenantAccount(ctx, accountCode))?.normalSide ?? "debit") === "debit"
     ? d.debit - d.credit
     : d.credit - d.debit;
 }
@@ -408,9 +421,9 @@ export async function clientMoneyCheck(
   agg: Map<string, Delta>
 ): Promise<typeof schema.ledgerClientMoneyChecks.$inferInsert | null> {
   const asset = (await balanceOf(ctx, CLIENT_MONEY_ACCOUNT, currency)).balanceMinor
-    + signedDelta(CLIENT_MONEY_ACCOUNT, agg);
+    + (await signedDelta(ctx, CLIENT_MONEY_ACCOUNT, agg));
   const liability = (await balanceOf(ctx, CLIENT_MONEY_LIABILITY_ACCOUNT, currency)).balanceMinor
-    + signedDelta(CLIENT_MONEY_LIABILITY_ACCOUNT, agg);
+    + (await signedDelta(ctx, CLIENT_MONEY_LIABILITY_ACCOUNT, agg));
   if (asset === 0 && liability === 0) return null;
 
   // docs/19 §11.11 (docs/27 F22). The shortfall test below compares the two

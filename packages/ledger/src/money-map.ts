@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { CHART_OF_ACCOUNTS, schema } from "@lyra/db";
-import { notFound, type Ctx } from "@lyra/core";
+import { schema } from "@lyra/db";
+import { notFound, tenantChart, type Ctx } from "@lyra/core";
 import type { Side } from "./posting.js";
 
 // docs/22 §1.2 — the Money Map. "Sankey of value flow for a period: premium in
@@ -13,8 +13,6 @@ import type { Side } from "./posting.js";
 // point: 2200 is credited by output tax on a subscription invoice as readily as
 // by tax on drawn commission, and only one of those is a slice of premium. A
 // map built from account totals alone would draw the other one too.
-
-const INCOME_ACCOUNTS = CHART_OF_ACCOUNTS.filter((a) => a.type === "income").map((a) => a.code);
 
 /** The filter that reproduces a node's figure in the journals view. */
 export interface MoneyMapDrill {
@@ -54,37 +52,44 @@ export interface MoneyMap {
  * A node whose amount is a query: which accounts, which side, which transaction
  * types. Order matters only in that the drill descriptor is handed to the UI
  * verbatim, so it stays stable and readable.
+ *
+ * ADR-0083: the "net" node's account list used to be the module-level
+ * `INCOME_ACCOUNTS` derived from the static `CHART_OF_ACCOUNTS` import, so an
+ * income account a tenant added at runtime never showed up in its own money
+ * map. It is now built per call from this tenant's own chart.
  */
-const SOURCED: { key: string; drill: MoneyMapDrill }[] = [
-  {
-    key: "premium-in",
-    drill: {
-      accountCodes: ["1010"],
-      side: "debit",
-      txnTypes: ["CM-RECEIPT", "PREM-COLLECT", "PREM-INSTALMENT"]
+function sourcedNodes(incomeAccounts: string[]): { key: string; drill: MoneyMapDrill }[] {
+  return [
+    {
+      key: "premium-in",
+      drill: {
+        accountCodes: ["1010"],
+        side: "debit",
+        txnTypes: ["CM-RECEIPT", "PREM-COLLECT", "PREM-INSTALMENT"]
+      }
+    },
+    {
+      key: "insurer-remittance",
+      drill: { accountCodes: ["2010"], side: "debit", txnTypes: ["PREM-REMIT"] }
+    },
+    {
+      key: "commission-retained",
+      drill: { accountCodes: ["2010"], side: "debit", txnTypes: ["CM-TRANSFER"] }
+    },
+    {
+      key: "partner-share",
+      drill: { accountCodes: ["2100"], side: "credit", txnTypes: ["CM-TRANSFER"] }
+    },
+    {
+      key: "tax",
+      drill: { accountCodes: ["2200"], side: "credit", txnTypes: ["CM-TRANSFER"] }
+    },
+    {
+      key: "net",
+      drill: { accountCodes: incomeAccounts, side: "credit", txnTypes: ["CM-TRANSFER"] }
     }
-  },
-  {
-    key: "insurer-remittance",
-    drill: { accountCodes: ["2010"], side: "debit", txnTypes: ["PREM-REMIT"] }
-  },
-  {
-    key: "commission-retained",
-    drill: { accountCodes: ["2010"], side: "debit", txnTypes: ["CM-TRANSFER"] }
-  },
-  {
-    key: "partner-share",
-    drill: { accountCodes: ["2100"], side: "credit", txnTypes: ["CM-TRANSFER"] }
-  },
-  {
-    key: "tax",
-    drill: { accountCodes: ["2200"], side: "credit", txnTypes: ["CM-TRANSFER"] }
-  },
-  {
-    key: "net",
-    drill: { accountCodes: INCOME_ACCOUNTS, side: "credit", txnTypes: ["CM-TRANSFER"] }
-  }
-];
+  ];
+}
 
 function periodWindow(code: string): { from: number; to: number } {
   const [y, m] = code.split("-").map(Number);
@@ -104,6 +109,8 @@ export async function valueFlow(
   const l = schema.ledgerJournalLines;
   const t = schema.ledgerTxns;
 
+  const incomeAccounts = (await tenantChart(ctx)).filter((a) => a.type === "income").map((a) => a.code);
+  const SOURCED = sourcedNodes(incomeAccounts);
   const accounts = [...new Set(SOURCED.flatMap((n) => n.drill.accountCodes))];
   const types = [...new Set(SOURCED.flatMap((n) => n.drill.txnTypes))];
 
@@ -204,7 +211,8 @@ export async function valueFlowLines(
   totalMinor: number;
   lines: MoneyMapLine[];
 }> {
-  const sourced = SOURCED.find((n) => n.key === opts.node);
+  const incomeAccounts = (await tenantChart(ctx)).filter((a) => a.type === "income").map((a) => a.code);
+  const sourced = sourcedNodes(incomeAccounts).find((n) => n.key === opts.node);
   // `still-held` is a remainder of three other nodes, so it has no lines of its
   // own; asking for them is a 404 rather than an empty list, which would read as
   // "nothing was held".

@@ -1,6 +1,14 @@
-import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
-import { CHART_OF_ACCOUNTS, account, schema } from "@lyra/db";
-import { applyPpm, badRequest, notFound, type Ctx } from "@lyra/core";
+import { and, asc, desc, eq, gte, lt, lte, ne, sql } from "drizzle-orm";
+import { schema } from "@lyra/db";
+import {
+  applyPpm,
+  badRequest,
+  notFound,
+  tenantAccount,
+  tenantChart,
+  tenantChartMap,
+  type Ctx
+} from "@lyra/core";
 import { fxRateFor } from "./posting.js";
 
 // docs/19 §9. Every figure a finance user sees comes from here, and every one of
@@ -69,11 +77,12 @@ export async function trialBalance(
     byAccount.set(r.accountCode, acc);
   }
 
+  const chartMap = await tenantChartMap(ctx);
   const out: TrialBalanceRow[] = [];
   let totalDebitMinor = 0;
   let totalCreditMinor = 0;
   for (const [code, v] of [...byAccount].sort(([a], [b]) => a.localeCompare(b))) {
-    const def = account(code);
+    const def = chartMap.get(code);
     const normalSide = def?.normalSide ?? "debit";
     out.push({
       accountCode: code,
@@ -119,7 +128,7 @@ export async function accountStatement(
   accountCode: string,
   opts: { currency?: string; from?: number; to?: number; limit?: number } = {}
 ): Promise<{ accountCode: string; openingMinor: number; closingMinor: number; lines: AccountStatementLine[] }> {
-  const def = account(accountCode);
+  const def = await tenantAccount(ctx, accountCode);
   const normalSide = def?.normalSide ?? "debit";
   const l = schema.ledgerJournalLines;
   const base = [eq(l.tenantId, ctx.tenantId), eq(l.accountCode, accountCode)];
@@ -594,8 +603,9 @@ export async function fxRevaluationPlan(
     .where(and(eq(l.tenantId, ctx.tenantId), lte(l.postedAt, asOf)))
     .groupBy(l.accountCode, l.currency, l.side);
 
+  const chartMap = await tenantChartMap(ctx);
   const revaluable = (code: string): boolean => {
-    const def = account(code);
+    const def = chartMap.get(code);
     return Boolean(def) && (def?.type === "asset" || def?.type === "liability") && !def?.clientMoney;
   };
 
@@ -611,7 +621,7 @@ export async function fxRevaluationPlan(
     if (r.currency === base) continue;
     if (!revaluable(r.accountCode)) continue;
     const p = at(r.accountCode, r.currency);
-    const sign = r.side === account(r.accountCode)?.normalSide ? 1 : -1;
+    const sign = r.side === chartMap.get(r.accountCode)?.normalSide ? 1 : -1;
     p.balance += sign * Number(r.amount);
     p.carried += sign * Number(r.baseAmount);
   }
@@ -643,7 +653,7 @@ export async function fxRevaluationPlan(
     const revalues = dims["revalues"];
     if (typeof revalues !== "string" || revalues === base) continue;
     const p = at(r.accountCode, revalues);
-    p.carried += (r.side === account(r.accountCode)?.normalSide ? 1 : -1) * r.baseAmountMinor;
+    p.carried += (r.side === chartMap.get(r.accountCode)?.normalSide ? 1 : -1) * r.baseAmountMinor;
   }
 
   const adjustments: FxAdjustment[] = [];
@@ -670,7 +680,7 @@ export async function fxRevaluationPlan(
       deltaMinor: delta,
       ratePpm
     });
-    netMinor += account(p.accountCode)?.normalSide === "debit" ? delta : -delta;
+    netMinor += chartMap.get(p.accountCode)?.normalSide === "debit" ? delta : -delta;
   }
 
   return { asOf, baseCurrency: base, adjustments, netMinor };
@@ -944,6 +954,71 @@ export async function commissionByDimension(
   return [...out.values()].sort((a, b) => b.grossMinor - a.grossMinor);
 }
 
+/* -------------------------------------------------------- bordereaux (P2) */
+// docs/27 P2 "no bordereaux, inbound or outbound — zero hits in code or docs".
+// Scoped conservatively: this is the OUTBOUND half only — the periodic,
+// per-policy premium/commission listing an insurer or producer expects from
+// us. INBOUND bordereaux (an insurer's own listing, reconciled against ours)
+// is out of scope for this pass: it needs an import/reconciliation pipeline
+// of its own, the same shape as the bank-statement importer
+// (packages/ledger/src/statements.ts), and nothing here builds toward it.
+
+export interface BordereauxRow {
+  policyNo: string;
+  providerId: string;
+  productId: string | null;
+  customerId: string;
+  currency: string;
+  premiumMinor: number;
+  commissionMinor: number;
+  kind: string;
+  earnedAt: number;
+  startAt: number;
+  endAt: number;
+}
+
+/**
+ * One row per commission entry earning against a bound policy, joined to the
+ * policy for the fields a bordereaux states that the entry itself does not
+ * (`policyNo`, the term). The same source `settlementEntries` and
+ * `providerSettlementEntries` (apps/api/src/engines/settlement.ts) read, at
+ * policy grain instead of settlement grain — a bordereaux is the detail a
+ * remittance advice already totals.
+ */
+export async function bordereauxRows(
+  ctx: Ctx,
+  opts: { providerId?: string; periodCode?: string } = {}
+): Promise<BordereauxRow[]> {
+  const e = schema.distCommissionEntries;
+  const p = schema.axisPolicies;
+  const earned = sql<number>`coalesce(${e.earnedAt}, ${e.createdAt})`;
+  const where = [eq(e.tenantId, ctx.tenantId), ne(e.state, "written_off")];
+  if (opts.providerId) where.push(eq(e.providerId, opts.providerId));
+  if (opts.periodCode) {
+    const w = periodWindow(opts.periodCode);
+    where.push(gte(earned, w.from), lte(earned, w.to));
+  }
+
+  return ctx.db
+    .select({
+      policyNo: p.policyNo,
+      providerId: e.providerId,
+      productId: p.productId,
+      customerId: p.customerId,
+      currency: e.currency,
+      premiumMinor: e.premiumMinor,
+      commissionMinor: e.grossCommissionMinor,
+      kind: e.kind,
+      earnedAt: earned,
+      startAt: p.startAt,
+      endAt: p.endAt
+    })
+    .from(e)
+    .innerJoin(p, and(eq(p.tenantId, e.tenantId), eq(p.id, e.policyId)))
+    .where(and(...where))
+    .orderBy(asc(earned));
+}
+
 /** Flat rows for the XLSX/PDF exporters — one shape, every report. */
 export interface ReportTable {
   title: string;
@@ -970,8 +1045,15 @@ export function trialBalanceTable(tb: TrialBalance): ReportTable {
   };
 }
 
-/** Accounts with no movement still belong on a chart-of-accounts export. */
-export function chartOfAccountsTable(): ReportTable {
+/**
+ * Accounts with no movement still belong on a chart-of-accounts export.
+ *
+ * ADR-0083: reads this tenant's own chart, so an account it added at runtime
+ * appears on its own export — a chart-of-accounts report that could not show
+ * a tenant-added account was the finding this table exists to close.
+ */
+export async function chartOfAccountsTable(ctx: Ctx): Promise<ReportTable> {
+  const chart = await tenantChart(ctx);
   return {
     title: "Chart of accounts",
     columns: [
@@ -980,7 +1062,7 @@ export function chartOfAccountsTable(): ReportTable {
       { key: "type", label: "Type", kind: "text" },
       { key: "normalSide", label: "Normal side", kind: "text" }
     ],
-    rows: CHART_OF_ACCOUNTS as unknown as Record<string, unknown>[],
-    generatedAt: 0
+    rows: chart as unknown as Record<string, unknown>[],
+    generatedAt: ctx.now
   };
 }

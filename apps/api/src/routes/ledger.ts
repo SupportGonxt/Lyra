@@ -13,6 +13,7 @@ import {
   agedOpenItems,
   balanceOf,
   balanceSheet,
+  bordereauxRows,
   buildRecipe,
   chartOfAccountsTable,
   clientMoneyPosition,
@@ -451,6 +452,18 @@ ledgerRoutes.get("/reports/commission", async (c) => {
   });
 });
 
+// docs/27 P2 "no bordereaux, inbound or outbound" — outbound only, see the
+// export entry below and `bordereauxRows`'s own note (packages/ledger/src/reports.ts).
+ledgerRoutes.get("/reports/bordereaux", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
+  const providerId = c.req.query("providerId")?.trim() || undefined;
+  const period = c.req.query("period")?.trim() || undefined;
+  return c.json({
+    data: await bordereauxRows(ctx, { ...(providerId ? { providerId } : {}), ...(period ? { periodCode: period } : {}) })
+  });
+});
+
 ledgerRoutes.get("/reports/client-money", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:client_money:read", { tenantId: ctx.tenantId, module: "ledger" });
@@ -486,10 +499,10 @@ ledgerRoutes.get("/reports/value-flow/lines", async (c) => {
   );
 });
 
-ledgerRoutes.get("/reports/chart-of-accounts", (c) => {
+ledgerRoutes.get("/reports/chart-of-accounts", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
-  return c.json(chartOfAccountsTable());
+  return c.json(await chartOfAccountsTable(ctx));
 });
 
 /* ---------------------------------------------------------- report exports */
@@ -727,6 +740,37 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
           // A breach is the only thing on this report anyone reads first, so it
           // is a word in a column and not a flag the spreadsheet drops.
           rows: rows.map((r) => ({ ...r, status: r.breach ? "SHORT" : "whole" })),
+          generatedAt: ctx.now
+        }
+      };
+    }
+  },
+  // docs/27 P2 "no bordereaux, inbound or outbound". Outbound only — the
+  // periodic per-policy premium/commission listing an insurer or producer
+  // expects from us; inbound (reconciling their own listing against ours) is
+  // its own import pipeline and out of scope here (packages/ledger/src/reports.ts
+  // has the fuller note beside `bordereauxRows`).
+  bordereaux: {
+    permission: "ledger:journals:read",
+    build: async (ctx, q) => {
+      const providerId = q("providerId")?.trim() || undefined;
+      const periodCodeQ = q("period")?.trim() || undefined;
+      const rows = await bordereauxRows(ctx, { ...(providerId ? { providerId } : {}), ...(periodCodeQ ? { periodCode: periodCodeQ } : {}) });
+      return {
+        table: {
+          title: `Bordereaux${providerId ? ` — ${providerId}` : ""}${periodCodeQ ? ` ${periodCodeQ}` : ""}`,
+          columns: [
+            text("policyNo", "Policy"),
+            text("providerId", "Provider"),
+            text("customerId", "Customer"),
+            { key: "earnedAt", label: "Earned", kind: "date" },
+            { key: "startAt", label: "Start", kind: "date" },
+            { key: "endAt", label: "End", kind: "date" },
+            money("premiumMinor", "Premium"),
+            money("commissionMinor", "Commission"),
+            text("kind", "Kind")
+          ],
+          rows: rows as unknown as Record<string, unknown>[],
           generatedAt: ctx.now
         }
       };

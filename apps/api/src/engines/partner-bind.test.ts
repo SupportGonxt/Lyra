@@ -8,6 +8,7 @@ import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import { requestPartnerQuote } from "./orbit-partner-quotes.js";
 import { bindPartner } from "./partner-bind.js";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "..", "..", "packages", "db", "migrations");
 
@@ -33,7 +34,7 @@ function actor(): Actor {
 }
 
 async function makeCtx(now = 1_770_000_000_000): Promise<Ctx> {
-  return {
+  const ctx: Ctx = {
     db: drizzle(client) as unknown as Ctx["db"],
     tenantId: "t_1",
     actor: actor(),
@@ -43,6 +44,8 @@ async function makeCtx(now = 1_770_000_000_000): Promise<Ctx> {
     policy: PolicyJson.parse({}),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
+  return ctx;
 }
 
 async function seedPartner(id: string, patch: Partial<typeof schema.orbitPartners.$inferInsert> = {}) {

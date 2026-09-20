@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
@@ -14,6 +14,7 @@ import { clientMoneyPosition, commissionByDimension, expenseMovementMinor, rebui
 import { valueFlow, valueFlowLines, type MoneyMap } from "./money-map.js";
 import { closeRun, decideMatch, reconSummary, reconcile } from "./recon.js";
 import { TXN_TYPES, autoApprovable } from "./types.js";
+import { seedTestChart } from "./test-chart.js";
 
 // docs/19 §11. These are the invariants that may not be relaxed to make a test
 // pass. Everything runs against a real migrated SQLite engine, not a mock,
@@ -35,7 +36,7 @@ let ctx: Ctx;
 async function freshCtx(): Promise<Ctx> {
   const client = createClient({ url: ":memory:" });
   for (const sql of statements()) await client.execute(sql);
-  return {
+  const c: Ctx = {
     db: drizzle(client) as unknown as Ctx["db"],
     tenantId: "t_test",
     actor: {
@@ -50,6 +51,8 @@ async function freshCtx(): Promise<Ctx> {
     policy: PolicyJson.parse({}),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(c);
+  return c;
 }
 
 beforeEach(async () => {
@@ -803,6 +806,11 @@ async function armedCtx(
 ): Promise<{ ctx: Ctx; batches: () => number; disarm: () => void }> {
   const client = createClient({ url: ":memory:" });
   for (const sql of statements()) await client.execute(sql);
+  const base = await freshCtx();
+  // Seeded on the real `client` this ctx will post through, before it is
+  // wrapped in the batch-counting/poisoning proxy below — chart rows are not
+  // part of what these tests measure.
+  await seedTestChart({ ...base, db: drizzle(client) as unknown as Ctx["db"] });
 
   let batchCalls = 0;
   let poison = opts.poison === true;
@@ -821,7 +829,6 @@ async function armedCtx(
     }
   });
 
-  const base = await freshCtx();
   return {
     ctx: { ...base, db: drizzle(trapped) as unknown as Ctx["db"] },
     batches: () => batchCalls,
@@ -896,6 +903,146 @@ describe("close check details", () => {
     expect(detailOf(await closeChecks(ctx, code), "no_pending_external")).toBe(
       "2 transactions still waiting on a provider"
     );
+  });
+});
+
+// ADR-0083 / docs/27 P2: "period-close checks are three deterministic tests
+// with no subledger tie-out, no recon-complete and no suspense check." These
+// three land beside the four already there, same shape, same force override.
+describe("ADR-0083 — subledger tie-out, recon-complete, no suspense balance", () => {
+  const okOf = (checks: Awaited<ReturnType<typeof closeChecks>>, name: string) =>
+    checks.find((c) => c.name.startsWith(name))?.ok;
+  const detailOf = (checks: Awaited<ReturnType<typeof closeChecks>>, name: string) =>
+    checks.find((c) => c.name.startsWith(name))?.detail;
+
+  it("subledger_ties_to_control passes when the control balance agrees with the lines", async () => {
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_recv", "PREM-COLLECT", 1_000));
+    await post(ctx, {
+      txnId: "tx_recv",
+      currency: "AED",
+      lines: [
+        { accountCode: "1200", side: "debit", amountMinor: 1_000 },
+        { accountCode: "4000", side: "credit", amountMinor: 1_000 }
+      ]
+    });
+    const code = periodCode(ctx.now);
+    expect(okOf(await closeChecks(ctx, code), "subledger_ties_to_control")).toBe(true);
+  });
+
+  it("subledger_ties_to_control fails when the balances cache has drifted from the lines", async () => {
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_recv2", "PREM-COLLECT", 1_000));
+    await post(ctx, {
+      txnId: "tx_recv2",
+      currency: "AED",
+      lines: [
+        { accountCode: "1200", side: "debit", amountMinor: 1_000 },
+        { accountCode: "4000", side: "credit", amountMinor: 1_000 }
+      ]
+    });
+    // Simulate the cache disagreeing with the lines it is supposed to mirror —
+    // the class of bug rebuildBalances exists to repair.
+    await ctx.db
+      .update(schema.ledgerAccountBalances)
+      .set({ debitMinor: 999_999, baseDebitMinor: 999_999 })
+      .where(
+        and(eq(schema.ledgerAccountBalances.tenantId, ctx.tenantId), eq(schema.ledgerAccountBalances.accountCode, "1200"))
+      );
+    const code = periodCode(ctx.now);
+    const checks = await closeChecks(ctx, code);
+    expect(okOf(checks, "subledger_ties_to_control")).toBe(false);
+    expect(detailOf(checks, "subledger_ties_to_control")).toContain("1200");
+  });
+
+  it("recon_complete fails while a run for this period is still open", async () => {
+    const code = periodCode(ctx.now);
+    await ctx.db.insert(schema.ledgerReconRuns).values({
+      id: "run_open",
+      tenantId: ctx.tenantId,
+      process: "insurer",
+      period: code,
+      counterpartyRef: "provider:falcon",
+      currency: "AED",
+      state: "review",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    });
+    const checks = await closeChecks(ctx, code);
+    expect(okOf(checks, "recon_complete")).toBe(false);
+    expect(detailOf(checks, "recon_complete")).toContain("insurer/provider:falcon");
+  });
+
+  it("recon_complete passes once every run for the period is closed", async () => {
+    const code = periodCode(ctx.now);
+    await ctx.db.insert(schema.ledgerReconRuns).values({
+      id: "run_closed",
+      tenantId: ctx.tenantId,
+      process: "psp",
+      period: code,
+      currency: "AED",
+      state: "closed",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    });
+    expect(okOf(await closeChecks(ctx, code), "recon_complete")).toBe(true);
+  });
+
+  it("recon_complete ignores a run for a different period", async () => {
+    await ctx.db.insert(schema.ledgerReconRuns).values({
+      id: "run_other_period",
+      tenantId: ctx.tenantId,
+      process: "psp",
+      period: "2020-01",
+      currency: "AED",
+      state: "review",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    });
+    const code = periodCode(ctx.now);
+    expect(okOf(await closeChecks(ctx, code), "recon_complete")).toBe(true);
+  });
+
+  it("no_suspense_balance fails while 1300 PSP Clearing is carrying a balance", async () => {
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_susp", "PSP-SETTLE", 500));
+    await post(ctx, {
+      txnId: "tx_susp",
+      currency: "AED",
+      lines: [
+        { accountCode: "1300", side: "debit", amountMinor: 500 },
+        { accountCode: "4000", side: "credit", amountMinor: 500 }
+      ]
+    });
+    const code = periodCode(ctx.now);
+    const checks = await closeChecks(ctx, code);
+    expect(okOf(checks, "no_suspense_balance")).toBe(false);
+    expect(detailOf(checks, "no_suspense_balance")).toContain("1300");
+  });
+
+  it("no_suspense_balance passes once the clearing account nets to zero", async () => {
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_susp2", "PSP-SETTLE", 500));
+    await post(ctx, {
+      txnId: "tx_susp2",
+      currency: "AED",
+      lines: [
+        { accountCode: "1300", side: "debit", amountMinor: 500 },
+        { accountCode: "4000", side: "credit", amountMinor: 500 }
+      ]
+    });
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_susp2_clear", "PSP-SETTLE", 500));
+    await post(ctx, {
+      txnId: "tx_susp2_clear",
+      currency: "AED",
+      lines: [
+        { accountCode: "5300", side: "debit", amountMinor: 500 },
+        { accountCode: "1300", side: "credit", amountMinor: 500 }
+      ]
+    });
+    const code = periodCode(ctx.now);
+    expect(okOf(await closeChecks(ctx, code), "no_suspense_balance")).toBe(true);
+  });
+
+  it("no_suspense_balance passes trivially when nothing has ever posted to it", async () => {
+    const code = periodCode(ctx.now);
+    expect(okOf(await closeChecks(ctx, code), "no_suspense_balance")).toBe(true);
   });
 });
 

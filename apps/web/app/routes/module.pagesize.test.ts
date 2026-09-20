@@ -55,14 +55,18 @@ describe("pageSizeIn", () => {
 
 describe("the list loader", () => {
   it("asks the API for the size the actor chose", async () => {
+    // Two calls now leave the loader: the list itself, and the saved-views
+    // lookup (docs/27 "saved views are written, listed, and never applied").
+    // The size only ever belongs on the list call, so find it by its own path
+    // rather than assume which one fired first.
     const seen = capture();
     await loader(args("https://web.test/admin/users?limit=100"));
-    expect(seen[0]).toContain("limit=100");
+    expect(seen.find((url) => url.includes("/v1/core/users"))).toContain("limit=100");
   });
 
   it("says nothing about limit when nobody chose one", async () => {
     const seen = capture();
     await loader(args("https://web.test/admin/users"));
-    expect(seen[0]).not.toContain("limit=");
+    expect(seen.find((url) => url.includes("/v1/core/users"))).not.toContain("limit=");
   });
 });

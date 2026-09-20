@@ -1202,7 +1202,7 @@ export interface CoreWebhooks {
 }
 
 export interface Dataset {
-  key?: "policies" | "quotes" | "quoteResponses" | "commissions" | "cases" | "transactions" | "aiSpend" | "conversations" | "campaigns" | "spend" | "signals" | "whitespaces" | "boardpacks" | "decisions";
+  key?: "policies" | "quotes" | "quoteResponses" | "commissions" | "cases" | "transactions" | "aiSpend" | "conversations" | "campaigns" | "spend" | "signals" | "whitespaces" | "clusters" | "experiments" | "dataProducts" | "boardpacks" | "decisions";
   module?: string;
   dimensions?: Record<string, unknown>[];
   metrics?: Record<string, unknown>[];
@@ -1262,6 +1262,7 @@ export interface DistCommissionRates {
   channelSharePpm: number;
   baseCommissionPpm?: number;
   flatFeeMinor?: number;
+  structureJson?: string;
   currency?: string;
   earnedOn?: string;
   clawbackDays?: number;
@@ -1415,6 +1416,7 @@ export interface LedgerAccounts {
   type: string;
   normalSide: string;
   clientMoney?: boolean;
+  suspense?: boolean;
   currency?: string;
   parentCode?: string;
   status?: string;
@@ -2806,6 +2808,7 @@ export interface Operations {
   "GET /v1/ledger/recon/statement-formats": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/aged": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/balance-sheet": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/ledger/reports/bordereaux": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/chart-of-accounts": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/client-money": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/commission": Op<never, never, never, Record<string, unknown>>;
@@ -3570,6 +3573,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/recon/statement-formats": { tag: "ledger", summary: "Bank statement formats the importer can read (CAMT.053, MT940, OFX)", permission: "ledger:recon:read", public: false },
   "GET /v1/ledger/reports/aged": { tag: "ledger", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/balance-sheet": { tag: "ledger", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", public: false },
+  "GET /v1/ledger/reports/bordereaux": { tag: "ledger", summary: "Outbound bordereaux: per-policy premium and commission for a provider and period", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/chart-of-accounts": { tag: "ledger", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/client-money": { tag: "ledger", summary: "Client money sufficiency: what is held against what is owed", permission: "ledger:client_money:read", public: false },
   "GET /v1/ledger/reports/commission": { tag: "ledger", summary: "Commission earned, clawed back and payable by channel", permission: "ledger:journals:read", public: false },

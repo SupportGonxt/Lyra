@@ -543,8 +543,10 @@
     --heat-fg: #ffffff;
 
     /* Module identity accents — light-mode hues (ADR-0026 exception, see the
-       raw palette comment above). */
-    --module-axis: #b45309;
+       raw palette comment above). docs/01-brand.md:83 is the source of truth
+       for --module-axis; ui.test.ts guards it the same way the dark-mode row
+       already guards --module-axis's default. */
+    --module-axis: #a2660b;
     --module-orbit: #00786a;
     --module-signal: #c2410c;
     --module-scout: #1d4ed8;
@@ -642,7 +644,7 @@
   --hatch: rgb(0 0 0 / 5%);
   --heat-fg: #ffffff;
 
-  --module-axis: #b45309;
+  --module-axis: #a2660b;
   --module-orbit: #00786a;
   --module-signal: #c2410c;
   --module-scout: #1d4ed8;

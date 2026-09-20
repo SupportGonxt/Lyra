@@ -102,6 +102,10 @@ export const accounts = sqliteTable(
     type: text("type").notNull(), // asset|liability|income|expense|equity
     normalSide: text("normal_side").notNull(), // debit|credit
     clientMoney: integer("client_money", { mode: "boolean" }).notNull().default(false),
+    // ADR-0083. A clearing/suspense account that must net to zero at period
+    // close (e.g. 1300 PSP Clearing) — read by periods.ts's no_suspense_balance
+    // close check, never inferred from the account's name or code.
+    suspense: integer("suspense", { mode: "boolean" }).notNull().default(false),
     currency: text("currency"), // null = multi-currency account
     parentCode: text("parent_code"),
     status: text("status").notNull().default("active"),

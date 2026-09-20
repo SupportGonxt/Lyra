@@ -42,7 +42,22 @@ export const PERM = {
 } as const;
 
 /** packages/core/src/k-anonymity.ts DEFAULT_K_FLOOR — resources.ts hides any
- *  bench cut below it, so a thin period is absent rather than wrong. */
+ *  bench cut below it, so a thin period is absent rather than wrong.
+ *
+ * docs/27 P2: the server-side gates (resources.ts panel-bench visibility,
+ * scout-whitespace.ts, scout-promote.ts) now resolve a tenant's own floor
+ * through `kAnonymityFloor(ctx.policy, "scout")`
+ * (packages/core/src/k-anonymity.ts), read from
+ * `moduleConfig.scout.settings.kAnonymityFloor` — the same per-module settings
+ * seam every other tenant-configurable knob goes through (module-config.ts),
+ * changeable with the existing `PATCH /v1/modules/scout/config`. This constant
+ * still mirrors the *default* for the screens below: none of them currently
+ * reads the resolved tenant value over the wire, so a tenant with a
+ * configured override sees enforcement at their own floor but this display
+ * still shows 20. Wiring the display through requires the API to expose the
+ * resolved number (there is no reader for it today) — left as a follow-on
+ * rather than folded in here, since every consumer below is a label or a
+ * client-side warning and the enforcement itself no longer has this defect. */
 export const K_FLOOR = 20;
 
 /* ------------------------------------------------------------------ shapes */
@@ -663,6 +678,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "an.format": "Format",
     "an.whitespaces": "Whitespace pipeline",
     "an.signals": "Signal volume",
+    "an.clusters": "Signal clusters",
+    "an.experiments": "Experiments",
+    "an.dataProducts": "Data products",
     "an.exportReady": "Ready.",
     "an.exportQueued": "Queued.",
     "an.download": "Download",
@@ -1048,6 +1066,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "an.format": "الصيغة",
     "an.whitespaces": "مسار الفرص",
     "an.signals": "حجم الإشارات",
+    "an.clusters": "تجمعات الإشارات",
+    "an.experiments": "التجارب",
+    "an.dataProducts": "منتجات البيانات",
     "an.exportReady": "جاهز.",
     "an.exportQueued": "في الانتظار.",
     "an.download": "تنزيل",

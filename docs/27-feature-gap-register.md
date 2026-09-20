@@ -815,6 +815,12 @@ catalogue owns.
 
 ## P2 — depth, not absence
 
+*Four items below are now closed, 2026-09-20 — commission depth, clawback
+computation, insurer statements and outbound bordereaux — see the note after
+this paragraph. The paragraph is kept as written, per the standing convention
+above (a finding written as prose rots the moment someone fixes it, and the
+closing note is where a reader looks first).*
+
 Commission is flat-rate only — no ladders, tiers, volume bonuses or overrides
 (`core/src/commission.ts:84-108`); clawback posts but nothing computes what is
 clawable; no producer statements (`settlement.ts:39` serves partner, creator
@@ -826,17 +832,77 @@ nothing driving them and no cap at invoiced. No bordereaux, inbound or outbound
 — zero hits in code *or* docs. Chart of accounts is a hard-coded TypeScript
 constant, so a tenant cannot add an account without a deploy. No budget vs
 actual, no cash-flow statement, no fixed assets or operating-expense accounts.
-Dead code in the money path: `closeRun` (`recon.ts:382-390`) has no callers,
+Dead code in the money path: `closeRun` (`recon.ts:382-390`) has no callers —
+*closed, see below, `POST /v1/ledger/recon/runs/:id/close` is the caller.*
 `CREATOR-SPEND` (`recipes.ts:398`) has no matching `TXN_TYPES` entry and is
-unreachable. `cx-judge.ts` is well-built and called by nothing. `K_FLOOR` is
-hardcoded (`scout.shared.ts:40`). Only 2 of 6 SCOUT tables export
-(`engines/report.ts:237,251`). No multimodal path (`extract.ts:7-9`). No AE-only
+unreachable — *closed, re-read at source 2026-09-20: `CREATOR-SPEND` no longer
+exists in `RECIPES` at all (nor in `TXN_TYPES`), matching the deletion
+`docs/specs/gap-finance-design.md` R12 called for; the sibling `CREATOR-BRIEF`
+→ `CREATOR-VERIFY` → `CREATOR-PAYOUT` chain is intact and reachable. This
+paragraph had not caught up.* `cx-judge.ts` is well-built and called by
+nothing — *closed, re-read at source 2026-09-20: `sweepQaScores`
+(`apps/api/src/engines/orbit-qa.ts`, wired into the tenant cron tick at
+`index.ts:238`) has scored every closed ORBIT conversation through the
+cx-judge rubric since `d259a95` (2026-08-26), feeding `orbit_qa_scores` per
+docs/modules/orbit.md §2.1. Predates this register entry; it never caught up.*
+`K_FLOOR` is hardcoded (`scout.shared.ts:40`) — *closed at the enforcement
+seam: `kAnonymityFloor(policy, module)` (`packages/core/src/k-anonymity.ts`)
+resolves a tenant override from `moduleConfig.scout.settings.kAnonymityFloor`,
+the same per-module settings path every other tenant knob uses, and
+`resources.ts` (panel-bench visibility), `scout-whitespace.ts` and
+`scout-promote.ts` all route through it now instead of the bare
+`DEFAULT_K_FLOOR`. Not closed at the display seam: the four web screens that
+show or validate against `K_FLOOR` (`scout-admin.tsx`, `scout-data-products.tsx`,
+`scout-panel.tsx`, `scout-pricing.tsx`) still read the literal default — no API
+response currently carries the resolved value for them to read instead. A
+follow-on, not a re-opening: the number they show is right for every tenant
+that has not set an override, and the thing a hardcoded floor actually put at
+risk — the server-side suppression a customer's data flows through — no
+longer has this defect.* Only 2 of 6 SCOUT tables export
+(`engines/report.ts:237,251`) — *closed for `clusters`, `scout-experiments` and
+`scout-data-products` (now 5 of 6), mirrored in `scout-analytics.tsx`'s web-side
+registry. `scout_panel_bench` stays unregistered on purpose: `runReport`
+group-by has no k-anonymity floor, so exporting it would hand back a thin
+cell's exact number and name the one counterparty behind it —
+`scout-analytics.tsx`'s own comment already recorded this decision for the
+export card, and the two now agree explicitly rather than by coincidence.*
+No multimodal path (`extract.ts:7-9`). No AE-only
 rulepack review, no Egypt/FRA pack. `packages/agents/` and `apps/agents/` do
 not exist despite the CLAUDE.md target layout and `docs/02:59` — the runtime is
 `api/src/engines/`. `docs/01-brand.md:83` names the light-mode AXIS hue
-`#A2660B`; `tokens.css` ships `#b45309` at both definition sites
-(`:523,618`) — only the dark-mode values are guarded by a test, so the light
-row can drift from its own doc unnoticed.
+`#A2660B`; `tokens.css` shipped `#b45309` at both definition sites — only the
+dark-mode value was guarded by a test, so the light row could drift from its
+own doc unnoticed. **Closed.** Both sites now read `#a2660b`; `ui.test.ts`
+("defines --module-axis's light-mode row as docs/01-brand.md:83 names it")
+extracts AXIS's light hex from the doc and asserts both definition sites in
+`tokens.css` equal it, mirroring the existing dark-mode guard beside it. The
+other four module accents' light-mode hues (ORBIT, SIGNAL, SCOUT, NORTH) were
+found to differ from docs/01-brand.md too while chasing this one down, by a
+smaller margin each — out of scope for this finding, which named AXIS only;
+worth its own pass.
+
+*Closed, 2026-09-20.* **Commission depth**: `splitCommission`/`quoteCommission`
+(`packages/core/src/commission.ts`) now take `tiers`, `volumeBonus` and
+`override`, additive to the flat rate they always had — ADR-0084, and
+`dist_commission_rates.structure_json` is the reserved column a rate row
+stores them on. **Clawback**: `unearnedShareMinor`
+(`packages/core/src/lifecycle.ts`) is `quoteEndorsement`'s own day math,
+extracted; `POST /v1/dist/commission-entries/:id/clawback` now prices the
+unearned share against the entry's policy term instead of always reversing
+the whole accrual, falling back to a full reversal only when the entry's
+`policyId` names no real policy (a caller-supplied id, never a live system's
+own accrual). **Insurer statements**: `statementTable`
+(`apps/api/src/engines/settlement.ts`) routes an `insurer`-kind settlement
+through `providerSettlementEntries`, the provider-dimension mirror of
+`settlementEntries` that `providerSettlementId` was always reserved for
+(sighting 11's own comment named it) — the remittance advice was correct all
+along and simply never reached. **Bordereaux**: outbound only, scoped
+deliberately — `bordereauxRows` (`packages/ledger/src/reports.ts`) and the
+`bordereaux` entry in `REPORT_EXPORTS`
+(`apps/api/src/routes/ledger.ts`) reuse the same export infrastructure as the
+account statement and the money map. Inbound bordereaux (reconciling an
+insurer's own listing against ours) needs an import pipeline of its own and
+is untouched.
 
 **Thin screens.** *Re-read at source 2026-09-18/19; all seven claims are now
 closed in code and the paragraph never caught up in between. Kept, not
@@ -886,6 +952,27 @@ the constraints a bulk decide must satisfy and leaves the product question
 - `axis-doc-intel.tsx` still requires caller-supplied `rawText` ("OCR is out of
   scope", `routes/axis.ts:73-78`).
 
+### Saved views are written, listed, and never applied, 2026-09-18 — closed
+
+**Closed.** Spec added first (ui.md §7.0), then `module.tsx`'s loader reads
+`GET /v1/analytics/saved-views?route=${spec.path}/${tab.key}` — the resource-tab
+path, never the bespoke screen a segment away — best-effort, and applies the
+chosen (or, on a pristine first load, the `isDefault`) view's `queryJson`
+through `queryFromSavedView` (`modules/spec.ts`), which keeps only the query
+keys this tab still recognises (`q`, `sort`, `order`, a declared
+`FilterSpec.name`) and drops the rest silently rather than forwarding a stale
+key into `crud.ts`'s `filterSql`, which 400s on any column it does not
+recognise — two of the six seeded views (`/orbit/renewals`'s `status`/
+`withinDays`, `/analytics/exports`'s `piiMasked`) name keys exactly this shape,
+confirmed at source rather than assumed. `columnsJson` stays untouched — it
+implies a per-user column selection `module.tsx` has no concept of, and that is
+a separate spec change. Tests: `apps/web/app/modules/spec.saved-views.test.ts`
+(the pure narrowing function) and `apps/web/app/routes/module.saved-views.test.ts`
+(the loader, including the two stale-key seeded views by name).
+
+<details>
+<summary>Original finding</summary>
+
 ### New finding — saved views are written, listed, and never applied, 2026-09-18
 
 Found by asking what the API sends that nothing reads, which is how dead seam 15
@@ -918,6 +1005,8 @@ against the route tree. And `columnsJson` implies per-user column selection,
 which `module.tsx` does not have at all; applying `queryJson` alone is the
 smaller, coherent first step. A finding, not a backlog: it needs a spec update
 before any screen changes.
+
+</details>
 
 ---
 

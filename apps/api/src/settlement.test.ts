@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, id, schema } from "@lyra/db";
 import { decide, hashObject, type Ctx } from "@lyra/core";
 import { trialBalance } from "@lyra/ledger";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 import {
   approveSettlement,
   disputeSettlement,
@@ -70,6 +71,7 @@ beforeEach(async () => {
   const db = drizzle(client) as unknown as Ctx["db"];
   ctx = ctxFor(db, "t_test", "u_runner");
   other = ctxFor(db, "t_test", "u_approver");
+  await seedTestChart(ctx);
 });
 
 /** AppError puts the specific cause in `detail`; the message is only the title. */
@@ -706,13 +708,14 @@ describe("remittance advice", () => {
     expect(table.rows.map((r) => r.earnedOn)).toContain("unknown");
   });
 
-  // Sighting 12. An insurer settlement is money *in* — `assertPayable` refuses
-  // to draft one, but the seed carries three and the list screen shows them, so
-  // the detail route opens one. Its ref is `provider:{id}`, which `channelOf`
-  // rejects with a 400, and the web loader inherited that as a crash: every
-  // insurer settlement served a 500. Commission entries are keyed by channel, so
-  // the right answer is an empty table, not a throw.
-  it("renders an insurer settlement as an empty advice rather than throwing", async () => {
+  // Sighting 12 fixed the crash: `assertPayable` refuses to *draft* an insurer
+  // settlement (money in, not out), but the seed carries three and the list
+  // screen shows them, so the detail route opens one. Its ref is
+  // `provider:{id}`, which `channelOf` rejected with a 400 that the web loader
+  // inherited as a crash. docs/27 P2 is the next layer: once that no longer
+  // crashes, the advice still had no lines at all, because nothing read the
+  // provider dimension `dist_commission_entries` already carries.
+  it("renders an insurer settlement as an empty advice when no entries name that provider", async () => {
     await ctx.db.insert(schema.ledgerSettlements).values({
       id: "setl_insurer",
       tenantId: ctx.tenantId,
@@ -733,9 +736,48 @@ describe("remittance advice", () => {
 
     expect(table.rows).toEqual([]);
     // The stored total stands — it is money the insurer owes, computed against
-    // the provider remittance. Only the per-channel line breakdown is absent.
+    // the provider remittance.
     expect(totals.netMinor).toBe(40_000);
     expect(terms.agreementId).toBeNull();
+  });
+
+  it("renders the commission entries booked against that provider as the advice's lines", async () => {
+    const PROVIDER = "prv_cedar_2";
+    await ctx.db.insert(schema.ledgerSettlements).values({
+      id: "setl_insurer_2",
+      tenantId: ctx.tenantId,
+      counterpartyKind: "insurer",
+      counterpartyRef: `provider:${PROVIDER}`,
+      period: THIS_MONTH,
+      grossMinor: 45_000,
+      adjustmentsMinor: 0,
+      netMinor: 45_000,
+      currency: "AED",
+      state: "draft",
+      createdAt: NOW,
+      updatedAt: NOW
+    });
+    await entry(ctx, 12_000, NOW - 2 * DAY, {
+      providerId: PROVIDER,
+      grossCommissionMinor: 30_000,
+      channelId: "chn_unrelated"
+    });
+    // A different provider's entry must not leak into this one's advice.
+    await entry(ctx, 5_000, NOW - DAY, { providerId: "prv_other", grossCommissionMinor: 15_000 });
+    // Already claimed by a different insurer settlement — excluded the same
+    // way a channel settlement excludes an already-stamped entry.
+    await entry(ctx, 9_000, NOW - DAY, {
+      providerId: PROVIDER,
+      grossCommissionMinor: 9_000,
+      providerSettlementId: "stl_other_insurer"
+    });
+
+    const settlement = await getSettlement(ctx, "setl_insurer_2");
+    const { table, totals } = await statementTable(ctx, settlement);
+
+    expect(table.rows).toHaveLength(1);
+    expect(table.rows[0]).toMatchObject({ grossCommissionMinor: 30_000 });
+    expect(totals.netMinor).toBe(45_000);
   });
 
   it("keeps the rendered advice and points the settlement at it", async () => {

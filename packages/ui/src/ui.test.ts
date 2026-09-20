@@ -73,6 +73,27 @@ describe("tokens.css covers docs/01 §3–4", () => {
     }
   );
 
+  // docs/27 P2: `.exec` above finds only the *first* --module-axis in the
+  // file — the dark default at :root — so the two light-mode definition sites
+  // (the `prefers-color-scheme: light` media query and the explicit
+  // `[data-theme="light"]` override) could drift from docs/01-brand.md:83
+  // unnoticed, and did: both shipped `#b45309` where the doc names
+  // `#A2660B`. Guarded the same way, just against the light row instead of
+  // the dark one.
+  it("defines --module-axis's light-mode row as docs/01-brand.md:83 names it", () => {
+    const axisLight = /AXIS\s+`#[0-9A-Fa-f]{6}`\s*\([^)]*\)\s*\/\s*`(#[0-9A-Fa-f]{6})`\s*\(light\)/.exec(colour);
+    expect(axisLight, "docs/01-brand.md must still name AXIS's light hue").not.toBeNull();
+    const lightHex = (axisLight?.[1] as string).toLowerCase();
+
+    // Two definition sites; the dark default at :root is the first
+    // --module-axis in the file and is not one of these.
+    const lightSites = [...tokens.matchAll(/--module-axis:\s*(#[0-9A-Fa-f]{6});/g)].slice(1);
+    expect(lightSites, "tokens.css should declare --module-axis in both light-mode blocks").toHaveLength(2);
+    for (const [, hex] of lightSites) {
+      expect((hex as string).toLowerCase()).toBe(lightHex);
+    }
+  });
+
   const fontRoles = ["Space Grotesk", "Inter", "IBM Plex Mono", "IBM Plex Sans Arabic"];
   it.each(fontRoles)("wires the %s type role", (font) => {
     expect(typography, `docs/01 §4 should still name ${font}`).toContain(font);

@@ -4,7 +4,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, TAX_RULEPACK, id, schema } from "@lyra/db";
-import { applyPpm, quoteCommission, resolveRate, splitCommission } from "./commission.js";
+import {
+  applyPpm,
+  commissionStructureOf,
+  quoteCommission,
+  resolveRate,
+  splitCommission,
+  tieredCommissionMinor,
+  volumeBonusMinor
+} from "./commission.js";
 import { permissionsForRole, type Actor } from "./rbac.js";
 import type { Ctx } from "./context.js";
 
@@ -62,7 +70,14 @@ describe("splitCommission", () => {
 
   it("keeps the whole commission on a b2c sale", () => {
     const s = splitCommission({ premiumMinor: 100_000, baseCommissionPpm: 125_000 });
-    expect(s).toEqual({ grossMinor: 12_500, channelMinor: 0, taxMinor: 0, netMinor: 12_500 });
+    expect(s).toEqual({
+      grossMinor: 12_500,
+      channelMinor: 0,
+      taxMinor: 0,
+      netMinor: 12_500,
+      bonusMinor: 0,
+      overrideMinor: 0
+    });
   });
 
   it("refuses to pay a channel more than the underwriter pays us", () => {
@@ -79,6 +94,104 @@ describe("splitCommission", () => {
   it("rounds half up, symmetrically for refunds", () => {
     expect(applyPpm(5, 500_000)).toBe(3); // 2.5 -> 3
     expect(applyPpm(-5, 500_000)).toBe(-3);
+  });
+});
+
+describe("tieredCommissionMinor", () => {
+  it("applies 10% on the first 100k and 12% above it", () => {
+    // ADR-0084. 150,000 premium: 100,000 at 10% + 50,000 at 12%.
+    const out = tieredCommissionMinor(150_000, [
+      { uptoMinor: 100_000, ratePpm: 100_000 },
+      { ratePpm: 120_000 }
+    ]);
+    expect(out).toBe(10_000 + 6_000);
+  });
+
+  it("charges the flat top rate when the amount never reaches the first band", () => {
+    const out = tieredCommissionMinor(50_000, [
+      { uptoMinor: 100_000, ratePpm: 100_000 },
+      { ratePpm: 120_000 }
+    ]);
+    expect(out).toBe(5_000);
+  });
+
+  it("refuses a ladder whose last tier is capped, since it cannot cover an amount past it", () => {
+    expect(() => tieredCommissionMinor(150_000, [{ uptoMinor: 100_000, ratePpm: 100_000 }])).toThrowError(
+      expect.objectContaining({ detail: expect.stringContaining("open-ended") })
+    );
+  });
+
+  it("refuses an empty ladder", () => {
+    expect(() => tieredCommissionMinor(1, [])).toThrowError(expect.objectContaining({ detail: expect.stringContaining("empty") }));
+  });
+});
+
+describe("volumeBonusMinor", () => {
+  it("pays nothing below the threshold", () => {
+    expect(volumeBonusMinor(50_000, { priorVolumeMinor: 0, thresholdMinor: 100_000, bonusPpm: 50_000 })).toBe(0);
+  });
+
+  it("pays the bonus only on the slice of this sale above the threshold", () => {
+    // 80k prior + 50k this sale = 130k cumulative, 30k of it over the 100k line.
+    const bonus = volumeBonusMinor(50_000, { priorVolumeMinor: 80_000, thresholdMinor: 100_000, bonusPpm: 50_000 });
+    expect(bonus).toBe(1_500); // 5% of 30,000
+  });
+
+  it("pays the bonus on the full sale once already over the threshold", () => {
+    const bonus = volumeBonusMinor(20_000, { priorVolumeMinor: 150_000, thresholdMinor: 100_000, bonusPpm: 50_000 });
+    expect(bonus).toBe(1_000); // 5% of the full 20,000
+  });
+});
+
+describe("splitCommission with tiers, a volume bonus and an override", () => {
+  it("uses the ladder instead of the flat rate when tiers are given", () => {
+    const s = splitCommission({
+      premiumMinor: 150_000,
+      baseCommissionPpm: 999_999, // must be ignored: tiers win
+      tiers: [
+        { uptoMinor: 100_000, ratePpm: 100_000 },
+        { ratePpm: 120_000 }
+      ]
+    });
+    expect(s.grossMinor).toBe(16_000);
+    expect(s.bonusMinor).toBe(0);
+  });
+
+  it("adds the volume bonus on top of the base gross, before the channel share", () => {
+    const s = splitCommission({
+      premiumMinor: 50_000,
+      baseCommissionPpm: 100_000, // 5,000
+      channelSharePpm: 400_000,
+      volumeBonus: { priorVolumeMinor: 80_000, thresholdMinor: 100_000, bonusPpm: 50_000 }
+    });
+    // bonus: 30k over the line at 5% = 1,500. gross = 5,000 + 1,500 = 6,500.
+    expect(s.bonusMinor).toBe(1_500);
+    expect(s.grossMinor).toBe(6_500);
+    expect(s.channelMinor).toBe(2_600); // 40% of 6,500
+    expect(s.netMinor).toBe(3_900);
+  });
+
+  it("reports an override on top of gross without touching net", () => {
+    const s = splitCommission({
+      premiumMinor: 100_000,
+      baseCommissionPpm: 150_000,
+      override: { overridePpm: 200_000 }
+    });
+    expect(s.grossMinor).toBe(15_000);
+    expect(s.overrideMinor).toBe(3_000); // 20% of gross
+    expect(s.netMinor).toBe(15_000); // override does not reduce what the split already accounts for
+  });
+});
+
+describe("commissionStructureOf", () => {
+  it("is flat ({}) for a null or malformed structure", () => {
+    expect(commissionStructureOf(null)).toEqual({});
+    expect(commissionStructureOf("not json")).toEqual({});
+  });
+
+  it("parses a stored ladder", () => {
+    const json = JSON.stringify({ tiers: [{ ratePpm: 100_000 }], overridePpm: 50_000 });
+    expect(commissionStructureOf(json)).toEqual({ tiers: [{ ratePpm: 100_000 }], overridePpm: 50_000 });
   });
 });
 
@@ -241,6 +354,38 @@ describe("rate resolution", () => {
     expect(current.sharePpm).toBe(500_000);
     // Net of the rulepack's 5% VAT on our share (F17): 7_500 gross share - 375.
     expect(current.netMinor).toBe(7_125);
+  });
+
+  it("resolves a tiered rate and an override stamped on the winning rate row", async () => {
+    const p = await seedPanel();
+    await ctx.db.insert(schema.distCommissionRates).values([
+      {
+        id: id("rte", NOW),
+        tenantId: "t_1",
+        channelId: p.b2b,
+        offeringId: p.offering,
+        channelSharePpm: 300_000,
+        structureJson: JSON.stringify({
+          tiers: [
+            { uptoMinor: 100_000, ratePpm: 100_000 },
+            { ratePpm: 120_000 }
+          ],
+          overridePpm: 50_000
+        }),
+        effectiveFrom: NOW - 1000,
+        createdBy: "user:u_1",
+        createdAt: NOW
+      }
+    ]);
+
+    const out = await quoteCommission(ctx, {
+      offeringId: p.offering,
+      channelId: p.b2b,
+      premiumMinor: 150_000
+    });
+    // 100k @ 10% + 50k @ 12% = 16,000 gross, before the rulepack's 5% VAT on our net.
+    expect(out.grossMinor).toBe(16_000);
+    expect(out.overrideMinor).toBe(800); // 5% of gross
   });
 
   it("pays no channel share on a b2c sale even if the channel carries a default", async () => {

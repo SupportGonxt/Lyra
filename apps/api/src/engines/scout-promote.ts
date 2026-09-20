@@ -6,9 +6,9 @@ import {
   audit,
   checkKAnonymity,
   conflict,
-  DEFAULT_K_FLOOR,
   emit,
   gate,
+  kAnonymityFloor,
   notFound,
   type Ctx
 } from "@lyra/core";
@@ -103,7 +103,7 @@ export async function promoteWhitespace(
   const signalCount = cellSize(row, await clusterSizes(ctx, [row.clusterId]));
   // A brief built from a thin cell would restate a handful of quotes as market
   // demand, and every creative variant would carry it outward (docs/scout §2.5).
-  if (!checkKAnonymity(signalCount, DEFAULT_K_FLOOR).allowed) {
+  if (!checkKAnonymity(signalCount, kAnonymityFloor(ctx.policy, "scout")).allowed) {
     throw conflict("whitespace evidence is below the k-anonymity floor");
   }
 

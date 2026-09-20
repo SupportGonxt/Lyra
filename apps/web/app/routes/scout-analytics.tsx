@@ -52,18 +52,25 @@ import {
 //
 // The export card does not export the bench. Competitor prices are commercially
 // sensitive and the report engine's dataset registry deliberately has no
-// price-bench entry (apps/api/src/engines/report.ts), so the two datasets on
-// offer are the pipeline and the signal volume that fed it, and the notice says
-// why rather than leaving a missing option to look like an oversight.
+// price-bench entry (apps/api/src/engines/report.ts), so the datasets on offer
+// are the pipeline, the signal volume that fed it, clusters, experiments and
+// data products, and the notice says why the bench is missing rather than
+// leaving it look like an oversight.
 
 /** apps/api/src/routes/analytics.ts ExportBody.format. */
 const FORMATS = ["xlsx", "pdf", "csv", "json"] as const;
 
 /** apps/api/src/engines/report.ts DATASETS — the SCOUT entries, and their
- *  registered metrics/dimensions. An unregistered name is a 400. */
+ *  registered metrics/dimensions. An unregistered name is a 400. Panel bench
+ *  is deliberately absent from the registry (see report.ts's own comment) —
+ *  a generic group-by has no k-anonymity floor, so it stays out of both the
+ *  server registry and this mirror. */
 const DATASETS = {
   whitespaces: { metrics: ["whitespaces", "demand", "avgCompetition"], dimensions: ["status"] },
-  signals: { metrics: ["signals", "weight"], dimensions: ["source"] }
+  signals: { metrics: ["signals", "weight"], dimensions: ["source"] },
+  clusters: { metrics: ["clusters", "avgMomentum", "size"], dimensions: ["theme"] },
+  experiments: { metrics: ["experiments"], dimensions: ["state"] },
+  dataProducts: { metrics: ["dataProducts", "avgFloor"], dimensions: ["status"] }
 } as const;
 
 type Dataset = keyof typeof DATASETS;

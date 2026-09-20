@@ -247,6 +247,24 @@ describe("scout-analytics action", () => {
     expect(body.definition.dataset).toBe("whitespaces");
     expect(body.definition.metrics.length).toBeGreaterThan(0);
   });
+
+  // docs/27 P2: only whitespaces and signals were exportable; clusters,
+  // experiments and data products carry the same k-anonymity-safe shape (a
+  // count/aggregate over a table with no thin-cell counterparty risk) and were
+  // simply never registered. Panel bench is excluded on purpose (see the test
+  // above) and stays that way.
+  it.each(["clusters", "experiments", "dataProducts"] as const)(
+    "exports %s, the SCOUT tables that were missing from the registry",
+    async (dataset) => {
+      const calls = stubFetch(json({ id: "exp_1", format: "xlsx", state: "ready", rowCount: 3, expiresAt: null, error: null }));
+      const result = await analyticsAction(args(form({ intent: "export", dataset, format: "xlsx" })));
+      expect(result.problem).toBeNull();
+      expect(result.exported?.state).toBe("ready");
+      const body = JSON.parse(calls[0]!.body!) as { definition: { dataset: string; metrics: string[] } };
+      expect(body.definition.dataset).toBe(dataset);
+      expect(body.definition.metrics.length).toBeGreaterThan(0);
+    }
+  );
 });
 
 /* ------------------------------------------------------------------ headlines */
