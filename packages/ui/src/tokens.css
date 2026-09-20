@@ -544,13 +544,14 @@
 
     /* Module identity accents — light-mode hues (ADR-0026 exception, see the
        raw palette comment above). docs/01-brand.md:83 is the source of truth
-       for --module-axis; ui.test.ts guards it the same way the dark-mode row
-       already guards --module-axis's default. */
+       for all five; ui.test.ts guards every one the same way the dark-mode
+       row already guards each module's default (docs/27 P2: only AXIS was
+       guarded here, and the other four had each drifted from the doc too). */
     --module-axis: #a2660b;
-    --module-orbit: #00786a;
-    --module-signal: #c2410c;
-    --module-scout: #1d4ed8;
-    --module-north: #6d28d9;
+    --module-orbit: #0b7a6a;
+    --module-signal: #be4118;
+    --module-scout: #2b5cbb;
+    --module-north: #6440ad;
 
     --shadow-glow: 0 0 0 1px #e6e9ee, 0 4px 14px #0f172a08;
     --shadow-raised: 0 0 0 1px #e6e9ee, 0 14px 40px #0f172a14;
@@ -645,10 +646,10 @@
   --heat-fg: #ffffff;
 
   --module-axis: #a2660b;
-  --module-orbit: #00786a;
-  --module-signal: #c2410c;
-  --module-scout: #1d4ed8;
-  --module-north: #6d28d9;
+  --module-orbit: #0b7a6a;
+  --module-signal: #be4118;
+  --module-scout: #2b5cbb;
+  --module-north: #6440ad;
 
   --shadow-glow: 0 0 0 1px #e6e9ee, 0 4px 14px #0f172a08;
   --shadow-raised: 0 0 0 1px #e6e9ee, 0 14px 40px #0f172a14;

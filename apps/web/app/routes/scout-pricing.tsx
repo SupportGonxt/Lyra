@@ -52,6 +52,14 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     emptyPage<PanelRow>()
   );
 
+  // docs/27 P2 K_FLOOR follow-up: the resolved tenant value, not the compiled
+  // default — falls back to it on a permission or network failure, same as
+  // every other best-effort read on this loader.
+  const kFloor = await safe(
+    () => api<{ kFloor: number }>("/v1/scout/config", { env, request }).then((r) => r.kFloor),
+    K_FLOOR
+  );
+
   const period = latestPeriod(bench.data);
   const rows = inPeriod(bench.data, period);
   const lost = losses(rows);
@@ -61,7 +69,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     { env, request }
   );
 
-  return { period, lines: rollByLine(rows), losses: lost, resolved };
+  return { period, lines: rollByLine(rows), losses: lost, resolved, kFloor };
 }
 
 export default function ScoutPricing() {
@@ -111,7 +119,7 @@ export default function ScoutPricing() {
         )}
       </Card>
 
-      <GuardrailNotice tone="info" title={l("kFloor")} reason={l("kFloorWhy", { k: String(K_FLOOR) })} />
+      <GuardrailNotice tone="info" title={l("kFloor")} reason={l("kFloorWhy", { k: String(loaded.kFloor) })} />
 
       <footer className="flex flex-wrap gap-4">
         <Link to="/scout/panel" className="font-ui text-13 text-accent underline-offset-2 hover:underline">

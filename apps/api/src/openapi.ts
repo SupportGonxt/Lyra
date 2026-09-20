@@ -392,6 +392,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/scout/clusters/sweep", summary: "Run the Clusterer over the persisted signal corpus: places each signal against the market embedding index, re-scores momentum, stamps cluster ids", permission: "scout:clusters:build", tag: "scout" },
   { method: "post", path: "/v1/scout/panel-bench/sweep", summary: "Run the Bench Builder: rebuild every provider x line x month cell from the panel's own quote outcomes", permission: "scout:panel_bench:build", tag: "scout" },
   { method: "get", path: "/v1/scout/watch", summary: "Competitor and regulatory watch: each watched subject's window scored against the one before it", permission: "scout:signals:read", tag: "scout" },
+  { method: "get", path: "/v1/scout/config", summary: "The tenant's resolved SCOUT k-anonymity floor", permission: "scout:signals:read", tag: "scout" },
   { method: "post", path: "/v1/scout/wording-diff", summary: "Word-level diff of two coverage-wording texts (PDF extraction deferred, see ADR-0016)", permission: "scout:panel_bench:read", tag: "scout", requestBody: true },
   { method: "get", path: "/v1/scout/panel-bench/negotiation-pack", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", tag: "scout" },
 

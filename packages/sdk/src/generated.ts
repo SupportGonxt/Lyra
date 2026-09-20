@@ -3021,6 +3021,7 @@ export interface Operations {
   "GET /v1/scout/clusters": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutClusters>>;
   "POST /v1/scout/clusters/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/clusters/{id}": Op<{ id: string }, never, never, ScoutClusters>;
+  "GET /v1/scout/config": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/data-products": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutDataProducts>>;
   "POST /v1/scout/data-products": Op<never, never, ScoutDataProducts, ScoutDataProducts>;
   "GET /v1/scout/data-products/{id}": Op<{ id: string }, never, never, ScoutDataProducts>;
@@ -3786,6 +3787,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/scout/clusters": { tag: "scout", summary: "List clusters", permission: "scout:clusters:read", public: false },
   "POST /v1/scout/clusters/sweep": { tag: "scout", summary: "Run the Clusterer over the persisted signal corpus: places each signal against the market embedding index, re-scores momentum, stamps cluster ids", permission: "scout:clusters:build", public: false },
   "GET /v1/scout/clusters/{id}": { tag: "scout", summary: "Fetch one cluster", permission: "scout:clusters:read", public: false },
+  "GET /v1/scout/config": { tag: "scout", summary: "The tenant's resolved SCOUT k-anonymity floor", permission: "scout:signals:read", public: false },
   "GET /v1/scout/data-products": { tag: "scout", summary: "List data-products", permission: "scout:data_products:read", public: false },
   "POST /v1/scout/data-products": { tag: "scout", summary: "Create a data product", permission: "scout:data_products:create", public: false },
   "GET /v1/scout/data-products/{id}": { tag: "scout", summary: "Fetch one data product", permission: "scout:data_products:read", public: false },

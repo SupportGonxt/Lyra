@@ -828,7 +828,15 @@ and publisher, and explicitly refuses `insurer` at `:99-106`) — the remittance
 advice at `:658-702` is good and simply pointed at the wrong kind. Period-close
 checks are three deterministic tests with no subledger tie-out, no
 recon-complete and no suspense check. Revenue schedules exist as data with
-nothing driving them and no cap at invoiced. No bordereaux, inbound or outbound
+nothing driving them and no cap at invoiced — *closed, re-read at source
+2026-09-20: `straightLine` (`packages/ledger/src/recognition.ts`) builds the
+schedule at invoice time (`billing.ts:322`), `postRecognitions`
+(`billing.ts:489`, called from `sweepBilling` on the tenant cron tick) walks
+due rows and posts `SUB-RECOG`, and `assertWithinInvoice`
+(`recognition.ts:50`, docs/19 §11.9) is the cap, enforced against the
+ledger's own recognized total rather than the schedule's own arithmetic.
+Same shape as the cx-judge and CREATOR-SPEND findings above: built and wired
+before this register entry, which never caught up.* No bordereaux, inbound or outbound
 — zero hits in code *or* docs. Chart of accounts is a hard-coded TypeScript
 constant, so a tenant cannot add an account without a deploy. No budget vs
 actual, no cash-flow statement, no fixed assets or operating-expense accounts.
@@ -851,14 +859,32 @@ resolves a tenant override from `moduleConfig.scout.settings.kAnonymityFloor`,
 the same per-module settings path every other tenant knob uses, and
 `resources.ts` (panel-bench visibility), `scout-whitespace.ts` and
 `scout-promote.ts` all route through it now instead of the bare
-`DEFAULT_K_FLOOR`. Not closed at the display seam: the four web screens that
-show or validate against `K_FLOOR` (`scout-admin.tsx`, `scout-data-products.tsx`,
-`scout-panel.tsx`, `scout-pricing.tsx`) still read the literal default — no API
-response currently carries the resolved value for them to read instead. A
-follow-on, not a re-opening: the number they show is right for every tenant
-that has not set an override, and the thing a hardcoded floor actually put at
-risk — the server-side suppression a customer's data flows through — no
-longer has this defect.* Only 2 of 6 SCOUT tables export
+`DEFAULT_K_FLOOR`.*
+
+*Closed, 2026-09-20 — display seam, and a sharper find on the way to it.* The
+four web screens that show or validate against `K_FLOOR`
+(`scout-admin.tsx`, `scout-data-products.tsx`, `scout-panel.tsx`,
+`scout-pricing.tsx`) read the literal compiled default with no way to see a
+tenant's own override; `GET /v1/scout/config` (`apps/api/src/routes/scout.ts`)
+is the seam they now read the resolved value from, gated on holding any of
+the three real SCOUT read permissions those screens require (not
+`scout:signals:read` alone, which `provider.viewer` — reachable on two of the
+four — does not hold). The sharper find, chasing this down: publishing a
+`scout_data_products` cut below the module's floor was refused *only* in
+`scout-data-products.tsx`'s own web action, against the same hardcoded
+literal — so a caller PATCHing the API directly, bypassing that one route,
+was never checked at all, and a tenant with a raised floor override had no
+protection on that path either. `beforeWrite` on the `data-products` resource
+(`apps/api/src/resources.ts`) is now the authoritative gate, reading
+`kAnonymityFloor(ctx.policy, "scout")` the same way the enforcement half
+above does; the web action's own check stays, now reading the resolved value
+too, as a same-request pre-check for its polished bilingual message rather
+than a bare `ApiError` round trip. Same shape as sighting 12 (a declared
+contract enforced on only one of its callers) one level up: the *value* was
+already fixed at its two enforcement seams; the *gate itself* existed on only
+one of two write paths into the resource it was protecting.
+
+Only 2 of 6 SCOUT tables export
 (`engines/report.ts:237,251`) — *closed for `clusters`, `scout-experiments` and
 `scout-data-products` (now 5 of 6), mirrored in `scout-analytics.tsx`'s web-side
 registry. `scout_panel_bench` stays unregistered on purpose: `runReport`
@@ -878,8 +904,12 @@ extracts AXIS's light hex from the doc and asserts both definition sites in
 `tokens.css` equal it, mirroring the existing dark-mode guard beside it. The
 other four module accents' light-mode hues (ORBIT, SIGNAL, SCOUT, NORTH) were
 found to differ from docs/01-brand.md too while chasing this one down, by a
-smaller margin each — out of scope for this finding, which named AXIS only;
-worth its own pass.
+smaller margin each — out of scope for this finding, which named AXIS only.
+**Closed, 2026-09-20.** All four fixed at both definition sites the same way
+(`#00786a`→`#0b7a6a`, `#c2410c`→`#be4118`, `#1d4ed8`→`#2b5cbb`,
+`#6d28d9`→`#6440ad`); the AXIS-only guard generalised to an `it.each` over all
+five module accents rather than growing a fifth copy of the same test one
+module at a time.
 
 *Closed, 2026-09-20.* **Commission depth**: `splitCommission`/`quoteCommission`
 (`packages/core/src/commission.ts`) now take `tiers`, `volumeBonus` and
