@@ -25,6 +25,8 @@ import {
   bodyFrom,
   labelsFor,
   optionLabel,
+  queryFromSavedView,
+  recognizedQueryKeys,
   tabOf,
   visibleLinks,
   visibleTabs,
@@ -44,6 +46,51 @@ interface Page {
   data: Row[];
   cursor?: string;
   total?: number;
+}
+
+/**
+ * Mirrors `GET /v1/analytics/saved-views`'s row (apps/api/src/routes/analytics.ts)
+ * — id, name and isDefault are all the picker needs; `queryJson` is parsed
+ * once here and never leaves the loader (see `queryFromSavedView`, spec.ts).
+ */
+interface SavedViewRow {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  queryJson: string;
+}
+
+/** The picker's own shape, sent to the client — no `queryJson`, it never renders it. */
+interface SavedViewOption {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
+
+/**
+ * `queryJson` as stored is always this loader's own `JSON.stringify` output
+ * (the API never writes anything else), so a parse failure means a row this
+ * loader did not write — degrade to "no filters" rather than crash the list
+ * underneath it.
+ */
+function parseQueryJson(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The URL carries no explicit filter, search or sort choice for this tab —
+ * the state a first visit is in, and the only state in which a saved view's
+ * `isDefault` row may pre-apply itself without overriding something the
+ * reader already typed.
+ */
+function isPristine(tab: ResourceSpec, params: URLSearchParams): boolean {
+  for (const key of recognizedQueryKeys(tab)) if (params.get(key)) return false;
+  return true;
 }
 
 /** Query keys the API reserves; everything else is an exact-match column filter. */
@@ -108,6 +155,42 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     if (value) query.set(filter.name, value);
   }
 
+  // Saved views (docs/27 "saved views are written, listed, and never
+  // applied", closed; full contract in ui.md §7.0). `route` is this resource
+  // tab's own path — `${spec.path}/${tab.key}` — never the bespoke screen a
+  // segment away. Best-effort: an actor without analytics:saved_views:read
+  // still gets the ordinary list, just no picker.
+  const savedViewRoute = `${spec.path}/${tab.key}`;
+  const savedViewsPage = await api<{ data: SavedViewRow[] }>(
+    `/v1/analytics/saved-views?route=${encodeURIComponent(savedViewRoute)}`,
+    { env, request }
+  ).catch((error: unknown) => {
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 401) {
+      return { data: [] };
+    }
+    return asRouteError(error);
+  });
+  const savedViews = (savedViewsPage.data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    isDefault: row.isDefault,
+    query: parseQueryJson(row.queryJson)
+  }));
+
+  const requestedView = incoming.get("view");
+  const chosen = requestedView
+    ? savedViews.find((view) => view.id === requestedView)
+    : isPristine(tab, incoming)
+      ? savedViews.find((view) => view.isDefault)
+      : undefined;
+
+  if (chosen) {
+    // A picked view replaces this tab's filter/sort state; it does not merge
+    // with whatever partial state the URL already carried.
+    for (const key of recognizedQueryKeys(tab)) query.delete(key);
+    for (const [key, value] of Object.entries(queryFromSavedView(tab, chosen.query))) query.set(key, value);
+  }
+
   // `deleted` deliberately sits outside RESERVED's pass-through. The API parses
   // it with `z.coerce.boolean()` (ListQuery, apps/api/src/http.ts), which is
   // `Boolean(value)` — so "false" and "0" would both switch the deleted view ON.
@@ -146,7 +229,9 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     resolved,
     cursor: page.cursor ?? null,
     deleted,
-    query: Object.fromEntries(query)
+    query: Object.fromEntries(query),
+    savedViews: savedViews.map((view): SavedViewOption => ({ id: view.id, name: view.name, isDefault: view.isDefault })),
+    activeView: chosen?.id ?? null
   };
 }
 
@@ -324,6 +409,34 @@ export default function ModuleList() {
           </nav>
         ) : null}
       </header>
+
+      {/* Which saved filter/sort state this tab is showing (docs/27 "saved
+          views are written, listed, and never applied", closed; ui.md §7.0).
+          Only rendered when at least one view exists for this route — most
+          tabs have none. Picking one replaces the filter bar's state below;
+          it never merges with whatever the reader already typed there. */}
+      {loaded.savedViews.length ? (
+        <label className="flex items-center gap-2 font-ui text-12 text-subtle">
+          <span>{t("common.savedView")}</span>
+          <Select
+            size="sm"
+            className="w-56"
+            aria-label={t("common.savedView")}
+            value={loaded.activeView ?? ""}
+            options={[
+              { value: "", label: t("common.savedView.none") },
+              ...loaded.savedViews.map((view) => ({ value: view.id, label: view.name }))
+            ]}
+            onValueChange={(next) => {
+              const params = new URLSearchParams();
+              if (next) params.set("view", next);
+              const size = pageSizeIn(searchParams);
+              if (size) params.set("limit", String(size));
+              setSearchParams(params);
+            }}
+          />
+        </label>
+      ) : null}
 
       {/* Deleted rows look nothing like live ones: the list is banded, says so
           in words, and offers the way back. */}
