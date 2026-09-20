@@ -2,6 +2,16 @@
 // with these rows; tenants may add accounts, never remove or renumber these.
 // Codes are the join key everywhere (ledger_journal_lines.account_code), so the
 // catalogue lives in @lyra/db and is imported by both seed and provisioning.
+//
+// ADR-0083: this constant is the *default/seed* chart only. `seed()` and
+// `syncChartOfAccounts` (packages/core/src/seed.ts) are its only runtime
+// readers — they materialize it into the tenant-scoped `ledger_accounts`
+// table. Every other runtime reader (posting, reports, the chart-of-accounts
+// report route) must read a tenant's chart through
+// `packages/core/src/chart.ts` (`tenantChart`/`tenantAccount`), never this
+// constant, so that an account a tenant adds at runtime is visible everywhere
+// a seeded one is. `packages/ledger/src/recipes.ts` is the one deliberate
+// exception — see the ADR for why its pure builders keep reading this file.
 
 export type AccountType = "asset" | "liability" | "income" | "expense" | "equity";
 
@@ -14,6 +24,8 @@ export interface AccountDef {
   normalSide: "debit" | "credit";
   /** Segregated client money (CBUAE). Guarded by the 1010 ≥ 2010 invariant. */
   clientMoney?: true;
+  /** A clearing/suspense account that must net to zero at period close (ADR-0083). */
+  suspense?: true;
 }
 
 export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
@@ -25,7 +37,7 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   { code: "1155", en: "Recovery Receivable", ar: "مستحقات الاسترداد", type: "asset", normalSide: "debit" },
   { code: "1160", en: "Trade Receivable", ar: "ذمم مدينة تجارية", type: "asset", normalSide: "debit" },
   { code: "1200", en: "Premium Receivable", ar: "أقساط مستحقة القبض", type: "asset", normalSide: "debit" },
-  { code: "1300", en: "PSP Clearing", ar: "تسوية مزود خدمة الدفع", type: "asset", normalSide: "debit" },
+  { code: "1300", en: "PSP Clearing", ar: "تسوية مزود خدمة الدفع", type: "asset", normalSide: "debit", suspense: true },
 
   // liabilities
   { code: "2000", en: "Insurer Payable", ar: "مستحقات لشركات التأمين", type: "liability", normalSide: "credit" },

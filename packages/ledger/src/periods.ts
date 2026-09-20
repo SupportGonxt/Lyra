@@ -1,6 +1,17 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, badRequest, conflict, gate, require_, type Ctx } from "@lyra/core";
+import {
+  actorRef,
+  audit,
+  badRequest,
+  conflict,
+  gate,
+  require_,
+  suspenseAccounts,
+  tenantChartMap,
+  type Ctx
+} from "@lyra/core";
+import { PAYABLE_AGING_ACCOUNTS, RECEIVABLE_AGING_ACCOUNTS } from "./reports.js";
 
 // docs/19 §6. open → soft_closed (adjustments, reason required) → hard_closed
 // (contra postings only). A period is created on first posting into it, so
@@ -170,6 +181,132 @@ export async function closeChecks(ctx: Ctx, code: string): Promise<CloseCheck[]>
     name: "no_open_client_money_breach",
     ok: open === 0,
     detail: open ? `${plural(open, "client-money breach", "client-money breaches")} recorded` : undefined
+  });
+
+  // ADR-0083. Three checks docs/27 P2 named as missing, in the same
+  // deterministic-and-global style as the four above.
+
+  // subledger_ties_to_control: the receivable/payable open-item subledger
+  // (reports.ts's own account sets) is summed directly from
+  // ledger_journal_lines — the source of truth — and compared to the same
+  // accounts' rows in ledger_account_balances, the incrementally maintained
+  // cache trialBalance_zero already trusts. A mismatch means the cache has
+  // drifted from the lines it is supposed to mirror (rebuildBalances is the
+  // repair), never a difference the tenant's own subledger is allowed to hold.
+  const controlledCodes = [...RECEIVABLE_AGING_ACCOUNTS, ...PAYABLE_AGING_ACCOUNTS] as const;
+  const chartMap = await tenantChartMap(ctx);
+  const lineSums = await ctx.db
+    .select({
+      accountCode: schema.ledgerJournalLines.accountCode,
+      side: schema.ledgerJournalLines.side,
+      total: sql<number>`coalesce(sum(${schema.ledgerJournalLines.baseAmountMinor}), 0)`
+    })
+    .from(schema.ledgerJournalLines)
+    .where(
+      and(
+        eq(schema.ledgerJournalLines.tenantId, ctx.tenantId),
+        inArray(schema.ledgerJournalLines.accountCode, [...controlledCodes])
+      )
+    )
+    .groupBy(schema.ledgerJournalLines.accountCode, schema.ledgerJournalLines.side);
+  const balanceSums = await ctx.db
+    .select({
+      accountCode: schema.ledgerAccountBalances.accountCode,
+      debit: sql<number>`coalesce(sum(${schema.ledgerAccountBalances.baseDebitMinor}), 0)`,
+      credit: sql<number>`coalesce(sum(${schema.ledgerAccountBalances.baseCreditMinor}), 0)`
+    })
+    .from(schema.ledgerAccountBalances)
+    .where(
+      and(
+        eq(schema.ledgerAccountBalances.tenantId, ctx.tenantId),
+        inArray(schema.ledgerAccountBalances.accountCode, [...controlledCodes])
+      )
+    )
+    .groupBy(schema.ledgerAccountBalances.accountCode);
+
+  const netSigned = (code: string, debit: number, credit: number): number =>
+    (chartMap.get(code)?.normalSide ?? "debit") === "debit" ? debit - credit : credit - debit;
+  const fromLines = (code: string): number => {
+    const d = lineSums.find((r) => r.accountCode === code && r.side === "debit")?.total ?? 0;
+    const c = lineSums.find((r) => r.accountCode === code && r.side === "credit")?.total ?? 0;
+    return netSigned(code, Number(d), Number(c));
+  };
+  const fromControl = (code: string): number => {
+    const row = balanceSums.find((r) => r.accountCode === code);
+    return netSigned(code, Number(row?.debit ?? 0), Number(row?.credit ?? 0));
+  };
+  const untied = controlledCodes.filter((code) => fromLines(code) !== fromControl(code));
+  checks.push({
+    name: "subledger_ties_to_control",
+    ok: untied.length === 0,
+    detail: untied.length
+      ? `${plural(untied.length, "account", "accounts")} where the subledger disagrees with its GL control balance: ${untied.join(", ")}`
+      : undefined
+  });
+
+  // recon_complete: every reconciliation run touching the period being closed
+  // must have reached recon.ts's own terminal state, `closed` — reused as-is,
+  // no new status introduced.
+  const openRuns = await ctx.db
+    .select({ n: sql<number>`count(*)`, process: schema.ledgerReconRuns.process, counterpartyRef: schema.ledgerReconRuns.counterpartyRef })
+    .from(schema.ledgerReconRuns)
+    .where(
+      and(
+        eq(schema.ledgerReconRuns.tenantId, ctx.tenantId),
+        eq(schema.ledgerReconRuns.period, code),
+        ne(schema.ledgerReconRuns.state, "closed")
+      )
+    )
+    .groupBy(schema.ledgerReconRuns.process, schema.ledgerReconRuns.counterpartyRef);
+  const unresolvedRuns = openRuns.reduce((n, r) => n + Number(r.n), 0);
+  checks.push({
+    name: "recon_complete",
+    ok: unresolvedRuns === 0,
+    detail: unresolvedRuns
+      ? `${plural(unresolvedRuns, "reconciliation run", "reconciliation runs")} for ${code} not yet closed: ${openRuns
+          .map((r) => `${r.process}${r.counterpartyRef ? `/${r.counterpartyRef}` : ""}`)
+          .join(", ")}`
+      : undefined
+  });
+
+  // no_suspense_balance: a clearing/suspense account (ADR-0083 §3, e.g. 1300
+  // PSP Clearing) must net to zero across currencies at the moment the month
+  // is frozen — an outstanding balance there is an unexplained difference,
+  // not a position anyone is meant to hold.
+  const suspense = await suspenseAccounts(ctx);
+  const outstandingSuspense: string[] = [];
+  if (suspense.length) {
+    const rows = await ctx.db
+      .select()
+      .from(schema.ledgerAccountBalances)
+      .where(
+        and(
+          eq(schema.ledgerAccountBalances.tenantId, ctx.tenantId),
+          inArray(
+            schema.ledgerAccountBalances.accountCode,
+            suspense.map((a) => a.code)
+          )
+        )
+      );
+    const byCode = new Map<string, { debit: number; credit: number }>();
+    for (const r of rows) {
+      const acc = byCode.get(r.accountCode) ?? { debit: 0, credit: 0 };
+      acc.debit += r.baseDebitMinor;
+      acc.credit += r.baseCreditMinor;
+      byCode.set(r.accountCode, acc);
+    }
+    for (const a of suspense) {
+      const b = byCode.get(a.code) ?? { debit: 0, credit: 0 };
+      const net = a.normalSide === "debit" ? b.debit - b.credit : b.credit - b.debit;
+      if (net !== 0) outstandingSuspense.push(`${a.code} (${net})`);
+    }
+  }
+  checks.push({
+    name: "no_suspense_balance",
+    ok: outstandingSuspense.length === 0,
+    detail: outstandingSuspense.length
+      ? `suspense account balance outstanding: ${outstandingSuspense.join(", ")}`
+      : undefined
   });
 
   return checks.map((c) => ({ ...c, name: `${c.name}@${code}` }));

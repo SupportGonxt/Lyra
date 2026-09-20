@@ -9,6 +9,7 @@ import { decide, hashObject, permissionsForRole, type Ctx } from "@lyra/core";
 import { Gateway, makeStub, type UbiContext } from "@lyra/model-gateway";
 import { changeSetHashOf, endorsePolicy } from "./axis-endorse.js";
 import { TelematicsIngest, repriceFromTelemetry, type PolicyRow, type UbiStamp } from "./telematics.js";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 
 // docs/27 F5 (Group E, task 4): a telemetry-driven price change is an
 // endorsement. These tests exist to hold that claim down — same pricing, same
@@ -155,6 +156,7 @@ beforeEach(async () => {
     policy: PolicyJson.parse({ currency: "ZAR", autoApprove: ["axis.endorse"] }),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
 
   await ctx.db.insert(schema.products).values({
     id: "prod_ubi",

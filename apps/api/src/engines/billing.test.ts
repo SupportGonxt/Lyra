@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import { recordUsage, invoiceNumber, sweepBilling, subscribeToDataProduct, deliverDataProduct } from "./billing.js";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 
 // Group C revenue lines (docs/specs revenue lines full build design, task 3):
 // recordUsage() had no real writer, only the schema and a hand-fixtured seed
@@ -38,7 +39,7 @@ function actor(): Actor {
 }
 
 async function makeCtx(now = 1_700_000_000_000): Promise<Ctx> {
-  return {
+  const ctx: Ctx = {
     db: drizzle(client) as unknown as Ctx["db"],
     tenantId: "t_1",
     actor: actor(),
@@ -48,6 +49,8 @@ async function makeCtx(now = 1_700_000_000_000): Promise<Ctx> {
     policy: PolicyJson.parse({ currency: "USD" }),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
+  return ctx;
 }
 
 /** Fresh in-memory db + migrations + ctx, for describe blocks that don't need a shared beforeEach. */

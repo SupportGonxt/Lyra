@@ -289,6 +289,7 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       type: acc.type,
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
+      suspense: acc.suspense ?? false,
       currency: "AED",
       status: "active",
       createdAt: now
@@ -2424,6 +2425,7 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
       type: acc.type,
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
+      suspense: acc.suspense ?? false,
       currency: "AED",
       status: "active",
       createdAt: now

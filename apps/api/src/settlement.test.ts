@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, id, schema } from "@lyra/db";
 import { decide, hashObject, type Ctx } from "@lyra/core";
 import { trialBalance } from "@lyra/ledger";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 import {
   approveSettlement,
   disputeSettlement,
@@ -70,6 +71,7 @@ beforeEach(async () => {
   const db = drizzle(client) as unknown as Ctx["db"];
   ctx = ctxFor(db, "t_test", "u_runner");
   other = ctxFor(db, "t_test", "u_approver");
+  await seedTestChart(ctx);
 });
 
 /** AppError puts the specific cause in `detail`; the message is only the title. */

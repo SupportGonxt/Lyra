@@ -284,6 +284,7 @@ describe("seed", () => {
         type: acc.type,
         normalSide: acc.normalSide,
         clientMoney: acc.clientMoney ?? false,
+        suspense: acc.suspense ?? false,
         currency: "AED",
         status: "active"
       });
@@ -293,6 +294,11 @@ describe("seed", () => {
     // ledger relies on to segregate client funds, so its wiring must be exact.
     expect(byCode["1010"]).toMatchObject({ clientMoney: true });
     expect(byCode["1000"]).toMatchObject({ clientMoney: false });
+
+    // ADR-0083: PSP Clearing is the one seeded suspense-flagged account, read
+    // by periods.ts's no_suspense_balance close check.
+    expect(byCode["1300"]).toMatchObject({ suspense: true });
+    expect(byCode["1000"]).toMatchObject({ suspense: false });
   });
 
   it("backfills chart accounts a tenant was seeded before, and leaves the rest alone", async () => {

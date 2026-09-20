@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, seed, type Actor, type Ctx } from "@lyra/core";
 import { recordUsage, sweepBilling } from "./billing.js";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 
 // Group C revenue lines, task 7: worked-example integration test proving the
 // full F2 flow (subscription invoice -> overage -> revenue recognition)
@@ -37,7 +38,7 @@ function actor(): Actor {
 }
 
 async function makeCtx(now = 1_700_000_000_000): Promise<Ctx> {
-  return {
+  const ctx: Ctx = {
     db: drizzle(client) as unknown as Ctx["db"],
     tenantId: "t_1",
     actor: actor(),
@@ -47,6 +48,8 @@ async function makeCtx(now = 1_700_000_000_000): Promise<Ctx> {
     policy: PolicyJson.parse({ currency: "USD" }),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
+  return ctx;
 }
 
 /** Fresh in-memory db + migrations + ctx, for describe blocks that don't need a shared beforeEach. */
