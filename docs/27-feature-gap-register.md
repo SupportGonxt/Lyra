@@ -892,7 +892,20 @@ group-by has no k-anonymity floor, so exporting it would hand back a thin
 cell's exact number and name the one counterparty behind it —
 `scout-analytics.tsx`'s own comment already recorded this decision for the
 export card, and the two now agree explicitly rather than by coincidence.*
-No multimodal path (`extract.ts:7-9`). No AE-only
+No multimodal path (`extract.ts:7-9`) — *closed, re-read at source
+2026-09-20: `visionExtractionSchema`/`visionExtractionMessages`/
+`parseVisionExtraction` (`packages/model-gateway/src/extract.ts:159,180,205`)
+are wired into `POST /v1/axis/documents/:id/extract` (`apps/api/src/routes/axis.ts:275-299`,
+docs/modules/axis.md §8 clause G.5): when the caller has no `rawText`, the
+route renders the stored document's pages to images (`renderDocumentPages`,
+the `BROWSER` binding) and sends them to a vision-capable model
+(`claude-haiku-4-5`, pinned regardless of tier routing — ADR-0036, Workers AI
+has no vision-capable catalogue entry). Tested in
+`apps/api/src/axis-extraction.test.ts` and
+`packages/model-gateway/src/extract.test.ts`. Landed in `d259a95`
+(2026-08-26), the same commit that wired cx-judge — same shape as that
+finding and CREATOR-SPEND: built and wired before this register entry, which
+never caught up.* No AE-only
 rulepack review, no Egypt/FRA pack. `packages/agents/` and `apps/agents/` do
 not exist despite the CLAUDE.md target layout and `docs/02:59` — the runtime is
 `api/src/engines/`. `docs/01-brand.md:83` names the light-mode AXIS hue
