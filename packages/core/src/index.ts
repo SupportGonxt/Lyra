@@ -16,6 +16,7 @@ export * from "./pii.js";
 export * from "./idempotency.js";
 export * from "./commission.js";
 export * from "./tax.js";
+export * from "./chart.js";
 export * from "./k-anonymity.js";
 export * from "./lens.js";
 export * from "./momentum.js";

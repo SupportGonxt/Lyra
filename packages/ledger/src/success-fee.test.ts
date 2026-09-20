@@ -8,6 +8,7 @@ import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
 import { buildRecipe } from "./recipes.js";
 import { runTxn } from "./txn.js";
+import { seedTestChart } from "./test-chart.js";
 
 // docs/19 §11.10: "`SUCCESS-FEE` cannot post without a verified metric snapshot
 // reference." docs/19 §7 says the same from the approvals side: "verified metric
@@ -47,6 +48,7 @@ beforeEach(async () => {
     policy: PolicyJson.parse({ autoApprove: [] }),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
 });
 
 async function snapshot(opts: { id: string; verified: boolean; tenantId?: string }): Promise<string> {

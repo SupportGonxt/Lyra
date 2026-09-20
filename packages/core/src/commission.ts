@@ -17,7 +17,7 @@ export function applyPpm(amountMinor: number, ppm: number): number {
   return sign * Math.floor((Math.abs(amountMinor) * ppm + PPM / 2) / PPM);
 }
 
-// ADR-0083. Depth beyond a flat rate: a ladder over the premium/volume of a
+// ADR-0084. Depth beyond a flat rate: a ladder over the premium/volume of a
 // single sale, a bonus once a producer crosses a cumulative period volume, and
 // an override a second party earns on top. All three are optional and additive
 // to the flat-rate shape above them — a caller that passes none of them gets
@@ -31,7 +31,7 @@ export interface CommissionTier {
 }
 
 export interface VolumeBonusInput {
-  /** Cumulative volume already earned in the period, before this sale. Caller-supplied: see ADR-0083. */
+  /** Cumulative volume already earned in the period, before this sale. Caller-supplied: see ADR-0084. */
   priorVolumeMinor: number;
   /** Once prior + this sale crosses this cumulative volume, the bonus applies to the portion above it. */
   thresholdMinor: number;
@@ -116,11 +116,11 @@ export interface CommissionInput {
   flatFeeMinor?: number;
   /** Tax withheld on our net commission (VAT on brokerage), ppm. */
   taxPpm?: number;
-  /** ADR-0083. Replaces `baseCommissionPpm` when present. */
+  /** ADR-0084. Replaces `baseCommissionPpm` when present. */
   tiers?: CommissionTier[];
-  /** ADR-0083. Added on top of the (flat or tiered) base gross. */
+  /** ADR-0084. Added on top of the (flat or tiered) base gross. */
   volumeBonus?: VolumeBonusInput;
-  /** ADR-0083. A second party's cut of gross, reported, never deducted here. */
+  /** ADR-0084. A second party's cut of gross, reported, never deducted here. */
   override?: CommissionOverrideInput;
 }
 
@@ -132,9 +132,9 @@ export interface CommissionSplit {
   taxMinor: number;
   /** What we keep: gross - channel - tax. */
   netMinor: number;
-  /** ADR-0083. Already included in grossMinor; broken out for the statement. */
+  /** ADR-0084. Already included in grossMinor; broken out for the statement. */
   bonusMinor: number;
-  /** ADR-0083. Ppm of grossMinor for a second party, on top — not subtracted from netMinor. */
+  /** ADR-0084. Ppm of grossMinor for a second party, on top — not subtracted from netMinor. */
   overrideMinor: number;
 }
 
@@ -250,7 +250,7 @@ export async function quoteCommission(
     taxMarket?: string;
     /** Rulepack code; defaults to `commission`. */
     taxCode?: string;
-    /** ADR-0083: cumulative volume already earned this period, for the winning rate's volumeBonus, if any. */
+    /** ADR-0084: cumulative volume already earned this period, for the winning rate's volumeBonus, if any. */
     priorVolumeMinor?: number;
     at?: number;
   }

@@ -499,10 +499,10 @@ ledgerRoutes.get("/reports/value-flow/lines", async (c) => {
   );
 });
 
-ledgerRoutes.get("/reports/chart-of-accounts", (c) => {
+ledgerRoutes.get("/reports/chart-of-accounts", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
-  return c.json(chartOfAccountsTable());
+  return c.json(await chartOfAccountsTable(ctx));
 });
 
 /* ---------------------------------------------------------- report exports */

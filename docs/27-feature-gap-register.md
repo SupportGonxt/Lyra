@@ -883,7 +883,7 @@ worth its own pass.
 
 *Closed, 2026-09-20.* **Commission depth**: `splitCommission`/`quoteCommission`
 (`packages/core/src/commission.ts`) now take `tiers`, `volumeBonus` and
-`override`, additive to the flat rate they always had — ADR-0083, and
+`override`, additive to the flat rate they always had — ADR-0084, and
 `dist_commission_rates.structure_json` is the reserved column a rate row
 stores them on. **Clawback**: `unearnedShareMinor`
 (`packages/core/src/lifecycle.ts`) is `quoteEndorsement`'s own day math,

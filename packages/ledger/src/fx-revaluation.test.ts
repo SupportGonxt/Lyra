@@ -10,6 +10,7 @@ import { buildRecipe, fxRevaluation } from "./recipes.js";
 import { fxRevaluationPlan, trialBalance } from "./reports.js";
 import { runTxn } from "./txn.js";
 import { post } from "./posting.js";
+import { seedTestChart } from "./test-chart.js";
 
 // docs/19 §5.3: "Post in transaction currency; stamp `fx_rate` and base amount.
 // **Revaluation job for open receivables/payables at period end.**" docs/27 F18
@@ -44,6 +45,7 @@ beforeEach(async () => {
     policy: PolicyJson.parse({}), // AED base
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
 });
 
 /** A USD receivable booked when the dollar was worth 3.60 AED. */

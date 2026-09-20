@@ -12,6 +12,7 @@ import { buildRecipe } from "./recipes.js";
 import { TXN_PRECONDITIONS } from "./preconditions.js";
 import { balanceSheet, yearEndPreview } from "./reports.js";
 import { TXN_TYPES } from "./types.js";
+import { seedTestChart } from "./test-chart.js";
 
 // docs/27 F2 (no manual journal) and F3 (no equity accounts, so no year-end
 // close). The two go together: an opening balance needs somewhere to put the
@@ -52,6 +53,7 @@ beforeEach(async () => {
     policy: PolicyJson.parse({}),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
 });
 
 async function rejects(p: Promise<unknown>, detail: RegExp): Promise<void> {

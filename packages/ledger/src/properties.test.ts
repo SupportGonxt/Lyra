@@ -13,6 +13,7 @@ import { post } from "./posting.js";
 import { runSaga, runTxn, reverseTxn } from "./txn.js";
 import { clientMoneyPosition, trialBalance } from "./reports.js";
 import { straightLine, assertWithinInvoice, recognitionHeadroom } from "./recognition.js";
+import { seedTestChart } from "./test-chart.js";
 
 // docs/19 §11 — the eleven test obligations, as **property** tests.
 //
@@ -46,7 +47,7 @@ const NOW = Date.UTC(2026, 5, 15, 12);
 async function freshCtx(): Promise<Ctx> {
   const client = createClient({ url: ":memory:" });
   for (const sql of SQL) await client.execute(sql);
-  return {
+  const ctx: Ctx = {
     db: drizzle(client) as unknown as Ctx["db"],
     tenantId: "t_prop",
     actor: { kind: "user", id: "u_prop", tenantId: "t_prop", grants: [{ roleKey: "owner", permissions: ["*:*:*"] }] },
@@ -56,6 +57,8 @@ async function freshCtx(): Promise<Ctx> {
     policy: PolicyJson.parse({}),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
+  return ctx;
 }
 
 /**

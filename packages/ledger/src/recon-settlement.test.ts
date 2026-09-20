@@ -8,6 +8,7 @@ import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
 import { decideMatch, reconcile, closeRun } from "./recon.js";
 import { accountStatement } from "./reports.js";
+import { seedTestChart } from "./test-chart.js";
 
 // docs/27 F19: "Insurer statement reconciliation posts nothing — `decideMatch`
 // updates match state and never books the `CMSN-SETL` the spec promises."
@@ -47,6 +48,7 @@ beforeEach(async () => {
     policy: PolicyJson.parse({}),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
 });
 
 /** An accrual the insurer's statement will later pay. */

@@ -106,7 +106,7 @@ export const commissionRates = sqliteTable(
     /** Flat per-policy fee on top of the percentage share. */
     flatFeeMinor: integer("flat_fee_minor").notNull().default(0),
     /**
-     * docs/decisions/ADR-0083. Reserved seam (docs/16) for depth beyond a flat
+     * docs/decisions/ADR-0084. Reserved seam (docs/16) for depth beyond a flat
      * rate: `{ tiers?: {uptoMinor?, ratePpm}[], volumeBonus?: {thresholdMinor,
      * bonusPpm}, overridePpm? }`, parsed by `commissionStructureOf`
      * (packages/core/src/commission.ts) and fed into `splitCommission`. Null

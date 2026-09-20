@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, id as newId, schema } from "@lyra/db";
 import { notFound, pendingOutbox, type Ctx } from "@lyra/core";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 import {
   cancelPlan,
   createPlan,
@@ -80,6 +81,7 @@ async function seedTenantAndPolicy(opts: { currency: string }): Promise<{ ctx: C
     policy: PolicyJson.parse({ currency: opts.currency }),
     entitlements: EntitlementsJson.parse({})
   };
+  await seedTestChart(ctx);
 
   return { ctx, policy: await seedPolicy(ctx, opts.currency) };
 }

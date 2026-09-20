@@ -99,7 +99,7 @@ describe("splitCommission", () => {
 
 describe("tieredCommissionMinor", () => {
   it("applies 10% on the first 100k and 12% above it", () => {
-    // ADR-0083. 150,000 premium: 100,000 at 10% + 50,000 at 12%.
+    // ADR-0084. 150,000 premium: 100,000 at 10% + 50,000 at 12%.
     const out = tieredCommissionMinor(150_000, [
       { uptoMinor: 100_000, ratePpm: 100_000 },
       { ratePpm: 120_000 }

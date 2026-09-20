@@ -2,8 +2,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
+import { and, eq, sql } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type Db } from "@lyra/db";
+import { schema, type Db } from "@lyra/db";
 import { seed, totpAt, TOTP_STEP_SEC, type SeedResult } from "@lyra/core";
 import { app } from "./index.js";
 import type { Env } from "./env.js";
@@ -204,6 +205,30 @@ describe("year-end close (docs/27 F3)", () => {
         reason: "provider did not respond before the month closed"
       }));
     }
+
+    // ADR-0083's recon_complete check: the seed deliberately leaves a couple of
+    // reconciliation runs in `review` (the ongoing-work the demo shows on the
+    // recon desk), which now also blocks a month from freezing — same as the
+    // pending_external queue above. This test is about the year-end posting,
+    // not about reconciliation, so it resolves them directly rather than
+    // through decideMatch/closeRun's settlement path, which would book money
+    // this test asserts nothing about.
+    await database
+      .update(schema.ledgerReconMatches)
+      .set({ state: "confirmed", confirmedBy: "system:test-fixture", confirmedAt: Date.now() })
+      .where(
+        and(
+          eq(schema.ledgerReconMatches.tenantId, seeded.tenantId),
+          sql`${schema.ledgerReconMatches.state} in ('proposed','unmatched')`
+        )
+      );
+    await database
+      .update(schema.ledgerReconRuns)
+      .set({ state: "closed", closedBy: "system:test-fixture", updatedAt: Date.now() })
+      .where(
+        and(eq(schema.ledgerReconRuns.tenantId, seeded.tenantId), sql`${schema.ledgerReconRuns.state} != 'closed'`)
+      );
+
     const expected = ok(await call("controller", "GET", `/v1/ledger/year-end/${year}`));
 
     // Every month of the year has to be frozen, not only the current one.

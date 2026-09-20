@@ -1,4 +1,4 @@
-# ADR-0083 — Tiered rates, volume bonuses and overrides are one reserved column, not three
+# ADR-0084 — Tiered rates, volume bonuses and overrides are one reserved column, not three
 
 **Date:** 2026-09-20
 **Status:** Accepted

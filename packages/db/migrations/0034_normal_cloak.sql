@@ -1,1 +1,0 @@
-ALTER TABLE `dist_commission_rates` ADD `structure_json` text;

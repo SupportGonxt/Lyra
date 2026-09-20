@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "904ec828-c601-40c1-91c0-2e6318c8221f",
+  "id": "106d4d67-5c04-428f-be1b-b4b9bf0d0beb",
   "prevId": "63fec20c-afee-48e6-b91d-4c84da525f4a",
   "tables": {
     "ai_agents": {
@@ -11731,6 +11731,14 @@
         },
         "client_money": {
           "name": "client_money",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "suspense": {
+          "name": "suspense",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
