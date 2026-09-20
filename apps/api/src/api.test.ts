@@ -192,6 +192,47 @@ describe("semantic layer", () => {
     expect(r.rowCount).toBe(1);
     expect(r.truncated).toBe(true);
   });
+
+  // docs/27 P2: only signals and whitespaces were registered; clusters,
+  // experiments and data products are the same shape (a plain count/aggregate,
+  // no thin-cell counterparty risk) and were simply missing.
+  it("reports on the SCOUT tables that were missing from the registry", async () => {
+    await ctx.db.insert(schema.scoutClusters).values([
+      { id: "clu_1", tenantId: ctx.tenantId, theme: "flood cover", momentumScore: 80, size: 12, firstSeen: ctx.now, lastSeen: ctx.now, updatedAt: ctx.now },
+      { id: "clu_2", tenantId: ctx.tenantId, theme: "ev add-on", momentumScore: 40, size: 4, firstSeen: ctx.now, lastSeen: ctx.now, updatedAt: ctx.now }
+    ]);
+    await ctx.db.insert(schema.scoutExperiments).values([
+      { id: "sxp_1", tenantId: ctx.tenantId, whitespaceId: "wsp_1", state: "running", createdAt: ctx.now }
+    ]);
+    await ctx.db.insert(schema.scoutDataProducts).values([
+      {
+        id: "dtp_1",
+        tenantId: ctx.tenantId,
+        name: "Demand curve",
+        definitionJson: "{}",
+        consentBasis: "contract",
+        aggregationMin: 25,
+        status: "published",
+        createdAt: ctx.now,
+        updatedAt: ctx.now
+      }
+    ]);
+
+    const clusters = await runReport(ctx, { dataset: "clusters", metrics: ["clusters", "avgMomentum"] });
+    expect(clusters.rows[0]?.clusters).toBe(2);
+    expect(clusters.rows[0]?.avgMomentum).toBe(60);
+
+    const experiments = await runReport(ctx, { dataset: "experiments", metrics: ["experiments"] });
+    expect(experiments.rows[0]?.experiments).toBe(1);
+
+    const dataProducts = await runReport(ctx, { dataset: "dataProducts", metrics: ["dataProducts", "avgFloor"] });
+    expect(dataProducts.rows[0]?.dataProducts).toBe(1);
+    expect(dataProducts.rows[0]?.avgFloor).toBe(25);
+  });
+
+  it("keeps panel bench out of the registry: a generic group-by has no k-anonymity floor", async () => {
+    expect(DATASETS["panelBench"]).toBeUndefined();
+  });
 });
 
 /* ----------------------------------------------------------------- exports */
