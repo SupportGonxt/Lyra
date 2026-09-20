@@ -826,11 +826,41 @@ nothing driving them and no cap at invoiced. No bordereaux, inbound or outbound
 — zero hits in code *or* docs. Chart of accounts is a hard-coded TypeScript
 constant, so a tenant cannot add an account without a deploy. No budget vs
 actual, no cash-flow statement, no fixed assets or operating-expense accounts.
-Dead code in the money path: `closeRun` (`recon.ts:382-390`) has no callers,
+Dead code in the money path: `closeRun` (`recon.ts:382-390`) has no callers —
+*closed, see below, `POST /v1/ledger/recon/runs/:id/close` is the caller.*
 `CREATOR-SPEND` (`recipes.ts:398`) has no matching `TXN_TYPES` entry and is
-unreachable. `cx-judge.ts` is well-built and called by nothing. `K_FLOOR` is
-hardcoded (`scout.shared.ts:40`). Only 2 of 6 SCOUT tables export
-(`engines/report.ts:237,251`). No multimodal path (`extract.ts:7-9`). No AE-only
+unreachable — *closed, re-read at source 2026-09-20: `CREATOR-SPEND` no longer
+exists in `RECIPES` at all (nor in `TXN_TYPES`), matching the deletion
+`docs/specs/gap-finance-design.md` R12 called for; the sibling `CREATOR-BRIEF`
+→ `CREATOR-VERIFY` → `CREATOR-PAYOUT` chain is intact and reachable. This
+paragraph had not caught up.* `cx-judge.ts` is well-built and called by
+nothing — *closed, re-read at source 2026-09-20: `sweepQaScores`
+(`apps/api/src/engines/orbit-qa.ts`, wired into the tenant cron tick at
+`index.ts:238`) has scored every closed ORBIT conversation through the
+cx-judge rubric since `d259a95` (2026-08-26), feeding `orbit_qa_scores` per
+docs/modules/orbit.md §2.1. Predates this register entry; it never caught up.*
+`K_FLOOR` is hardcoded (`scout.shared.ts:40`) — *closed at the enforcement
+seam: `kAnonymityFloor(policy, module)` (`packages/core/src/k-anonymity.ts`)
+resolves a tenant override from `moduleConfig.scout.settings.kAnonymityFloor`,
+the same per-module settings path every other tenant knob uses, and
+`resources.ts` (panel-bench visibility), `scout-whitespace.ts` and
+`scout-promote.ts` all route through it now instead of the bare
+`DEFAULT_K_FLOOR`. Not closed at the display seam: the four web screens that
+show or validate against `K_FLOOR` (`scout-admin.tsx`, `scout-data-products.tsx`,
+`scout-panel.tsx`, `scout-pricing.tsx`) still read the literal default — no API
+response currently carries the resolved value for them to read instead. A
+follow-on, not a re-opening: the number they show is right for every tenant
+that has not set an override, and the thing a hardcoded floor actually put at
+risk — the server-side suppression a customer's data flows through — no
+longer has this defect.* Only 2 of 6 SCOUT tables export
+(`engines/report.ts:237,251`) — *closed for `clusters`, `scout-experiments` and
+`scout-data-products` (now 5 of 6), mirrored in `scout-analytics.tsx`'s web-side
+registry. `scout_panel_bench` stays unregistered on purpose: `runReport`
+group-by has no k-anonymity floor, so exporting it would hand back a thin
+cell's exact number and name the one counterparty behind it —
+`scout-analytics.tsx`'s own comment already recorded this decision for the
+export card, and the two now agree explicitly rather than by coincidence.*
+No multimodal path (`extract.ts:7-9`). No AE-only
 rulepack review, no Egypt/FRA pack. `packages/agents/` and `apps/agents/` do
 not exist despite the CLAUDE.md target layout and `docs/02:59` — the runtime is
 `api/src/engines/`. `docs/01-brand.md:83` names the light-mode AXIS hue
