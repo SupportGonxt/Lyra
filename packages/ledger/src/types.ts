@@ -149,6 +149,11 @@ export const TXN_TYPES: Record<string, TxnTypeDef> = def([
   // so the type is flagged: no tenant setting can auto-approve it.
   ["OPEN-BAL", true, "ledger.opening_balance", { clientMoney: true }],
   ["YEAR-END-CLOSE", true, "ledger.year_end_close"],
+  // docs/19 §5.3 / docs/27 F18. Period-end revaluation of open foreign-currency
+  // balances. System-derived from the rate table and the ledger's own lines —
+  // nobody states the number — so it is ungated for the same reason a commission
+  // accrual is (docs/19 §7, "commission accrual (system-derived): none").
+  ["FX-REVAL", true, null],
 
   // 4.5 subscriptions, usage & platform billing
   ["SUB-CREATE", false, null],
@@ -166,6 +171,12 @@ export const TXN_TYPES: Record<string, TxnTypeDef> = def([
   ["CM-RECEIPT", true, null, { clientMoney: true }],
   ["CM-TRANSFER", true, "ledger.client_money_transfer", { clientMoney: true }],
   ["CM-RECON", false, null],
+  // A write-off makes a difference disappear, which is also what concealment
+  // looks like — so it is dual control always and may never be auto-approved,
+  // on the same footing as a manual journal (docs/19 §7, docs/27 thin screens).
+  // It may not touch client money: the recipe refuses those accounts outright,
+  // because a client-money shortfall is a breach to escalate, not a residual.
+  ["RECON-WRITEOFF", true, "ledger.write_off"],
   ["CM-BREACH-FLAG", false, null],
 
   // 4.7 partner & embedded

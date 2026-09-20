@@ -397,6 +397,19 @@ The send posts `{conversationId, role: "agent_human", content, deliveryStatus:
 "queued"}`. **It does not send a timestamp** — the server owns `ts`, and passing
 it is rejected as an unknown field.
 
+**Canned replies** (docs/27 F32) sit directly above the composer, shown only
+when the reader holds `orbit:messages:send` *and* the macro list came back —
+`orbit:macros:read` is fetched with the loader's optional swallow, so an agent
+without it gets the whole screen minus the picker. A select of active macros by
+name, and one button: **"Send canned reply"**, hint *"Sent in this
+conversation's language, word for word, under your name."*
+
+The form posts `{macroKey}` to `POST /v1/orbit/conversations/:id/macro` and
+**never the wording**. The API renders the macro in the conversation's own
+language and writes it as `agent_human`. An agent who could edit a canned reply
+on its way out would make the macro library a suggestion rather than a standard,
+which is why the key is the only thing that crosses.
+
 Without the permission the whole form is replaced by one line: **"You do not hold
 the permission to reply in this conversation."**
 
@@ -1418,13 +1431,15 @@ Scores are tabular and stay LTR.
 
 ---
 
-# 12. Routing and administration tabs
+# 12. Routing, knowledge and administration tabs
 
-Six more generated tabs cover the tables the routing engine reads. Before they
-existed a tenant could not see, let alone edit, the roster and rules that decide
-where a conversation lands. They are plain CRUD, so they are plain tabs; the
-ORBIT admin desk (§13.7) is the read on whether they hang together, not a second
-editor.
+Nine generated tabs cover the tables the routing engine reads (§12.1–12.6) and
+the knowledge the agent answers from (§12.7–12.9). Before the first six existed
+a tenant could not see, let alone edit, the roster and rules that decide where a
+conversation lands; before the last three, there was nothing to answer a
+customer *from* and no record of whether an answer landed. They are plain CRUD,
+so they are plain tabs; the ORBIT admin desk (§13.7) is the read on whether they
+hang together, not a second editor.
 
 ## 12.1 Channels
 
@@ -1500,10 +1515,60 @@ Create: Person (required), Status (select, required). Edit: Status.
 Any agent with the write permission may write **any** presence row — leads
 legitimately mark a colleague away, so this is not scoped to self.
 
-## What is weak across all six
+## 12.7 Knowledge base
 
-- Four of the six are edited as raw JSON (team names, skills, rule conditions,
-  connector settings). A routing rule is a sentence — "WhatsApp, claims intent,
+`/orbit/kb-articles`. Read `orbit:kb:read` · create / update / remove
+`orbit:kb:write` · publish `orbit:kb:publish`.
+Columns: **Key** (the link), **Title**, **Language**, **Status** (badge — Draft
+/ Published / Retired), **Updated** (sortable). Filters: Status, Language.
+Create: Key (required), Language (select en/ar, required), Title (required),
+Answer (textarea, required, hint: *"This is sent to the customer word for word,
+so write it as the answer and not as a note to a colleague."*), Tags (JSON).
+Edit: Title, Answer, Tags.
+
+**Status is not editable here.** Publishing is what embeds an article into the
+search index, so it happens at `POST /v1/orbit/kb/articles/:id/publish` — an
+edit form that set the column would publish an article no index has heard of,
+which would then be findable only by word match.
+
+One row per (key, language): retrieval is per-language, and an article is
+embedded and scored in the language it is written in.
+
+## 12.8 Canned replies
+
+`/orbit/macros`. Read `orbit:macros:read` · create / update / remove
+`orbit:macros:write`.
+Columns: **Key** (the link), **Name**, **Category**, **Times used** (sortable),
+**Status** (badge). Filter: Status.
+Create: Key (required), Name (JSON, required), Wording (JSON, required, hint:
+*"One wording per language, keyed en and ar. A conversation in a language with
+no wording falls back to English."*), Category.
+Edit: Name, Wording, Category, Status.
+
+Sent by `POST /v1/orbit/conversations/:id/macro`, which renders the wording in
+the conversation's own language and writes it as `agent_human` — a macro is
+wording a person chose, and the transcript must not later read as though the
+model wrote it.
+
+## 12.9 Self-service answers
+
+`/orbit/deflections`. Read `orbit:conversations:read`. **Read-only** — every
+row is written by the deflection engine, because a hand-written row would be a
+claim about containment nobody made.
+Columns: **Question asked**, **Outcome** (badge — Answered / Passed to a
+person), **Score** (sortable), **Found by** (Meaning match / Word match),
+**When** (sortable, newest first). Filter: Outcome.
+
+The misses are the point: containment % is a ratio, and a log that only kept
+the wins would report 100% forever.
+
+## What is weak across all nine
+
+- An article is written in a plain textarea with no preview of how it will read
+  in the channel it is sent through, and no link from a deflection row back to
+  the article that answered (or failed to answer) it.
+- Six of the nine are edited as raw JSON (team names, skills, rule conditions,
+  connector settings, macro names and macro wording). A routing rule is a sentence — "WhatsApp, claims intent,
   sentiment below −40, go to the escalation team" — rendered as a JSON blob.
 - Ordering routing rules means typing numbers into a field; there is no drag, no
   move-up, no gap-filling.
@@ -1519,7 +1584,7 @@ legitimately mark a colleague away, so this is not scoped to self.
 
 The module's central problem is that it is **two shells wearing one URL prefix**
 (§Routes belonging to ORBIT, §2): the ten bespoke routes carry the ORBIT chrome,
-the AI grammar and the desks; the fifteen generated tabs carry the generic
+the AI grammar and the desks; the eighteen generated tabs carry the generic
 workspace shell instead, and every actor crosses that seam constantly — a lead
 opening a conversation from `/orbit/conversations` lands in one frame, then
 presses "Open thread" into another. Everything below is ranked by how much of

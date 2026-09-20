@@ -10,11 +10,23 @@ import {
   flagEnabled,
   gate,
   notFound,
+  recallMemories,
+  remember,
   require_,
   MODULES,
   type Ctx
 } from "@lyra/core";
-import { AI_KILL_SWITCH, checkBudget, isKnownPurpose, setLimits, type Message } from "@lyra/model-gateway";
+import {
+  AI_KILL_SWITCH,
+  checkBudget,
+  isKnownPurpose,
+  offersTools,
+  planRound,
+  setLimits,
+  type Gateway,
+  type Message,
+  type ToolCall
+} from "@lyra/model-gateway";
 import { body, intParam, MAX_INSTANT_MS } from "../http.js";
 import { executeOrbitToolCalls, orbitToolsFor } from "../engines/orbit-tools.js";
 import { embedQuery } from "../engines/vectorize.js";
@@ -101,6 +113,24 @@ aiRoutes.post("/runs", async (c) => {
           })
         : [];
 
+    // docs/27 F34 / docs/16 H11. `core_memories` had no reader and no writer.
+    // This is the reader: durable claims held about this subject, and only the
+    // ones bound to the purpose of this call. Vector recall above answers "what
+    // was said"; memory answers "what we concluded", which is the half that
+    // survives a conversation ending.
+    //
+    // `medium` is this surface's ceiling, not a default — `recallMemories`
+    // refuses to have one, because a default here is a decision about customer
+    // data that the next caller would inherit without making it.
+    const memories = input.subjectRef
+      ? await recallMemories(ctx, input.subjectRef, {
+          purpose: input.purpose,
+          now: ctx.now,
+          maxSensitivity: "medium",
+          limit: 5
+        })
+      : [];
+
     const messages: Message[] = [
       { role: "system", content: prompt },
       {
@@ -109,6 +139,9 @@ aiRoutes.post("/runs", async (c) => {
           input.context ? `${input.input}\n\ncontext:\n${JSON.stringify(input.context)}` : input.input,
           recall.length
             ? `relevant past messages:\n${recall.map((m) => m.metadata?.role + ": " + m.metadata?.text).join("\n")}`
+            : "",
+          memories.length
+            ? `what is already known about this subject:\n${memories.map((m) => `- ${m.kind}: ${m.contentJson}`).join("\n")}`
             : ""
         ]
           .filter(Boolean)
@@ -116,55 +149,65 @@ aiRoutes.post("/runs", async (c) => {
       }
     ];
 
-    // Tool calling is scoped to ORBIT for now — the registry only knows ORBIT's
-    // tools (apps/api/src/engines/orbit-tools.ts). Other modules get no `tools`
-    // field, same behaviour as before this wiring existed.
-    const first = await c.get("gateway").complete(ctx, {
-      module: agent.module,
-      purpose: input.purpose,
-      tier: agent.tier as "fast" | "standard" | "reasoning",
-      ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
-      ...(input.locale !== undefined ? { locale: input.locale } : {}),
-      ...(agent.module === "orbit" ? { tools: orbitToolsFor(agent) } : {}),
-      messages
-    });
+    // docs/27 F33. This was two calls: one with tools, then — if the model
+    // asked for any — a second with none. A model could look a policy up and
+    // never act on what it read, because the only turn in which it could act
+    // was the one it had already spent, and every transcript needing a second
+    // dependent step was silently truncated into a summary of step one.
+    //
+    // It is now a real loop, bounded by the same `MAX_ROUNDS`/`offersTools`
+    // rule the command loop uses (packages/model-gateway/src/agent-loop.ts,
+    // evals/agent-loop). Each round is its own `gateway.complete`, so every one
+    // is separately budgeted, scrubbed, guardrailed and audited — there is no
+    // "loop call" that escapes the front door.
+    const tools = agent.module === "orbit" ? orbitToolsFor(agent) : [];
+    const allowed = new Set(tools.map((t) => t.name));
+    const turns: Message[] = [...messages];
+    const usage = { tokensIn: 0, tokensOut: 0, costMicro: 0 };
+    let latencyMs = 0;
+    let toolSeq = 0;
+    const askedFor: ToolCall[] = [];
 
-    // The model asked for real work: execute each call through the registry
-    // (approval gate included — CLAUDE.md rule 4), then let the model react to
-    // what actually happened, via a second, separately audited completion.
-    const final =
-      agent.module === "orbit" && first.toolCalls.length
-        ? await c.get("gateway").complete(ctx, {
-            module: agent.module,
-            purpose: input.purpose,
-            tier: agent.tier as "fast" | "standard" | "reasoning",
-            ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
-            ...(input.locale !== undefined ? { locale: input.locale } : {}),
-            messages: [
-              ...messages,
-              { role: "assistant", content: first.text },
-              ...(await executeOrbitToolCalls(
-                ctx,
-                runId,
-                first.toolCalls,
-                new Set(orbitToolsFor(agent).map((t) => t.name))
-              ))
-            ]
-          })
-        : first;
+    const round = async (seq: number): Promise<Awaited<ReturnType<Gateway["complete"]>>> => {
+      const res = await c.get("gateway").complete(ctx, {
+        module: agent.module,
+        purpose: input.purpose,
+        tier: agent.tier as "fast" | "standard" | "reasoning",
+        ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
+        ...(input.locale !== undefined ? { locale: input.locale } : {}),
+        ...(tools.length && offersTools(seq) ? { tools } : {}),
+        messages: turns
+      });
+      usage.tokensIn += res.usage.tokensIn;
+      usage.tokensOut += res.usage.tokensOut;
+      usage.costMicro += res.usage.costMicro;
+      latencyMs += res.latencyMs;
+      return res;
+    };
+
+    let seq = 0;
+    let final = await round(seq);
+    for (;;) {
+      // A module with no registry (everything but ORBIT today) never loops: a
+      // tool call echoed back by a model that was offered none is nothing this
+      // route can execute, and looping on it would spend the tenant's budget
+      // re-asking the same question.
+      const step = tools.length ? planRound({ round: seq, toolCalls: final.toolCalls }) : ({ action: "answer" } as const);
+      if (step.action !== "execute") break;
+      askedFor.push(...final.toolCalls);
+      // The registry executes, records one `ai_tool_calls` row per call and
+      // gates the consequential ones (CLAUDE.md rule 4). `seq` continues across
+      // rounds so the run's tool sequence stays a sequence.
+      const results = await executeOrbitToolCalls(ctx, runId, final.toolCalls, allowed, toolSeq);
+      toolSeq += final.toolCalls.length;
+      turns.push({ role: "assistant", content: final.text }, ...results);
+      seq += 1;
+      final = await round(seq);
+    }
 
     // A refusal is a successful run with a refusal outcome, not an error. The
     // operator needs to see that the guardrail fired, not a 500.
     const refused = final.finishReason === "refusal";
-    const usage =
-      final === first
-        ? final.usage
-        : {
-            tokensIn: first.usage.tokensIn + final.usage.tokensIn,
-            tokensOut: first.usage.tokensOut + final.usage.tokensOut,
-            costMicro: first.usage.costMicro + final.usage.costMicro
-          };
-    const latencyMs = final === first ? final.latencyMs : first.latencyMs + final.latencyMs;
 
     await ctx.db
       .update(schema.aiRuns)
@@ -181,11 +224,39 @@ aiRoutes.post("/runs", async (c) => {
       })
       .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
 
+    // …and the writer. A run that actually used tools reached a conclusion the
+    // next run about this subject should not have to re-derive, which is what
+    // H11's "compounding" means.
+    //
+    // Three deliberate narrowings, because a memory store fed model prose
+    // uncritically compounds its mistakes as readily as its knowledge. Only
+    // tool-using runs are remembered, so the claim rests on something the
+    // platform actually did rather than on fluent text. Only unrefused ones —
+    // a guardrail trip is the opposite of a fact worth keeping. And the memory
+    // is bound to the purpose that produced it and nothing else, so widening
+    // its reach is a deliberate edit rather than a side effect.
+    if (!refused && askedFor.length && input.subjectRef) {
+      await remember(ctx, {
+        subjectRef: input.subjectRef,
+        kind: `${agent.module}.run_conclusion`,
+        content: { text: final.text.slice(0, 2000), tools: askedFor.map((t) => t.name) },
+        provenance: `ai_run:${runId}`,
+        purposes: [input.purpose],
+        // Ninety days: long enough to be worth having, short enough that a
+        // stale conclusion about a customer expires on its own rather than
+        // waiting for someone to notice it.
+        expiry: ctx.now + 90 * 24 * 60 * 60 * 1000
+      });
+    }
+
     return c.json(
       {
         runId,
         text: final.text,
-        toolCalls: first.toolCalls,
+        // Every tool the run asked for across every round, not only the first
+        // round's — the response used to report `first.toolCalls` because that
+        // was all a two-call path could have.
+        toolCalls: askedFor,
         model: final.model,
         provider: final.provider,
         tier: final.tier,
@@ -207,6 +278,132 @@ aiRoutes.post("/runs", async (c) => {
       .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
     throw err;
   }
+});
+
+/**
+ * docs/15 §2 ("streamed always") + docs/27 F35. The same agent run, delivered as
+ * it arrives.
+ *
+ * Deliberately a separate path from `POST /runs` rather than a flag on it. A
+ * streamed run is a single completion, not a tool loop: tool arguments arrive
+ * as fragments over a stream, and reassembling them to decide whether a
+ * consequential action may run is the last place this codebase wants a partial
+ * parse (workers-ai.ts says the same thing from the adapter's side). A caller
+ * that needs tools uses `/runs`; a caller that needs the answer to appear as it
+ * is written uses this.
+ *
+ * The events are `delta` (text to append) and `done` (the run id, usage and
+ * flags), plus `error`. A refusal is a `done` with `finishReason: "refusal"` and
+ * no further deltas — never a transport error, because the guardrail firing is
+ * a result and a dropped connection is not.
+ */
+aiRoutes.post("/runs/stream", async (c) => {
+  const ctx = ctxOf(c);
+  const input = await body(c, RunBody);
+  const agent = await agentByKey(ctx, input.agentKey);
+  require_(ctx.actor, `${agent.module}:ai:invoke`, { tenantId: ctx.tenantId, module: agent.module });
+  if (agent.status !== "active") throw badRequest(`agent ${agent.key} is ${agent.status}`);
+  if (!isKnownPurpose(agent.module, input.purpose))
+    throw badRequest(`purpose ${input.purpose} is not registered for module ${agent.module}`);
+
+  const prompt = await activePrompt(ctx, agent.promptRef);
+  const runId = newId("air", ctx.now);
+  await ctx.db.insert(schema.aiRuns).values({
+    id: runId,
+    tenantId: ctx.tenantId,
+    agentKey: agent.key,
+    module: agent.module,
+    purpose: input.purpose,
+    subjectRef: input.subjectRef ?? null,
+    actorRef: actorRef(ctx),
+    autonomyLevel: agent.autonomyLevel,
+    trigger: input.trigger,
+    state: "running",
+    inputHash: "",
+    startedAt: ctx.now
+  });
+
+  const gateway = c.get("gateway");
+  const messages: Message[] = [
+    { role: "system", content: prompt },
+    { role: "user", content: input.context ? `${input.input}\n\ncontext:\n${JSON.stringify(input.context)}` : input.input }
+  ];
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: string, data: unknown): void => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+      try {
+        for await (const ev of gateway.stream(ctx, {
+          module: agent.module,
+          purpose: input.purpose,
+          tier: agent.tier as "fast" | "standard" | "reasoning",
+          ...(input.subjectRef !== undefined ? { subjectRef: input.subjectRef } : {}),
+          ...(input.locale !== undefined ? { locale: input.locale } : {}),
+          messages
+        })) {
+          if (ev.type === "delta") {
+            send("delta", { text: ev.text });
+            continue;
+          }
+          const refused = ev.response.finishReason === "refusal";
+          await ctx.db
+            .update(schema.aiRuns)
+            .set({
+              state: refused ? "refused" : "succeeded",
+              inputHash: ev.response.auditId,
+              outputRef: ev.response.auditId,
+              tokensIn: ev.response.usage.tokensIn,
+              tokensOut: ev.response.usage.tokensOut,
+              costMicro: ev.response.usage.costMicro,
+              latencyMs: ev.response.latencyMs,
+              evidenceJson: JSON.stringify({
+                flags: ev.response.flags,
+                model: ev.response.model,
+                provider: ev.response.provider
+              }),
+              endedAt: ctx.now
+            })
+            .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
+          send("done", {
+            runId,
+            finishReason: ev.response.finishReason,
+            flags: ev.response.flags,
+            model: ev.response.model,
+            provider: ev.response.provider,
+            usage: ev.response.usage,
+            auditId: ev.response.auditId
+          });
+        }
+      } catch (err) {
+        await ctx.db
+          .update(schema.aiRuns)
+          .set({
+            state: "failed",
+            errorCode: err instanceof Error ? err.message.slice(0, 120) : "error",
+            endedAt: ctx.now
+          })
+          .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
+        // The status line is long gone by the time this fires, so the failure
+        // has to arrive as an event. A caller reading deltas and never seeing
+        // `done` would otherwise wait for a stream that has already ended.
+        send("error", { runId, message: "the model call failed" });
+      } finally {
+        controller.close();
+      }
+    }
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      // Proxies that buffer defeat the whole point of this route.
+      "x-accel-buffering": "no"
+    }
+  });
 });
 
 /**

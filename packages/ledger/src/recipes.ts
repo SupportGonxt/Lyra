@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { account } from "@lyra/db";
 import { badRequest, splitCommission } from "@lyra/core";
+import { assertWithinInvoice } from "./recognition.js";
 import type { PostingLine, Side } from "./posting.js";
 
 // docs/19 §5.2 A–G. A recipe turns a business fact into journal lines and does
@@ -54,7 +55,7 @@ const CommissionArgs = z.object({
   memo: Memo,
   dims: Dims
 });
-export type CommissionArgs = z.infer<typeof CommissionArgs>;
+export type CommissionArgs = z.input<typeof CommissionArgs>;
 
 /**
  * docs/19 §5.2 A extended for the channel leg: the underwriter owes us the gross
@@ -80,11 +81,86 @@ export function commissionAccrual(a: CommissionArgs): PostingLine[] {
 
   if (split.netMinor < 0) throw badRequest("commission split leaves negative net income");
   return lines(
-    line(a.receivableAccount, "debit", split.grossMinor, a.memo ?? "commission earned", a.dims),
-    line(a.incomeAccount, "credit", split.netMinor, "our share", a.dims),
+    line(a.receivableAccount ?? "1100", "debit", split.grossMinor, a.memo ?? "commission earned", a.dims),
+    line(a.incomeAccount ?? "4000", "credit", split.netMinor, "our share", a.dims),
     line("2100", "credit", split.channelMinor, "channel share payable", a.dims),
     line("2200", "credit", split.taxMinor, "tax on commission", a.dims)
   );
+}
+
+/* ------------------------------------------- A2. gross written premium (F14) */
+
+const PremiumBookedArgs = z.object({
+  /** Gross written premium: what the customer owes for the contract, tax and fees in. */
+  gwpMinor: Pos,
+  /** 1200 Premium Receivable. */
+  receivableAccount: z.string().default("1200"),
+  /** 2000 Insurer Payable. */
+  insurerPayableAccount: z.string().default("2000"),
+  memo: Memo,
+  dims: Dims
+});
+// The *input* shape, not the parsed one: these builders are exported and called
+// directly from tests and from other recipes, so the account defaults are applied
+// here as well as by zod. A default that only exists in a schema is a default the
+// direct caller does not get.
+export type PremiumBookedArgs = z.input<typeof PremiumBookedArgs>;
+
+const PREMIUM_RECEIVABLE = "1200";
+const INSURER_PAYABLE = "2000";
+
+/**
+ * docs/27 F14. The premium is a debt in both directions from the moment the
+ * contract exists: the customer owes it to us, we owe it to the underwriter.
+ * Before this, `1200 Premium Receivable` appeared once in the whole product as
+ * a chargeback default and `2000 Insurer Payable` was never posted at all, so
+ * gross written premium was recognised only when cash happened to arrive —
+ * cash-basis accounting for the one figure every insurance regulator, reinsurer
+ * and auditor asks for first.
+ *
+ * Note what this deliberately is *not*: revenue. Premium is never ours. The two
+ * legs are an asset and a liability of equal size, so booking them moves the
+ * balance sheet and leaves the P&L exactly where it was — the income statement
+ * still says only what the commission accrual beside it says.
+ */
+export function premiumBooked(a: PremiumBookedArgs): PostingLine[] {
+  return lines(
+    line(a.receivableAccount ?? PREMIUM_RECEIVABLE, "debit", a.gwpMinor, a.memo ?? "premium due from customer", a.dims),
+    line(a.insurerPayableAccount ?? INSURER_PAYABLE, "credit", a.gwpMinor, a.memo ?? "premium owed to insurer", a.dims)
+  );
+}
+
+const BindArgs = CommissionArgs.extend({
+  /** Stated only when the premium passes through us; omitted for pure aggregation. */
+  gwpMinor: Pos.optional(),
+  premiumReceivableAccount: z.string().default("1200"),
+  insurerPayableAccount: z.string().default("2000")
+});
+export type BindArgs = z.input<typeof BindArgs>;
+
+/**
+ * A bind is two economic facts in one batch: a contract came into existence
+ * (the premium legs) and we earned something for arranging it (the commission
+ * accrual, docs/19 §5.2 A). They belong together because they are one event and
+ * one reversal — cancelling a bind has to take both back or neither.
+ *
+ * `gwpMinor` is optional and its absence is meaningful rather than lazy: in the
+ * commission-only aggregator model the insurer collects the premium directly and
+ * it never touches our balance sheet, so there is no debt to record. A bind
+ * that states no premium is exactly the entry this recipe posted before F14.
+ */
+export function bindPosting(a: BindArgs): PostingLine[] {
+  const premium =
+    a.gwpMinor === undefined
+      ? []
+      : premiumBooked({
+          gwpMinor: a.gwpMinor,
+          receivableAccount: a.premiumReceivableAccount ?? PREMIUM_RECEIVABLE,
+          insurerPayableAccount: a.insurerPayableAccount ?? INSURER_PAYABLE,
+          ...(a.memo ? { memo: a.memo } : {}),
+          ...(a.dims ? { dims: a.dims } : {})
+        });
+  return [...premium, ...commissionAccrual(a)];
 }
 
 const SettleArgs = z.object({
@@ -128,12 +204,45 @@ export function commissionClawback(a: z.infer<typeof ClawbackArgs>): PostingLine
 
 /* ---------------------------------------------------------- B. client money */
 
-const ClientMoneyArgs = z.object({ amountMinor: Pos, memo: Memo, dims: Dims });
+const ClientMoneyArgs = z.object({
+  amountMinor: Pos,
+  /**
+   * docs/27 F14. Set when the bind already booked the premium as a receivable:
+   * the cash clears *that* debt instead of creating a second recognition of the
+   * same premium, and the insurer payable reclassifies to a client-money one.
+   */
+  clearsReceivableAccount: z.string().optional(),
+  insurerPayableAccount: z.string().default("2000"),
+  memo: Memo,
+  dims: Dims
+});
 
-/** Premium collected on the insurer's behalf. Ours to hold, never ours to spend. */
-export function clientMoneyReceipt(a: z.infer<typeof ClientMoneyArgs>): PostingLine[] {
+/**
+ * Premium collected on the insurer's behalf. Ours to hold, never ours to spend.
+ *
+ * Two shapes, and which one is right depends on whether the premium was booked
+ * at bind. Without a receivable to clear, the receipt is the plain docs/19
+ * §5.2 B pair. With one, four legs:
+ *
+ *   Dr 1010 / Cr 1200   the cash arrives and the customer is square
+ *   Dr 2000 / Cr 2010   the debt to the insurer reclassifies to client money
+ *
+ * The invariant that governs this is the one worth stating out loud: the batch
+ * debits the client-money asset, so docs/19 §5.2 B forbids it crediting income
+ * or expense. It credits an asset and a liability. No revenue is recognised
+ * here and none can be — the money is not ours until CM-TRANSFER moves it.
+ */
+export function clientMoneyReceipt(a: z.input<typeof ClientMoneyArgs>): PostingLine[] {
+  if (!a.clearsReceivableAccount) {
+    return lines(
+      line("1010", "debit", a.amountMinor, a.memo ?? "premium received", a.dims),
+      line("2010", "credit", a.amountMinor, a.memo ?? "held for insurer", a.dims)
+    );
+  }
   return lines(
     line("1010", "debit", a.amountMinor, a.memo ?? "premium received", a.dims),
+    line(a.clearsReceivableAccount, "credit", a.amountMinor, "premium receivable cleared", a.dims),
+    line(a.insurerPayableAccount ?? INSURER_PAYABLE, "debit", a.amountMinor, "insurer payable reclassified", a.dims),
     line("2010", "credit", a.amountMinor, a.memo ?? "held for insurer", a.dims)
   );
 }
@@ -216,6 +325,56 @@ export function expenseAccrual(a: z.infer<typeof AccrualArgs>): PostingLine[] {
   );
 }
 
+/* ----------------------------------------------- C.2 takaful surplus (H8) */
+
+const TakafulSurplusArgs = z.object({
+  /** The surplus the fund declared for the period, in minor units. */
+  surplusMinor: Pos,
+  /** From core_products.takaful_json. 10000 = participants take all of it. */
+  participantShareBps: z.number().int().min(0).max(10_000).default(10_000),
+  /** The risk fund the surplus comes out of. */
+  fundAccount: z.string().default("2040"),
+  /** What the participants are now owed. */
+  payableAccount: z.string().default("2050"),
+  /** The operator's share, under mudaraba. Zero under wakala. */
+  operatorIncomeAccount: z.string().default("4096"),
+  memo: Memo,
+  dims: Dims
+});
+export type TakafulSurplusArgs = z.infer<typeof TakafulSurplusArgs>;
+
+/**
+ * docs/16 H8 / docs/27 F45. Declaring a takaful surplus moves participants'
+ * money out of the risk fund: what the participants are owed becomes payable,
+ * and under mudaraba the operator's agreed share becomes the operator's income.
+ *
+ * `SURPLUS-DIST` has been a declared transaction type with `ledger.surplus`
+ * approval since the type table was written, and its recipe was
+ * `expenseAccrual` pointed at 5400 Partner Revenue Share / 2100 Partner
+ * Payable. Nothing ever posted one, which is why nobody noticed that those are
+ * the wrong accounts by a whole regime: a surplus is not an expense the
+ * operator incurs and the participants are not a distribution partner. Both
+ * legs of the old posting were wrong, and the type tested green because no
+ * caller existed to test.
+ *
+ * The operator's share is the remainder rather than its own rounded
+ * calculation. Two independent `floor`s of the same amount lose a minor unit
+ * between them on most inputs, and an unbalanced journal is refused by
+ * `post()` — so the split is defined as "participants' share, then whatever is
+ * left", which balances for every input by construction. Where the dust lands
+ * is a decision, and it lands with the operator on purpose: rounding a
+ * participant's entitlement up out of a fund is not the operator's to do.
+ */
+export function takafulSurplus(a: TakafulSurplusArgs): PostingLine[] {
+  const participantMinor = Math.floor((a.surplusMinor * a.participantShareBps) / 10_000);
+  const operatorMinor = a.surplusMinor - participantMinor;
+  return lines(
+    line(a.fundAccount, "debit", a.surplusMinor, a.memo ?? "surplus declared", a.dims),
+    line(a.payableAccount, "credit", participantMinor, "participants' share", a.dims),
+    line(a.operatorIncomeAccount, "credit", operatorMinor, "operator's share", a.dims)
+  );
+}
+
 const PayoutArgs = z.object({
   amountMinor: Pos,
   payableAccount: z.string().default("2100"),
@@ -258,12 +417,27 @@ const RecogniseArgs = z.object({
   amountMinor: Pos,
   incomeAccount: z.string().default("4040"),
   deferredAccount: z.string().default("2300"),
+  /**
+   * docs/19 §11.9 (docs/27 F22). The invoice this releases against and what has
+   * already been released from it. Optional because a caller may genuinely not
+   * be releasing against an invoice (a manual deferral true-up); stated, it is
+   * enforced, and `sweepBilling` states it.
+   */
+  invoicedMinor: NonNeg.optional(),
+  alreadyRecognisedMinor: NonNeg.optional(),
   memo: Memo,
   dims: Dims
 });
 
 /** Monthly release of deferred revenue; the schedule lives in ledger_revenue_schedules. */
 export function revenueRecognition(a: z.infer<typeof RecogniseArgs>): PostingLine[] {
+  if (a.invoicedMinor !== undefined) {
+    assertWithinInvoice({
+      invoicedMinor: a.invoicedMinor,
+      alreadyRecognisedMinor: a.alreadyRecognisedMinor ?? 0,
+      amountMinor: a.amountMinor
+    });
+  }
   return lines(
     line(a.deferredAccount, "debit", a.amountMinor, a.memo ?? "revenue recognised", a.dims),
     line(a.incomeAccount, "credit", a.amountMinor, a.memo ?? "revenue recognised", a.dims)
@@ -346,6 +520,150 @@ export function chargebackWon(a: z.infer<typeof ChargebackArgs>): PostingLine[] 
   return lines(
     line(a.cashAccount, "debit", a.amountMinor, a.memo ?? "chargeback recovered", a.dims),
     line(a.receivableAccount, "credit", a.amountMinor, a.memo ?? "chargeback recovered", a.dims)
+  );
+}
+
+/* ------------------------------------------ G2. FX revaluation (F18) */
+
+const FxRevalArgs = z.object({
+  /** One per (account, currency) whose carrying value has moved. Signed. */
+  adjustments: z
+    .array(
+      z.object({
+        accountCode: z.string().regex(/^\d{4}$/, "account code is four digits"),
+        /** Base-currency movement: positive increases the account's normal side. */
+        deltaMinor: z.number().int(),
+        /** The foreign currency this leg revalues, stamped so the next plan can see it. */
+        currency: z.string().length(3).optional(),
+        memo: Memo
+      })
+    )
+    .min(1),
+  gainAccount: z.string().default("4095"),
+  lossAccount: z.string().default("5500"),
+  memo: Memo,
+  dims: Dims
+});
+export type FxRevalArgs = z.input<typeof FxRevalArgs>;
+
+const FX_GAIN = "4095";
+const FX_LOSS = "5500";
+
+/**
+ * docs/19 §5.3: "Revaluation job for open receivables/payables at period end."
+ * docs/27 F18 found it absent, so a USD receivable carried the rate it was
+ * booked at forever and an AED-reporting tenant's balance sheet drifted with
+ * every move in the dollar.
+ *
+ * The entry posts in the **base** currency. That is what makes it work against
+ * this engine rather than around it: `post()` derives a base amount from a
+ * transaction amount and a rate, and a revaluation has no transaction amount at
+ * all — nothing was bought or sold, only reinterpreted. Posting the delta as a
+ * base-currency batch on the same account code adjusts the carrying value while
+ * leaving the foreign-currency balance exactly where it was, because
+ * `ledger_account_balances` is keyed by (account, currency).
+ *
+ * `deltaMinor` is signed and the sign is read against the account's normal side,
+ * which is why one function covers a gain on an asset and a gain on a liability
+ * without the caller having to know which is which.
+ */
+export function fxRevaluation(a: FxRevalArgs): PostingLine[] {
+  const moves = a.adjustments.filter((x) => x.deltaMinor !== 0);
+  if (!moves.length) throw badRequest("nothing to revalue: every adjustment is zero");
+
+  const legs: PostingLine[] = [];
+  let net = 0;
+  for (const m of moves) {
+    const normal = account(m.accountCode)?.normalSide ?? "debit";
+    const up = m.deltaMinor > 0;
+    const side: Side = up ? normal : normal === "debit" ? "credit" : "debit";
+    // `revalues` is what closes the loop: the adjustment posts in the base
+    // currency, so without it the next plan would not know this base-currency
+    // line belongs to the foreign position it just corrected, and would report
+    // the same difference again every period end.
+    const dims = { ...(a.dims ?? {}), ...(m.currency ? { revalues: m.currency } : {}) };
+    legs.push(
+      line(
+        m.accountCode,
+        side,
+        Math.abs(m.deltaMinor),
+        m.memo ?? a.memo ?? "fx revaluation",
+        Object.keys(dims).length ? dims : undefined
+      )
+    );
+    // The P&L effect of an asset going up is a gain; of a liability going up, a
+    // loss. `normal === "debit"` is exactly "this is an asset", so the sign of
+    // the income effect is the sign of the delta for assets and its opposite
+    // for liabilities.
+    net += normal === "debit" ? m.deltaMinor : -m.deltaMinor;
+  }
+  if (net === 0) {
+    throw badRequest("fx revaluation nets to zero: there is no gain or loss to post");
+  }
+  return lines(
+    ...legs,
+    net > 0 ? line(a.gainAccount ?? FX_GAIN, "credit", net, a.memo ?? "unrealised fx gain", a.dims) : null,
+    net < 0 ? line(a.lossAccount ?? FX_LOSS, "debit", -net, a.memo ?? "unrealised fx loss", a.dims) : null
+  );
+}
+
+/* --------------------------------- G. reconciliation write-off (docs/27) */
+
+const WriteOffArgs = z.object({
+  amountMinor: Pos,
+  /**
+   * Which way the residual runs, stated rather than inferred from a sign: a
+   * signed amount inverts silently when a caller flips an operand, and the two
+   * directions post to opposite sides of the same two accounts.
+   *
+   * `shortfall` — the counterparty paid less than we booked and we are giving
+   * up the rest, so the balance clears against the write-off expense.
+   * `surplus`   — they paid more, so the same expense is credited back.
+   */
+  direction: z.enum(["shortfall", "surplus"]),
+  /** The account carrying the residual: 1100 commission receivable, 1300 PSP clearing, 2100 payable. */
+  clearingAccount: z.string().regex(/^\d{4}$/, "account code is four digits").default("1100"),
+  writeOffAccount: z.string().regex(/^5\d{3}$/, "a write-off lands in an expense account").default("5510"),
+  /** A write-off has no business event behind it; the reason is the only thing an auditor can read. */
+  reason: z.string().min(10).max(500),
+  dims: Dims
+});
+export type WriteOffArgs = z.infer<typeof WriteOffArgs>;
+
+/**
+ * docs/27 "thin screens": reconciliation leaves residual differences — a few
+ * fils of premium tax rounding, a PSP fee booked to the cent — and without an
+ * instrument for them a run can never reach nothing-left-open, so it can never
+ * close. This is that instrument and nothing more: two lines, balanced by
+ * construction, against one named clearing account.
+ *
+ * It refuses the two things a write-off must never be able to do. Client money
+ * is segregated (CBUAE): a shortfall there is a reportable breach to escalate,
+ * not a difference to make disappear, and writing it off would leave 1010 < 2010
+ * with the journal saying it was fine. Equity moves only at the year-end close.
+ * The same two refusals `manualJournal` makes, for the same reasons.
+ */
+export function reconWriteOff(a: WriteOffArgs): PostingLine[] {
+  for (const code of [a.clearingAccount, a.writeOffAccount]) {
+    if (account(code)?.clientMoney) {
+      throw badRequest(
+        `a write-off may not touch client money account ${code}; a client-money difference is a breach to escalate`
+      );
+    }
+    if (code.startsWith("3")) {
+      throw badRequest(`a write-off may not touch equity account ${code}; use YEAR-END-CLOSE`);
+    }
+  }
+  if (!account(a.clearingAccount)) throw badRequest(`unknown account ${a.clearingAccount}`);
+  if (!account(a.writeOffAccount)) throw badRequest(`unknown account ${a.writeOffAccount}`);
+
+  const [debit, credit] =
+    a.direction === "shortfall"
+      ? [a.writeOffAccount, a.clearingAccount]
+      : [a.clearingAccount, a.writeOffAccount];
+  return lines(
+    line(debit, "debit", a.amountMinor, a.reason, a.dims),
+    line(credit, "credit", a.amountMinor, a.reason, a.dims)
   );
 }
 
@@ -474,19 +792,23 @@ function spec<S extends z.ZodType>(
  */
 export const RECIPES: Record<string, RecipeSpec> = {
   // distribution lifecycle
-  BIND: spec(CommissionArgs, commissionAccrual, { incomeAccount: "4000" }),
-  "BIND-GROUP": spec(CommissionArgs, commissionAccrual, { incomeAccount: "4000" }),
-  RENEW: spec(CommissionArgs, commissionAccrual, { incomeAccount: "4010" }),
+  // docs/27 F14. The bind family books gross written premium (1200/2000) when
+  // the premium passes through us, on top of the commission accrual. ENDORSE and
+  // UBI-REPRICE stay commission-only: a mid-term premium delta needs its own
+  // signed receivable movement, which is a second piece of work (see the ADR).
+  BIND: spec(BindArgs, bindPosting, { incomeAccount: "4000" }),
+  "BIND-GROUP": spec(BindArgs, bindPosting, { incomeAccount: "4000" }),
+  RENEW: spec(BindArgs, bindPosting, { incomeAccount: "4010" }),
   ENDORSE: spec(CommissionArgs, commissionAccrual, { incomeAccount: "4000" }),
   // Deliberately identical to ENDORSE: a telemetry-driven reprice is an
   // endorsement that posts to the same income account. The row exists because
   // every financial type needs one for `POST /v1/txn/{type}`, and identical
   // rows are the point — the two codes differ in provenance, not in posting.
   "UBI-REPRICE": spec(CommissionArgs, commissionAccrual, { incomeAccount: "4000" }),
-  REINSTATE: spec(CommissionArgs, commissionAccrual, { incomeAccount: "4010" }),
+  REINSTATE: spec(BindArgs, bindPosting, { incomeAccount: "4010" }),
   CANCEL: spec(ClawbackArgs, commissionClawback),
-  "PARTNER-BIND": spec(CommissionArgs, commissionAccrual, { incomeAccount: "4075" }),
-  "AGENT-BIND": spec(CommissionArgs, commissionAccrual, { incomeAccount: "4000" }),
+  "PARTNER-BIND": spec(BindArgs, bindPosting, { incomeAccount: "4075" }),
+  "AGENT-BIND": spec(BindArgs, bindPosting, { incomeAccount: "4000" }),
 
   // claims (design §B.4)
   "CLAIM-FUND": spec(ClientMoneyArgs, clientMoneyReceipt),
@@ -526,7 +848,9 @@ export const RECIPES: Record<string, RecipeSpec> = {
   "EXT-RSHARE": spec(CommissionArgs, commissionAccrual, { incomeAccount: "4075", receivableAccount: "1160" }),
   "RSHARE-ACCR": spec(AccrualArgs, expenseAccrual),
   "RSHARE-ADJUST": spec(AccrualArgs, expenseAccrual),
-  "SURPLUS-DIST": spec(AccrualArgs, expenseAccrual, { expenseAccount: "5400", payableAccount: "2100" }),
+  // docs/27 F45. Was `expenseAccrual` into 5400/2100 — a partner revenue share,
+  // which a takaful surplus is not on either leg. See `takafulSurplus`.
+  "SURPLUS-DIST": spec(TakafulSurplusArgs, takafulSurplus),
 
   // subscriptions & platform billing
   "SUB-INVOICE": spec(InvoiceArgs, invoiceRaised),
@@ -540,6 +864,12 @@ export const RECIPES: Record<string, RecipeSpec> = {
   // marketing & content
   "MEDIA-SPEND": spec(AccrualArgs, expenseAccrual, { expenseAccount: "5100", payableAccount: "2250" }),
   BOOST: spec(AccrualArgs, expenseAccrual, { expenseAccount: "5100", payableAccount: "2250" }),
+
+  // fx revaluation (docs/27 F18)
+  "FX-REVAL": spec(FxRevalArgs, fxRevaluation),
+
+  // reconciliation
+  "RECON-WRITEOFF": spec(WriteOffArgs, reconWriteOff),
 
   // manual & structural (docs/27 F2, F3)
   "MANUAL-JRNL": spec(AuthoredArgs, manualJournal),
@@ -558,6 +888,8 @@ export interface ArgField {
   required: boolean;
   /** What the recipe posts to if the operator says nothing. */
   default?: string | number;
+  /** A closed set the answer must come from: the UI offers these and nothing else. */
+  options?: string[];
 }
 
 /**
@@ -568,7 +900,22 @@ export interface ArgField {
  * Kind and optionality are probed through `safeParse` rather than read off zod
  * internals: the answer is then whatever the schema actually accepts, and it
  * survives a zod upgrade.
+ *
+ * A probe only ever answers with the samples it was shown, which is how a field
+ * a recipe *requires* can drop out of the list entirely and leave a type nothing
+ * can post. Two shapes did: an enum (`"sample text"` is not one of its members)
+ * and a pattern-constrained string (`clearingAccount` is four digits). So the
+ * probe list carries the field's own default and its own members — `options` is
+ * a public accessor, not an internal — and the UI renders a closed set as a
+ * picker rather than as free text.
  */
+function memberOptions(field: z.ZodType): string[] | null {
+  const raw = (field as unknown as { options?: unknown }).options;
+  return Array.isArray(raw) && raw.length > 0 && raw.every((v) => typeof v === "string")
+    ? (raw as string[])
+    : null;
+}
+
 export function argFields(code: string): ArgField[] {
   const s = RECIPES[code];
   if (!s) return [];
@@ -576,20 +923,29 @@ export function argFields(code: string): ArgField[] {
   return Object.entries(shape).flatMap(([name, field]) => {
     // Dimensions are free-form analysis tags, not a question with an answer.
     if (name === "dims") return [];
+    const blank = field.safeParse(undefined);
+    const options = memberOptions(field);
+    const declared = s.defaults?.[name] ?? (blank.success ? blank.data : undefined);
     // The text probe has to clear a minimum length: a one-character sample would
     // report an auditable-reason field as unrenderable rather than as text.
-    const kind = field.safeParse(1).success ? "integer" : field.safeParse("sample text").success ? "text" : null;
+    const samples = ["sample text", ...(options ?? []), ...(typeof declared === "string" ? [declared] : [])];
+    // `1` is not a fiscal year: a bounded integer refuses it and would drop out
+    // of the list, so the probe carries a number inside the ranges this file
+    // actually declares as well.
+    const numbers = [1, 2026, ...(typeof declared === "number" ? [declared] : [])];
+    const kind = numbers.some((sample) => field.safeParse(sample).success)
+      ? "integer"
+      : samples.some((sample) => field.safeParse(sample).success)
+        ? "text"
+        : null;
     if (!kind) return [];
-    const blank = field.safeParse(undefined);
-    const fallback = s.defaults?.[name] ?? (blank.success ? blank.data : undefined);
     return [
       {
         name,
         kind,
         required: !blank.success,
-        ...(typeof fallback === "string" || typeof fallback === "number"
-          ? { default: fallback }
-          : {})
+        ...(typeof declared === "string" || typeof declared === "number" ? { default: declared } : {}),
+        ...(options ? { options } : {})
       } satisfies ArgField
     ];
   });

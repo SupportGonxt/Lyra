@@ -92,7 +92,10 @@ export {
   teamMembers as orbitTeamMembers,
   agentPresence as orbitAgentPresence,
   routingRules as orbitRoutingRules,
-  slaPolicies as orbitSlaPolicies
+  slaPolicies as orbitSlaPolicies,
+  kbArticles as orbitKbArticles,
+  macros as orbitMacros,
+  deflections as orbitDeflections
 } from "./schema/orbit.js";
 
 export {

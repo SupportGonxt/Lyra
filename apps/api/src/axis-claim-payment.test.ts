@@ -429,3 +429,268 @@ describe("AXIS claim money, read back (§D.3)", () => {
     expect(ok(await call("GET", `/v1/axis/claims/${otherId}/recoveries`)).data).toEqual([]);
   });
 });
+
+/**
+ * docs/27 F23, the residue. The state machine, the reserve history and the
+ * CLAIM-PAY recipe all shipped; what never did is the join between them.
+ * `transitionClaim` refuses `settling` and `settled` in as many words —
+ * "move a claim to settling by requesting a payment, not by transition" — and
+ * `requestClaimPayment` then never touches `status`, so both states are
+ * unreachable by any path and no claim can ever be settled. `settledMinor` is
+ * the same defect in a column: three readers route through it (the reserve
+ * advisor's comparables, the fraud scorer's history, customer-360's positions)
+ * and nothing after FNOL has ever written it, so every one of them reasons
+ * from a permanent null.
+ */
+describe("AXIS settlement is reachable (docs/27 F23)", () => {
+  /**
+   * reported -> triage -> assessing -> approved, the hops the desk takes by
+   * hand. `approved` is dual-control always (`neverAutoApprove`), so the
+   * decision is granted rather than automated — the same shape as
+   * `grantPayment`, keyed on the state being moved to.
+   */
+  async function approveClaim(claimId: string): Promise<void> {
+    for (const to of ["triage", "assessing", "approved"]) {
+      await database.insert(schema.approvals).values({
+        id: `apr_clm_hop_${++approvalSeq}`,
+        tenantId: seeded.tenantId,
+        subjectRef: `axis_claim_settlement:${claimId}:${to}`,
+        policyKey: "axis.claim_settlement",
+        module: "axis",
+        requestedBy: "user:tester",
+        requestedAt: Date.now(),
+        decidedBy: "user:approver",
+        decision: "approved",
+        reason: "test fixture",
+        // An approval covers at most the amount it was approved for, and a
+        // claim hop is gated at the reserve (or the notified amount).
+        contextJson: JSON.stringify({ claimId, to, amountMinor: 10_000_00 }),
+        decidedAt: Date.now(),
+        delegationId: null
+      });
+      ok(await call("POST", `/v1/axis/claims/${claimId}/transition`, { to }), 200);
+    }
+  }
+
+  it("a payment moves an approved claim to settling, and a final payment settles it", async () => {
+    await autoApprove("axis.bind", "axis.underwriting_referral", "axis.claim_settlement");
+    const policyId = await boundPolicy("POL-CLMSET-1", Date.now() - 10 * DAY);
+    const claimId = await openClaim(policyId, "CLM-SET-1", 800_00);
+    await fundFloat(policyId, claimId, 800_00);
+    await approveClaim(claimId);
+    expect((await claimRow(claimId)).status).toBe("approved");
+
+    // An interim payment is money in flight, not the end of the claim.
+    await grantPayment(claimId, 300_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "interim", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 300_00, method: "eft" },
+        { "idempotency-key": "clm-set-1-interim" }
+      ),
+      201
+    );
+    const settling = await claimRow(claimId);
+    expect(settling.status).toBe("settling");
+    // Nothing is agreed while money is still in flight.
+    expect(settling.settledMinor).toBeNull();
+
+    // The final payment is the settlement: it ends the claim and freezes what
+    // it settled for at the total actually paid.
+    await grantPayment(claimId, 200_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "final", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 200_00, method: "eft" },
+        { "idempotency-key": "clm-set-1-final" }
+      ),
+      201
+    );
+    const settled = await claimRow(claimId);
+    expect(settled.status).toBe("settled");
+    expect(settled.paidMinor).toBe(500_00);
+    expect(settled.settledMinor).toBe(500_00);
+  });
+
+  it("the settled figure is frozen: a later expense payment moves paid, not settled", async () => {
+    // `settledMinor` answers "what did this claim settle for", which is a
+    // historical fact. `paidMinor` keeps moving while the file is open — the
+    // reserve advisor compares the two, so they may not be the same column.
+    await autoApprove("axis.bind", "axis.underwriting_referral", "axis.claim_settlement");
+    const policyId = await boundPolicy("POL-CLMSET-2", Date.now() - 10 * DAY);
+    const claimId = await openClaim(policyId, "CLM-SET-2", 900_00);
+    await fundFloat(policyId, claimId, 900_00);
+    await approveClaim(claimId);
+
+    await grantPayment(claimId, 400_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "final", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 400_00, method: "eft" },
+        { "idempotency-key": "clm-set-2-final" }
+      ),
+      201
+    );
+    expect((await claimRow(claimId)).settledMinor).toBe(400_00);
+
+    await grantPayment(claimId, 50_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "expense", payeeKind: "third_party", payeeRef: "vendor:assessor-1", amountMinor: 50_00, method: "eft" },
+        { "idempotency-key": "clm-set-2-expense" }
+      ),
+      201
+    );
+    const after = await claimRow(claimId);
+    expect(after.paidMinor).toBe(450_00);
+    expect(after.settledMinor).toBe(400_00);
+    expect(after.status).toBe("settled");
+  });
+
+  it("a payment on a claim that is not yet approved leaves the status alone", async () => {
+    // The machine has no hop from `assessing` to `settling`, so an interim
+    // payment made while the file is still being assessed must not invent one.
+    await autoApprove("axis.bind", "axis.underwriting_referral", "axis.claim_settlement");
+    const policyId = await boundPolicy("POL-CLMSET-3", Date.now() - 10 * DAY);
+    const claimId = await openClaim(policyId, "CLM-SET-3", 600_00);
+    await fundFloat(policyId, claimId, 600_00);
+    ok(await call("POST", `/v1/axis/claims/${claimId}/transition`, { to: "triage" }), 200);
+    ok(await call("POST", `/v1/axis/claims/${claimId}/transition`, { to: "assessing" }), 200);
+
+    await grantPayment(claimId, 100_00);
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "interim", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 100_00, method: "eft" },
+        { "idempotency-key": "clm-set-3-interim" }
+      ),
+      201
+    );
+    const row = await claimRow(claimId);
+    expect(row.status).toBe("assessing");
+    expect(row.paidMinor).toBe(100_00);
+    expect(row.settledMinor).toBeNull();
+  });
+});
+
+/**
+ * docs/27 F24, the residue. FNOL does resolve cover before the claim exists —
+ * `checkCoverage` pins the version, the limits and the excess and records
+ * `coverageState` — and that answer then routed nowhere: no engine read the
+ * column, so a claim recorded at notification as out of cover, lapsed at the
+ * loss or cancelled at the loss could be paid like any other. A check whose
+ * result nothing consults is the same defect as no check.
+ *
+ * Refused at the payment door rather than at FNOL, because a notification of
+ * loss is always taken — the decision belongs where the money leaves. Ex gratia
+ * is the deliberate exception the system already models, with a gate of its own
+ * (`axis.claim_exgratia`), so paying anyway stays possible and stays a decision.
+ */
+describe("AXIS refuses to pay a claim that was not in cover (docs/27 F24)", () => {
+  async function claimOutOfCover(policyId: string, claimNo: string, state: string): Promise<string> {
+    const claimId = await openClaim(policyId, claimNo, 500_00);
+    await database
+      .update(schema.axisClaims)
+      .set({ coverageState: state })
+      .where(eq(schema.axisClaims.id, claimId));
+    return claimId;
+  }
+
+  it("a payment on a claim out of cover is refused, naming the state", async () => {
+    await autoApprove("axis.bind", "axis.underwriting_referral");
+    const policyId = await boundPolicy("POL-COVER-1", Date.now() - 10 * DAY);
+
+    for (const state of ["out_of_cover", "lapsed_at_loss", "cancelled_at_loss"]) {
+      const claimId = await claimOutOfCover(policyId, `CLM-COVER-${state}`, state);
+      await fundFloat(policyId, claimId, 500_00);
+      await grantPayment(claimId, 200_00);
+
+      const res = await call("POST", `/v1/axis/claims/${claimId}/payments`, {
+        kind: "indemnity",
+        payeeKind: "claimant",
+        payeeRef: `customer:${customerId}`,
+        amountMinor: 200_00,
+        method: "eft"
+      });
+      expect(res.status, `${state} was paid`).toBe(409);
+      expect(String(res.body.detail ?? res.body.title)).toContain(state);
+
+      // Refused means nothing happened, the same as the approval refusal above.
+      expect(await paymentsOf(claimId)).toHaveLength(0);
+      expect((await claimRow(claimId)).paidMinor).toBe(0);
+    }
+  });
+
+  it("ex gratia is the way to pay one anyway, and it is still a decision", async () => {
+    await autoApprove("axis.bind", "axis.underwriting_referral");
+    const policyId = await boundPolicy("POL-COVER-2", Date.now() - 10 * DAY);
+    const claimId = await claimOutOfCover(policyId, "CLM-COVER-EXG", "out_of_cover");
+    await fundFloat(policyId, claimId, 500_00);
+
+    // Its own gate, not the indemnity one: an ex-gratia payment on a claim that
+    // was never covered is precisely the payout a second pair of eyes is for.
+    const ungated = await call("POST", `/v1/axis/claims/${claimId}/payments`, {
+      kind: "ex_gratia",
+      payeeKind: "claimant",
+      payeeRef: `customer:${customerId}`,
+      amountMinor: 100_00,
+      method: "eft"
+    });
+    expect(ungated.status).toBe(403);
+    expect(ungated.body.code).toBe("approval_required");
+
+    await database.insert(schema.approvals).values({
+      id: "apr_clm_exgratia_1",
+      tenantId: seeded.tenantId,
+      subjectRef: `axis_claim_payment:${claimId}`,
+      policyKey: "axis.claim_exgratia",
+      module: "axis",
+      requestedBy: "user:tester",
+      requestedAt: Date.now(),
+      decidedBy: "user:approver",
+      decision: "approved",
+      reason: "goodwill",
+      contextJson: JSON.stringify({ amountMinor: 100_00 }),
+      decidedAt: Date.now(),
+      delegationId: null
+    });
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "ex_gratia", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 100_00, method: "eft" },
+        { "idempotency-key": "clm-cover-exgratia" }
+      ),
+      201
+    );
+    expect((await claimRow(claimId)).paidMinor).toBe(100_00);
+  });
+
+  it("an unresolved cover state does not block the desk", async () => {
+    // `unknown` is what `checkCoverage` returns when no version answers — the
+    // FNOL engine says in as many words that a human decides. Refusing here
+    // would turn "we could not tell" into "no".
+    await autoApprove("axis.bind", "axis.underwriting_referral");
+    const policyId = await boundPolicy("POL-COVER-3", Date.now() - 10 * DAY);
+    const claimId = await claimOutOfCover(policyId, "CLM-COVER-UNK", "unknown");
+    await fundFloat(policyId, claimId, 500_00);
+    await grantPayment(claimId, 150_00);
+
+    ok(
+      await call(
+        "POST",
+        `/v1/axis/claims/${claimId}/payments`,
+        { kind: "indemnity", payeeKind: "claimant", payeeRef: `customer:${customerId}`, amountMinor: 150_00, method: "eft" },
+        { "idempotency-key": "clm-cover-unknown" }
+      ),
+      201
+    );
+    expect((await claimRow(claimId)).paidMinor).toBe(150_00);
+  });
+});

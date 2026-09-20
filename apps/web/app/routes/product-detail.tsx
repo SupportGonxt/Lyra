@@ -93,6 +93,25 @@ export const LABELS: Record<string, Record<string, string>> = {
     coverTitle: "Cover components",
     coverCaption: "The limits and benefits each underwriter version carries.",
     takafulTitle: "Takaful terms",
+    takafulCaption: "How this fund is run, and what the Shariah board has said about it.",
+    takafulModel: "Structure",
+    takafulFee: "Wakala fee",
+    takafulShare: "Participants' share of surplus",
+    takafulFund: "Risk fund",
+    takafulRuling: "Shariah ruling",
+    takafulBoard: "Board",
+    takafulFatwa: "Ruling reference",
+    takafulCertified: "Ruled on",
+    takafulExpires: "Under review again",
+    takafulLapsed: "This ruling has lapsed, so no surplus may be distributed until the board rules again.",
+    takafulNotCertified: "No current ruling, so no surplus may be distributed from this fund.",
+    "takafulModel.wakala": "Wakala — fee-based, participants keep the surplus",
+    "takafulModel.mudaraba": "Mudaraba — the operator shares in the surplus",
+    "takafulModel.hybrid": "Hybrid — a fee and a share of the surplus",
+    "takafulState.draft": "Not submitted",
+    "takafulState.submitted": "With the board",
+    "takafulState.certified": "Certified",
+    "takafulState.withdrawn": "Withdrawn",
     parametricTitle: "Parametric trigger",
     mappingTitle: "Standard mapping",
     versionsTitle: "Underwriter versions",
@@ -147,6 +166,25 @@ export const LABELS: Record<string, Record<string, string>> = {
     coverTitle: "عناصر التغطية",
     coverCaption: "الحدود والمزايا في كل إصدار من إصدارات جهات الاكتتاب.",
     takafulTitle: "أحكام التكافل",
+    takafulCaption: "كيف يُدار هذا الصندوق، وما قالته هيئة الرقابة الشرعية بشأنه.",
+    takafulModel: "الهيكل",
+    takafulFee: "أجرة الوكالة",
+    takafulShare: "حصة المشتركين من الفائض",
+    takafulFund: "صندوق المخاطر",
+    takafulRuling: "الحكم الشرعي",
+    takafulBoard: "الهيئة",
+    takafulFatwa: "مرجع الفتوى",
+    takafulCertified: "تاريخ الحكم",
+    takafulExpires: "يُعاد النظر فيه",
+    takafulLapsed: "انتهت صلاحية هذا الحكم، فلا يجوز توزيع أي فائض حتى تصدر الهيئة حكمًا جديدًا.",
+    takafulNotCertified: "لا يوجد حكم ساري، فلا يجوز توزيع أي فائض من هذا الصندوق.",
+    "takafulModel.wakala": "وكالة — بأجر، ويحتفظ المشتركون بالفائض",
+    "takafulModel.mudaraba": "مضاربة — يشارك المشغّل في الفائض",
+    "takafulModel.hybrid": "مختلط — أجر وحصة من الفائض",
+    "takafulState.draft": "لم يُقدَّم",
+    "takafulState.submitted": "لدى الهيئة",
+    "takafulState.certified": "معتمد",
+    "takafulState.withdrawn": "مسحوب",
     parametricTitle: "محرّك التعويض البارامتري",
     mappingTitle: "الربط المعياري",
     versionsTitle: "إصدارات جهات الاكتتاب",
@@ -220,7 +258,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     offerings: [] as OfferingRow[],
     channels: [] as ChannelRow[],
     unrestricted: false,
-    named: {} as Record<string, string>
+    named: {} as Record<string, string>,
+    now: Date.now()
   };
 
   if (!held.has(PERM.read)) return empty;
@@ -256,7 +295,11 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     named,
     offerings,
     channels: rowsOf(channels),
-    unrestricted: offerings.length > 0 && keys.length === 0
+    unrestricted: offerings.length > 0 && keys.length === 0,
+    // Server clock, not the browser's: whether a Shariah ruling has lapsed is
+    // the same question the API's own precondition answers, and two clocks
+    // would let the screen and the ledger disagree about a certificate.
+    now: Date.now()
   };
 }
 
@@ -393,9 +436,7 @@ export default function ProductDetail() {
       </div>
 
       {product.structure === "takaful" ? (
-        <Card title={l("takafulTitle")}>
-          <Payload value={product.takafulJson} />
-        </Card>
+        <TakafulCard value={product.takafulJson} l={l} locale={locale} now={loaded.now} />
       ) : null}
 
       {product.structure === "parametric" ? (
@@ -434,5 +475,88 @@ export default function ProductDetail() {
         <Payload value={product.standardMappingJson} />
       </Card>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------- takaful H8 */
+
+/**
+ * docs/16 H8, docs/27 F45. This card existed and printed `takafulJson` raw,
+ * which was honest while the column held free-form JSON and nothing acted on
+ * it. Now that a surplus distribution is refused on what this says
+ * (packages/ledger/src/preconditions.ts), the reader has to be able to see the
+ * thing that refuses them — a lapsed ruling is the difference between a fund
+ * that may distribute and one that may not, and a JSON dump does not say so.
+ *
+ * "certified" is deliberately not the headline. A ruling whose `expiresAt` has
+ * passed is still `state: "certified"` in the column, and a screen that reads
+ * the state alone tells a reader they may distribute when the API will refuse
+ * them — the same question, answered twice, differently.
+ */
+function TakafulCard({
+  value,
+  l,
+  locale,
+  now
+}: {
+  value: unknown;
+  l: Label;
+  locale: string;
+  now: number;
+}) {
+  const takaful = (value && typeof value === "object" ? value : {}) as {
+    model?: string;
+    wakalaFeeBps?: number;
+    participantShareBps?: number;
+    fundRef?: string;
+    shariah?: { state?: string; boardRef?: string; fatwaRef?: string; certifiedAt?: number; expiresAt?: number };
+  };
+  const shariah = takaful.shariah ?? {};
+  const bps = (v: number | undefined) =>
+    new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 2 }).format((v ?? 0) / 10_000);
+  const lapsed = shariah.state === "certified" && shariah.expiresAt !== undefined && shariah.expiresAt <= now;
+  const current = shariah.state === "certified" && !lapsed;
+
+  return (
+    <Card title={l("takafulTitle")} description={l("takafulCaption")}>
+      <div className="flex flex-col gap-4">
+        <Facts>
+          <Entry term={l("takafulModel")}>{l(`takafulModel.${takaful.model ?? "wakala"}`)}</Entry>
+          <Entry term={l("takafulFee")}>{bps(takaful.wakalaFeeBps)}</Entry>
+          <Entry term={l("takafulShare")}>{bps(takaful.participantShareBps)}</Entry>
+          {takaful.fundRef ? (
+            <Entry term={l("takafulFund")}>
+              <Ref value={takaful.fundRef} />
+            </Entry>
+          ) : null}
+        </Facts>
+        <Facts>
+          <Entry term={l("takafulRuling")}>
+            <Badge tone={current ? "success" : lapsed ? "warning" : "neutral"}>
+              {l(`takafulState.${shariah.state ?? "draft"}`)}
+            </Badge>
+          </Entry>
+          {shariah.boardRef ? (
+            <Entry term={l("takafulBoard")}>
+              <Ref value={shariah.boardRef} />
+            </Entry>
+          ) : null}
+          {shariah.fatwaRef ? <Entry term={l("takafulFatwa")}>{shariah.fatwaRef}</Entry> : null}
+          {shariah.certifiedAt ? (
+            <Entry term={l("takafulCertified")}>
+              <DateTime value={shariah.certifiedAt} precision="day" />
+            </Entry>
+          ) : null}
+          {shariah.expiresAt ? (
+            <Entry term={l("takafulExpires")}>
+              <DateTime value={shariah.expiresAt} precision="day" />
+            </Entry>
+          ) : null}
+        </Facts>
+        {current ? null : (
+          <p className="font-ui text-13 text-muted">{lapsed ? l("takafulLapsed") : l("takafulNotCertified")}</p>
+        )}
+      </div>
+    </Card>
   );
 }

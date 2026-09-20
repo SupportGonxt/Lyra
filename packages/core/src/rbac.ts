@@ -169,6 +169,8 @@ export const PERMISSIONS = [
   "orbit:handover:read", "orbit:handover:write",
   "orbit:channels:read", "orbit:channels:write",
   "orbit:teams:read", "orbit:teams:write",
+  "orbit:kb:read", "orbit:kb:write", "orbit:kb:publish",
+  "orbit:macros:read", "orbit:macros:write",
   "orbit:presence:read", "orbit:presence:write",
 
   // SIGNAL — growth
@@ -189,9 +191,12 @@ export const PERMISSIONS = [
 
   // SCOUT — product intelligence
   "scout:signals:read", "scout:signals:ingest",
-  "scout:clusters:read",
+  // The Clusterer and the Bench Builder are sweeps, not CRUD: they rewrite a
+  // whole table from evidence, so running one is its own grant and not implied
+  // by reading what it produced (same split /whitespaces/compute already makes).
+  "scout:clusters:read", "scout:clusters:build",
   "scout:whitespaces:read", "scout:whitespaces:promote",
-  "scout:panel_bench:read",
+  "scout:panel_bench:read", "scout:panel_bench:build",
   "scout:experiments:read", "scout:experiments:create", "scout:experiments:decide",
   "scout:data_products:read", "scout:data_products:create", "scout:data_products:publish",
 
@@ -201,6 +206,11 @@ export const PERMISSIONS = [
   "north:briefings:read", "north:briefings:generate", "north:briefings:approve",
   "north:anomalies:read", "north:anomalies:assign",
   "north:scenarios:read", "north:scenarios:run",
+  // A forecast is a forward-looking number with a company-level implication,
+  // which is a materially different disclosure from `north:snapshots:read`'s
+  // recorded fact (gap-north-design §B.3): whoever may read yesterday's policy
+  // count does not thereby get next quarter's projected commission.
+  "north:forecasts:read",
   "north:boardpacks:read", "north:boardpacks:generate",
   "north:decisions:read", "north:decisions:write",
   "north:alerts:read", "north:alerts:write",
@@ -251,6 +261,15 @@ export const PERMISSIONS = [
   "compliance:evidence:read", "compliance:evidence:export",
   "compliance:incidents:read", "compliance:incidents:write",
   "compliance:rulepacks:read", "compliance:rulepacks:apply",
+  // docs/16 H8's "Shariah-board workflow (review lane like compliance
+  // pre-flight)", docs/27 F45. In the compliance namespace and not AXIS's,
+  // because that is what it is: a standing ruling on whether a product may be
+  // sold at all, issued by a board that sits outside the underwriting desk. The
+  // namespace also does the role wiring on its own — `compliance:*:read` and
+  // `compliance:*:*` already grant these to the reader and officer roles, so a
+  // Shariah lane arrives without a role-table edit and without ADR-0025's
+  // unscoped-grant hazard.
+  "compliance:shariah:read", "compliance:shariah:certify",
   "compliance:thresholds:read", "compliance:thresholds:write",
 
   // analytics & reporting
@@ -430,6 +449,11 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "orbit:conversations:close", "orbit:messages:send", "orbit:handover:write",
     "orbit:qa:score", "orbit:renewals:update", "orbit:journeys:write",
     "orbit:presence:write", "orbit:teams:write",
+    // The lead owns the wording the desk sends: knowledge-base articles and the
+    // canned replies built from them (docs/27 F32). Publishing is separate from
+    // writing because publishing is what makes an article answer a customer
+    // unaccompanied.
+    "orbit:kb:write", "orbit:kb:publish", "orbit:macros:write",
     "core:customers:read", "core:pii:view", "core:consents:read", "core:search:read",
     "core:approvals:read", "core:approvals:decide", "core:files:read",
     "axis:policies:read", "axis:cases:read", "axis:cases:create",
@@ -511,6 +535,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     ...readsOf("scout"), "scout:ai:invoke", "ai:suggestions:read", "ai:command:read",
     "scout:experiments:create", "scout:experiments:decide",
     "scout:whitespaces:promote", "scout:data_products:create",
+    // A lead reruns the Clusterer and the Bench Builder; ingest stays admin.
+    "scout:clusters:build", "scout:panel_bench:build",
     "core:products:read", "core:providers:read", "core:approvals:read", "core:approvals:decide",
     "analytics:reports:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download"
   ],
@@ -545,6 +571,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
   /** Board pack readers. Read-only by design — never grant write here. */
   "north.board": [
     "north:briefings:read", "north:boardpacks:read", "north:snapshots:read",
+    // A board reads the projection: it is half of what a board pack is for.
+    "north:forecasts:read",
     "north:decisions:read", "analytics:dashboards:read"
   ],
   "north.admin": [

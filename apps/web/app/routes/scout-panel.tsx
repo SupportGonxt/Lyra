@@ -82,14 +82,41 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
 export interface ActionResult {
   problem: Problemish | null;
-  done: null;
+  done: { intent: "rebuild"; cells: number; created: number; updated: number } | null;
 }
 
-/** The pack is a stream, so success is the file and failure is a problem. */
+/** The pack is a stream, so success is the file and failure is a problem. The
+ *  rebuild answers in the ordinary shape. */
 export async function action({ request, context }: ActionFunctionArgs): Promise<Response | ActionResult> {
   const env = context.get(cloudflare).env;
   const form = await request.formData();
-  if (String(form.get("intent") ?? "") !== "pack") return refuse("bad_intent");
+  const intent = String(form.get("intent") ?? "");
+  if (intent !== "pack" && intent !== "rebuild") return refuse("bad_intent");
+
+  if (intent === "rebuild") {
+    try {
+      // The Bench Builder (docs/modules/scout.md §3) runs nightly; this is the
+      // same sweep on demand. Idempotent at the engine — a cell is keyed
+      // (provider, line, period) and updated in place — so a second press
+      // rewrites the same numbers rather than doubling anything.
+      const report = await api<{ cells: number; created: number; updated: number }>("/v1/scout/panel-bench/sweep", {
+        env,
+        request,
+        method: "POST",
+        body: {}
+      });
+      // Named rather than spread: the engine's report carries more than this
+      // screen renders, and a `done` that quietly widens with the wire is how a
+      // component ends up reading a field nobody declared.
+      return {
+        problem: null,
+        done: { intent: "rebuild", cells: report.cells, created: report.created, updated: report.updated }
+      };
+    } catch (error) {
+      if (error instanceof ApiError) return { problem: error.problem, done: null };
+      throw error;
+    }
+  }
 
   try {
     const upstream = await apiFetch("/v1/scout/panel-bench/negotiation-pack", { env, request });
@@ -117,6 +144,7 @@ export default function ScoutPanel() {
   const may = new Set(shell?.permissions ?? []);
   const busy = navigation.state !== "idle";
   const problem = result && "problem" in result ? result.problem : null;
+  const done = result && "done" in result ? result.done : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -148,6 +176,24 @@ export default function ScoutPanel() {
         title={l("kFloor")}
         reason={l("kFloorWhy", { k: String(K_FLOOR) })}
       />
+
+      {may.has(PERM.panelBuild) ? (
+        <Card title={l("panel.rebuild")} description={l("panel.rebuildHint")}>
+          {done ? (
+            <p className="mt-2 font-ui text-13 text-muted">
+              {l("panel.rebuilt", { cells: String(done.cells), created: String(done.created) })}
+            </p>
+          ) : null}
+          <Form method="post" className="mt-2">
+            <input type="hidden" name="intent" value="rebuild" />
+            <Button type="submit" variant="secondary" disabled={busy}>
+              {l("panel.rebuild")}
+            </Button>
+          </Form>
+        </Card>
+      ) : (
+        <GuardrailNotice tone="info" title={l("panel.rebuild")} reason={l("panel.rebuildDenied")} />
+      )}
 
       {may.has(PERM.whitespacesPromote) ? (
         <Card title={l("panel.pack")} description={l("panel.packHint")}>

@@ -3,6 +3,7 @@ import { Badge, Button, Card, DateTime, EmptyState, Field, Input, Money, Ref, Ta
 import { ApiError, api, fetchMe } from "../api.server";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
+import { ReportDownloads } from "./detail-kit";
 import { useShellData } from "./workspace";
 import { PERM, accountHeadline, labelIn } from "./ledger.shared";
 
@@ -77,7 +78,8 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     from,
     to,
     statement: null,
-    balance: null
+    balance: null,
+    exportUrl: ""
   };
   if (!account) return empty;
 
@@ -99,7 +101,23 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     )
   ]);
 
-  return { ...empty, statement, balance };
+  /**
+   * The file is the answer to the same question the screen is showing, so the
+   * link carries the query the loader normalised — instants, not date strings —
+   * and the account travels as `?code=` because the export route is keyed by
+   * report name (apps/api/src/routes/ledger.ts REPORT_EXPORTS). Straight to the
+   * API origin, which only works because the session cookie is scoped to the
+   * parent domain both hosts share. Ends on a separator so the view only has to
+   * name the format.
+   */
+  const exportQuery = new URLSearchParams(query);
+  exportQuery.set("code", account);
+  return {
+    ...empty,
+    statement,
+    balance,
+    exportUrl: `${env.API_ORIGIN}/v1/ledger/reports/account-statement/export?${exportQuery.toString()}&`
+  };
 }
 
 export default function LedgerAccount() {
@@ -216,6 +234,7 @@ export default function LedgerAccount() {
         <EmptyState title={l("account.pick")} body={l("account.pickBody")} />
       ) : (
         <>
+          <ReportDownloads url={loaded.exportUrl} l={l} />
           <Card title={statement.accountCode} elevation="flat">
             <dl className="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-5">
               <div className="flex flex-col gap-1">

@@ -1,5 +1,5 @@
 import { and, eq, gte, like } from "drizzle-orm";
-import { schema } from "@lyra/db";
+import { parseJson, schema, shariahCertified, TakafulJson } from "@lyra/db";
 import { checkKAnonymity, conflict, type Ctx } from "@lyra/core";
 
 // docs/specs/gap-finance-design.md D2/D3. Some transactions are illegal because
@@ -144,13 +144,101 @@ const dataProductKAnonymity: Precondition = async (ctx, args) => {
   }
 };
 
+/**
+ * docs/19 §11.10 — "`SUCCESS-FEE` cannot post without a verified metric snapshot
+ * reference", and §7 — "verified metric snapshot + both parties' sign-off". The
+ * sign-off half is the `ledger.success_fee` approval policy, which is
+ * `dualControl: "always", neverAutoApprove`. This is the other half, and it was
+ * the missing one (docs/27 F21): the recipe is an ordinary invoice, so nothing
+ * in the posting path could ask what metric the fee was a fee *on*.
+ *
+ * Verified means attested, not merely computed. Every snapshotter run writes
+ * `north_snapshots` rows with `verified_at` null; a row only becomes chargeable
+ * when somebody re-read the metric and stood behind the number. A reference to
+ * another tenant's snapshot reads as not-found rather than as forbidden — the
+ * query is tenant-scoped, so a caller learns nothing about what it cannot see.
+ */
+const verifiedMetricSnapshot: Precondition = async (ctx, args) => {
+  const snapshotId = args["metricSnapshotId"];
+  if (typeof snapshotId !== "string" || !snapshotId) {
+    throw conflict(
+      "metricSnapshotId is required: a success fee may only be charged on a verified metric snapshot (docs/19 §11.10)"
+    );
+  }
+  const [snap] = await ctx.db
+    .select({
+      id: schema.northSnapshots.id,
+      metricKey: schema.northSnapshots.metricKey,
+      period: schema.northSnapshots.period,
+      verifiedAt: schema.northSnapshots.verifiedAt
+    })
+    .from(schema.northSnapshots)
+    .where(
+      and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.id, snapshotId))
+    )
+    .limit(1);
+  if (!snap) throw conflict(`metric snapshot ${snapshotId} not found`);
+  if (snap.verifiedAt == null) {
+    throw conflict(
+      `metric snapshot ${snapshotId} (${snap.metricKey} ${snap.period}) has not been verified; a success fee may not be charged on a computed-but-unattested figure (docs/19 §11.10)`
+    );
+  }
+};
+
+/**
+ * docs/16 H8, docs/27 F45. A takaful surplus may only be distributed out of a
+ * product the Shariah board has certified, and the certification must still be
+ * current at the moment the money moves.
+ *
+ * This is a precondition rather than a second approval on purpose. `SURPLUS-DIST`
+ * already gates on `ledger.surplus` — dual control, never auto-approvable — and
+ * that approval is about *this* distribution: the amount, the period, the
+ * counterparties. The board's ruling is about the product and stands between
+ * distributions. Two facts, so two mechanisms; folding the ruling into the
+ * payout approval would mean asking a treasury approver to certify a contract
+ * structure, which is not a thing they can answer.
+ *
+ * It refuses a non-takaful product outright rather than letting it through. A
+ * conventional product has no participants' fund to distribute from, so a
+ * SURPLUS-DIST against one would debit 2040 to a balance that was never
+ * credited — an overdrawn fund is not an error the ledger can detect after the
+ * fact, because the account is a liability and a debit balance on it reads as a
+ * perfectly ordinary prepayment.
+ */
+const shariahRulingCurrent: Precondition = async (ctx, args) => {
+  const productId = requireString(args, "productId");
+  const [product] = await ctx.db
+    .select({ structure: schema.products.structure, takafulJson: schema.products.takafulJson })
+    .from(schema.products)
+    .where(and(eq(schema.products.tenantId, ctx.tenantId), eq(schema.products.id, productId)))
+    .limit(1);
+
+  if (!product) throw conflict(`product ${productId} not found in this tenant`);
+  if (product.structure !== "takaful") {
+    throw conflict(
+      `product ${productId} is ${product.structure}, not takaful — it has no participants' fund to distribute from`
+    );
+  }
+
+  const takaful = parseJson(TakafulJson, product.takafulJson);
+  if (!shariahCertified(takaful, ctx.now)) {
+    const why =
+      takaful.shariah.state === "certified"
+        ? `its Shariah ruling expired at ${takaful.shariah.expiresAt}`
+        : `its Shariah ruling is "${takaful.shariah.state}", not "certified"`;
+    throw conflict(`product ${productId} may not distribute a surplus: ${why}`);
+  }
+};
+
 /** Every check that must pass before a transaction of this type may proceed. */
 export const TXN_PRECONDITIONS: Record<string, Precondition> = {
   "OPEN-BAL": firstOpeningBalanceOnly,
+  "SUCCESS-FEE": verifiedMetricSnapshot,
   "YEAR-END-CLOSE": async (ctx, args) => {
     await yearNotAlreadyClosed(ctx, args);
     await fiscalYearSoftClosed(ctx, args);
   },
   "AD-PLACEMENT": freshAdPlacementDisclosure,
-  "DPROD-DELIVER": dataProductKAnonymity
+  "DPROD-DELIVER": dataProductKAnonymity,
+  "SURPLUS-DIST": shariahRulingCurrent
 };

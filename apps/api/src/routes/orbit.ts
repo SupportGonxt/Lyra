@@ -10,6 +10,8 @@ import { dispatchOutbound } from "../engines/orbit-channel-outbound.js";
 import { sweepRenewals } from "../engines/renewals.js";
 import { sweepRouting } from "../engines/orbit-routing.js";
 import { sweepConversationDrafts } from "../engines/orbit-draft.js";
+import { advanceJourneyRuns, triggerJourney } from "../engines/orbit-journeys.js";
+import { applyMacro, deflect, publishArticle, searchKb } from "../engines/orbit-kb.js";
 import { requestPartnerQuote } from "../engines/orbit-partner-quotes.js";
 import type { App } from "../env.js";
 
@@ -107,6 +109,114 @@ orbitRoutes.post("/drafts/sweep", async (c) => {
   require_(ctx.actor, "orbit:ai:invoke", { tenantId: ctx.tenantId, module: "orbit" });
   require_(ctx.actor, "orbit:conversations:reply", { tenantId: ctx.tenantId, module: "orbit" });
   return c.json({ drafted: await sweepConversationDrafts(ctx, c.get("gateway")) });
+});
+
+const KbSearchBody = z.object({
+  query: z.string().min(1).max(500),
+  locale: z.string().min(2).max(8).optional(),
+  limit: z.number().int().min(1).max(10).optional()
+});
+
+/**
+ * What the knowledge base has on a question. A POST rather than a GET because
+ * the query is a customer's own words — often long, often Arabic, and not
+ * something to leave in a URL that lands in every access log (docs/12 §4).
+ */
+orbitRoutes.post("/kb/search", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:kb:read", { tenantId: ctx.tenantId, module: "orbit" });
+  const input = await body(c, KbSearchBody);
+  const hits = await searchKb(ctx, c.get("gateway"), c.env.VEC_KB, {
+    query: input.query,
+    locale: input.locale ?? ctx.locale,
+    ...(input.limit === undefined ? {} : { limit: input.limit })
+  });
+  return c.json({
+    data: hits.map((hit) => ({
+      articleId: hit.article.id,
+      key: hit.article.key,
+      title: hit.article.title,
+      body: hit.article.body,
+      locale: hit.article.locale,
+      score: hit.score,
+      via: hit.via
+    }))
+  });
+});
+
+/**
+ * Publish an article: the act that makes it answerable to a customer, and the
+ * one that embeds it. Separate from the CRUD PATCH on purpose — `status` is not
+ * editable through the generic resource, because setting it there would
+ * publish an article that is in no index and can only ever be found lexically.
+ */
+orbitRoutes.post("/kb/articles/:id/publish", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:kb:publish", { tenantId: ctx.tenantId, module: "orbit" });
+  return c.json(await publishArticle(ctx, c.get("gateway"), c.env.VEC_KB, c.req.param("id")));
+});
+
+const DeflectBody = z.object({ question: z.string().min(1).max(2000) });
+
+/** Try to answer this conversation's question from the knowledge base; the result says whether it did. */
+orbitRoutes.post("/conversations/:id/deflect", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:ai:invoke", { tenantId: ctx.tenantId, module: "orbit" });
+  const input = await body(c, DeflectBody);
+  return c.json(
+    await deflect(ctx, c.get("gateway"), c.env.VEC_KB, {
+      conversationId: c.req.param("id"),
+      question: input.question
+    })
+  );
+});
+
+const MacroBody = z.object({ macroKey: z.string().min(1).max(64) });
+
+/** Send a canned reply into the conversation, in the language the conversation is in. */
+orbitRoutes.post("/conversations/:id/macro", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:conversations:reply", { tenantId: ctx.tenantId, module: "orbit" });
+  const input = await body(c, MacroBody);
+  return c.json(await applyMacro(ctx, { conversationId: c.req.param("id"), macroKey: input.macroKey }), 201);
+});
+
+const TriggerBody = z.object({ customerIds: z.array(z.string().min(1)).min(1).max(500) });
+
+/**
+ * Enrol a cohort by hand. The normal path is the event bus — `onJourneyEvent`
+ * off the outbox drain (CLAUDE.md rule 6) — and this is the operator's door to
+ * the same engine: a win-back list pasted in, or a journey author checking a
+ * graph against one real customer before publishing it. `orbit:journeys:publish`
+ * rather than `:write`, because enrolling a live cohort is the act a draft
+ * author is not trusted with.
+ */
+orbitRoutes.post("/journeys/:id/trigger", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:journeys:publish", { tenantId: ctx.tenantId, module: "orbit" });
+  const journeyId = c.req.param("id");
+  const input = await body(c, TriggerBody);
+  const result = await withIdempotency(
+    ctx,
+    c.req.header("idempotency-key"),
+    "orbit.journey_trigger",
+    { journeyId, ...input },
+    () => triggerJourney(ctx, journeyId, input.customerIds)
+  );
+  return c.json(result, 201);
+});
+
+/**
+ * Force the journey advance step now. Same idiom as `/routing/sweep` above: it
+ * otherwise only runs off the Workers cron tick, so an operator demoing a
+ * journey — or an e2e test — has no way to see a wait elapse. Gated on
+ * `orbit:journeys:publish` for the same reason the trigger is: advancing a run
+ * sends.
+ */
+orbitRoutes.post("/journeys/sweep", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:journeys:publish", { tenantId: ctx.tenantId, module: "orbit" });
+  return c.json(await advanceJourneyRuns(ctx));
 });
 
 const PartnerQuoteBody = z.object({

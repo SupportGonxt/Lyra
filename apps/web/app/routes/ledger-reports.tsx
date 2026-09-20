@@ -26,7 +26,7 @@ import { ApiError, api, fetchMe } from "../api.server";
 import { cloudflare } from "../context";
 import type { Env } from "../env";
 import { translator, type Translate } from "../i18n";
-import { labelsFrom } from "./detail-kit";
+import { labelsFrom, ReportDownloads } from "./detail-kit";
 import { useShellData } from "./workspace";
 
 // The finance reporting surface: six reports from /v1/ledger/reports, one route.
@@ -183,14 +183,9 @@ function isReport(key: string): key is ReportKey {
 
 // Downloads go to `GET /v1/ledger/reports/:report/export`, which re-runs the
 // same report function this screen reads and serialises it through the shared
-// export renderer. Nothing is written client-side: a second spreadsheet writer
-// would be a second, unaudited rendering of the same money.
-//
-// ponytail: PDF is offered for every report, and the API refuses it with a 400
-// when a row carries non-Latin text (the base-14 fonts have no Arabic) — the
-// browser shows the error rather than the screen hiding the format, because
-// which rows are Latin is not knowable until the report is run.
-const FORMATS = ["xlsx", "pdf", "csv", "json"] as const;
+// export renderer. The nav and the format list live in detail-kit
+// (`ReportDownloads`) because the account statement and the money map are
+// downloads of the same kind against the same route.
 
 /* ------------------------------------------------------------------- strings */
 
@@ -284,12 +279,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "cm.breachBody":
       "The client bank position is below what is owed to clients. This is a reportable breach: escalate it today, before the next remittance run.",
     "denied.title": "You cannot open this report",
-    "denied.body": "It needs a permission your role does not hold. An administrator can grant it.",
-    download: "Download",
-    "download.xlsx": "Excel",
-    "download.pdf": "PDF",
-    "download.csv": "CSV",
-    "download.json": "JSON"
+    // `download*` moved to detail-kit's SHARED table: the account statement and
+    // the money map offer the same four formats against the same export route.
+    "denied.body": "It needs a permission your role does not hold. An administrator can grant it."
   },
   ar: {
     title: "التقارير المالية",
@@ -375,12 +367,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "cm.breachBody":
       "رصيد بنك أموال العملاء أقل من المستحق لهم. هذا خرق واجب الإبلاغ: صعِّده اليوم قبل دورة التحويل التالية.",
     "denied.title": "لا يمكنك فتح هذا التقرير",
-    "denied.body": "يتطلب صلاحية لا يملكها دورك. يمكن للمسؤول منحها.",
-    download: "تنزيل",
-    "download.xlsx": "إكسل",
-    "download.pdf": "PDF",
-    "download.csv": "CSV",
-    "download.json": "JSON"
+    "denied.body": "يتطلب صلاحية لا يملكها دورك. يمكن للمسؤول منحها."
   }
 };
 
@@ -603,20 +590,7 @@ export default function LedgerReports() {
         ) : null}
       </Form>
 
-      {loaded.denied ? null : (
-        // Plain links to the API, one per format: the browser downloads, so
-        // there is no progress to fake and nothing to keep in state.
-        <nav aria-label={l("download")} className="flex flex-wrap items-center gap-2">
-          <span className="font-ui text-13 text-subtle">{l("download")}</span>
-          {FORMATS.map((format) => (
-            <Button key={format} asChild variant="ghost" size="sm">
-              <a href={`${loaded.exportUrl}format=${format}`} rel="noopener" download>
-                {l(`download.${format}`)}
-              </a>
-            </Button>
-          ))}
-        </nav>
-      )}
+      {loaded.denied ? null : <ReportDownloads url={loaded.exportUrl} l={l} />}
 
       {loaded.denied ? (
         <EmptyState title={l("denied.title")} body={l("denied.body")} />

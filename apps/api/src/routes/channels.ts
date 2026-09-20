@@ -7,6 +7,7 @@ import { fieldKey } from "../env.js";
 import { adapterFor } from "../engines/orbit-channel-adapters.js";
 import { processChannelEvents } from "../engines/orbit-channel-inbound.js";
 import { recordSignal } from "../engines/orbit-signal.js";
+import { deflect } from "../engines/orbit-kb.js";
 import { gatewayFor } from "../mw.js";
 import type { App, Env } from "../env.js";
 
@@ -82,7 +83,13 @@ channelsRoutes.post("/:connectorId/webhook", async (c) => {
     await processChannelEvents(ctx, connector, events, {
       // Language + sentiment per inbound message (orbit-signal.ts): feeds
       // routing's sentimentBelow and the churn model's lastSentiment.
-      signal: (conversationId, customerId, text) => recordSignal(ctx, gatewayFor(c.env), conversationId, customerId, text)
+      signal: (conversationId, customerId, text) => recordSignal(ctx, gatewayFor(c.env), conversationId, customerId, text),
+      // docs/27 F32: try the knowledge base before a person is needed. `deflect`
+      // itself decides nothing here — it answers only a conversation still on
+      // the bot and only above its score floor, and logs the miss either way so
+      // containment stays a real ratio.
+      deflect: (conversationId, text) =>
+        deflect(ctx, gatewayFor(c.env), c.env.VEC_KB, { conversationId, question: text }).then(() => undefined)
     })
   );
 });

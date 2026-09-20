@@ -1,0 +1,6 @@
+{
+  "loopAccuracyMin": 1.0,
+  "toolRoundsMin": 3,
+  "gateAccuracyMin": 1.0,
+  "ungatedConsequentialMax": 0
+}

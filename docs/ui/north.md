@@ -166,6 +166,7 @@ per-screen rather than from the table above:
 | `north:anomalies:assign` | `north/brief`'s inline "own this anomaly" action; `north/anomalies` |
 | `north:anomalies:read` | `north/anomalies` |
 | `north:snapshots:read` | `north/explorer`, `north/dev` |
+| `north:forecasts:read` | `north/explorer` — the projection card only; a reader without it loses the card and keeps the screen |
 | `north:scenarios:read` / `:run` | `north/whatif` — read the library / save a question |
 | `north:boardpacks:read` / `:generate` | `north/board` |
 | `north:decisions:read` / `:write` | `north/decisions` |
@@ -1546,7 +1547,12 @@ deliberately **not** quoted here to avoid presenting unconfirmed text as fact.
 Structural facts that were confirmed and are not in doubt:
 
 - **`north/explorer`** — `north:snapshots:read`. Browses the metric/snapshot
-  catalogue that the shell's Meridian scrubber replays against.
+  catalogue that the shell's Meridian scrubber replays against. It also reads
+  `GET /v1/north/forecast` (`north:forecasts:read`, docs/27 F50) and renders the
+  projection as a p10/p50/p90 table with the fitted parameters beneath it — no
+  ✦ marker, because the projection is arithmetic in packages/core and not a
+  model call. Week grain has no projection; the endpoint answers for the two
+  grains the snapshotter writes.
 - **`north/anomalies`** — `north:anomalies:read`, `north:anomalies:assign`. Has a
   state-transition map (`explain` → `explained`, `own` → `action_created`,
   `dismiss` → `dismissed`) mirrored by the inline anomaly-ownership action on

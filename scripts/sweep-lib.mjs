@@ -7,15 +7,40 @@ import { readdirSync, readFileSync } from "node:fs";
 
 export const BASE = process.env.SWEEP_BASE ?? "https://lyra.vantax.co.za";
 
-/** Route patterns from the web manifest. `param` picks :id routes vs static. */
+/**
+ * Route patterns from the web manifest. `param` picks :id routes vs static.
+ *
+ * routes.ts is not the whole URL space. The last three entries in it are the
+ * generic `:module`, `:module/:resource` and `:module/:resource/:id`, so every
+ * *workspace landing page* — /analytics, /compliance, /admin, /ledger… — is a
+ * real, nav-linked URL that no literal in routes.ts declares. Reading only the
+ * literals, this sweep reported "77 routes, 0 unswept" while never once opening
+ * the front door of 13 of the 13 workspaces: /analytics and /compliance have no
+ * bespoke screen at all and were swept by nothing. WORKSPACE_PATHS (routing.ts)
+ * is where the rail gets them, so it is where the sweep gets them too.
+ *
+ * **A route list derived from one of two sources of truth is a dead seam in the
+ * tool that hunts for them.**
+ */
 export function routePatterns({ param }) {
   const src = readFileSync("apps/web/app/routes.ts", "utf8");
+  const literals = [...src.matchAll(/route\("([^"]+)"/g)]
+    .map((m) => m[1])
+    .map((p) => (p.startsWith("/") ? p : `/${p}`));
+  // Same file-as-text idiom as I18N_KEYS below: routing.ts is TypeScript and
+  // this is a plain .mjs script, so the list is read rather than imported.
+  const declaration = readFileSync("apps/web/app/routing.ts", "utf8").match(
+    /export const WORKSPACE_PATHS = \[([^\]]*)\]/s
+  );
+  // Loudly, not silently. A regex that stops matching would drop the workspace
+  // landings back out of the sweep and report "0 not swept" over a smaller
+  // list — which is the bug this whole function exists to have fixed.
+  if (!param && !declaration) throw new Error("routing.ts no longer declares WORKSPACE_PATHS as a literal array");
+  const workspaces = param ? [] : [...declaration[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   return [
     ...new Set(
-      [...src.matchAll(/route\("([^"]+)"/g)]
-        .map((m) => m[1])
+      [...literals, ...workspaces]
         .filter((p) => p.includes(":") === param)
-        .map((p) => (p.startsWith("/") ? p : `/${p}`))
         .filter((p) => p !== "/login" && p !== "/logout")
     )
   ];
@@ -76,6 +101,29 @@ export const CHECKS = [
 ];
 
 /**
+ * Routes the permission-wall CHECK may not speak for, and why. The check's
+ * premise is "this persona holds every role, so a wall is a lie about it" — and
+ * the demo seat holds every **tenant** role (`TENANT_ROLE_KEYS`, seed.ts), not
+ * every role there is. A workspace gated on a permission that only a goNXT
+ * staff role carries is therefore walled *correctly* for every persona this
+ * sweep can be, and the wall says nothing about whether the screen works.
+ *
+ * Keep this list to routes whose nav entry carries the same gate the screen
+ * does — that pairing is what makes the wall by-design rather than a dead link.
+ * Anything else belongs in the tally.
+ */
+const WALL_BY_DESIGN = {
+  // ADR-0029. me.ts:451 gates the rail item on `admin:diagnostics:read`, and
+  // rbac.ts grants that to platform.admin/support/engineer only, so the nav
+  // never offers this to a tenant reader and the screen refusing it agrees.
+  "/platform": "goNXT staff workspace — gated on admin:diagnostics:read, which no tenant role holds"
+};
+
+function inWallExceptions(path) {
+  return Object.keys(WALL_BY_DESIGN).some((p) => path === p || path.startsWith(`${p}/`));
+}
+
+/**
  * The persona is the sweep's coverage. sweep.mjs signed in as amina.saleh
  * (tenant.admin) for weeks, and tenant.admin resolves to the `admin` shell and
  * nothing else — a cross-module read deliberately does not imply a shell
@@ -84,18 +132,63 @@ export const CHECKS = [
  * rendered, and three `[object Object]` columns on the ORBIT routing desk sat
  * there unseen while [object Object] was already a CHECKS pattern.
  *
- * The login page's demo picker carries one persona holding all 24 roles, which
- * is the only account that reaches every shell.
+ * The login page's demo picker carries one persona holding every role, which is
+ * the only account that reaches every shell — the default here. Pass an `email`
+ * (or set SWEEP_PERSONA) to sweep as one of the single-role seats instead;
+ * `personas(page)` enumerates them, which is how a per-persona sweep covers the
+ * shells the administrator's own roles happen not to open.
+ *
+ * The seat is chosen by the button's `value` — the persona's email, which
+ * login.tsx puts on every one of them — and never by the label beside it. That
+ * label reads "all 24 roles" only while the seed grants exactly 24: it is 25 on
+ * a freshly seeded local DB, and matching `hasText: "all 24 roles"` made the
+ * sweep hang on a 30s locator timeout that reads as a broken login page rather
+ * than as a count that moved. **A selector keyed on a number the seed owns is a
+ * dead seam in the tool that looks for them.**
  */
-export async function signIn(page) {
-  await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
+export async function signIn(page, email = process.env.SWEEP_PERSONA) {
+  const seats = await personas(page);
+  if (!seats.length) throw new Error(`${BASE}/login offers no demo personas — is this a demo deployment?`);
+  // No email asked for: the widest seat, resolved from the rendered labels
+  // rather than assumed. `auth.demo.allRoles` is the only label carrying a
+  // count, so the one seat that has a number in it is the all-roles seat.
+  const seat = email
+    ? seats.find((s) => s.email === email)
+    : seats.find((s) => /\d/.test(s.label)) ?? seats[0];
+  if (!seat) throw new Error(`no demo persona for ${email} — have: ${seats.map((s) => s.email).join(", ")}`);
   // The picker is a <details> shut by default (login.tsx), so its buttons are in
   // the DOM but not clickable until it is opened. Clicking one signs in with no
   // password — a demo fixture, never a live credential.
   await page.locator("details").first().evaluate((d) => (d.open = true));
-  await page.locator("button[type=submit]", { hasText: "all 24 roles" }).first().click();
+  await page.locator(`button[type=submit][name=email][value="${seat.email}"]`).first().click();
   await page.waitForURL((u) => !u.pathname.endsWith("/login"), { timeout: 30_000 });
-  console.log("signed in as the all-roles demo administrator");
+  console.log(`signed in as ${seat.email} (${seat.label})`);
+  return seat;
+}
+
+/** Every demo seat the login page offers: `{ email, label }`, label being the
+ *  role key or the all-roles count shown beside the name. */
+export async function personas(page) {
+  await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
+  await page
+    .locator("details")
+    .first()
+    .evaluate((d) => (d.open = true))
+    .catch(() => {});
+  return page.locator("button[type=submit][name=email]").evaluateAll((bs) =>
+    bs.map((b) => ({ email: b.getAttribute("value") ?? "", label: (b.textContent ?? "").trim() }))
+  );
+}
+
+/**
+ * Sign out, so the next persona starts from no session rather than inheriting
+ * one. Dropping the cookie is the whole of it — the session lives in
+ * `lyra_session` and the login page reads nothing else — and it is preferred
+ * over posting to /logout because that route is action-only (HIDDEN_ROUTES) and
+ * a sweep that never submits a form should not start here.
+ */
+export async function signOut(page) {
+  await page.context().clearCookies();
 }
 
 /**
@@ -103,7 +196,14 @@ export async function signIn(page) {
  * a caller can tally; a denied route is counted as unswept and never as a pass,
  * because a route nothing rendered has been checked for nothing.
  */
-export async function sweepRoute(page, path) {
+export async function sweepRoute(page, path, { walls = true, quiet = false } = {}) {
+  // `walls` is the permission-wall CHECK, and it is only ever true of the seat
+  // holding every tenant role. Sweeping as `axis.agent` and calling every wall
+  // a defect would bury the thing a per-persona sweep is actually for — a
+  // screen that 500s instead of refusing (sighting 6).
+  const checks = CHECKS.filter(
+    ([, label]) => !label.startsWith("permission wall") || (walls && !inWallExceptions(path))
+  );
   let text = "";
   let status = "";
   try {
@@ -125,14 +225,17 @@ export async function sweepRoute(page, path) {
     console.log(`FAIL ${path}  [${status}]  server error`);
     return "bad";
   }
-  const hits = CHECKS.filter(([re]) => re.test(text)).map(([re, label]) => {
-    const m = text.match(re);
-    return `${label}: ${JSON.stringify(m[0].slice(0, 60))}`;
-  });
+  const hits = checks
+    .filter(([re]) => re.test(text))
+    .map(([re, label]) => {
+      const m = text.match(re);
+      return `${label}: ${JSON.stringify(m[0].slice(0, 60))}`;
+    });
   if (hits.length) {
     console.log(`HIT  ${path}  [${status}]  ${hits.join(" | ")}`);
     return "hit";
   }
+  if (quiet) return "ok";
   console.log(`ok   ${path}  [${status}]  ${text.length}b`);
   return "ok";
 }

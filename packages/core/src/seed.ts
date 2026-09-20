@@ -4,8 +4,11 @@ import {
   CHART_OF_ACCOUNTS,
   EntitlementsJson,
   PolicyJson,
+  TAX_RULEPACK,
+  TakafulJson,
   id,
-  schema
+  schema,
+  toJson
 } from "@lyra/db";
 import { ROLES, TENANT_ROLE_KEYS, isInternalRole, requiresMfa } from "./rbac.js";
 import { hashPassword } from "./password.js";
@@ -292,6 +295,12 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
     });
   }
 
+  /* --------------------------------------------- tax rulepack (F17) */
+  // docs/19 §5.3. Without these rows every commission accrual is refused, so
+  // the rulepack is provisioned beside the chart of accounts rather than left
+  // to a settings screen nobody would find before the first bind.
+  await syncTaxRules(db, tenantId, { now });
+
   /* ------------------------------------------------------------ panel */
   const providers = {
     gonxt: id("pv", now),
@@ -461,6 +470,27 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       line: "life",
       nameJson: JSON.stringify({ en: "Term life", ar: "تأمين على الحياة" }),
       structure: "takaful",
+      // docs/16 H8 / docs/27 F45. The column carried `structure: "takaful"` and
+      // nothing else, so the one takaful product in the demo could not be sold
+      // as takaful by its own rules: no wakala fee, no surplus rule, no board
+      // ruling, and `SURPLUS-DIST`'s precondition refuses all three absences.
+      // Wakala — a fee, and the participants keep the whole surplus — because
+      // that is the common Gulf retail structure and the conservative default.
+      takafulJson: toJson(TakafulJson, {
+        model: "wakala",
+        wakalaFeeBps: 2_000,
+        participantShareBps: 10_000,
+        fundRef: "fund:gonxt-family-takaful",
+        shariah: {
+          state: "certified",
+          boardRef: "board:gonxt-shariah-supervisory",
+          fatwaRef: "FTW-2026-014",
+          certifiedAt: now - 30 * DAY,
+          // Rulings are reviewed; a demo whose certificate never expires cannot
+          // show the screen that says one has.
+          expiresAt: now + 335 * DAY
+        }
+      }),
       status: "active",
       createdAt: now,
       updatedAt: now
@@ -2399,6 +2429,55 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
       createdAt: now
     });
     added.push(acc.code);
+  }
+  return added;
+}
+
+/**
+ * docs/27 F17. The market tax rulepack has exactly the staleness sighting 9
+ * describes: `TAX_RULEPACK` is a compiled table read at provisioning time, so a
+ * market or code added to it afterwards never reaches a tenant that already
+ * exists — and since `taxTreatment` now *refuses* a supply it has no rule for,
+ * that staleness is a 400 on every bind rather than a quietly wrong figure.
+ *
+ * Idempotent by (market, code): an existing row is left entirely alone, because
+ * a tenant that has restated a rate has restated it deliberately. Returns the
+ * `market/code` pairs it added, so a repeat run answers with an empty list.
+ */
+export async function syncTaxRules(
+  db: CoreDb,
+  tenantId: string,
+  opts: { now?: number } = {}
+): Promise<string[]> {
+  const now = opts.now ?? Date.now();
+  const existing = new Set(
+    (
+      await db
+        .select({ market: schema.ledgerTaxRules.market, code: schema.ledgerTaxRules.code })
+        .from(schema.ledgerTaxRules)
+        .where(eq(schema.ledgerTaxRules.tenantId, tenantId))
+    ).map((r) => `${r.market}/${r.code}`)
+  );
+  const added: string[] = [];
+  for (const rule of TAX_RULEPACK) {
+    const key = `${rule.market}/${rule.code}`;
+    if (existing.has(key)) continue;
+    await db.insert(schema.ledgerTaxRules).values({
+      id: id("tax", now + added.length),
+      tenantId,
+      market: rule.market,
+      code: rule.code,
+      ratePpm: rule.ratePpm,
+      placeOfSupply: rule.placeOfSupply ?? null,
+      reverseCharge: rule.reverseCharge ?? false,
+      exempt: rule.exempt ?? false,
+      // Open-ended from the epoch: a tenant migrating history must be able to
+      // re-derive the rate that applied to a back-dated sale, and a rulepack
+      // that started today would refuse every one of them.
+      effectiveFrom: 0,
+      effectiveTo: null
+    });
+    added.push(key);
   }
   return added;
 }

@@ -728,7 +728,26 @@ async function bindPolicy(
     },
     {
       recipe: {
-        lines: buildRecipe("BIND", { grossMinor: policy.commissionMinor, channelMinor }),
+        // docs/27 F14. `gwpMinor` is what makes gross written premium a
+        // receivable at bind instead of a cash event whenever the money turns
+        // up: Dr 1200 / Cr 2000 beside the commission accrual. policy.grossMinor
+        // is premium + tax + fees — the whole debt the customer owes.
+        lines: buildRecipe("BIND", {
+          gwpMinor: policy.grossMinor,
+          grossMinor: policy.commissionMinor,
+          channelMinor,
+          // docs/27 F15: `item` is the open-item key the aging report groups on
+          // and `dueAt` is what it ages from. Premium is due at inception unless
+          // a payment plan says otherwise, and a plan restates both on its own
+          // instalment legs.
+          dims: {
+            item: `policy:${policy.id}`,
+            dueAt: policy.startAt,
+            policy: policy.id,
+            provider: policy.providerId,
+            counterparty: `provider:${policy.providerId}`
+          }
+        }),
         currency: policy.currency
       },
       approvalSubjectRef: `axis_policy:${policy.id}`

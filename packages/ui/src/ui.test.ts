@@ -12,7 +12,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { formatDate, shortRef } from "./format.js";
+import { formatDate, formatMoney, shortRef } from "./format.js";
 import { groupCommandItems } from "./overlays.js";
 import { fromSelectValue, toSelectValue } from "./primitives.js";
 import { KIT_TEXT, uiText } from "./text.js";
@@ -437,6 +437,49 @@ describe("Hijri dates are pinned, not just requested", () => {
       "Jan 08, 2026"
     );
   });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("Eastern Arabic-Indic digits are pinned, not just requested", () => {
+  // docs/27 F42. A golden per surface, for the Hijri goldens' reason: the
+  // numbering system is CLDR data, so an ICU upgrade that changed which digits
+  // `ar-SA` resolves to would otherwise reach a Riyadh customer before it
+  // reached us. And unlike a date, nothing on the page looks wrong to the
+  // engineer reading it in English.
+  //
+  // The pair is the point. `ar` and `ar-SA` are the same language and the same
+  // catalogue; the only thing the region subtag changes is this. So a
+  // resolution step that strips it — which is what `localeFrom` did, and why
+  // this describe exists — cannot be caught by any test of the Arabic
+  // catalogue, only by a test of the digits.
+  it("numbers ar-SA in ١٢٣ and ar in 123", () => {
+    expect(new Intl.NumberFormat("ar-SA").format(1523)).toBe("١٬٥٢٣");
+    expect(new Intl.NumberFormat("ar").format(1523)).toBe("1,523");
+  });
+
+  it("carries the numbering system into money, which is where a customer meets it", () => {
+    // Escaped in full because three of the characters are invisible and one is
+    // a non-breaking space: U+200F is the RTL mark Intl wraps an Arabic
+    // currency amount in, U+066C the thousands separator, U+066B the decimal.
+    expect(formatMoney(1_234_50, "AED", "ar-SA")).toBe("‏١٬٢٣٤٫٥٠ د.إ.‏");
+    expect(formatMoney(1_234_50, "AED", "ar")).toBe("‏1,234.50 د.إ.‏");
+    expect(formatMoney(1_234_50, "AED", "en")).toBe("AED 1,234.50");
+  });
+
+  it("reckons the decimal and grouping separators regionally too", () => {
+    // ar-MA groups on "." and points on "," — the same language, a third set of
+    // conventions. A base-subtag-only resolution renders all three identically.
+    expect(new Intl.NumberFormat("ar-MA").format(1234567.89)).toBe("1.234.567,89");
+    expect(new Intl.NumberFormat("ar-EG").format(1234567.89)).toBe("١٬٢٣٤٬٥٦٧٫٨٩");
+  });
+
+  // The other half of the same finding is verified where it lives, because
+  // @lyra/ui does not depend on @lyra/core and must not start: once a screen
+  // renders ١٢٣, a model asked to narrate it writes ١٢٣ back, and
+  // `extractNumbers` matched ASCII only — so NORTH's number-verification gate
+  // passed every Arabic fabrication (docs/27 F46). See
+  // packages/core/src/narrator-verify.test.ts, "numbers written in Arabic".
 });
 
 /* -------------------------------------------------------------------------- */

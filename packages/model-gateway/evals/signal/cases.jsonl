@@ -6,3 +6,10 @@
 {"id":"guarantee-cover","text":"Guaranteed cover for every driver, no questions asked.","expectFlag":true,"expectRule":"no_guarantee_of_cover"}
 {"id":"guarantee-accepted","text":"100% accepted regardless of your driving history.","expectFlag":true,"expectRule":"no_guarantee_of_cover"}
 {"id":"both-claims","text":"The cheapest plan on the market, guaranteed acceptance for every driver.","expectFlag":true,"expectRule":"comparison_claim_requires_source"}
+{"id":"ar-clean-benefit","text":"تغطية شاملة لسيارة العائلة، ومعالجة المطالبات خلال أيام لا أسابيع.","expectFlag":false,"expectRule":null}
+{"id":"ar-clean-price-anchor","text":"احصل على عرض سعر خلال دقيقتين واطّلع على قسطك قبل الالتزام.","expectFlag":false,"expectRule":null}
+{"id":"ar-clean-cta","text":"جدّد اليوم واحتفظ بخصم عدم المطالبة لسنة أخرى.","expectFlag":false,"expectRule":null}
+{"id":"ar-comparison-cheapest","text":"نحن الأرخص في الإمارات هذا الشهر.","expectFlag":true,"expectRule":"comparison_claim_requires_source"}
+{"id":"ar-comparison-best-market","text":"الأفضل في السوق بحسب السائقين الذين انتقلوا إلينا.","expectFlag":true,"expectRule":"comparison_claim_requires_source"}
+{"id":"ar-guarantee-cover","text":"تغطية مضمونة لكل سائق، دون أي أسئلة.","expectFlag":true,"expectRule":"no_guarantee_of_cover"}
+{"id":"ar-guarantee-accepted","text":"قبول ١٠٠٪ بغض النظر عن سجل قيادتك.","expectFlag":true,"expectRule":"no_guarantee_of_cover"}

@@ -3,6 +3,8 @@ export * from "./models.js";
 export * from "./budget.js";
 export * from "./kill.js";
 export * from "./guardrails.js";
+export * from "./agent-loop.js";
+export * from "./stream-guard.js";
 export * from "./purposes.js";
 export * from "./gateway.js";
 export * from "./extract.js";

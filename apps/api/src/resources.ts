@@ -1,7 +1,22 @@
 import { eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
 import { PaymentPlanWrite, schema } from "@lyra/db";
-import { autoApproveProblem, badRequest, can, checkKAnonymity, CUSTOMER_PII, DEFAULT_K_FLOOR, emit, gate, scoped, sealFields } from "@lyra/core";
+import {
+  autoApproveProblem,
+  badRequest,
+  can,
+  canClaimTransition,
+  canPolicyTransition,
+  checkKAnonymity,
+  CUSTOMER_PII,
+  DEFAULT_K_FLOOR,
+  emit,
+  gate,
+  isClaimState,
+  isPolicyState,
+  scoped,
+  sealFields
+} from "@lyra/core";
 import { SENSITIVE_EXTRACTION_FIELDS } from "@lyra/model-gateway";
 import { fieldKey } from "./env.js";
 import { register, type Resource } from "./crud.js";
@@ -153,7 +168,39 @@ export const CORE = register(
     read: "core:consents:read",
     create: "core:consents:create"
   }, { immutable: true }),
-  r("products", schema.products, "prd", "core", rw("core:products"), { searchable: ["name", "code"] }),
+  r("products", schema.products, "prd", "core", rw("core:products"), {
+    searchable: ["name", "code"],
+    // docs/16 H8, docs/27 F45. A product's Shariah ruling is issued by a board
+    // through POST /v1/compliance/shariah/certify, which gates on
+    // `compliance.shariah_certify` — dual control, never auto-approvable. This
+    // path replaces `takafulJson` wholesale under `core:products:write`, so
+    // without this an operations admin could grant their own product a
+    // certificate and `SURPLUS-DIST`'s precondition would wave it through. The
+    // same reasoning as the tenants/autoApprove guard above, and the same
+    // sentence applies: a guard on one of two doors is not a guard.
+    //
+    // Terms stay editable here; only the ruling is refused. That is the split
+    // that matters — a desk may change the wakala fee and must then resubmit,
+    // which is exactly what the submit endpoint does to the ruling.
+    beforeWrite: (_ctx, values) => {
+      const raw = values.takafulJson;
+      if (raw === undefined || raw === null) return values;
+      let parsed: unknown = raw;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw badRequest("takafulJson is not valid JSON");
+        }
+      }
+      if (parsed && typeof parsed === "object" && "shariah" in parsed) {
+        throw badRequest(
+          "a Shariah ruling is not written here — submit the product at POST /v1/compliance/shariah/submit and have the board certify it"
+        );
+      }
+      return values;
+    }
+  }),
   r("providers", schema.providers, "prv", "core", rw("core:providers"), { searchable: ["name", "code"] }),
   r("files", schema.files, "fil", "core", {
     read: "core:files:read",
@@ -292,6 +339,54 @@ const SIU_TRANSITIONS: Record<string, string[]> = {
   closed: []
 };
 
+/**
+ * docs/27 F27. `POLICY_TRANSITIONS` and `CLAIM_TRANSITIONS` (@lyra/core
+ * lifecycle.ts) were enforced by the dedicated engines — `transitionClaim`,
+ * `axis-lifecycle.ts` — and by nothing here, which left generic CRUD as a
+ * second writable path around the same contract: a reported claim could be
+ * PATCHed straight to `settled`, a cancelled policy revived. The maps are
+ * imported rather than restated so the two doors cannot drift, which is the
+ * failure the neighbouring hand-written `COMPLAINT_TRANSITIONS` risks.
+ *
+ * Shaped like the `beforeWrite` guards directly below, and like `invoices` in
+ * the ledger registry: the check belongs where every writer passes.
+ */
+function guardState(
+  field: string,
+  legal: (from: never, to: never) => boolean,
+  known: (s: string) => boolean,
+  noun: string,
+  reserved: (to: string) => string | null = () => null
+) {
+  return (values: Record<string, unknown>, existing: Record<string, unknown> | null | undefined) => {
+    if (!existing) return values;
+    const to = values[field];
+    if (typeof to !== "string") return values;
+    const from = existing[field] as string;
+    if (to === from) return values;
+    const why = reserved(to);
+    if (why) throw badRequest(why);
+    if (!known(to)) throw badRequest(`${to} is not a ${noun} state`);
+    if (!legal(from as never, to as never)) throw badRequest(`a ${noun} cannot move ${from} -> ${to}`);
+    return values;
+  };
+}
+
+const guardClaimState = guardState(
+  "status",
+  canClaimTransition,
+  isClaimState,
+  "claim",
+  // Money owns these two (engines/axis-claims.ts `settlementTarget`), so the
+  // CRUD door may not hand them out even where the machine allows the hop.
+  (to) =>
+    to === "settling" || to === "settled"
+      ? `move a claim to ${to} by requesting a payment, not by editing it`
+      : null
+);
+
+const guardPolicyState = guardState("status", canPolicyTransition, isPolicyState, "policy");
+
 export const AXIS = register(
   r("cases", schema.axisCases, "cas", "axis", rcud("axis:cases"), { searchable: ["ref"] }),
   // docs/27 F13: `dist_quote_responses` is the single source of quote truth.
@@ -349,7 +444,8 @@ export const AXIS = register(
     // or string" (see `isJsonColumn`), so without this the sweep's own input is
     // whatever a caller typed. Validated here rather than in the shape because
     // that is where the other JSON columns are checked (`extractionJson` above).
-    beforeWrite: (_ctx, values) => {
+    beforeWrite: (_ctx, values, existing) => {
+      guardPolicyState(values, existing);
       if (values.paymentPlanJson === undefined || values.paymentPlanJson === null) return values;
       const raw = values.paymentPlanJson;
       let parsed: unknown = raw;
@@ -389,7 +485,10 @@ export const AXIS = register(
     read: "axis:claims:read",
     create: "axis:claims:create",
     update: "axis:claims:update"
-  }, { approval: { update: "axis.claim_settlement", amountField: "settledMinor" } }),
+  }, {
+    approval: { update: "axis.claim_settlement", amountField: "settledMinor" },
+    beforeWrite: (_ctx, values, existing) => guardClaimState(values, existing)
+  }),
   r("complaints", schema.axisComplaints, "cmp", "axis", {
     read: "axis:complaints:read",
     create: "axis:complaints:write",
@@ -536,6 +635,15 @@ export const ORBIT = register(
   r("team-members", schema.orbitTeamMembers, "tmm", "orbit", rw("orbit:teams")),
   r("sla-policies", schema.orbitSlaPolicies, "slp", "orbit", rw("orbit:teams")),
   r("routing-rules", schema.orbitRoutingRules, "rr", "orbit", rw("orbit:teams")),
+  // docs/27 F32. The article manager is CRUD plus one endpoint: `status` is
+  // deliberately absent from every editable list here, because publishing is
+  // what embeds an article — a PATCH that set it would publish something no
+  // index has heard of. `POST /v1/orbit/kb/articles/:id/publish` is the door.
+  r("kb-articles", schema.orbitKbArticles, "kba", "orbit", rw("orbit:kb"), { searchable: ["title", "body"] }),
+  r("macros", schema.orbitMacros, "mac", "orbit", rw("orbit:macros")),
+  // Written by the deflection engine only: a hand-written row would be a claim
+  // about containment nobody made.
+  r("deflections", schema.orbitDeflections, "dfl", "orbit", ro("orbit:conversations:read")),
   // ponytail: any agent may write any presence row, as leads legitimately mark
   // a colleague away. Narrow to self-or-lead if that is ever abused.
   r("agent-presence", schema.orbitAgentPresence, "ap", "orbit", {

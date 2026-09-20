@@ -223,7 +223,9 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/ledger/reports/chart-of-accounts", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", tag: "ledger" },
   // One handler for every report above. The permission is the report's own —
   // `ledger:journals:read` for all of them except client-money, which needs
-  // `ledger:client_money:read`.
+  // `ledger:client_money:read`. Two reports are downloadable without a
+  // `/reports/*` JSON route of their own: `account-statement` (name the account
+  // with `?code=`) and `value-flow`, the money map.
   { method: "get", path: "/v1/ledger/reports/{report}/export", summary: "Render any ledger report to xlsx, pdf, csv or json", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/accounts/{code}/statement", summary: "Every line that hit one account, in order", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/accounts/{code}/balance", summary: "One account's balance as at a moment", permission: "ledger:journals:read", tag: "ledger" },
@@ -231,6 +233,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/ledger/recon/runs", summary: "Match an imported statement against the ledger", permission: "ledger:recon:run", tag: "ledger", requestBody: true },
   { method: "get", path: "/v1/ledger/recon/runs/{id}", summary: "One reconciliation run with its matches and exceptions", permission: "ledger:recon:read", tag: "ledger" },
   { method: "post", path: "/v1/ledger/recon/matches/{id}/decide", summary: "Confirm or reject a proposed match", permission: "ledger:recon:confirm", tag: "ledger", requestBody: true },
+  { method: "post", path: "/v1/ledger/recon/runs/{id}/close", summary: "Close a reconciliation run once nothing is left open", permission: "ledger:recon:confirm", tag: "ledger" },
   { method: "post", path: "/v1/ledger/recon/runs/{id}/evidence-bundle", summary: "Assemble a reconciliation run's evidence as a signed, hash-manifested bundle", permission: "ledger:recon:export", tag: "ledger" },
   { method: "get", path: "/v1/ledger/recon/runs/{id}/evidence-bundle/download", summary: "Download an assembled recon evidence bundle", permission: "ledger:recon:export", tag: "ledger" },
 
@@ -239,6 +242,10 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/ai/runs", summary: "Run an agent through the gateway, budgeted and audited (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", tag: "ai", requestBody: true },
   // The bare `/runs/{id}` is the generated CRUD record (a flat row); this is the
   // second, enriched view and so it gets a second path.
+  // docs/27 F35. Same body as /v1/ai/runs; the response is text/event-stream
+  // (`delta`, `done`, `error`) rather than JSON, and the run is a single
+  // completion with no tool loop — see routes/ai.ts for why those are separate.
+  { method: "post", path: "/v1/ai/runs/stream", summary: "Run an agent and stream the answer as server-sent events (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", tag: "ai", requestBody: true },
   { method: "get", path: "/v1/ai/runs/{id}/detail", summary: "One agent run with its tool calls and audit trail", permission: "ai:runs:read", tag: "ai" },
   { method: "get", path: "/v1/ai/budget", summary: "Remaining AI budget for the period", permission: "ai:budgets:read", tag: "ai" },
   { method: "post", path: "/v1/ai/budget/limits", summary: "Set per-module AI spend limits", permission: "ai:budgets:write", tag: "ai", requestBody: true },
@@ -269,6 +276,15 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/compliance/evidence-bundles/export", summary: "Assemble an evidence bundle and record its manifest and hash", permission: "compliance:evidence:export", tag: "compliance", requestBody: true },
   { method: "get", path: "/v1/compliance/evidence-bundles/{id}/download", summary: "Download an assembled evidence bundle", permission: "compliance:evidence:read", tag: "compliance" },
   { method: "post", path: "/v1/compliance/retention/run", summary: "Run a retention class and record what it purged", permission: "compliance:retention:run", tag: "compliance", requestBody: true },
+
+  // docs/16 H8 Shariah-board review lane, docs/27 F45. Submitting asks the
+  // board a question; certifying answers it and is gated on
+  // `compliance.shariah_certify` (dual control, never auto-approvable). The
+  // ruling is refused through the generic product CRUD, so these are the only
+  // way into `core_products.takaful_json.shariah`.
+  { method: "post", path: "/v1/compliance/shariah/submit", summary: "Put a takaful product's terms in front of the Shariah board", permission: "compliance:shariah:read", tag: "compliance", requestBody: true },
+  { method: "post", path: "/v1/compliance/shariah/certify", summary: "Record the Shariah board's ruling on a takaful product", permission: "compliance:shariah:certify", tag: "compliance", requestBody: true },
+  { method: "get", path: "/v1/compliance/shariah/{productId}", summary: "A takaful product's structure and the standing Shariah ruling on it", permission: "compliance:shariah:read", tag: "compliance" },
 
   // docs/18 C7. Sponsored placement is gated on a disclosure shown first
   // (docs/19 §AD-PLACEMENT requires DISCLOSURE-PRESENT); this records the hash
@@ -341,6 +357,12 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/orbit/renewals/sweep", summary: "Force the renewal sweep now (also runs on the scheduled tick)", permission: "orbit:renewals:update", tag: "orbit" },
   { method: "post", path: "/v1/orbit/routing/sweep", summary: "Force the routing sweep now — SLA breach escalation and absence reassignment (also runs on the scheduled tick)", permission: "orbit:conversations:assign", tag: "orbit" },
   { method: "post", path: "/v1/orbit/drafts/sweep", summary: "Force the AI reply-draft sweep now — drafts a pending agent_ai reply for every conversation waiting on us (also runs on the scheduled tick)", permission: "orbit:ai:invoke", tag: "orbit" },
+  { method: "post", path: "/v1/orbit/kb/search", summary: "What the knowledge base has on a question, best answer first (POST so a customer's own words stay out of access logs)", permission: "orbit:kb:read", tag: "orbit", requestBody: true },
+  { method: "post", path: "/v1/orbit/kb/articles/{id}/publish", summary: "Publish a knowledge-base article and embed it — the act that makes it answerable to a customer", permission: "orbit:kb:publish", tag: "orbit" },
+  { method: "post", path: "/v1/orbit/conversations/{id}/deflect", summary: "Try to answer this conversation's question from the knowledge base; the result says whether it did", permission: "orbit:ai:invoke", tag: "orbit", requestBody: true },
+  { method: "post", path: "/v1/orbit/conversations/{id}/macro", summary: "Send a canned reply into the conversation, in the language the conversation is in", permission: "orbit:conversations:reply", tag: "orbit", requestBody: true },
+  { method: "post", path: "/v1/orbit/journeys/sweep", summary: "Force the journey advance step now — elapsed waits, closed tasks and lifted quiet-hours deferrals (also runs on the scheduled tick)", permission: "orbit:journeys:publish", tag: "orbit" },
+  { method: "post", path: "/v1/orbit/journeys/{id}/trigger", summary: "Enrol a cohort in a journey by hand; the normal path is the event bus", permission: "orbit:journeys:publish", tag: "orbit", requestBody: true },
   { method: "post", path: "/v1/orbit/partners/{id}/quotes", summary: "Request a partner pricing quote (sandbox partners get clearly-marked synthetic pricing)", permission: "orbit:partners:read", tag: "orbit", requestBody: true },
   // Staff read the hosted-page link so they can send it; gated on the same read
   // permission as the row it points at, because a link is as sensitive as the row.
@@ -364,6 +386,11 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/scout/whitespaces/{id}/commentary", summary: "One candidate's commentary, evidence and AI provenance", permission: "scout:whitespaces:read", tag: "scout" },
   { method: "post", path: "/v1/scout/whitespaces/{id}/promote-to-signal", summary: "Promote a whitespace into a draft SIGNAL campaign with AI-drafted brief and creative variants (approval-gated, idempotent, nothing sent)", permission: "scout:whitespaces:promote", tag: "scout" },
   { method: "post", path: "/v1/scout/signals/similar", summary: "Nearest signals to a phrase, from the market embedding index", permission: "scout:signals:read", tag: "scout", requestBody: true },
+  { method: "post", path: "/v1/scout/signals/harvest", summary: "Run the Harvester: every registered signal source, plus any fed items, recorded once per (source, sourceRef)", permission: "scout:signals:ingest", tag: "scout", requestBody: true },
+  { method: "get", path: "/v1/scout/sources", summary: "The registered signal sources — id, kind, and whether the adapter leaves LYRA (none do today, ADR-0078)", permission: "scout:signals:read", tag: "scout" },
+  { method: "post", path: "/v1/scout/clusters/sweep", summary: "Run the Clusterer over the persisted signal corpus: places each signal against the market embedding index, re-scores momentum, stamps cluster ids", permission: "scout:clusters:build", tag: "scout" },
+  { method: "post", path: "/v1/scout/panel-bench/sweep", summary: "Run the Bench Builder: rebuild every provider x line x month cell from the panel's own quote outcomes", permission: "scout:panel_bench:build", tag: "scout" },
+  { method: "get", path: "/v1/scout/watch", summary: "Competitor and regulatory watch: each watched subject's window scored against the one before it", permission: "scout:signals:read", tag: "scout" },
   { method: "post", path: "/v1/scout/wording-diff", summary: "Word-level diff of two coverage-wording texts (PDF extraction deferred, see ADR-0016)", permission: "scout:panel_bench:read", tag: "scout", requestBody: true },
   { method: "get", path: "/v1/scout/panel-bench/negotiation-pack", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", tag: "scout" },
 
@@ -423,8 +450,15 @@ const HAND_WRITTEN: Op[] = [
 
   // NORTH explorer and data health (routes/north.ts). Explorer reads a fixed
   // set of columns off north_snapshots only, never a client SQL string.
+  { method: "get", path: "/v1/ledger/recon/statement-formats", summary: "Bank statement formats the importer can read (CAMT.053, MT940, OFX)", permission: "ledger:recon:read", tag: "ledger" },
+  { method: "get", path: "/v1/ledger/fx-revaluation", summary: "What a period-end FX revaluation of open foreign balances would post (docs/19 §5.3)", permission: "ledger:journals:read", tag: "ledger" },
+  { method: "post", path: "/v1/ledger/fx-revaluation", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", tag: "ledger" },
+  { method: "post", path: "/v1/north/snapshots/{id}/verify", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", tag: "north", requestBody: true },
   { method: "post", path: "/v1/north/explore", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", tag: "north", requestBody: true },
   { method: "get", path: "/v1/north/data-health", summary: "Staleness per metric, computed live from the snapshot table", permission: "north:metrics:read", tag: "north" },
+  // docs/27 F50. Reads closed snapshots only and answers with a band per
+  // period plus the fit that produced it; no model is in this path.
+  { method: "get", path: "/v1/north/forecast", summary: "Project a metric forward from its closed snapshots — damped Holt, p10/p50/p90, with the fitted parameters", permission: "north:forecasts:read", tag: "north" },
 
   // AXIS copilot and developer sandbox (routes/axis.ts).
   { method: "post", path: "/v1/axis/cases/{id}/copilot", summary: "Answer a question about a case, grounded only in its own documents, events and tasks", permission: "axis:cases:read", tag: "axis", requestBody: true },

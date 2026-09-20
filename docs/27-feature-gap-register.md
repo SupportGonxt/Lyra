@@ -120,24 +120,70 @@ bind path and the customer-facing comparison all read it, and
 
 ## P1 — blocks a serious pilot
 
-*Finance.* Premium accounting is cash-basis only — `1200 Premium Receivable`
-appears once, as a chargeback default (`recipes.ts:296`), and `2000 Insurer
-Payable` is never posted, so GWP is never a receivable (**F14**). Aging ages
-journal lines by posting date against a free-text counterparty string, not open
-items by due date, and there is no payables aging (`reports.ts:411-459`)
-(**F15**). No cash application and no bank statement import — CAMT/MT940/OFX
-absent; `ledger-recon.tsx:521` requires hand-pasted JSON (**F16**). Tax is a
-caller-supplied `taxPpm` defaulting to zero (`core/src/commission.ts:45-58`)
-while `docs/19` §5.3 says tax is never inferred; the `taxRules` table is unread
-(**F17**). No FX revaluation of open balances (**F18**). Insurer statement
-reconciliation posts nothing — `decideMatch` (`recon.ts:297-330`) updates match
-state and never books the `CMSN-SETL` the spec promises (**F19**). `force: true`
-on period close is accepted straight from the request body
-(`routes/ledger.ts:187-195`) and `reopenPeriod` (`periods.ts:172-186`) has no
-approval gate at all (**F20**). `SUCCESS-FEE` can post with no verified metric
-snapshot despite `docs/19` §11.10 (**F21**). Four of the ten mandated property
-obligations are untested, and the tests are seeded-LCG fuzz, not property tests
-— fast-check is not a dependency (**F22**).
+*Finance.* **F14–F22 are closed** (2026-09-18). What each one was, and what
+closed it:
+
+**F14** *Closed.* Premium accounting was cash-basis only — `1200 Premium
+Receivable` appeared once, as a chargeback default, and `2000 Insurer Payable`
+was posted by nothing, so GWP was never a receivable. `bindPosting`
+(`recipes.ts`) books Dr 1200 / Cr 2000 beside the commission accrual whenever
+`gwpMinor` is stated, and `clientMoneyReceipt` clears the receivable and
+reclassifies the payable when the premium arrives. Both production bind sites
+pass it. ADR-0079 names what is deliberately out of scope: ENDORSE,
+UBI-REPRICE and CANCEL need a *signed* premium movement of their own.
+
+**F15** *Closed.* Aging aged journal lines by posting date against a free-text
+counterparty, and had no payables side. `agedOpenItems` (`reports.ts`) groups
+lines into open *items* by `dims.item`, ages them from `dims.dueAt` (falling
+back to the raise date — never to today, which would report every unpaid item
+as current), and reads the liability accounts for `kind: "payable"`.
+`agedBalances` stays reachable behind `?legacy=1` for one release.
+
+**F16** *Closed.* `packages/ledger/src/statements.ts` reads CAMT.053, MT940 and
+OFX, detecting the format from the file's content rather than its name, and
+hands `reconcile()` the shape it already took. Money is parsed as text, not
+through a float. `POST /v1/ledger/recon/runs` accepts `statementText`, and the
+recon screen has a real file input.
+
+**F17** *Closed.* `ledger_tax_rules` had no reader and `taxPpm` was applied as
+`?? 0`, so "tax is never inferred" was implemented as "always inferred, as
+nothing". `taxTreatment` (`core/src/tax.ts`) resolves the market rulepack's
+rate or **throws**; `quoteCommission` honours a stated rate and refuses an
+omitted one. `policy.taxMarket` is the jurisdiction dimension docs/29 found
+missing. ADR-0080.
+
+**F18** *Closed.* `fxRevaluationPlan` (`reports.ts`) values every open foreign
+monetary position at the closing rate and reports the difference; `FX-REVAL`
+posts it in base currency to 4095 / 5500. Client money is excluded — that
+exposure is the client's. The `revalues` dim ties a base-currency adjustment
+back to the position it corrected, so the second run is flat.
+
+**F19** *Closed.* `decideMatch` books `CMSN-SETL` on a confirmed insurer match,
+under `recon-setl:{matchId}`; `settleRun` covers the deterministic matches that
+never reach a reviewer. The *statement's* amount clears — the variance stays on
+1100 for a controller, because a recon that closes its own gap can never report
+one.
+
+**F20** *Closed.* `force` now requires a reason of at least ten characters
+naming the break being accepted, is refused over a month that passes every
+check, carries the failing checks into the approval request, and persists to
+`ledger_periods.state_reason`. `reopenPeriod` does have an approval gate
+(`ledger.period_reopen`, added after this register was written); it now
+requires a reason too.
+
+**F21** *Closed.* `TXN_PRECONDITIONS["SUCCESS-FEE"]` requires an
+`args.metricSnapshotId` naming a `north_snapshots` row in this tenant with
+`verified_at` set. `POST /v1/north/snapshots/:id/verify` is the only writer of
+that column and takes a required evidence ref.
+
+**F22** *Closed.* fast-check is a dependency and `packages/ledger/src/properties.test.ts`
+holds all eleven docs/19 §11 obligations as property tests. It found three real
+defects on its first run: a claim float could go negative (1010 ≥ 2010 does not
+imply it — CLAIM-PAY moves both sides equally, so an unfunded payout kept them
+equal and negative); `ledger.refund` was missing `neverAutoApprove` despite
+REFUND-ISSUE being a payout; and obligation 9 had nowhere to live, so
+`recognition.ts` now holds the schedule split and the ceiling that
+`sweepBilling` enforces against the ledger's own released total.
 
 *AXIS.* Claims carry two money fields (`schema/axis.ts:227-252`); reserve is one
 mutable integer overwritten in place (`claim-detail.tsx:452-460`), settlement
@@ -179,6 +225,54 @@ caller-controlled (`ai.ts:36`) and safety keys off it (**F40**). Guardrail
 floors are six hard-coded English regexes with no Arabic
 (`guardrails.ts:17-46`), contradicting `docs/16` H12 (**F41**).
 
+*AI platform — closed 2026-09-18.* Seven of the nine above are closed, each
+with its golden set authored first under `packages/model-gateway/evals`
+(CLAUDE.md, AI features are eval-first). F39 stands where ADR-0049 left it.
+
+- **F33** *Closed.* `POST /v1/ai/runs` is a bounded multi-round loop. The two
+  decisions that define a loop are pure and in the gateway where an eval can
+  reach them — `planRound`/`offersTools` (`model-gateway/src/agent-loop.ts`),
+  `evals/agent-loop` — because an API unit test mocks the gateway and the
+  database, which is how a loop that could not loop stayed green. The command
+  loop had the same defect behind a `while` that could run six times:
+  `seq === 0 ? { tools } : {}` made rounds two to six toolless. Both now share
+  one ceiling and one rule; the terminator stays toolless so a run always ends
+  in prose rather than a dropped request.
+- **F34** *Closed.* `packages/core/src/memory.ts` — `remember`,
+  `recallMemories`, `forgetMemories`, and `recallable` as the purpose-bound
+  selection rule (`evals/memory-recall`). Three rules fail closed: a memory
+  with no `purposesJson` is read by nothing, an unrecognised sensitivity ranks
+  above the scale, and `maxSensitivity` has no default. Read and written by the
+  ORBIT run, so it is not a seam waiting for a caller. `forgetMemories` is the
+  erasure link and is honestly labelled: no DSAR runner calls it yet.
+- **F35** *Closed.* `Gateway.stream` + `POST /v1/ai/runs/stream` (SSE).
+  `guardChunk` (`src/stream-guard.ts`, `evals/streaming`) runs the real output
+  rule over the accumulated text behind a holdback sized against the rules —
+  a per-chunk check misses any phrase split across a boundary, and emitted text
+  cannot be recalled. `preflight()` is shared with `complete()`, so a streamed
+  call is budgeted, scrubbed, screened and audited by the same code. Two stated
+  limits: no tools on a streamed call, and no fallback past the first byte.
+- **F36** *Closed.* `fallbackChain` (`src/models.ts`, `evals/provider-fallback`)
+  — one link per provider, the tier's own route among the candidates, links
+  with no credentials dropped rather than attempted, and on-prem pinned to the
+  primary alone so an outage cannot become a residency breach. A 400/404/422
+  stops the chain.
+- **F37** *Closed earlier* at `gateway.ts` (`role === "tool"` screened as
+  untrusted); the command loop's remaining hole is closed too — it formatted
+  tool results back as ordinary `role: "user"` turns, where the screen only
+  warns, and now marks them `untrusted`.
+- **F38** *Closed.* Two lines, the first preventive: a consequential tool is
+  dispatched only if `POLICY_FOR_TOOL` names its approval policy, so a new one
+  with no gate refuses rather than runs. Then `verdictFor` compares the call
+  against `gate()`'s own audit trail — not against tenant policy, because
+  `gate()` has three legitimate paths that return no approval id.
+- **F40** *Closed earlier.* `purposes.ts` is the governed vocabulary;
+  `resolvePurpose` fails closed on an unknown or cross-module pair and
+  `isKnownPurpose` rejects at the door.
+- **F41** *Closed.* Six Arabic regulated-claim patterns mirroring the English
+  six (`evals/guardrails-ar`). `\b` is ASCII-only in JavaScript and bounds
+  nothing in Arabic script; `(?<!\p{L})` with the `u` flag is the equivalent.
+
 *Middle East.* `localeFrom()` (`i18n.ts:138-140`) strips to the base subtag, so
 `ar-SA` Eastern Arabic-Indic digits can never render (**F42**). Zero regional
 payment rails — Telr, PayFort, PayTabs, Network International, mada, STC Pay,
@@ -189,6 +283,65 @@ conditional card but no Shariah-board workflow or surplus distribution
 cases; north, compliance, injection, signal and axis-copilot have **zero** —
 exactly the safety gates (**F46**). `docs/12:79` claims drift monitors sample
 production weekly; nothing implements it (**F47**).
+
+**F42. Closed.** Locale resolution now carries two values, because they answer
+different questions: `localeFrom` stays the region-free *catalogue* locale that
+~40 route-local `LABELS[locale]` tables index on, and `formatLocaleFrom`
+(`apps/web/app/i18n.ts`) keeps the region subtag the reader asked for. root.tsx
+spends it on `<html lang>` and `UiTextProvider`, the one mount every `<Money>`,
+`<DateTime>` and `Intl.NumberFormat` in @lyra/ui reads — the kit already
+base-stripped for exactly this and had never been handed a tag with a region on
+it. Goldens in `packages/ui/src/ui.test.ts` beside the Hijri ones: the `ar` /
+`ar-SA` pair is the assertion, since the digits are the only thing the region
+changes and no test of the Arabic *catalogue* could have caught it.
+
+**F45. Closed.** The review lane is `POST /v1/compliance/shariah/{submit,
+certify}`, gated on `compliance.shariah_certify` — dual control, never
+auto-approvable — with the ruling refused through the generic product CRUD
+(`beforeWrite` on `products`, the same two-door reasoning as the
+tenants/autoApprove guard), so the policy has no second entrance.
+`core_products.takaful_json` is now shaped (`TakafulJson`, basis points rather
+than a percentage a contract routinely outgrows) and carries the standing
+ruling with an expiry, because "certified" alone is not "current".
+`SURPLUS-DIST` stops borrowing `expenseAccrual` into 5400/2100 — a partner
+revenue share, which a takaful surplus is not on either leg — and posts
+`takafulSurplus`: the fund out (2040), the participants' share in (2050), the
+operator's remainder in (4095). The remainder, not a second `floor`, so the
+journal balances for every input; the dust lands with the operator because
+rounding a participant's entitlement up out of their own fund is not the
+operator's to do. Its precondition refuses a product that is not takaful, or
+whose ruling is absent or lapsed. Still LATER (docs/16 H8): participant
+statements, the NORTH reporting pack, and segregating the tabarru' fund under
+its own invariant rather than the CBUAE client-money one.
+
+**F46. Closed.** 43 Arabic cases across the five gates, at the density of the
+axis set. They were written failing, and the failures named four holes rather
+than one. The sharpest: `extractNumbers`
+(`packages/core/src/narrator-verify.ts`) matched ASCII digits only, so an
+Arabic-Indic briefing contained no numbers at all and `verifyNumericClaims`
+returned ok for *any* fabrication — NORTH's briefing gate, AXIS's copilot,
+ORBIT's drafter, SCOUT's commentary and the command loop all reporting a
+verification none of them performed. `normalizeDigits` folds U+0660-0669,
+U+06F0-06F9, the Arabic decimal and thousands separators, and strips the bidi
+controls `Intl` interleaves with Arabic currency output. `REGULATED`
+(guardrails.ts) gained one Arabic entry per English rule, `JAILBREAK` the two
+its Arabic set was missing, and `BANNED_CLAIMS` (signal-compliance.ts) its
+Arabic pair. No `\b` in any of them: JS word boundaries are ASCII-defined, so
+every Arabic letter is a non-word character.
+
+**F47. Closed.** `sweepAiDrift` (`apps/api/src/engines/ai-drift.ts`), offered a
+tick a night and weekly by its own guard. It re-scores a sample of the week's
+real traffic with the deterministic gates the eval suite already uses —
+`checkOutput` over what we said, `checkInput` over what was said to us — and
+calls no model. The design point is what it refuses to claim: production has no
+labels, so docs/13 §3.3's "recall ≥ 0.98" cannot be applied to it, and the
+metric is a rate whose gate is *movement* against that same locale's own last
+recorded week. Per locale and never blended (that is the parity claim), with a
+tolerance for sampling noise and a floor under the sample size, because a quiet
+week in the smaller locale is the normal state of the locale the parity metric
+exists to watch. Rows land in `ai_evals`, so a regression shows up beside the
+suite it drifted from, with the failing message refs — never the text — in
+`detailJson`.
 
 *NORTH.* The anomaly detector compares a period against the previous *write of
 the same period* (`north-snapshotter.ts:305-336`), so day-grain anomalies never
@@ -266,8 +419,8 @@ and should be assumed to stand.
 - **F22** — `fast-check` is not a dependency of any package.
 - **F30** — `orbit-journeys.ts` exports `triggerJourney` and nothing else; no
   advance step exists.
-- **F41** — the guardrail floors are still six English regexes
-  (`guardrails.ts:17-31`), no Arabic.
+- **F41** — *superseded 2026-09-18.* Was still six English regexes at that
+  re-verification; closed since, see the AI-platform block above.
 - **F43** — no regional rail: Telr, PayFort, PayTabs, Network International,
   mada and STC Pay have zero hits.
 - **F49** — `north-snapshotter.ts:107-120` still sums `axis_policies` for GWP
@@ -537,6 +690,129 @@ model becoming a candidate**, at which point a comparative A/B on a fixed brief 
 is both meaningful and cheap. Adding an `onprem` or second cloud key to
 `IMAGE_MODEL` (`models.ts:66`) fires that trigger by construction.
 
+### NORTH F48 / F49 / F50 — closed, and what stayed open, 2026-09-19
+
+*F48 — closed.* The anomaly baseline was `existing?.value`, the previous *write*
+of the same period (`north-snapshotter.ts`). Day grain therefore never fired at
+all — a day is written once per nightly run — and month grain fired a false
+critical on the first night of every month, when a fresh month-to-date collapses
+against a full prior month. Three changes: `Period.closed`, so an open period is
+written and displayed but is never an anomaly subject and never a baseline;
+`periodsFor` keys the month off *yesterday*, so the month that just ended gets
+exactly one closed write measured over its real window (before this, no month
+was ever snapshotted whole, so nothing could detect against one); and the
+baseline — headline and each dimensional slice — is read from
+`previousPeriod(grain, period)` in `packages/core/src/north-period.ts`, the
+module `narrator.ts` now shares, which had been doing the comparison correctly
+all along thirty metres away. ADR-0024's naive threshold is untouched: it was
+never the bug, and changing it here would have muddied the regression test.
+Spec §F.3's three named baselines and §F.7's history backfill are **not** built
+— `prior_period` is the floor the spec itself calls B1, and
+`seasonal_robust_z` needs history a fresh tenant does not have.
+
+*F49 — partly closed (ADR-0082).* `net_commission` is now the sum of `netMinor`
+over `commissionByDimension`, with its channel decomposition from the same call,
+so a clawback nets out by construction and the figure traces to the trial
+balance. `expense_ratio`'s numerator moved to `expenseMovementMinor`; there is
+now no SQL against `ledger_journal_lines` outside `packages/ledger`. That work
+found a second defect worth its own line: `commissionByDimension`'s account
+predicate was unbracketed, and `AND` binds tighter than `OR`, so **every 4xxx
+line the tenant had ever posted was counted in every period's commission
+report** — the window only ever constrained the 2100 side.
+
+Still open, and deliberately: `gwp` stays operational, because for a broker
+premium is not revenue — it enters client money and leaves again, and no
+account's balance is GWP. What is missing is the *reconciliation*: spec §E.3's
+`north_tieouts` row per money metric per period, and §E.2's board-safety filter,
+which is the enforcement point that keeps an unreconciled figure out of a board
+pack and out of the model's context. Both want a schema change. Until they
+exist, a board pack can still print a GWP nobody has tied to anything.
+
+*F50 — closed.* `GET /v1/north/forecast` (`north:forecasts:read`, a new
+permission: a forward-looking number is a materially different disclosure from a
+recorded one, so `north:snapshots:read` does not imply it). It reads closed
+snapshots only — projecting from a month-to-date as though it were a month is
+F48's bug in another hat — and hands them to
+`packages/core/src/north-forecast.ts`: damped Holt on the deseasonalised series,
+fitted by a 405-combination grid search on a holdout, answering p10/p50/p90 per
+period with the fitted α, β, φ and the seasonal index per phase. No model is in
+that path. `/north/explorer` reads it, because an endpoint nothing reads is the
+defect this register keeps recording.
+
+Two deliberate departures from spec §H, both written at the call site: the
+seasonal step needs two full cycles rather than 12 months / 56 days before the
+engine will answer at all, and the seasonal indices are ratio-to-moving-average
+rather than §H.2's `median{y : phase = i} / median{y}` — that form cannot tell a
+season from a trend, and on two years of a rising series it returns the trend,
+applied twice. Not built: §H.3's driver projection, §H.4's immutable versioned
+runs and nightly re-run, §H.5's variance report and coverage self-check. The
+endpoint is the read half; a stored run is a table and its own change.
+
+---
+
+### F51/F52 revisited — SCOUT ingestion, clustering, bench and watch, 2026-09-19
+
+F51 named four absences and F52 one dead seam. Four of the five close here; the
+fifth is recorded as proposed in **ADR-0078** rather than built, because it is
+the one that needs a third-party service.
+
+*Closed.*
+
+- **Signal ingestion.** The seam is `SignalSource`
+  (`packages/core/src/seams.ts`), beside `Channel` and `IdentityVerifier` where
+  docs/02 §11 says extension seams live. The Harvester is
+  `apps/api/src/engines/scout-ingest.ts`: three adapters, all `external: false`
+  — `internal.quotes`, `internal.abandonment` and `internal.feed`, the last
+  being what an integrator posts to `POST /v1/scout/signals/harvest`. Idempotent
+  on (source, sourceRef), so a schedule needs no lock, and every new row is
+  embedded through the same `embedUpsert` the CRUD ingest path uses.
+  `GET /v1/scout/sources` is the registry; `/scout/admin` renders it.
+- **Live clustering.** `apps/api/src/engines/scout-cluster.ts` clusters the
+  *persisted* corpus — `sweepWhitespace` only ever clustered quote demand — and
+  stamps `scout_signals.cluster_id`, a documented column nothing outside the
+  seed had written. It also fills `trail_json`, which the Radar's sparkline
+  needs and nothing was writing. `POST /v1/scout/clusters/sweep`,
+  `scout:clusters:build`.
+- **Bench Builder.** `apps/api/src/engines/scout-bench.ts` with the arithmetic
+  in `packages/core/src/bench.ts`: a provider's median premium indexed to the
+  panel median in basis points, win rate off `selectedAt`, and the requests the
+  panel answered that this provider did not. `scout_panel_bench` held seed rows
+  only, so the panel screen, the negotiation-pack PDF and the provider-facing
+  k-anonymity gate were all standing on a fixture. Idempotent per
+  (provider, line, period); emits `scout.bench.updated` (module doc §6).
+  `POST /v1/scout/panel-bench/sweep`, `scout:panel_bench:build`, reachable from
+  `/scout/panel`.
+- **Competitor and regulatory watch.** `apps/api/src/engines/scout-watch.ts`
+  over `packages/core/src/watch.ts`: each watched subject's window scored
+  against the window before it, severity from newness, regulation and growth.
+  Deliberately a derivation and not a write — a persisted finding would have to
+  decide when last night's finding is tonight's, and a window comparison cannot
+  answer that. `GET /v1/scout/watch`, rendered on `/scout/admin`.
+- **F52.** `VEC_MARKET` now has the reader it was written for. The Clusterer
+  asks the index, once per known theme, which of this tenant's vectors sit near
+  it, and places a signal into that cluster above `SIMILARITY_FLOOR` — the one
+  question an embedding answers that `GROUP BY source` cannot. Two readers
+  existed already (`POST /v1/scout/signals/similar`, the command loop's recall);
+  what was missing was the one inside clustering. A deployment with no
+  Vectorize binding still clusters, by source.
+
+*ADR'd instead of built.*
+
+- **External sources** — search-trend connectors, app/review scraping,
+  news/regulatory RSS, competitor page monitors. Each is a third party and none
+  is on docs/02 §9's list. **ADR-0078** proposes them one at a time, each with
+  its vendor, legal basis, crawl politeness and credential home named, and
+  records that the seam is the insertion point: an adapter file plus one line in
+  `sourcesFor`, with no engine, route, table or screen change.
+
+*Found on the way.* `/scout/admin` was rendering `l(`source.${one.source}`)`
+against a catalogue that holds `adm.source.*`, so all six rows of the signal-
+source panel printed raw i18n keys. Sighting 10's shape in a second catalogue.
+The guard is `apps/web/app/routes/scout.labels.test.ts`, which selects its
+subjects from the import graph rather than a list and checks static keys, the
+literal prefix of a built key, and any key-shaped literal in a namespace this
+catalogue owns.
+
 ## P2 — depth, not absence
 
 Commission is flat-rate only — no ladders, tiers, volume bonuses or overrides
@@ -562,16 +838,86 @@ not exist despite the CLAUDE.md target layout and `docs/02:59` — the runtime i
 (`:523,618`) — only the dark-mode values are guarded by a test, so the light
 row can drift from its own doc unnoticed.
 
-**Thin screens.** `ledger-open-txn.tsx:79-120` asks a finance user to type
-recipe arguments as raw JSON (the file's own header names the fix: publish the
-recipe field list from `GET /txn-types`). `ledger-recon.tsx` cannot import a
-file, close a run, write off a variance, or act in bulk. `ledger-account.tsx`,
-`ledger-reports.tsx` and `ledger-money-map.tsx` export no action, so nothing
-can be exported from the UI even though the API exports six reports.
-`axis-board.tsx` has no transitions (self-documented at `:36-40`) and sorts by
-lateness rather than value × risk × SLA. `axis-doc-intel.tsx` requires
-caller-supplied `rawText` ("OCR is out of scope", `routes/axis.ts:73-78`).
-`north-brief.tsx` owns an anomaly and nothing follows.
+**Thin screens.** *Re-read at source 2026-09-18/19; all seven claims are now
+closed in code and the paragraph never caught up in between. Kept, not
+deleted, per the convention above — and a standing warning that a finding
+written as prose rather than as a failing test rots the moment someone fixes
+it.*
+
+- *Closed.* `ledger-open-txn.tsx` no longer asks for raw JSON. `GET /txn-types`
+  publishes each recipe's arguments as a flat field list (`ArgField`,
+  `ledger.shared.ts:113`, mirroring `recipes.ts`), the form renders money in a
+  money field, and the action reads back exactly the arguments the type declared
+  (`:91-93`).
+- *Closed.* `ledger-recon.tsx` **can** import a file: `statementFromCsv`
+  (`ledger.shared.ts:191`) parses a pasted statement, previewed at `:819` and
+  posted at `:221`. It can also close a run and write off a variance — see
+  below.
+- *Closed.* `ledger-reports.tsx`, `ledger-account.tsx` and `ledger-money-map.tsx`
+  all download through the shared `ReportDownloads` component: the original six
+  reports plus the two added for this pass, `account-statement` and
+  `value-flow`, both now in `REPORT_EXPORTS`.
+- *Closed.* `axis-board.tsx` has per-card transitions through
+  `POST /v1/axis/cases/:id/transition` (`:435`, `:601`) — the same state machine
+  and approval gate the case detail screen uses — and sorts by `byUrgency`,
+  which is value × risk × SLA with weights, not lateness (`:249-261`).
+- *Closed.* `north-brief.tsx` follows its anomaly: it assigns an owner
+  (`intent=own-anomaly`, `:313`) and links out to the anomaly itself (`:495`).
+
+*Closed, 2026-09-19.* **Close a run**: `closeRun` had no callers at all (it was
+named under "dead code in the money path" above); `POST
+/v1/ledger/recon/runs/:id/close` is the caller. The sharper find: `closeRun`
+counts `proposed` *and* `unmatched` as open, but the decide control only
+covered `proposed`, so a run with one straggler could never reach
+nothing-left-open by any path a reader had — fixed in the same commit.
+**Write off a variance**: `RECON-WRITEOFF` (`packages/ledger/src/recipes.ts`,
+account `5510`), dual control always, refusing client money and equity — see
+docs/19 §4.6. Two live defects fell out of building it: `argFields` silently
+dropped every **required** recipe argument its two dumb probes (`1`,
+`"sample text"`) couldn't describe — an enum, a pattern-constrained string, and
+predating this work, `YEAR-END-CLOSE`'s `fiscalYear`, a bounded integer that
+refuses the probe value `1` — so those types could never be posted from the
+generic open-transaction screen at all.
+
+**Act in bulk** stays open by decision, not by omission: **ADR-0081** records
+the constraints a bulk decide must satisfy and leaves the product question
+(may a reviewer *confirm* in bulk, or only reject?) to the owner.
+
+- `axis-doc-intel.tsx` still requires caller-supplied `rawText` ("OCR is out of
+  scope", `routes/axis.ts:73-78`).
+
+### New finding — saved views are written, listed, and never applied, 2026-09-18
+
+Found by asking what the API sends that nothing reads, which is how dead seam 15
+was found. `analytics_saved_views` stores a `route`, a `queryJson`, a
+`columnsJson` and an `isDefault` per row, and the API is built to serve exactly
+one question with them: `GET /v1/analytics/saved-views` takes a **`?route=`
+filter** (`routes/analytics.ts:658`) and orders **`isDefault` first**
+(`:662`) — the shape a list screen needs to ask "what views exist for this
+screen, preferred one first".
+
+No screen asks. `module.tsx` is the one file that renders every resource-tab
+list — filters, columns, sort, pagination — and it contains no reference to
+saved views, `route=` or `isDefault`. The web's only reader is the generic
+`/analytics/saved-views` tab (`modules/analytics.ts:440`), which lists the rows
+as records: a reader can see that a saved view exists and can never apply one.
+
+The seed makes the gap concrete rather than theoretical. Six views are seeded
+(`packages/core/src/seed/analytics.ts:998-1067`), every one of them naming a
+real resource tab — `/axis/cases`, `/ledger/txns`,
+`/distribution/quote-requests`, `/orbit/renewals`, `/analytics/exports`,
+`/analytics/report-runs` — and three carry `isDefault: true`, including the
+finance controller's private "My reconciliation queue". A default that is never
+applied is a promise in the data model that the UI does not keep.
+
+Two notes for whoever picks this up. The `?route=` value is a *resource tab*
+path (`/ledger/txns`, the generated list) and not a bespoke screen path
+(`/ledger/transactions`, `ledger-open-txn.tsx`) — the two differ by one segment
+and read alike, which is the kind of near-collision nothing currently compares
+against the route tree. And `columnsJson` implies per-user column selection,
+which `module.tsx` does not have at all; applying `queryJson` alone is the
+smaller, coherent first step. A finding, not a backlog: it needs a spec update
+before any screen changes.
 
 ---
 
@@ -615,6 +961,119 @@ technical reviewer will test:
 
 ---
 
+### AXIS P1 re-verification, 2026-09-18
+
+Every AXIS P1 (F23-F28) re-read at source rather than taken from the 2026-08-12
+block above. All six are now closed. Four were already closed by earlier work
+and needed only confirming; the other two had *residue* of one shape, and it is
+the shape worth recording: in each case the expensive half had been built and
+its answer routed nowhere.
+
+*Confirmed closed, no change needed.*
+
+- **F26** — `engines/axis-policy-document.ts` generates the schedule and
+  `axis-zero-touch.test.ts:221-229` now asserts it is attached to the version it
+  describes. The analytics-PDF substitute the finding named is gone.
+- **F28** — all eight surfaces exist and are registered:
+  `fnol-intake.tsx`, `claims-desk.tsx`, `policy-endorse.tsx`,
+  `policy-cancel.tsx`, `renewal-desk.tsx`, `referral-desk.tsx`, and complaints
+  and SIU as declarative tabs on the AXIS workspace. `spec.routes.test.ts` and
+  `routing.reachable.test.ts` both hold.
+
+*Closed this round.*
+
+- **F23** — the state machine, the reserve history and the `CLAIM-PAY` recipe
+  had all shipped; the join between them had not. `transitionClaim` refuses
+  `settling` and `settled` by hand and says why in a comment — "move a claim to
+  settling by requesting a payment" — and `requestClaimPayment` then never
+  touched `status`, so **both states were unreachable by any path** and no claim
+  in any deployed tenant could ever be settled. `settledMinor` was the same
+  defect in a column: three readers (the reserve advisor's comparables, the
+  fraud scorer's history, customer-360's position lines) and no writer after
+  FNOL, so all three reasoned from a permanent null and two fed it to a model as
+  fact. `settlementTarget` (`engines/axis-claims.ts`) walks the machine rather
+  than around it, and freezes `settledMinor` at the total paid.
+- **F24** — the check was real and its answer was read by nothing.
+  `checkCoverage` resolves cover before the claim exists and snapshots version,
+  limits, excess and warnings; `coverageState` then had no consumer outside its
+  own engine, so a claim recorded as out of cover, lapsed at the loss or
+  cancelled at the loss was paid like any other. Refused now at the payment
+  door — not at FNOL, because a notification of loss is always taken. Ex gratia
+  passes under its own gate; `unknown` passes, because refusing on it would turn
+  "we could not tell" into "no".
+- **F25** — the tax/fee split is whole and was already whole: `rating.ts:169`
+  computes `taxMinor` from `taxPpm`, the quoter carries it, bind writes
+  premium/tax/fees/gross to the policy and the version, the schedule prints it.
+  Nothing asserted it survived the chain, so `axis-bind.test.ts` now walks every
+  step. The column comment was the real defect: `paymentPlanJson` read
+  `// H9 reserved` while `sweepPolicyLifecycle` had been lapsing policies off it
+  for months. What docs/16 H9 reserves is premium *financing*, not this column.
+- **F27** — `POLICY_TRANSITIONS` and `CLAIM_TRANSITIONS` were enforced by the
+  dedicated engines and by nothing on generic CRUD, leaving a second writable
+  path around the same contract: a reported claim could be PATCHed straight to
+  `settled`, a cancelled policy revived. The AXIS workspace's own `editable`
+  spec offered exactly that. Guarded now in `resources.ts` with the `beforeWrite`
+  shape `complaints` and `siu-referrals` already use, importing the maps from
+  `@lyra/core` so the two doors cannot drift.
+
+The general shape, which is worth more than the four fixes: **F23, F24 and F27
+are all one defect seen from three sides — a contract that is declared,
+computed, or enforced on one path, and consulted on none.** The tell is not a
+screen misbehaving; it is a grep for a column's or a map's readers coming back
+with only its own writer. Asking that question of `settledMinor` and
+`coverageState` found both in minutes, where reading the screens had found
+neither in a month.
+
+---
+
+## ORBIT P1 re-verification, 2026-09-18
+
+Read of the ORBIT P1 block (F29–F32) as the code now stands, and what closing
+them took.
+
+- **F29 — closed, and was already closed before this round.**
+  `apps/api/src/engines/orbit-routing.ts` is the routing and queueing engine:
+  `pickRoute` and `pickAssignee` pure and table-tested, `routeConversation`
+  stamping the team, the assignee and both SLA clocks, `sweepRouting`
+  escalating an FRT breach and reassigning an absent agent's queue.
+  `orbit_conversations.teamId` is read by all four. The hardcoded `SLOW_MS`
+  badge threshold is gone; `PRESENCE_STALE_MS` and `orbit_sla_policies` are
+  what the timers read now. Nothing further was needed.
+- **F30 — closed.** `triggerJourney` wrote a run at `startNode()` and nothing
+  moved it, and nothing called `triggerJourney` either: a published journey
+  could not enrol anybody. `advanceJourneyRuns` (`orbit-journeys.ts`) executes
+  all four node types — `wait` parks on `nextAt`, `send` writes a transcript
+  turn and emits `orbit.journey.sent`, `branch` picks a `when`-labelled edge off
+  an allowlisted customer attribute or the run context, `task` raises a
+  conversation through `routeConversation` and waits for a human to close it.
+  Consent is re-checked at every send and quiet hours defer rather than drop.
+  The trigger half is `onJourneyEvent`, called from the outbox drain for every
+  event and matched against each journey's own `trigger` node (CLAUDE.md rule
+  6). Cron tick plus `POST /v1/orbit/journeys/sweep` and
+  `POST /v1/orbit/journeys/:id/trigger`.
+- **F31 — closed.** `ORBIT_TOOL_DEFS` now carries the eight tools
+  docs/modules/orbit.md §2.1 names. The five added: `send_document` (both
+  directions, one tool, because the doc registers one — a `collect` leaves an
+  `axis_tasks` chase row), `make_renewal_offer` (refuses a decided renewal),
+  `fnol_guidance` (writes nothing, reads its questions off `FnolBody` so the
+  script cannot drift from the intake contract), `book_callback` and
+  `human_handover` (both queue through `routeConversation`). The two that reach
+  a customer or a price gate before they write, under two new approval policies
+  `orbit.document_send` and `orbit.renewal_offer`.
+- **F32 — closed.** `orbit-kb.ts` is the article manager, the macro sender and
+  the deflection loop, with `orbit_kb_articles`, `orbit_macros` and
+  `orbit_deflections` behind them and three workspace tabs over those.
+  Retrieval is VEC_KB when the index is bound and a deterministic lexical score
+  when it is not, and every hit and every logged deflection carries `via` so a
+  retrieval-quality question is answerable. This is **VEC_KB's first reader** —
+  `routes/axis.ts:344` has embedded document text into it since the binding
+  existed with nothing ever querying it, which is F52's shape on the other
+  index — so the query filters on a `kind` metadata field, the index holding two
+  populations now. A miss is logged as loudly as a hit, because containment %
+  (§7) is a ratio and a log that kept only the wins would report 100% forever.
+
+---
+
 ## Suggested order
 
 All thirteen P0s are closed as of 2026-08-12. F2 and F3 went together, as
@@ -623,3 +1082,16 @@ which are depth rather than absence.
 
 Every item above is a finding, not an approved change. P1s that alter a
 documented seam or add a third-party service need an ADR first.
+
+**A numbering note, 2026-09-19.** Four agents closing separate P1s in this
+register on the same day independently authored an ADR each, and all four
+picked the same next-free number, 0078, having no visibility into one
+another's work. Renumbered by content once merged: SCOUT's external-sources
+proposal kept 0078 (the number's own code citations — `seams.ts`,
+`scout-ingest.ts`, `scout-pipeline.test.ts`, the OpenAPI summary — are
+SCOUT's), tax-market-rulepack became **ADR-0080**, bulk-reconciliation-decide
+**ADR-0081**, and NORTH's money-metrics-read-the-ledger **ADR-0082**. The
+general shape worth naming: a number picked by reading the tree at branch time
+is a race the moment two branches close in parallel, and nothing caught it
+until merge because each branch's own tests only ever asserted its own ADR
+existed, never that the number was unique across the set.

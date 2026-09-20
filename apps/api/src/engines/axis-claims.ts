@@ -1,7 +1,17 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema } from "@lyra/db";
-import { actorRef, audit, conflict, emit, gate, scoped, type Ctx } from "@lyra/core";
+import {
+  actorRef,
+  audit,
+  canClaimTransition,
+  conflict,
+  emit,
+  gate,
+  scoped,
+  type ClaimState,
+  type Ctx
+} from "@lyra/core";
 import { buildRecipe, runTxn } from "@lyra/ledger";
 import { InstantMs } from "../http.js";
 
@@ -43,6 +53,62 @@ async function fundedFloat(ctx: Ctx, claimId: string): Promise<number> {
   return Number(row?.total ?? 0);
 }
 
+/**
+ * Cover states in which the claim was, at the moment of the loss, not answered
+ * by the contract — `checkCoverage` (engines/axis-fnol.ts) decides them before
+ * the claim exists and snapshots the reasoning. `unknown` is deliberately not
+ * here: it means no version answered and a human decides, so refusing on it
+ * would turn "we could not tell" into "no" (docs/27 F24).
+ */
+const NOT_IN_COVER = new Set(["out_of_cover", "lapsed_at_loss", "cancelled_at_loss"]);
+
+/**
+ * Written as what must NOT pass rather than as a list of what may — the shape
+ * dead-seam sightings 8 and 11 both arrived at. A cover state added later is
+ * refused until someone decides it is payable, instead of silently paying.
+ */
+function assertInCover(claim: ClaimRow, kind: ClaimPaymentInput["kind"]): void {
+  // Ex gratia is the deliberate exception: a goodwill payment on a claim that
+  // was never covered is exactly what it is for, and it carries its own gate
+  // (`axis.claim_exgratia`) rather than the indemnity one.
+  if (kind === "ex_gratia") return;
+  if (NOT_IN_COVER.has(claim.coverageState)) {
+    throw conflict(
+      `claim ${claim.id} was ${claim.coverageState} at the loss and cannot be paid as ${kind}; ` +
+        `pay it ex gratia if that is the decision`
+    );
+  }
+}
+
+/* --------------------------------------------------------------- settlement */
+
+/**
+ * The part of the claim machine money owns. `transitionClaim` refuses
+ * `settling` and `settled` by hand, in as many words, so that no claim can read
+ * as paying without a payment behind it — which makes this the only place
+ * either state is ever reached, and made both of them unreachable for as long
+ * as the payment path did not take them (docs/27 F23).
+ *
+ * A payment on an approved claim puts it into `settling`; a `final` payment is
+ * the settlement itself. Anything the machine has no hop for pays without
+ * moving: there is no route from `assessing` to `settling`, and a payment may
+ * not invent one.
+ */
+const SETTLEMENT_SPINE = ["settling", "settled"] as const;
+
+export function settlementTarget(status: string, kind: ClaimPaymentInput["kind"]): ClaimState | null {
+  const target = kind === "final" ? "settled" : "settling";
+  if (status === target) return null;
+  let at = status;
+  for (const to of SETTLEMENT_SPINE) {
+    if (at === target) break;
+    if (at === to) continue;
+    if (!canClaimTransition(at as ClaimState, to)) return null;
+    at = to;
+  }
+  return at === status ? null : (at as ClaimState);
+}
+
 /* ------------------------------------------------------------------ payment */
 
 export const ClaimPaymentBody = z.object({
@@ -57,6 +123,9 @@ export type ClaimPaymentInput = z.infer<typeof ClaimPaymentBody>;
 
 export async function requestClaimPayment(ctx: Ctx, claim: ClaimRow, input: ClaimPaymentInput) {
   assertOpen(claim, "take a payment");
+  // Before the ceiling and before the gate, for the same reason the ceiling is:
+  // a payment that was never going to be allowed must not spend a decision.
+  assertInCover(claim, input.kind);
 
   // Ceiling first: refusing after the approval is spent would burn a decision
   // on a payment that was never going to be allowed.
@@ -118,13 +187,54 @@ export async function requestClaimPayment(ctx: Ctx, claim: ClaimRow, input: Clai
   };
   await ctx.db.insert(schema.axisClaimPayments).values(payment);
 
-  const after = { ...claim, paidMinor: claim.paidMinor + input.amountMinor, lastTxnId: txn.id, updatedAt: ctx.now };
+  const paidMinor = claim.paidMinor + input.amountMinor;
+  const to = settlementTarget(claim.status, input.kind);
+  // `settledMinor` is what the claim settled for — a historical fact, frozen at
+  // the total paid when it settles. `paidMinor` keeps moving after that (an
+  // assessor's fee lands late), which is exactly why the two are separate
+  // columns: the reserve advisor and the fraud scorer compare them.
+  const settledMinor = to === "settled" ? paidMinor : claim.settledMinor;
+  const after = {
+    ...claim,
+    paidMinor,
+    settledMinor,
+    ...(to ? { status: to } : {}),
+    lastTxnId: txn.id,
+    updatedAt: ctx.now
+  };
   await ctx.db
     .update(schema.axisClaims)
-    .set({ paidMinor: after.paidMinor, lastTxnId: txn.id, updatedAt: ctx.now })
+    .set({
+      paidMinor: after.paidMinor,
+      settledMinor: after.settledMinor,
+      ...(to ? { status: to } : {}),
+      lastTxnId: txn.id,
+      updatedAt: ctx.now
+    })
     .where(scoped(ctx, schema.axisClaims, eq(schema.axisClaims.id, claim.id)));
 
   await audit(ctx, { action: "axis.claim.payment", subjectRef: claim.id, before: claim, after });
+  if (to) {
+    // Audited under the state's own action name because `stateOfAudit`
+    // (@lyra/core lifecycle.ts) reads the trail to draw the claim's steps, and
+    // a settlement reached by paying is still a step.
+    await audit(ctx, { action: `axis.claim.${to}`, subjectRef: claim.id, before: claim, after });
+    await emit(ctx, {
+      module: "axis",
+      type: `axis.claim.${to}`,
+      subject: claim.id,
+      data: {
+        claimId: claim.id,
+        policyId: claim.policyId,
+        customerId: claim.customerId,
+        from: claim.status,
+        to,
+        paymentId,
+        settledMinor: after.settledMinor,
+        currency: claim.currency
+      }
+    });
+  }
   await emit(ctx, {
     module: "axis",
     type: "axis.claim.paid",

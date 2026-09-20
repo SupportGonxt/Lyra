@@ -69,7 +69,15 @@ export function autoApproveProblem(keys: readonly unknown[]): string | null {
 export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntries(
   [
     // money
-    policy({ key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00 }),
+    // docs/19 §7: "No transaction type may be added to a tenant's auto-approve
+    // allowlist if it debits client money, **issues a payout**, or crosses a
+    // regulatory floor." REFUND-ISSUE is `payout: true`, so this policy needed
+    // the flag and did not have it — found by the obligation-6 property test
+    // (docs/27 F22). Without it `autoApproveProblem` accepted "ledger.refund"
+    // into a tenant's allowlist, and `runTxn`'s own belt then refused every
+    // refund outright rather than gating it: two guards over the same rule
+    // disagreeing, which is the shape that always resolves into a support ticket.
+    policy({ key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00, neverAutoApprove: true }),
     policy({ key: "ledger.payout", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.client_money_transfer", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.partner_settlement", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true }),
@@ -81,6 +89,11 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     // gate is the act itself, and no tenant setting may automate it.
     policy({ key: "ledger.opening_balance", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.year_end_close", module: "ledger", decide: "ledger:periods:year_end", dualControl: "always", neverAutoApprove: true }),
+    // A reconciliation write-off has no amount worth thresholding: it is small
+    // by definition, and a difference small enough to write off unchecked is
+    // exactly the size a leak is drawn in. The gate is the act, and the second
+    // seat is the same one that posts a manual journal.
+    policy({ key: "ledger.write_off", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.period_close_force", module: "ledger", decide: "ledger:periods:force_close", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.period_reopen", module: "ledger", decide: "ledger:periods:reopen", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ledger.remit", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true }),
@@ -170,6 +183,13 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     // checked separately at runtime; the approval covers the *act of sending*,
     // not the permission to.
     policy({ key: "signal.outreach_send", module: "signal", decide: "signal:outreach:send", dualControl: "never" }),
+    // retention & service. Both are ORBIT agent tools (engines/orbit-tools.ts)
+    // and both reach a customer, so both gate: a renewal offer carries a price,
+    // and a document send is an outbound message to a person. Same shape as
+    // signal.outreach_send — the approval covers the act of sending, not the
+    // permission to; consent and quiet hours are separate runtime floors.
+    policy({ key: "orbit.renewal_offer", module: "orbit", decide: "orbit:renewals:approve", dualControl: "never" }),
+    policy({ key: "orbit.document_send", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" }),
     // docs/modules/scout.md §4: "whitespace approvals (promote/park)" — a
     // product-strategy decision, same shape as dist.offering_publish.
     policy({ key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" }),
@@ -184,6 +204,19 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     policy({ key: "core.unmasked_export", module: "core", decide: "analytics:exports:unmasked", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "compliance.erasure", module: "core", decide: "compliance:erasure:execute", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "compliance.legal_hold_release", module: "core", decide: "compliance:legal_holds:write", dualControl: "always", neverAutoApprove: true }),
+    // docs/16 H8 "Shariah-board workflow (review lane like compliance
+    // pre-flight)", docs/27 F45. A board certifies that a product's structure
+    // is permissible; `SURPLUS-DIST`'s precondition then refuses to distribute
+    // out of a product whose ruling is missing or expired
+    // (packages/ledger/src/preconditions.ts).
+    //
+    // `dualControl: "always"` and `neverAutoApprove` together, and neither is
+    // decoration. A board is by definition more than one person, so a single
+    // signature is not a board ruling; and a tenant allowlist that could
+    // auto-certify would let a product sell as Shariah-compliant on nobody's
+    // authority at all, which is the one claim in this file that a customer
+    // cannot verify for themselves.
+    policy({ key: "compliance.shariah_certify", module: "core", decide: "compliance:shariah:certify", dualControl: "always", neverAutoApprove: true }),
     // ai
     policy({ key: "ai.autonomy_raise", module: "ai", decide: "ai:agents:write", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "ai.prompt_publish", module: "ai", decide: "ai:prompts:write", dualControl: "never" }),
@@ -225,7 +258,13 @@ export interface GateInput {
   context?: Record<string, unknown>;
 }
 
-function needsDualControl(p: ApprovalPolicy, amountMinor: number | undefined): boolean {
+/**
+ * docs/19 §11.6 — "every payout transaction has an approval with a distinct
+ * approver above threshold". Exported so the obligation can be property-tested
+ * against the policy table rather than against one hand-picked example
+ * (docs/27 F22).
+ */
+export function needsDualControl(p: ApprovalPolicy, amountMinor: number | undefined): boolean {
   if (p.dualControl === "always") return true;
   if (p.dualControl === "never") return false;
   // Fail closed: an amount the caller could not state may be any amount.

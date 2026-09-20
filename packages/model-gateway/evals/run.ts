@@ -2,6 +2,9 @@ import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkInput, checkOutput, blocked } from "../src/guardrails.js";
+import { fallbackChain } from "../src/models.js";
+import { MAX_ROUNDS, MAX_TOOL_ROUNDS, offersTools, planRound, verdictFor } from "../src/agent-loop.js";
+import { guardChunk, newStreamGuard } from "../src/stream-guard.js";
 import { EXTRACTION_FIELDS, normalizeField, parseExtraction, parseVisionExtraction } from "../src/extract.js";
 import { parseTriage } from "../src/triage.js";
 import { parseReserve } from "../src/reserve.js";
@@ -16,6 +19,7 @@ import { aggregateCxScore, cxRubricSummary } from "../src/cx-judge.js";
 import {
   verifyNumericClaims,
   verifyGroundedness,
+  recallable,
   checkCompliance as checkSignalCompliance,
   PROTECTED_AXES,
   type BriefingSnapshot
@@ -99,6 +103,431 @@ async function scoreCompliance(dir: string): Promise<Metric[]> {
       max: thresholds.falsePositiveMax
     }),
     metric("ruleMatchRate", ruleCases.length ? ruleMatches / ruleCases.length : 1, { min: thresholds.ruleMatchMin })
+  ];
+}
+
+interface ArabicGuardrailCase {
+  id: string;
+  /** Which floor this case exercises: `checkInput` (pre-flight) or `checkOutput` (post-flight). */
+  surface: "input" | "output";
+  text: string;
+  /** input cases only: provenance, which is what decides warn vs block. */
+  untrusted?: boolean;
+  /** output cases only. */
+  customerFacing?: boolean;
+  expectBlock: boolean;
+  expectRule: string | null;
+}
+
+interface ArabicGuardrailThresholds {
+  blockRecallMin: number;
+  falsePositiveMax: number;
+  ruleMatchMin: number;
+}
+
+/**
+ * docs/27 F41 / docs/16 H12. The guardrail floors were six English regexes, so
+ * the half of the product that ships in Arabic had no floor at all — an Arabic
+ * "نضمن" (we guarantee) reached a customer where its English twin was blocked.
+ *
+ * Scored as one set across both floors on purpose: the finding is not "the
+ * regulated-claim rule is weak", it is "the rule set is monolingual", and the
+ * jailbreak list had already been half-fixed while the regulated list had not.
+ * A pooled Arabic metric is what fails when either half regresses.
+ */
+async function scoreArabicGuardrails(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<ArabicGuardrailCase>(dir);
+  const thresholds = await loadThresholds<ArabicGuardrailThresholds>(dir);
+
+  const results = cases.map((c) => ({
+    case: c,
+    hits:
+      c.surface === "input"
+        ? checkInput(c.text, c.untrusted === undefined ? {} : { untrusted: c.untrusted })
+        : checkOutput({
+            text: c.text,
+            issued: new Set<string>(),
+            ...(c.customerFacing === undefined ? {} : { customerFacing: c.customerFacing })
+          })
+  }));
+
+  const blockCases = results.filter((r) => r.case.expectBlock);
+  const cleanCases = results.filter((r) => !r.case.expectBlock);
+  const ruleCases = results.filter((r) => r.case.expectRule);
+
+  return [
+    metric("blockRecall", blockCases.length ? blockCases.filter((r) => blocked(r.hits)).length / blockCases.length : 1, {
+      min: thresholds.blockRecallMin
+    }),
+    metric(
+      "falsePositiveRate",
+      cleanCases.length ? cleanCases.filter((r) => r.hits.length > 0).length / cleanCases.length : 0,
+      { max: thresholds.falsePositiveMax }
+    ),
+    metric(
+      "ruleMatchRate",
+      ruleCases.length ? ruleCases.filter((r) => r.hits.some((h) => h.rule === r.case.expectRule)).length / ruleCases.length : 1,
+      { min: thresholds.ruleMatchMin }
+    )
+  ];
+}
+
+interface StreamingCase {
+  id: string;
+  note: string;
+  customerFacing: boolean;
+  /** The deltas a provider hands back, in order. */
+  chunks: string[];
+  expectRefused: boolean;
+  expectEmitted: string;
+}
+
+interface StreamingThresholds {
+  fidelityMin: number;
+  refusalRecallMin: number;
+  prematureEmissionMax: number;
+  falseRefusalMax: number;
+}
+
+/**
+ * docs/15 §2 ("streamed always") + docs/27 F35. Nothing streamed anywhere, and
+ * the reason it could not is a real tension rather than an oversight:
+ * `checkOutput` decides about a finished answer, and a stream has no finished
+ * answer until it is already on the reader's screen.
+ *
+ * The golden set drives the resolution (`guardChunk`, src/stream-guard.ts) over
+ * scripted deltas, because the failure that matters is invisible to any test
+ * that feeds a whole string. str-04 is the case that exists for it: "we gua" +
+ * "rantee this" is two clean chunks and one blocked sentence, and a per-chunk
+ * check passes both.
+ *
+ * `prematureEmission` is the metric with teeth. Emitted text cannot be
+ * recalled, so a refusal that arrives after half the phrase has shipped is not
+ * a refusal — and a scorer that only compared final states would call it one.
+ */
+async function scoreStreaming(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<StreamingCase>(dir);
+  const thresholds = await loadThresholds<StreamingThresholds>(dir);
+
+  let fidelity = 0;
+  let refusalsCaught = 0;
+  let premature = 0;
+  let falseRefusals = 0;
+  const shouldRefuse = cases.filter((c) => c.expectRefused);
+  const shouldPass = cases.filter((c) => !c.expectRefused);
+
+  for (const c of cases) {
+    const state = newStreamGuard();
+    let accumulated = "";
+    let emitted = "";
+    let refused = false;
+    for (let i = 0; i < c.chunks.length; i++) {
+      accumulated += c.chunks[i];
+      const step = guardChunk(state, accumulated, i === c.chunks.length - 1, {
+        issued: new Set<string>(),
+        customerFacing: c.customerFacing
+      });
+      emitted += step.emit;
+      if (step.refused) {
+        refused = true;
+        break;
+      }
+    }
+
+    if (refused === c.expectRefused && emitted === c.expectEmitted) fidelity += 1;
+    else console.log(`    ${c.id}: refused ${refused}/${c.expectRefused} emitted ${JSON.stringify(emitted)}`);
+
+    if (c.expectRefused) {
+      if (refused) refusalsCaught += 1;
+      // Anything at all reaching the reader on a refused answer is the failure
+      // this design exists to prevent.
+      if (emitted.length > 0) premature += 1;
+    } else if (refused) {
+      falseRefusals += 1;
+    }
+  }
+
+  return [
+    metric("fidelity", cases.length ? fidelity / cases.length : 1, { min: thresholds.fidelityMin }),
+    metric("refusalRecall", shouldRefuse.length ? refusalsCaught / shouldRefuse.length : 1, {
+      min: thresholds.refusalRecallMin
+    }),
+    metric("prematureEmission", premature, { max: thresholds.prematureEmissionMax }),
+    metric("falseRefusals", shouldPass.length ? falseRefusals : 0, { max: thresholds.falseRefusalMax })
+  ];
+}
+
+interface MemoryCase {
+  id: string;
+  note: string;
+  purpose: string;
+  now: number;
+  maxSensitivity: "low" | "medium" | "high";
+  limit?: number;
+  rows: { id: string; kind: string; purposes: string[] | null; sensitivity: string; expiry: number | null; createdAt: number }[];
+  expectIds: string[];
+}
+
+interface MemoryThresholds {
+  selectionAccuracyMin: number;
+  expiredLeakageMax: number;
+  purposeLeakageMax: number;
+  sensitivityLeakageMax: number;
+}
+
+/**
+ * docs/27 F34 / docs/16 H11. `core_memories` was a table with no writer and no
+ * reader — a store the platform was documented as reasoning from, holding
+ * nothing. Its own comment set the contract ("purpose-bound reads;
+ * erasure-linked"), and the half of that contract worth evaluating is the
+ * selection rule: not "can we find the memory" but "may this call see it".
+ *
+ * The three leakage metrics sit beside exact-match accuracy because they are
+ * the failures that matter asymmetrically. Recalling one memory too few is a
+ * duller answer; recalling one too many is an expired claim, another purpose's
+ * data or a sensitive fact in a prompt it was never bound to — and each would
+ * still be scored as a near miss by accuracy alone.
+ */
+async function scoreMemoryRecall(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<MemoryCase>(dir);
+  const thresholds = await loadThresholds<MemoryThresholds>(dir);
+
+  let exact = 0;
+  let expired = 0;
+  let wrongPurpose = 0;
+  let tooSensitive = 0;
+  const order = ["low", "medium", "high"];
+
+  for (const c of cases) {
+    const rows = c.rows.map((r) => ({
+      id: r.id,
+      subjectRef: "sub_1",
+      kind: r.kind,
+      contentJson: "{}",
+      provenance: "eval",
+      sensitivity: r.sensitivity,
+      purposesJson: r.purposes === null ? null : JSON.stringify(r.purposes),
+      expiry: r.expiry,
+      createdAt: r.createdAt
+    }));
+    const got = recallable(rows, {
+      purpose: c.purpose,
+      now: c.now,
+      maxSensitivity: c.maxSensitivity,
+      ...(c.limit === undefined ? {} : { limit: c.limit })
+    });
+    const ids = got.map((r) => r.id);
+    if (JSON.stringify(ids) === JSON.stringify(c.expectIds)) exact += 1;
+    else console.log(`    ${c.id}: got [${ids.join(", ")}] want [${c.expectIds.join(", ")}]`);
+
+    for (const r of got) {
+      if (r.expiry != null && r.expiry <= c.now) expired += 1;
+      if (!r.purposesJson || !(JSON.parse(r.purposesJson) as string[]).includes(c.purpose)) wrongPurpose += 1;
+      const rank = order.indexOf(r.sensitivity);
+      if (rank === -1 || rank > order.indexOf(c.maxSensitivity)) tooSensitive += 1;
+    }
+  }
+
+  return [
+    metric("selectionAccuracy", cases.length ? exact / cases.length : 1, { min: thresholds.selectionAccuracyMin }),
+    metric("expiredLeakage", expired, { max: thresholds.expiredLeakageMax }),
+    metric("purposeLeakage", wrongPurpose, { max: thresholds.purposeLeakageMax }),
+    metric("sensitivityLeakage", tooSensitive, { max: thresholds.sensitivityLeakageMax })
+  ];
+}
+
+interface LoopCase {
+  id: string;
+  kind: "loop";
+  note: string;
+  /** What the model asks for in each round, in order. */
+  script: string[][];
+  /**
+   * A provider that returns tool calls in a round it was offered no tools for.
+   * Rare, real, and the only way `planRound`'s halt branch is reached — the
+   * executor's allowlist re-check (orbit-tools.ts) exists for the same reason.
+   */
+  echoesUnofferedTools?: boolean;
+  expectModelRounds: number;
+  expectExecuted: string[];
+  expectHalted: boolean;
+}
+
+interface GateCase {
+  id: string;
+  kind: "gate";
+  note: string;
+  tool: string;
+  consequential: boolean;
+  executed: { outcome: "ok" | "error" | "awaiting_approval"; approvalId: string | null; gateObserved?: boolean };
+  expectVerdict: string;
+}
+
+interface AgentLoopThresholds {
+  loopAccuracyMin: number;
+  toolRoundsMin: number;
+  gateAccuracyMin: number;
+  ungatedConsequentialMax: number;
+}
+
+/**
+ * docs/27 F33 + F38. The agent loop was one tool round-trip: a completion, its
+ * tool calls executed, then a second completion offered no tools at all. The
+ * model could look a policy up and never act on what it read, and every
+ * transcript that needed a second dependent step was silently truncated. In the
+ * same loop, `consequential: true` was written to `ai_tool_calls` and branched
+ * on by nothing.
+ *
+ * Both are decisions, not model outputs, so the golden set drives them directly
+ * (`planRound`, `verdictFor` in src/agent-loop.ts). Scoring them here rather
+ * than only in an API unit test is the point: an API test mocks the gateway and
+ * the database, which is precisely how a loop that could not loop and a flag
+ * that gated nothing both stayed green.
+ *
+ * `toolRounds` is the metric that fails against the old shape and cannot be
+ * satisfied by a transcript that happens to fit in one round — it reads the
+ * loop's own ceiling.
+ */
+async function scoreAgentLoop(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<LoopCase | GateCase>(dir);
+  const thresholds = await loadThresholds<AgentLoopThresholds>(dir);
+
+  const loops = cases.filter((c): c is LoopCase => c.kind === "loop");
+  const gates = cases.filter((c): c is GateCase => c.kind === "gate");
+
+  let loopHits = 0;
+  for (const c of loops) {
+    const executed: string[] = [];
+    let round = 0;
+    let halted = false;
+    for (;;) {
+      // The loop only ever sees tool calls it offered tools for.
+      const asked = offersTools(round) || c.echoesUnofferedTools ? (c.script[round] ?? []) : [];
+      const step = planRound({ round, toolCalls: asked.map((name) => ({ name })) });
+      round += 1;
+      if (step.action === "answer") break;
+      if (step.action === "halt") {
+        halted = true;
+        break;
+      }
+      executed.push(...asked);
+      if (round >= MAX_ROUNDS) {
+        halted = true;
+        break;
+      }
+    }
+    const ok =
+      round === c.expectModelRounds &&
+      halted === c.expectHalted &&
+      JSON.stringify(executed) === JSON.stringify(c.expectExecuted);
+    if (ok) loopHits += 1;
+    else
+      console.log(
+        `    ${c.id}: rounds ${round}/${c.expectModelRounds} halted ${halted}/${c.expectHalted} executed [${executed.join(", ")}] want [${c.expectExecuted.join(", ")}]`
+      );
+  }
+
+  const verdicts = gates.map((c) => ({
+    case: c,
+    verdict: verdictFor({ consequential: c.consequential }, c.executed)
+  }));
+  for (const v of verdicts) {
+    if (v.verdict !== v.case.expectVerdict) console.log(`    ${v.case.id}: ${v.verdict} want ${v.case.expectVerdict}`);
+  }
+
+  return [
+    metric("loopAccuracy", loops.length ? loopHits / loops.length : 1, { min: thresholds.loopAccuracyMin }),
+    metric("toolRounds", MAX_TOOL_ROUNDS, { min: thresholds.toolRoundsMin }),
+    metric(
+      "gateAccuracy",
+      verdicts.length ? verdicts.filter((v) => v.verdict === v.case.expectVerdict).length / verdicts.length : 1,
+      { min: thresholds.gateAccuracyMin }
+    ),
+    metric(
+      "ungatedConsequentialEscapes",
+      // Counted separately from gateAccuracy because it is the only direction
+      // that lets a contract change unnoticed: mistaking a gated call for an
+      // ungated one is a false alarm someone will chase, while the reverse is
+      // an endorsement the tenant never agreed to.
+      verdicts.filter((v) => v.case.expectVerdict === "ungated_consequential" && v.verdict !== "ungated_consequential")
+        .length,
+      { max: thresholds.ungatedConsequentialMax }
+    )
+  ];
+}
+
+interface FallbackCase {
+  id: string;
+  note: string;
+  tier: "fast" | "standard" | "reasoning";
+  onPrem?: boolean;
+  needsTools?: boolean;
+  modelKey?: string;
+  overrides?: Record<string, string>;
+  /** Providers whose credentials/bindings this deployment actually has. */
+  configured: string[];
+  expectKeys: string[];
+}
+
+interface FallbackThresholds {
+  chainAccuracyMin: number;
+  crossProviderCoverageMin: number;
+  residencyBreachMax: number;
+  sameProviderRepeatMax: number;
+}
+
+/**
+ * docs/27 F36. `gateway.complete` retried three times against the identical
+ * provider and the identical model, which answers a blip and nothing else: a
+ * provider outage, a model deprecation or a regional 5xx took the whole
+ * platform's AI down three times in a row and then gave up.
+ *
+ * The golden set is the routing decision, not a model's words, so it scores
+ * `fallbackChain` directly. Four metrics, because "does it fall back" is not
+ * the only thing that can go wrong:
+ *   - chainAccuracy: the chain is exactly what the case expects.
+ *   - crossProviderCoverage: every cloud case reaches a second *provider*.
+ *     A chain of two Anthropic models is the defect with more steps.
+ *   - residencyBreach: an on-prem tenant never gets a cloud link, whatever is
+ *     configured and whatever the tenant override says (CLAUDE.md §3, ADR-0075).
+ *   - sameProviderRepeat: no provider appears twice in one chain.
+ */
+async function scoreProviderFallback(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<FallbackCase>(dir);
+  const thresholds = await loadThresholds<FallbackThresholds>(dir);
+
+  const results = cases.map((c) => {
+    const chain = fallbackChain(c.tier, {
+      ...(c.onPrem === undefined ? {} : { onPrem: c.onPrem }),
+      ...(c.needsTools === undefined ? {} : { needsTools: c.needsTools }),
+      ...(c.modelKey === undefined ? {} : { modelKey: c.modelKey }),
+      ...(c.overrides === undefined ? {} : { overrides: c.overrides as Record<"fast" | "standard" | "reasoning", string> }),
+      configured: c.configured as never
+    });
+    return { case: c, chain };
+  });
+
+  const cloud = results.filter((r) => !r.case.onPrem && r.case.configured.length > 1);
+  const onPrem = results.filter((r) => r.case.onPrem);
+
+  const exact = results.filter((r) => JSON.stringify(r.chain.map((d) => d.key)) === JSON.stringify(r.case.expectKeys));
+  const crossed = cloud.filter((r) => new Set(r.chain.map((d) => d.provider)).size > 1);
+  const breaches = onPrem.filter((r) => r.chain.some((d) => d.provider !== "openai-compat"));
+  const repeats = results.filter((r) => new Set(r.chain.map((d) => d.provider)).size !== r.chain.length);
+
+  for (const r of results) {
+    if (JSON.stringify(r.chain.map((d) => d.key)) !== JSON.stringify(r.case.expectKeys)) {
+      console.log(`    ${r.case.id}: got [${r.chain.map((d) => d.key).join(", ")}] want [${r.case.expectKeys.join(", ")}]`);
+    }
+  }
+
+  return [
+    metric("chainAccuracy", results.length ? exact.length / results.length : 1, { min: thresholds.chainAccuracyMin }),
+    metric("crossProviderCoverage", cloud.length ? crossed.length / cloud.length : 1, {
+      min: thresholds.crossProviderCoverageMin
+    }),
+    metric("residencyBreaches", breaches.length, { max: thresholds.residencyBreachMax }),
+    metric("sameProviderRepeats", repeats.length, { max: thresholds.sameProviderRepeatMax })
   ];
 }
 
@@ -976,6 +1405,11 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   injection: scoreInjection,
   "creative-image": scoreInjection,
   compliance: scoreCompliance,
+  "provider-fallback": scoreProviderFallback,
+  "agent-loop": scoreAgentLoop,
+  "memory-recall": scoreMemoryRecall,
+  streaming: scoreStreaming,
+  "guardrails-ar": scoreArabicGuardrails,
   axis: scoreAxis,
   "axis-vision": scoreAxisVision,
   "axis-copilot": scoreGroundedness,

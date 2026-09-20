@@ -1540,6 +1540,7 @@ export interface LedgerPeriods {
   endAt: number;
   state?: string;
   checklistJson?: string;
+  stateReason?: string;
   closePackFileId?: string;
   closedBy?: string;
   closedAt?: number;
@@ -1560,6 +1561,7 @@ export interface LedgerReconMatches {
   reasonCode?: string;
   confirmedBy?: string;
   confirmedAt?: number;
+  settlementTxnId?: string;
   createdAt?: number;
 }
 
@@ -1837,6 +1839,9 @@ export interface NorthSnapshots {
   dimsHash?: string;
   value: number;
   ts: number;
+  verifiedAt?: number;
+  verifiedBy?: string;
+  verificationRef?: string;
 }
 
 export interface OrbitAgentPresence {
@@ -1894,6 +1899,18 @@ export interface OrbitConversations {
   updatedAt?: number;
 }
 
+export interface OrbitDeflections {
+  id?: string;
+  tenantId?: string;
+  conversationId: string;
+  question: string;
+  articleId?: string;
+  score: number;
+  outcome: string;
+  via?: string;
+  ts: number;
+}
+
 export interface OrbitHandoverNotes {
   id?: string;
   tenantId?: string;
@@ -1930,6 +1947,35 @@ export interface OrbitJourneys {
   status?: string;
   createdBy?: string;
   createdAt?: number;
+}
+
+export interface OrbitKbArticles {
+  id?: string;
+  tenantId?: string;
+  key: string;
+  locale?: string;
+  title: string;
+  body: string;
+  tagsJson?: string;
+  status?: string;
+  vectorId?: string;
+  updatedBy?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface OrbitMacros {
+  id?: string;
+  tenantId?: string;
+  key: string;
+  nameJson: string;
+  bodyJson: string;
+  category?: string;
+  articleId?: string;
+  usageCount?: number;
+  status?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface OrbitMessages {
@@ -2343,6 +2389,7 @@ export interface Operations {
   "POST /v1/ai/resume": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ai/runs": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AiRuns>>;
   "POST /v1/ai/runs": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/ai/runs/stream": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ai/runs/{id}": Op<{ id: string }, never, never, AiRuns>;
   "GET /v1/ai/runs/{id}/detail": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/ai/suggestions": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AiSuggestions>>;
@@ -2552,6 +2599,9 @@ export interface Operations {
   "GET /v1/compliance/screenings": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ComplianceScreenings>>;
   "POST /v1/compliance/screenings/run": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/compliance/screenings/{id}": Op<{ id: string }, never, never, ComplianceScreenings>;
+  "POST /v1/compliance/shariah/certify": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/compliance/shariah/submit": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/compliance/shariah/{productId}": Op<{ productId: string }, never, never, Record<string, unknown>>;
   "GET /v1/core/api-keys": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreApiKeys>>;
   "POST /v1/core/api-keys": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/core/api-keys/{id}": Op<{ id: string }, never, never, CoreApiKeys>;
@@ -2722,6 +2772,8 @@ export interface Operations {
   "GET /v1/ledger/fx-rates": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerFxRates>>;
   "POST /v1/ledger/fx-rates": Op<never, never, LedgerFxRates, LedgerFxRates>;
   "GET /v1/ledger/fx-rates/{id}": Op<{ id: string }, never, never, LedgerFxRates>;
+  "GET /v1/ledger/fx-revaluation": Op<never, never, never, Record<string, unknown>>;
+  "POST /v1/ledger/fx-revaluation": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/invoices": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerInvoices>>;
   "POST /v1/ledger/invoices": Op<never, never, LedgerInvoices, LedgerInvoices>;
   "GET /v1/ledger/invoices/{id}": Op<{ id: string }, never, never, LedgerInvoices>;
@@ -2748,8 +2800,10 @@ export interface Operations {
   "POST /v1/ledger/recon/matches/{id}/decide": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/ledger/recon/runs": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ledger/recon/runs/{id}": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/ledger/recon/runs/{id}/close": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/ledger/recon/runs/{id}/evidence-bundle": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/ledger/recon/runs/{id}/evidence-bundle/download": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "GET /v1/ledger/recon/statement-formats": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/aged": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/balance-sheet": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/chart-of-accounts": Op<never, never, never, Record<string, unknown>>;
@@ -2824,6 +2878,7 @@ export interface Operations {
   "PATCH /v1/north/decisions/{id}": Op<{ id: string }, never, NorthDecisions, NorthDecisions>;
   "DELETE /v1/north/decisions/{id}": Op<{ id: string }, never, never, void>;
   "POST /v1/north/explore": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/north/forecast": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/north/metrics": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthMetrics>>;
   "POST /v1/north/metrics": Op<never, never, NorthMetrics, NorthMetrics>;
   "GET /v1/north/metrics/{id}": Op<{ id: string }, never, never, NorthMetrics>;
@@ -2835,6 +2890,7 @@ export interface Operations {
   "PATCH /v1/north/scenarios/{id}": Op<{ id: string }, never, NorthScenarios, NorthScenarios>;
   "GET /v1/north/snapshots": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthSnapshots>>;
   "GET /v1/north/snapshots/{id}": Op<{ id: string }, never, never, NorthSnapshots>;
+  "POST /v1/north/snapshots/{id}/verify": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/north/snapshotter/run": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/onboarding/agreements": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/onboarding/agreements/{id}/send": Op<{ id: string }, never, never, Record<string, unknown>>;
@@ -2862,8 +2918,12 @@ export interface Operations {
   "POST /v1/orbit/conversations": Op<never, never, OrbitConversations, OrbitConversations>;
   "GET /v1/orbit/conversations/{id}": Op<{ id: string }, never, never, OrbitConversations>;
   "PATCH /v1/orbit/conversations/{id}": Op<{ id: string }, never, OrbitConversations, OrbitConversations>;
+  "POST /v1/orbit/conversations/{id}/deflect": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/orbit/conversations/{id}/macro": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/orbit/conversations/{id}/reply": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/orbit/conversations/{id}/turns": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/orbit/deflections": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitDeflections>>;
+  "GET /v1/orbit/deflections/{id}": Op<{ id: string }, never, never, OrbitDeflections>;
   "POST /v1/orbit/drafts/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/orbit/handover-notes": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitHandoverNotes>>;
   "POST /v1/orbit/handover-notes": Op<never, never, OrbitHandoverNotes, OrbitHandoverNotes>;
@@ -2874,9 +2934,23 @@ export interface Operations {
   "GET /v1/orbit/journey-runs/{id}": Op<{ id: string }, never, never, OrbitJourneyRuns>;
   "GET /v1/orbit/journeys": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitJourneys>>;
   "POST /v1/orbit/journeys": Op<never, never, OrbitJourneys, OrbitJourneys>;
+  "POST /v1/orbit/journeys/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/orbit/journeys/{id}": Op<{ id: string }, never, never, OrbitJourneys>;
   "PATCH /v1/orbit/journeys/{id}": Op<{ id: string }, never, OrbitJourneys, OrbitJourneys>;
   "DELETE /v1/orbit/journeys/{id}": Op<{ id: string }, never, never, void>;
+  "POST /v1/orbit/journeys/{id}/trigger": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/orbit/kb-articles": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitKbArticles>>;
+  "POST /v1/orbit/kb-articles": Op<never, never, OrbitKbArticles, OrbitKbArticles>;
+  "GET /v1/orbit/kb-articles/{id}": Op<{ id: string }, never, never, OrbitKbArticles>;
+  "PATCH /v1/orbit/kb-articles/{id}": Op<{ id: string }, never, OrbitKbArticles, OrbitKbArticles>;
+  "DELETE /v1/orbit/kb-articles/{id}": Op<{ id: string }, never, never, void>;
+  "POST /v1/orbit/kb/articles/{id}/publish": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/orbit/kb/search": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/orbit/macros": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitMacros>>;
+  "POST /v1/orbit/macros": Op<never, never, OrbitMacros, OrbitMacros>;
+  "GET /v1/orbit/macros/{id}": Op<{ id: string }, never, never, OrbitMacros>;
+  "PATCH /v1/orbit/macros/{id}": Op<{ id: string }, never, OrbitMacros, OrbitMacros>;
+  "DELETE /v1/orbit/macros/{id}": Op<{ id: string }, never, never, void>;
   "GET /v1/orbit/messages": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<OrbitMessages>>;
   "POST /v1/orbit/messages": Op<never, never, OrbitMessages, OrbitMessages>;
   "GET /v1/orbit/messages/{id}": Op<{ id: string }, never, never, OrbitMessages>;
@@ -2942,6 +3016,7 @@ export interface Operations {
   "POST /v1/portal/{tenantSlug}/track": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/realtime": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/clusters": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutClusters>>;
+  "POST /v1/scout/clusters/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/clusters/{id}": Op<{ id: string }, never, never, ScoutClusters>;
   "GET /v1/scout/data-products": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutDataProducts>>;
   "POST /v1/scout/data-products": Op<never, never, ScoutDataProducts, ScoutDataProducts>;
@@ -2949,6 +3024,7 @@ export interface Operations {
   "PATCH /v1/scout/data-products/{id}": Op<{ id: string }, never, ScoutDataProducts, ScoutDataProducts>;
   "GET /v1/scout/panel-bench": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutPanelBench>>;
   "GET /v1/scout/panel-bench/negotiation-pack": Op<never, never, never, Record<string, unknown>>;
+  "POST /v1/scout/panel-bench/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/panel-bench/{id}": Op<{ id: string }, never, never, ScoutPanelBench>;
   "GET /v1/scout/scout-experiments": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutScoutExperiments>>;
   "POST /v1/scout/scout-experiments": Op<never, never, ScoutScoutExperiments, ScoutScoutExperiments>;
@@ -2956,8 +3032,11 @@ export interface Operations {
   "PATCH /v1/scout/scout-experiments/{id}": Op<{ id: string }, never, ScoutScoutExperiments, ScoutScoutExperiments>;
   "GET /v1/scout/signals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutSignals>>;
   "POST /v1/scout/signals": Op<never, never, ScoutSignals, ScoutSignals>;
+  "POST /v1/scout/signals/harvest": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/scout/signals/similar": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/scout/signals/{id}": Op<{ id: string }, never, never, ScoutSignals>;
+  "GET /v1/scout/sources": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/scout/watch": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/whitespaces": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutWhitespaces>>;
   "GET /v1/scout/whitespaces/commentary": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/scout/whitespaces/compute": Op<never, never, never, Record<string, unknown>>;
@@ -3074,6 +3153,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ai/resume": { tag: "ai", summary: "Release the tenant or module AI pause", permission: "ai:agents:write", public: false },
   "GET /v1/ai/runs": { tag: "ai", summary: "List runs", permission: "ai:runs:read", public: false },
   "POST /v1/ai/runs": { tag: "ai", summary: "Run an agent through the gateway, budgeted and audited (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", public: false },
+  "POST /v1/ai/runs/stream": { tag: "ai", summary: "Run an agent and stream the answer as server-sent events (needs the agent module's :ai:invoke)", permission: "core:ai:invoke", public: false },
   "GET /v1/ai/runs/{id}": { tag: "ai", summary: "Fetch one run", permission: "ai:runs:read", public: false },
   "GET /v1/ai/runs/{id}/detail": { tag: "ai", summary: "One agent run with its tool calls and audit trail", permission: "ai:runs:read", public: false },
   "GET /v1/ai/suggestions": { tag: "ai", summary: "List suggestions", permission: "ai:suggestions:read", public: false },
@@ -3283,6 +3363,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/compliance/screenings": { tag: "compliance", summary: "List screenings", permission: "compliance:screenings:read", public: false },
   "POST /v1/compliance/screenings/run": { tag: "compliance", summary: "Screen a customer or name against the watchlists and record the hashed query", permission: "compliance:screenings:run", public: false },
   "GET /v1/compliance/screenings/{id}": { tag: "compliance", summary: "Fetch one screening", permission: "compliance:screenings:read", public: false },
+  "POST /v1/compliance/shariah/certify": { tag: "compliance", summary: "Record the Shariah board's ruling on a takaful product", permission: "compliance:shariah:certify", public: false },
+  "POST /v1/compliance/shariah/submit": { tag: "compliance", summary: "Put a takaful product's terms in front of the Shariah board", permission: "compliance:shariah:read", public: false },
+  "GET /v1/compliance/shariah/{productId}": { tag: "compliance", summary: "A takaful product's structure and the standing Shariah ruling on it", permission: "compliance:shariah:read", public: false },
   "GET /v1/core/api-keys": { tag: "core", summary: "List api-keys", permission: "core:api_keys:read", public: false },
   "POST /v1/core/api-keys": { tag: "core", summary: "Mint an API key; the plaintext is returned once and never again", permission: "core:api_keys:create", public: false },
   "GET /v1/core/api-keys/{id}": { tag: "core", summary: "Fetch one api key", permission: "core:api_keys:read", public: false },
@@ -3453,6 +3536,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/fx-rates": { tag: "ledger", summary: "List fx-rates", permission: "ledger:accounts:read", public: false },
   "POST /v1/ledger/fx-rates": { tag: "ledger", summary: "Create a fx rate", permission: "ledger:accounts:write", public: false },
   "GET /v1/ledger/fx-rates/{id}": { tag: "ledger", summary: "Fetch one fx rate", permission: "ledger:accounts:read", public: false },
+  "GET /v1/ledger/fx-revaluation": { tag: "ledger", summary: "What a period-end FX revaluation of open foreign balances would post (docs/19 §5.3)", permission: "ledger:journals:read", public: false },
+  "POST /v1/ledger/fx-revaluation": { tag: "ledger", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", public: false },
   "GET /v1/ledger/invoices": { tag: "ledger", summary: "List invoices", permission: "ledger:invoices:read", public: false },
   "POST /v1/ledger/invoices": { tag: "ledger", summary: "Create a invoice", permission: "ledger:invoices:create", public: false },
   "GET /v1/ledger/invoices/{id}": { tag: "ledger", summary: "Fetch one invoice", permission: "ledger:invoices:read", public: false },
@@ -3479,8 +3564,10 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ledger/recon/matches/{id}/decide": { tag: "ledger", summary: "Confirm or reject a proposed match", permission: "ledger:recon:confirm", public: false },
   "POST /v1/ledger/recon/runs": { tag: "ledger", summary: "Match an imported statement against the ledger", permission: "ledger:recon:run", public: false },
   "GET /v1/ledger/recon/runs/{id}": { tag: "ledger", summary: "One reconciliation run with its matches and exceptions", permission: "ledger:recon:read", public: false },
+  "POST /v1/ledger/recon/runs/{id}/close": { tag: "ledger", summary: "Close a reconciliation run once nothing is left open", permission: "ledger:recon:confirm", public: false },
   "POST /v1/ledger/recon/runs/{id}/evidence-bundle": { tag: "ledger", summary: "Assemble a reconciliation run's evidence as a signed, hash-manifested bundle", permission: "ledger:recon:export", public: false },
   "GET /v1/ledger/recon/runs/{id}/evidence-bundle/download": { tag: "ledger", summary: "Download an assembled recon evidence bundle", permission: "ledger:recon:export", public: false },
+  "GET /v1/ledger/recon/statement-formats": { tag: "ledger", summary: "Bank statement formats the importer can read (CAMT.053, MT940, OFX)", permission: "ledger:recon:read", public: false },
   "GET /v1/ledger/reports/aged": { tag: "ledger", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/balance-sheet": { tag: "ledger", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/chart-of-accounts": { tag: "ledger", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", public: false },
@@ -3555,6 +3642,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/north/decisions/{id}": { tag: "north", summary: "Update a decision", permission: "north:decisions:write", public: false },
   "DELETE /v1/north/decisions/{id}": { tag: "north", summary: "Soft-delete a decision", permission: "north:decisions:write", public: false },
   "POST /v1/north/explore": { tag: "north", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", public: false },
+  "GET /v1/north/forecast": { tag: "north", summary: "Project a metric forward from its closed snapshots — damped Holt, p10/p50/p90, with the fitted parameters", permission: "north:forecasts:read", public: false },
   "GET /v1/north/metrics": { tag: "north", summary: "List metrics", permission: "north:metrics:read", public: false },
   "POST /v1/north/metrics": { tag: "north", summary: "Create a metric", permission: "north:metrics:write", public: false },
   "GET /v1/north/metrics/{id}": { tag: "north", summary: "Fetch one metric", permission: "north:metrics:read", public: false },
@@ -3566,6 +3654,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/north/scenarios/{id}": { tag: "north", summary: "Update a scenario", permission: "north:scenarios:run", public: false },
   "GET /v1/north/snapshots": { tag: "north", summary: "List snapshots", permission: "north:snapshots:read", public: false },
   "GET /v1/north/snapshots/{id}": { tag: "north", summary: "Fetch one snapshot", permission: "north:snapshots:read", public: false },
+  "POST /v1/north/snapshots/{id}/verify": { tag: "north", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", public: false },
   "POST /v1/north/snapshotter/run": { tag: "north", summary: "Force the NORTH metric snapshot and anomaly scan now (also runs on the scheduled tick)", permission: "north:snapshots:run", public: false },
   "POST /v1/onboarding/agreements": { tag: "onboarding", summary: "Draft the next version of a partner agreement", permission: "dist:agreements:write", public: false },
   "POST /v1/onboarding/agreements/{id}/send": { tag: "onboarding", summary: "Send a drafted agreement for signature", permission: "dist:agreements:write", public: false },
@@ -3593,8 +3682,12 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/orbit/conversations": { tag: "orbit", summary: "Create a conversation", permission: "orbit:conversations:reply", public: false },
   "GET /v1/orbit/conversations/{id}": { tag: "orbit", summary: "Fetch one conversation", permission: "orbit:conversations:read", public: false },
   "PATCH /v1/orbit/conversations/{id}": { tag: "orbit", summary: "Update a conversation", permission: "orbit:conversations:assign", public: false },
+  "POST /v1/orbit/conversations/{id}/deflect": { tag: "orbit", summary: "Try to answer this conversation's question from the knowledge base; the result says whether it did", permission: "orbit:ai:invoke", public: false },
+  "POST /v1/orbit/conversations/{id}/macro": { tag: "orbit", summary: "Send a canned reply into the conversation, in the language the conversation is in", permission: "orbit:conversations:reply", public: false },
   "POST /v1/orbit/conversations/{id}/reply": { tag: "orbit", summary: "Send a reply out over the conversation's channel connector", permission: "orbit:messages:send", public: false },
   "POST /v1/orbit/conversations/{id}/turns": { tag: "orbit", summary: "Append a turn to a conversation, checkpointed to orbit_messages", permission: "orbit:messages:send", public: false },
+  "GET /v1/orbit/deflections": { tag: "orbit", summary: "List deflections", permission: "orbit:conversations:read", public: false },
+  "GET /v1/orbit/deflections/{id}": { tag: "orbit", summary: "Fetch one deflection", permission: "orbit:conversations:read", public: false },
   "POST /v1/orbit/drafts/sweep": { tag: "orbit", summary: "Force the AI reply-draft sweep now — drafts a pending agent_ai reply for every conversation waiting on us (also runs on the scheduled tick)", permission: "orbit:ai:invoke", public: false },
   "GET /v1/orbit/handover-notes": { tag: "orbit", summary: "List handover-notes", permission: "orbit:handover:read", public: false },
   "POST /v1/orbit/handover-notes": { tag: "orbit", summary: "Create a handover note", permission: "orbit:handover:write", public: false },
@@ -3605,9 +3698,23 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/orbit/journey-runs/{id}": { tag: "orbit", summary: "Fetch one journey run", permission: "orbit:journeys:read", public: false },
   "GET /v1/orbit/journeys": { tag: "orbit", summary: "List journeys", permission: "orbit:journeys:read", public: false },
   "POST /v1/orbit/journeys": { tag: "orbit", summary: "Create a journey", permission: "orbit:journeys:write", public: false },
+  "POST /v1/orbit/journeys/sweep": { tag: "orbit", summary: "Force the journey advance step now — elapsed waits, closed tasks and lifted quiet-hours deferrals (also runs on the scheduled tick)", permission: "orbit:journeys:publish", public: false },
   "GET /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Fetch one journey", permission: "orbit:journeys:read", public: false },
   "PATCH /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Update a journey", permission: "orbit:journeys:write", public: false },
   "DELETE /v1/orbit/journeys/{id}": { tag: "orbit", summary: "Soft-delete a journey", permission: "orbit:journeys:write", public: false },
+  "POST /v1/orbit/journeys/{id}/trigger": { tag: "orbit", summary: "Enrol a cohort in a journey by hand; the normal path is the event bus", permission: "orbit:journeys:publish", public: false },
+  "GET /v1/orbit/kb-articles": { tag: "orbit", summary: "List kb-articles", permission: "orbit:kb:read", public: false },
+  "POST /v1/orbit/kb-articles": { tag: "orbit", summary: "Create a kb article", permission: "orbit:kb:write", public: false },
+  "GET /v1/orbit/kb-articles/{id}": { tag: "orbit", summary: "Fetch one kb article", permission: "orbit:kb:read", public: false },
+  "PATCH /v1/orbit/kb-articles/{id}": { tag: "orbit", summary: "Update a kb article", permission: "orbit:kb:write", public: false },
+  "DELETE /v1/orbit/kb-articles/{id}": { tag: "orbit", summary: "Soft-delete a kb article", permission: "orbit:kb:write", public: false },
+  "POST /v1/orbit/kb/articles/{id}/publish": { tag: "orbit", summary: "Publish a knowledge-base article and embed it — the act that makes it answerable to a customer", permission: "orbit:kb:publish", public: false },
+  "POST /v1/orbit/kb/search": { tag: "orbit", summary: "What the knowledge base has on a question, best answer first (POST so a customer's own words stay out of access logs)", permission: "orbit:kb:read", public: false },
+  "GET /v1/orbit/macros": { tag: "orbit", summary: "List macros", permission: "orbit:macros:read", public: false },
+  "POST /v1/orbit/macros": { tag: "orbit", summary: "Create a macro", permission: "orbit:macros:write", public: false },
+  "GET /v1/orbit/macros/{id}": { tag: "orbit", summary: "Fetch one macro", permission: "orbit:macros:read", public: false },
+  "PATCH /v1/orbit/macros/{id}": { tag: "orbit", summary: "Update a macro", permission: "orbit:macros:write", public: false },
+  "DELETE /v1/orbit/macros/{id}": { tag: "orbit", summary: "Soft-delete a macro", permission: "orbit:macros:write", public: false },
   "GET /v1/orbit/messages": { tag: "orbit", summary: "List messages", permission: "orbit:messages:read", public: false },
   "POST /v1/orbit/messages": { tag: "orbit", summary: "Create a message", permission: "orbit:messages:send", public: false },
   "GET /v1/orbit/messages/{id}": { tag: "orbit", summary: "Fetch one message", permission: "orbit:messages:read", public: false },
@@ -3673,6 +3780,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/portal/{tenantSlug}/track": { tag: "portal", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP", permission: null, public: true },
   "GET /v1/realtime": { tag: "realtime", summary: "Server-Sent Events stream of the caller's own live updates", permission: null, public: false },
   "GET /v1/scout/clusters": { tag: "scout", summary: "List clusters", permission: "scout:clusters:read", public: false },
+  "POST /v1/scout/clusters/sweep": { tag: "scout", summary: "Run the Clusterer over the persisted signal corpus: places each signal against the market embedding index, re-scores momentum, stamps cluster ids", permission: "scout:clusters:build", public: false },
   "GET /v1/scout/clusters/{id}": { tag: "scout", summary: "Fetch one cluster", permission: "scout:clusters:read", public: false },
   "GET /v1/scout/data-products": { tag: "scout", summary: "List data-products", permission: "scout:data_products:read", public: false },
   "POST /v1/scout/data-products": { tag: "scout", summary: "Create a data product", permission: "scout:data_products:create", public: false },
@@ -3680,6 +3788,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/scout/data-products/{id}": { tag: "scout", summary: "Update a data product", permission: "scout:data_products:publish", public: false },
   "GET /v1/scout/panel-bench": { tag: "scout", summary: "List panel-bench", permission: "scout:panel_bench:read", public: false },
   "GET /v1/scout/panel-bench/negotiation-pack": { tag: "scout", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", public: false },
+  "POST /v1/scout/panel-bench/sweep": { tag: "scout", summary: "Run the Bench Builder: rebuild every provider x line x month cell from the panel's own quote outcomes", permission: "scout:panel_bench:build", public: false },
   "GET /v1/scout/panel-bench/{id}": { tag: "scout", summary: "Fetch one panel bench", permission: "scout:panel_bench:read", public: false },
   "GET /v1/scout/scout-experiments": { tag: "scout", summary: "List scout-experiments", permission: "scout:experiments:read", public: false },
   "POST /v1/scout/scout-experiments": { tag: "scout", summary: "Create a scout experiment", permission: "scout:experiments:create", public: false },
@@ -3687,8 +3796,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/scout/scout-experiments/{id}": { tag: "scout", summary: "Update a scout experiment", permission: "scout:experiments:decide", public: false },
   "GET /v1/scout/signals": { tag: "scout", summary: "List signals", permission: "scout:signals:read", public: false },
   "POST /v1/scout/signals": { tag: "scout", summary: "Create a signal", permission: "scout:signals:ingest", public: false },
+  "POST /v1/scout/signals/harvest": { tag: "scout", summary: "Run the Harvester: every registered signal source, plus any fed items, recorded once per (source, sourceRef)", permission: "scout:signals:ingest", public: false },
   "POST /v1/scout/signals/similar": { tag: "scout", summary: "Nearest signals to a phrase, from the market embedding index", permission: "scout:signals:read", public: false },
   "GET /v1/scout/signals/{id}": { tag: "scout", summary: "Fetch one signal", permission: "scout:signals:read", public: false },
+  "GET /v1/scout/sources": { tag: "scout", summary: "The registered signal sources — id, kind, and whether the adapter leaves LYRA (none do today, ADR-0078)", permission: "scout:signals:read", public: false },
+  "GET /v1/scout/watch": { tag: "scout", summary: "Competitor and regulatory watch: each watched subject's window scored against the one before it", permission: "scout:signals:read", public: false },
   "GET /v1/scout/whitespaces": { tag: "scout", summary: "List whitespaces", permission: "scout:whitespaces:read", public: false },
   "GET /v1/scout/whitespaces/commentary": { tag: "scout", summary: "Why each live whitespace is whitespace: the cached one-line commentary plus the evidence it was grounded against, for every candidate at once (the Radar's hover prefetch)", permission: "scout:whitespaces:read", public: false },
   "POST /v1/scout/whitespaces/compute": { tag: "scout", summary: "Run the whitespace sweep now against real quote demand vs. policy coverage", permission: "scout:whitespaces:promote", public: false },

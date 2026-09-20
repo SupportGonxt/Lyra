@@ -6,6 +6,10 @@ import { sweepPolicyLifecycle } from "./engines/axis-lifecycle.js";
 import { sweepPremiumFinancing } from "./engines/premium-financing.js";
 import { sweepRenewals } from "./engines/renewals.js";
 import { sweepRouting } from "./engines/orbit-routing.js";
+import { advanceJourneyRuns } from "./engines/orbit-journeys.js";
+import { harvestSignals } from "./engines/scout-ingest.js";
+import { sweepSignalClusters } from "./engines/scout-cluster.js";
+import { sweepPanelBench } from "./engines/scout-bench.js";
 import { sweepBilling } from "./engines/billing.js";
 import { sweepConversationDrafts } from "./engines/orbit-draft.js";
 import { runSnapshotter } from "./engines/north-snapshotter.js";
@@ -15,6 +19,7 @@ import { nudgeApiKeyRotation } from "./engines/api-key-rotation.js";
 import { runBudgetAutopilot } from "./engines/signal-autopilot.js";
 import { runAcquisitionSweep } from "./engines/signal-outreach.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
+import { sweepAiDrift } from "./engines/ai-drift.js";
 import { expireDelegations } from "./engines/staff.js";
 import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions } from "./auth.js";
 import { mountAll } from "./crud.js";
@@ -207,6 +212,11 @@ export default {
             // agent went quiet, requeued — before anything else touches assignment
             // state this tick.
             await sweepRouting(ctx);
+            // docs/27 F30. Walks every journey run whose wait has elapsed, whose
+            // task has closed or whose quiet-hours deferral has lifted. After
+            // sweepRouting, because a `task` node raises a conversation this
+            // tick that the next tick's routing sweep should see.
+            await advanceJourneyRuns(ctx);
             await sweepBilling(ctx);
             await runBudgetAutopilot(ctx);
             // Acquisition outreach (engines/signal-outreach.ts): draft →
@@ -240,6 +250,24 @@ export default {
             if (isBackupWindow) await nudgeApiKeyRotation(ctx);
             // docs/modules/north.md §3 Snapshotter: nightly, 02:00Z per seed.ts's timing model (ADR-0024).
             if (isBackupWindow) await runSnapshotter(ctx);
+            // docs/modules/scout.md §3. Harvester "schedules per source" and
+            // Bench Builder "nightly" run in the same window; the Clusterer is
+            // weekly, so it gates on the day as well as the hour. All three are
+            // idempotent, so a tick that runs twice writes the same rows — and
+            // the harvest takes a week's lookback rather than the route's six
+            // months, because only the first run would ever need the rest.
+            if (isBackupWindow) {
+              await harvestSignals(ctx, gatewayFor(env), env, { lookbackMs: 7 * 86_400_000 });
+              await sweepPanelBench(ctx);
+              if (nowDate.getUTCDay() === 1) await sweepSignalClusters(ctx, gatewayFor(env), env);
+            }
+            // docs/12 §4 / docs/13 §3.5, docs/27 F47: re-score a sample of this
+            // week's real traffic against the deterministic gates, per locale,
+            // so a model or prompt that drifted is visible beside the eval suite
+            // it drifted from. Offered a tick a night; the sweep's own week
+            // guard is what makes it weekly, so the cadence lives with the job
+            // rather than in the shape of this condition.
+            if (isBackupWindow) await sweepAiDrift(ctx);
           } catch (err) {
             console.error("scheduled tick failed for tenant", {
               tenantId,

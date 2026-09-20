@@ -263,96 +263,133 @@ describe("runSnapshotter: alert rules", () => {
   });
 });
 
+// docs/27 F48. Every test here pins ctx.now to a fixed calendar date rather
+// than deriving it from the wall clock: the behaviour under test is *which
+// period is compared against which*, and a suite that runs differently on the
+// 1st of a month cannot hold that.
 describe("runSnapshotter: anomaly detection", () => {
-  it("flags a new anomaly when a metric swings hard between two runs", async () => {
-    await seedMetric("gwp", "month");
-    await seedProviderAndCustomer();
+  const MAR_1 = Date.UTC(2026, 2, 1);
+  const MAR_2 = Date.UTC(2026, 2, 2);
+  const MAR_3 = Date.UTC(2026, 2, 3);
+  const FEB_1 = Date.UTC(2026, 1, 1);
+  const NIGHTLY = 2 * 3_600_000; // the 02:00 UTC backup window index.ts runs in
 
-    // First run: one policy this month, in the past relative to ctx.now.
-    await ctx.db.insert(schema.axisPolicies).values({
-      id: "pol_small",
-      tenantId: ctx.tenantId,
-      customerId: "cu_1",
-      providerId: "prov_1",
-      policyNo: "P-1",
-      startAt: NOW - DAY,
-      endAt: NOW + 365 * DAY,
-      premiumMinor: 1_000,
-      currency: "AED",
-      status: "active",
-      createdAt: NOW - DAY,
-      updatedAt: NOW - DAY
-    });
-    await runSnapshotter(ctx);
-
-    // Second tick, same month: a huge additional policy blows the total up.
-    // createdAt is set just before ctx.now, matching real usage — `until` is
-    // an exclusive "now" bound, so a row created exactly at ctx.now would
-    // never be included.
-    ctx.now = NOW + 3_600_000;
-    await ctx.db.insert(schema.axisPolicies).values({
-      id: "pol_huge",
-      tenantId: ctx.tenantId,
-      customerId: "cu_1",
-      providerId: "prov_1",
-      policyNo: "P-2",
-      startAt: ctx.now - 1,
-      endAt: ctx.now + 365 * DAY,
-      premiumMinor: 10_000_000,
-      currency: "AED",
-      status: "active",
-      createdAt: ctx.now - 1,
-      updatedAt: ctx.now - 1
-    });
-    const result = await runSnapshotter(ctx);
-    expect(result.anomalies).toBe(1);
-
-    const [anomaly] = await ctx.db
-      .select()
-      .from(schema.northAnomalies)
-      .where(and(eq(schema.northAnomalies.tenantId, ctx.tenantId), eq(schema.northAnomalies.metricKey, "gwp")));
-    expect(anomaly!.state).toBe("new");
-    expect(anomaly!.magnitude).toBeGreaterThan(0);
+  const policy = (id: string, premiumMinor: number, at: number, channelId?: string) => ({
+    id,
+    tenantId: "t_1",
+    customerId: "cu_1",
+    providerId: "prov_1",
+    policyNo: id,
+    ...(channelId ? { channelId } : {}),
+    startAt: at,
+    endAt: at + 365 * DAY,
+    premiumMinor,
+    currency: "AED",
+    status: "active" as const,
+    createdAt: at,
+    updatedAt: at
   });
 
-  it("decomposes the swing into the channel that caused it", async () => {
-    await seedMetric("gwp", "month");
+  it("fires at day grain against the day before — the grain that could never fire at all", async () => {
+    await seedMetric("policies_issued", "day");
     await seedProviderAndCustomer();
+    await ctx.db.insert(schema.axisPolicies).values(policy("pol_quiet", 1_000, MAR_1 + 6 * 3_600_000));
 
-    const policy = (id: string, channelId: string, premiumMinor: number, at: number) => ({
-      id,
-      tenantId: ctx.tenantId,
-      customerId: "cu_1",
-      providerId: "prov_1",
-      policyNo: id,
-      channelId,
-      startAt: at,
-      endAt: at + 365 * DAY,
-      premiumMinor,
-      currency: "AED",
-      status: "active" as const,
-      createdAt: at,
-      updatedAt: at
-    });
+    // Night of the 2nd: yesterday is 2026-03-01, one policy.
+    ctx.now = MAR_2 + NIGHTLY;
+    expect((await runSnapshotter(ctx)).anomalies).toBe(0); // nothing to compare against yet
 
-    // Two channels, evenly split — nothing to explain yet.
     await ctx.db
       .insert(schema.axisPolicies)
-      .values([policy("pol_web", "ch_web", 1_000_000, NOW - DAY), policy("pol_brk", "ch_broker", 1_000_000, NOW - DAY)]);
-    await runSnapshotter(ctx);
+      .values([2, 3, 4, 5, 6, 7].map((n) => policy(`pol_busy_${n}`, 1_000, MAR_2 + n * 3_600_000)));
 
-    // Broker channel alone blows the month up.
-    ctx.now = NOW + 3_600_000;
-    await ctx.db.insert(schema.axisPolicies).values(policy("pol_brk2", "ch_broker", 10_000_000, ctx.now - 1));
-    await runSnapshotter(ctx);
+    // Night of the 3rd: yesterday is 2026-03-02, six policies against one.
+    ctx.now = MAR_3 + NIGHTLY;
+    expect((await runSnapshotter(ctx)).anomalies).toBe(1);
 
     const [anomaly] = await ctx.db
       .select()
       .from(schema.northAnomalies)
-      .where(and(eq(schema.northAnomalies.tenantId, ctx.tenantId), eq(schema.northAnomalies.metricKey, "gwp")));
+      .where(and(eq(schema.northAnomalies.tenantId, ctx.tenantId), eq(schema.northAnomalies.metricKey, "policies_issued")));
+    expect(anomaly!.window).toBe("2026-03-02");
+    expect(anomaly!.expected).toBe(1);
+    expect(anomaly!.actual).toBe(6);
+    expect(anomaly!.magnitude).toBe(50_000);
+    expect(JSON.parse(anomaly!.driverAnalysisJson ?? "null")?.baseline).toBe("prior_period");
+  });
+
+  it("does not cry wolf at a month's fresh month-to-date row", async () => {
+    await seedMetric("gwp", "month");
+    await seedProviderAndCustomer();
+
+    await ctx.db.insert(schema.axisPolicies).values(policy("pol_day1", 1_000, MAR_1 + 3_600_000));
+    ctx.now = MAR_1 + 12 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    // Day two of the month adds ten thousand times day one. Month-to-date
+    // against yesterday's month-to-date is a 10 000x move; against the actual
+    // prior period it is not a comparison that exists yet.
+    await ctx.db.insert(schema.axisPolicies).values(policy("pol_day2", 10_000_000, MAR_2 + 3_600_000));
+    ctx.now = MAR_2 + 12 * 3_600_000;
+    const result = await runSnapshotter(ctx);
+
+    expect(result.anomalies).toBe(0);
+    const [mtd] = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.period, "2026-03")));
+    expect(mtd!.value).toBe(10_001_000); // still written — the Today screen reads it
+    expect(await ctx.db.select().from(schema.northAnomalies)).toHaveLength(0);
+  });
+
+  it("fires at month grain once, on the first run after the month closed", async () => {
+    await seedMetric("gwp", "month");
+    await seedProviderAndCustomer();
+    await ctx.db.insert(schema.axisPolicies).values([
+      policy("pol_jan", 10_000_000, Date.UTC(2026, 0, 14)),
+      policy("pol_feb", 1_000_000, Date.UTC(2026, 1, 14))
+    ]);
+
+    // Night of 1 February: January is over, February is one hour old.
+    ctx.now = FEB_1 + NIGHTLY;
+    expect((await runSnapshotter(ctx)).anomalies).toBe(0);
+
+    // Night of 1 March: February has closed and is 90% down on January.
+    ctx.now = MAR_1 + NIGHTLY;
+    expect((await runSnapshotter(ctx)).anomalies).toBe(1);
+
+    const [anomaly] = await ctx.db.select().from(schema.northAnomalies);
+    expect(anomaly!.window).toBe("2026-02");
+    expect(anomaly!.expected).toBe(10_000_000);
+    expect(anomaly!.actual).toBe(1_000_000);
+    expect(anomaly!.magnitude).toBe(-9_000);
+
+    // And not again the next night: the same closed month, already flagged.
+    ctx.now = MAR_2 + NIGHTLY;
+    expect((await runSnapshotter(ctx)).anomalies).toBe(0);
+  });
+
+  it("decomposes the closed month's swing into the channel that caused it", async () => {
+    await seedMetric("gwp", "month");
+    await seedProviderAndCustomer();
+    await ctx.db.insert(schema.axisPolicies).values([
+      policy("pol_web_jan", 1_000_000, Date.UTC(2026, 0, 10), "ch_web"),
+      policy("pol_brk_jan", 1_000_000, Date.UTC(2026, 0, 11), "ch_broker"),
+      policy("pol_web_feb", 1_000_000, Date.UTC(2026, 1, 10), "ch_web"),
+      policy("pol_brk_feb", 11_000_000, Date.UTC(2026, 1, 11), "ch_broker")
+    ]);
+
+    ctx.now = FEB_1 + NIGHTLY; // closes January: 2m, evenly split
+    await runSnapshotter(ctx);
+    ctx.now = MAR_1 + NIGHTLY; // closes February: 12m, broker alone moved
+    await runSnapshotter(ctx);
+
+    const [anomaly] = await ctx.db.select().from(schema.northAnomalies);
     const analysis = JSON.parse(anomaly!.driverAnalysisJson ?? "null") as {
+      baseline: string;
       drivers: Array<{ dimension: string; key: string; contributionBps: number }>;
     };
+    expect(analysis.baseline).toBe("prior_period");
     expect(analysis.drivers[0]).toEqual({ dimension: "channel", key: "ch_broker", contributionBps: 50_000 });
     // The decomposition has to add up to the move it explains.
     const total = analysis.drivers.reduce((sum, d) => sum + d.contributionBps, 0);
@@ -362,10 +399,38 @@ describe("runSnapshotter: anomaly detection", () => {
     const slices = await ctx.db
       .select()
       .from(schema.northSnapshots)
-      .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.dimsHash, "channel=ch_broker")));
+      .where(
+        and(
+          eq(schema.northSnapshots.tenantId, ctx.tenantId),
+          eq(schema.northSnapshots.dimsHash, "channel=ch_broker"),
+          eq(schema.northSnapshots.period, "2026-02")
+        )
+      );
     expect(slices).toHaveLength(1);
     expect(slices[0]!.value).toBe(11_000_000);
     expect(JSON.parse(slices[0]!.dimsJson ?? "null")).toEqual({ channel: "ch_broker" });
+  });
+
+  it("closes the month that ended even when the run is the first of a new month", async () => {
+    await seedMetric("gwp", "month");
+    await seedProviderAndCustomer();
+    await ctx.db.insert(schema.axisPolicies).values([
+      policy("pol_feb", 5_000_000, Date.UTC(2026, 1, 20)),
+      policy("pol_mar", 7_000, MAR_1 + 3_600_000)
+    ]);
+
+    // 1 March, an hour after the month's first contract: yesterday is 28
+    // February, so this one run has both months to write.
+    ctx.now = MAR_1 + 2 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    const rows = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.dimsHash, "")));
+    // February is written whole, not left at whatever the last run inside it saw.
+    expect(rows.find((r) => r.period === "2026-02")!.value).toBe(5_000_000);
+    expect(rows.find((r) => r.period === "2026-03")!.value).toBe(7_000);
   });
 });
 
@@ -668,6 +733,117 @@ describe("runSnapshotter: combined_ratio", () => {
   });
 });
 
+// docs/27 F49: the briefing narrates net commission, and `verifyNumericClaims`
+// confirms the prose matches the snapshot. It did. The bug was in the number:
+// a sum of `axis_policies.commission_minor` is gross of the channel's share,
+// blind to every clawback, and ties to nothing in the trial balance.
+describe("runSnapshotter: net_commission reads the ledger", () => {
+  const FEB_14 = Date.UTC(2026, 1, 14);
+  const MAR_1 = Date.UTC(2026, 2, 1);
+
+  const jline = (id: string, code: string, side: "debit" | "credit", amountMinor: number, postedAt: number, channel?: string) => ({
+    id,
+    tenantId: "t_1",
+    batchId: `b_${id}`,
+    txnId: `tx_${id}`,
+    seq: 1,
+    accountCode: code,
+    side,
+    amountMinor,
+    currency: "AED",
+    baseAmountMinor: amountMinor,
+    baseCurrency: "AED",
+    ...(channel ? { dimsJson: JSON.stringify({ channel }) } : {}),
+    postedAt
+  });
+
+  beforeEach(async () => {
+    await seedMetric("net_commission", "month");
+    await seedProviderAndCustomer();
+    // The figure the old compute would have returned: gross, un-clawed-back.
+    await ctx.db.insert(schema.axisPolicies).values({
+      id: "pol_1",
+      tenantId: ctx.tenantId,
+      customerId: "cu_1",
+      providerId: "prov_1",
+      policyNo: "P-1",
+      channelId: "ch_web",
+      startAt: FEB_14,
+      endAt: FEB_14 + 365 * DAY,
+      premiumMinor: 1_000_000,
+      commissionMinor: 900_000,
+      currency: "AED",
+      status: "active",
+      createdAt: FEB_14,
+      updatedAt: FEB_14
+    });
+  });
+
+  it("is our share of the commission, net of the channel's and net of a clawback", async () => {
+    await ctx.db.insert(schema.ledgerJournalLines).values([
+      jline("c1", "1100", "debit", 100_000, FEB_14, "ch_web"),
+      jline("c2", "4000", "credit", 70_000, FEB_14, "ch_web"),
+      jline("c3", "2100", "credit", 30_000, FEB_14, "ch_web"), // the channel's 30%, never ours
+      // Cooling-off cancellation, posted as a contra batch a week later.
+      jline("c4", "4000", "debit", 20_000, FEB_14 + 7 * DAY, "ch_web"),
+      jline("c5", "2100", "debit", 8_000, FEB_14 + 7 * DAY, "ch_web")
+    ]);
+
+    ctx.now = MAR_1 + 2 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    const rows = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.metricKey, "net_commission")));
+    const february = rows.find((r) => r.period === "2026-02" && r.dimsHash === "");
+    expect(february!.value).toBe(50_000); // 70,000 earned less 20,000 clawed back
+  });
+
+  it("decomposes by the channel the ledger line was stamped with", async () => {
+    await ctx.db.insert(schema.ledgerJournalLines).values([
+      jline("w1", "4000", "credit", 40_000, FEB_14, "ch_web"),
+      jline("b1", "4000", "credit", 60_000, FEB_14, "ch_broker"),
+      jline("b2", "2100", "credit", 25_000, FEB_14, "ch_broker")
+    ]);
+
+    ctx.now = MAR_1 + 2 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    const slices = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(
+        and(
+          eq(schema.northSnapshots.tenantId, ctx.tenantId),
+          eq(schema.northSnapshots.metricKey, "net_commission"),
+          eq(schema.northSnapshots.period, "2026-02")
+        )
+      );
+    expect(slices.find((s) => s.dimsHash === "channel=ch_web")!.value).toBe(40_000);
+    expect(slices.find((s) => s.dimsHash === "channel=ch_broker")!.value).toBe(60_000);
+    // The slices are the grand total cut up, so they have to add back to it.
+    expect(slices.find((s) => s.dimsHash === "")!.value).toBe(100_000);
+  });
+
+  it("a month the ledger recorded no commission in is a zero, not the policy table's opinion", async () => {
+    ctx.now = MAR_1 + 2 * 3_600_000;
+    await runSnapshotter(ctx);
+
+    const [february] = await ctx.db
+      .select()
+      .from(schema.northSnapshots)
+      .where(
+        and(
+          eq(schema.northSnapshots.tenantId, ctx.tenantId),
+          eq(schema.northSnapshots.metricKey, "net_commission"),
+          eq(schema.northSnapshots.period, "2026-02"),
+          eq(schema.northSnapshots.dimsHash, "")
+        )
+      );
+    expect(february!.value).toBe(0);
+  });
+});
 describe("runSnapshotter: gross_written_premium / net_written_premium", () => {
   it("sums premium+tax+fees for gross, premium only for net, filtered by effectiveFrom in period", async () => {
     await seedMetric("gross_written_premium", "day");

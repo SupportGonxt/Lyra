@@ -61,7 +61,9 @@ beforeEach(async () => {
 describe("APPROVAL_POLICIES", () => {
   it("defines the exact catalogue docs/19 §7 requires", () => {
     expect(APPROVAL_POLICIES).toEqual({
-      "ledger.refund": { key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00 },
+      // neverAutoApprove: docs/19 §7 puts a floor under any tenant setting for
+      // anything that issues a payout, and REFUND-ISSUE is one (docs/27 F22).
+      "ledger.refund": { key: "ledger.refund", module: "ledger", decide: "ledger:payments:refund", dualControl: "above_threshold", defaultThresholdMinor: 500_00, neverAutoApprove: true },
       "ledger.payout": { key: "ledger.payout", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true },
       "ledger.client_money_transfer": { key: "ledger.client_money_transfer", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true },
       "ledger.partner_settlement": { key: "ledger.partner_settlement", module: "ledger", decide: "ledger:payouts:approve", dualControl: "always", neverAutoApprove: true },
@@ -70,6 +72,7 @@ describe("APPROVAL_POLICIES", () => {
       "ledger.manual_journal": { key: "ledger.manual_journal", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true },
       "ledger.opening_balance": { key: "ledger.opening_balance", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true },
       "ledger.year_end_close": { key: "ledger.year_end_close", module: "ledger", decide: "ledger:periods:year_end", dualControl: "always", neverAutoApprove: true },
+      "ledger.write_off": { key: "ledger.write_off", module: "ledger", decide: "ledger:journals:post", dualControl: "always", neverAutoApprove: true },
       "ledger.period_close_force": { key: "ledger.period_close_force", module: "ledger", decide: "ledger:periods:force_close", dualControl: "always", neverAutoApprove: true },
       "ledger.period_reopen": { key: "ledger.period_reopen", module: "ledger", decide: "ledger:periods:reopen", dualControl: "always", neverAutoApprove: true },
       "ledger.remit": { key: "ledger.remit", module: "ledger", decide: "ledger:client_money:transfer", dualControl: "always", neverAutoApprove: true },
@@ -109,12 +112,17 @@ describe("APPROVAL_POLICIES", () => {
       "signal.boost": { key: "signal.boost", module: "signal", decide: "signal:campaigns:update", dualControl: "never" },
       "signal.creator_brief": { key: "signal.creator_brief", module: "signal", decide: "signal:creatives:approve", dualControl: "never" },
       "signal.outreach_send": { key: "signal.outreach_send", module: "signal", decide: "signal:outreach:send", dualControl: "never" },
+      "orbit.renewal_offer": { key: "orbit.renewal_offer", module: "orbit", decide: "orbit:renewals:approve", dualControl: "never" },
+      "orbit.document_send": { key: "orbit.document_send", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" },
       "scout.whitespace_promote": { key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" },
       "core.impersonate": { key: "core.impersonate", module: "core", decide: "core:impersonate:use", dualControl: "always", neverAutoApprove: true },
       "core.mandate_register": { key: "core.mandate_register", module: "core", decide: "core:api_keys:create", dualControl: "always", neverAutoApprove: true },
       "core.unmasked_export": { key: "core.unmasked_export", module: "core", decide: "analytics:exports:unmasked", dualControl: "always", neverAutoApprove: true },
       "compliance.erasure": { key: "compliance.erasure", module: "core", decide: "compliance:erasure:execute", dualControl: "always", neverAutoApprove: true },
       "compliance.legal_hold_release": { key: "compliance.legal_hold_release", module: "core", decide: "compliance:legal_holds:write", dualControl: "always", neverAutoApprove: true },
+      // docs/16 H8 / docs/27 F45 — the Shariah board's standing ruling on a
+      // takaful product, gating SURPLUS-DIST through its precondition.
+      "compliance.shariah_certify": { key: "compliance.shariah_certify", module: "core", decide: "compliance:shariah:certify", dualControl: "always", neverAutoApprove: true },
       "ai.autonomy_raise": { key: "ai.autonomy_raise", module: "ai", decide: "ai:agents:write", dualControl: "always", neverAutoApprove: true },
       "ai.prompt_publish": { key: "ai.prompt_publish", module: "ai", decide: "ai:prompts:write", dualControl: "never" },
       "ai.budget_raise": { key: "ai.budget_raise", module: "ai", decide: "ai:budgets:write", dualControl: "above_threshold" }

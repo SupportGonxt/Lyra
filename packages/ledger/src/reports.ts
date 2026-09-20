@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, account, schema } from "@lyra/db";
-import { notFound, type Ctx } from "@lyra/core";
+import { applyPpm, badRequest, notFound, type Ctx } from "@lyra/core";
+import { fxRateFor } from "./posting.js";
 
 // docs/19 §9. Every figure a finance user sees comes from here, and every one of
 // them is derived from ledger_journal_lines — the balances table is a cache we
@@ -471,8 +472,13 @@ export interface AgedRow {
 const DAY = 86_400_000;
 
 /**
- * Ageing by the `counterparty` dimension stamped on each line. Receivable
- * accounts default to the three we actually invoice against.
+ * Ageing by the `counterparty` dimension stamped on each line.
+ *
+ * @deprecated docs/27 F15 — this ages *lines by posting date*, so a settled
+ * invoice never leaves the report and a 90-day term reads as 90 days overdue.
+ * `agedOpenItems` replaces it and is what `/v1/ledger/reports/aged` serves;
+ * this stays reachable behind `?legacy=1` for one release so a controller can
+ * compare the two, and for no other reason.
  */
 export async function agedBalances(
   ctx: Ctx,
@@ -524,6 +530,366 @@ export async function agedBalances(
   return [...buckets.values()].filter((r) => r.totalMinor !== 0).sort((a, b) => b.totalMinor - a.totalMinor);
 }
 
+/* --------------------------------------------- fx revaluation (F18) */
+
+export interface FxAdjustment {
+  accountCode: string;
+  currency: string;
+  /** Open balance in the transaction currency, signed to the account's normal side. */
+  balanceMinor: number;
+  /** What the ledger currently carries this at, in base currency. */
+  carriedBaseMinor: number;
+  /** What it is worth at the closing rate. */
+  revaluedBaseMinor: number;
+  /** revalued − carried. Positive increases the account's normal side. */
+  deltaMinor: number;
+  ratePpm: number;
+}
+
+export interface FxRevaluationPlan {
+  asOf: number;
+  baseCurrency: string;
+  adjustments: FxAdjustment[];
+  /** Net income effect: gains on assets less gains on liabilities. */
+  netMinor: number;
+}
+
+/**
+ * docs/19 §5.3, "revaluation job for open receivables/payables at period end"
+ * (docs/27 F18). A read-only plan: what a revaluation *would* post, computed
+ * from the lines and the rate table, so a controller sees the number before it
+ * exists rather than after.
+ *
+ * Two exclusions, both deliberate.
+ *
+ * **The base currency.** There is nothing to revalue; the carried amount is the
+ * amount.
+ *
+ * **Client money.** A gain on `1010` would be income recognised inside client
+ * money, which docs/19 §5.2 B forbids outright — and rightly: the money is not
+ * ours, so neither is the movement in what it is worth. A tenant holding client
+ * money in a foreign currency has a segregation question, not a P&L one.
+ *
+ * Income and expense accounts are excluded for the ordinary reason: they were
+ * translated at the rate on the day of the transaction and that is where they
+ * stay. Only monetary balances — what is owed, in either direction — move.
+ */
+export async function fxRevaluationPlan(
+  ctx: Ctx,
+  opts: { asOf?: number; baseCurrency?: string } = {}
+): Promise<FxRevaluationPlan> {
+  const asOf = opts.asOf ?? ctx.now;
+  const base = opts.baseCurrency ?? ctx.policy.currency;
+  const l = schema.ledgerJournalLines;
+
+  const rows = await ctx.db
+    .select({
+      accountCode: l.accountCode,
+      currency: l.currency,
+      side: l.side,
+      amount: sql<number>`sum(${l.amountMinor})`,
+      baseAmount: sql<number>`sum(${l.baseAmountMinor})`
+    })
+    .from(l)
+    .where(and(eq(l.tenantId, ctx.tenantId), lte(l.postedAt, asOf)))
+    .groupBy(l.accountCode, l.currency, l.side);
+
+  const revaluable = (code: string): boolean => {
+    const def = account(code);
+    return Boolean(def) && (def?.type === "asset" || def?.type === "liability") && !def?.clientMoney;
+  };
+
+  const positions = new Map<string, { accountCode: string; currency: string; balance: number; carried: number }>();
+  const at = (accountCode: string, currency: string) => {
+    const k = `${accountCode}|${currency}`;
+    const p = positions.get(k) ?? { accountCode, currency, balance: 0, carried: 0 };
+    positions.set(k, p);
+    return p;
+  };
+
+  for (const r of rows) {
+    if (r.currency === base) continue;
+    if (!revaluable(r.accountCode)) continue;
+    const p = at(r.accountCode, r.currency);
+    const sign = r.side === account(r.accountCode)?.normalSide ? 1 : -1;
+    p.balance += sign * Number(r.amount);
+    p.carried += sign * Number(r.baseAmount);
+  }
+
+  // Prior revaluations post in the *base* currency against the same account, so
+  // they are invisible to the loop above — and without them every period end
+  // would report the same difference again, having already corrected it. The
+  // `revalues` dim (recipes.ts `fxRevaluation`) is what ties a base-currency
+  // adjustment back to the foreign position it belongs to.
+  const priorAdjustments = await ctx.db
+    .select({
+      accountCode: l.accountCode,
+      side: l.side,
+      baseAmountMinor: l.baseAmountMinor,
+      dimsJson: l.dimsJson
+    })
+    .from(l)
+    .where(
+      and(
+        eq(l.tenantId, ctx.tenantId),
+        lte(l.postedAt, asOf),
+        eq(l.currency, base),
+        sql`${l.dimsJson} like '%"revalues"%'`
+      )
+    );
+  for (const r of priorAdjustments) {
+    if (!revaluable(r.accountCode)) continue;
+    const dims = r.dimsJson ? (JSON.parse(r.dimsJson) as Record<string, unknown>) : {};
+    const revalues = dims["revalues"];
+    if (typeof revalues !== "string" || revalues === base) continue;
+    const p = at(r.accountCode, revalues);
+    p.carried += (r.side === account(r.accountCode)?.normalSide ? 1 : -1) * r.baseAmountMinor;
+  }
+
+  const adjustments: FxAdjustment[] = [];
+  let netMinor = 0;
+  for (const p of positions.values()) {
+    if (p.balance === 0 && p.carried === 0) continue;
+    const ratePpm = await fxRateFor(ctx, p.currency, base);
+    // Fail closed. A missing rate is not "no movement": it is a position nobody
+    // can value, and reporting it as flat would be the quiet wrong answer.
+    if (!ratePpm) {
+      throw badRequest(
+        `no fx rate on file for ${p.currency} -> ${base}; cannot revalue the open ${p.accountCode} balance`
+      );
+    }
+    const revalued = applyPpm(p.balance, ratePpm);
+    const delta = revalued - p.carried;
+    if (delta === 0) continue;
+    adjustments.push({
+      accountCode: p.accountCode,
+      currency: p.currency,
+      balanceMinor: p.balance,
+      carriedBaseMinor: p.carried,
+      revaluedBaseMinor: revalued,
+      deltaMinor: delta,
+      ratePpm
+    });
+    netMinor += account(p.accountCode)?.normalSide === "debit" ? delta : -delta;
+  }
+
+  return { asOf, baseCurrency: base, adjustments, netMinor };
+}
+
+/* ------------------------------------------------- open-item aging (F15) */
+
+/** What a customer, insurer or financier owes us. */
+export const RECEIVABLE_AGING_ACCOUNTS = ["1100", "1150", "1155", "1160", "1200"] as const;
+/** What we owe an insurer, channel, creator, supplier or the tax authority. */
+export const PAYABLE_AGING_ACCOUNTS = ["2000", "2100", "2150", "2200", "2250", "2400"] as const;
+
+export interface OpenItem {
+  /** The item's own reference: an invoice number, a policy id, a settlement run. */
+  ref: string;
+  accountCode: string;
+  /** Still outstanding, always positive whichever side of the ledger it is. */
+  openMinor: number;
+  raisedAt: number;
+  dueAt: number;
+  daysOverdue: number;
+}
+
+export interface AgedOpenItemRow {
+  counterparty: string;
+  currency: string;
+  kind: "receivable" | "payable";
+  currentMinor: number;
+  d30Minor: number;
+  d60Minor: number;
+  d90Minor: number;
+  olderMinor: number;
+  totalMinor: number;
+  items: OpenItem[];
+}
+
+/** `dims.item` is the open-item key; everything else is a fallback for old rows. */
+function itemRef(dims: Record<string, unknown>, txnId: string): string {
+  for (const k of ["item", "invoice", "policy", "settlement"]) {
+    const v = dims[k];
+    if (typeof v === "string" && v) return v;
+  }
+  // An unkeyed line is its own item. That is correct rather than convenient: two
+  // lines nobody related can only be netted by guessing, and a guess here is a
+  // debt that silently disappears from the report.
+  return txnId;
+}
+
+function counterpartyRef(dims: Record<string, unknown>): string {
+  for (const k of ["counterparty", "provider", "partner", "channel", "customer"]) {
+    const v = dims[k];
+    if (typeof v === "string" && v) return v;
+  }
+  return "unattributed";
+}
+
+/**
+ * docs/27 F15. Three faults in one report, and they are worth naming separately
+ * because the fix for each is different.
+ *
+ * **It aged lines.** A receivable raised in January and settled in February was
+ * two lines in two buckets; nothing netted them, so a fully-paid item stayed on
+ * the report forever and the totals were gross, not open. Here the unit is the
+ * *item* — lines grouped by `dims.item` — and an item that nets to zero is
+ * simply not open.
+ *
+ * **It aged by posting date.** That is when we invoiced, not when they owe. The
+ * bucket is now measured from `dims.dueAt`, falling back to the date the item
+ * was raised — a debt with no terms on file is due on demand. It deliberately
+ * does *not* fall back to "today", which would report every unpaid item as
+ * current: the friendly lie an aging report exists to prevent.
+ *
+ * **It had no payables side.** `kind: "payable"` reads the liability accounts
+ * and flips the sign, so "what do we owe and how late are we" has an answer.
+ * The two account sets are disjoint by construction (there is a test), so
+ * nothing is counted on both sides.
+ */
+export async function agedOpenItems(
+  ctx: Ctx,
+  opts: {
+    kind?: "receivable" | "payable";
+    accountCodes?: readonly string[];
+    asOf?: number;
+    currency?: string;
+    /** Items whose open balance is below this are noise; default 0 keeps all. */
+    minOpenMinor?: number;
+  } = {}
+): Promise<AgedOpenItemRow[]> {
+  const asOf = opts.asOf ?? ctx.now;
+  const kind = opts.kind ?? "receivable";
+  const codes = opts.accountCodes ?? (kind === "receivable" ? RECEIVABLE_AGING_ACCOUNTS : PAYABLE_AGING_ACCOUNTS);
+  // The side that *increases* the balance: a receivable grows on a debit, a
+  // payable on a credit. Everything on the other side reduces the item.
+  const openingSide = kind === "receivable" ? "debit" : "credit";
+
+  const l = schema.ledgerJournalLines;
+  const where = [
+    eq(l.tenantId, ctx.tenantId),
+    lte(l.postedAt, asOf),
+    sql`${l.accountCode} in (${sql.join(codes.map((c) => sql`${c}`), sql`,`)})`
+  ];
+  if (opts.currency) where.push(eq(l.currency, opts.currency));
+
+  const rows = await ctx.db
+    .select()
+    .from(l)
+    .where(and(...where))
+    .orderBy(asc(l.postedAt))
+    .limit(50_000);
+
+  interface Acc {
+    ref: string;
+    accountCode: string;
+    counterparty: string;
+    currency: string;
+    openMinor: number;
+    raisedAt: number;
+    dueAt: number | null;
+  }
+  const items = new Map<string, Acc>();
+  for (const r of rows) {
+    const dims = r.dimsJson ? (JSON.parse(r.dimsJson) as Record<string, unknown>) : {};
+    const ref = itemRef(dims, r.txnId);
+    const counterparty = counterpartyRef(dims);
+    const key = `${r.accountCode}|${r.currency}|${counterparty}|${ref}`;
+    const acc =
+      items.get(key) ??
+      ({
+        ref,
+        accountCode: r.accountCode,
+        counterparty,
+        currency: r.currency,
+        openMinor: 0,
+        raisedAt: r.postedAt,
+        dueAt: null
+      } satisfies Acc);
+    acc.openMinor += r.side === openingSide ? r.amountMinor : -r.amountMinor;
+    // The opening leg is what carries the terms and what the item was raised on.
+    if (r.side === openingSide) {
+      acc.raisedAt = Math.min(acc.raisedAt, r.postedAt);
+      const due = dims["dueAt"];
+      if (typeof due === "number" && Number.isFinite(due)) acc.dueAt = acc.dueAt === null ? due : Math.min(acc.dueAt, due);
+    }
+    items.set(key, acc);
+  }
+
+  const floor = opts.minOpenMinor ?? 0;
+  const byCounterparty = new Map<string, AgedOpenItemRow>();
+  for (const acc of items.values()) {
+    if (acc.openMinor <= floor) continue;
+    const dueAt = acc.dueAt ?? acc.raisedAt;
+    // Never negative: an item that is not due yet is zero days overdue, not
+    // minus thirty. A negative age would sort a future debt above a late one.
+    const daysOverdue = Math.max(0, Math.floor((asOf - dueAt) / DAY));
+    const k = `${acc.counterparty}|${acc.currency}`;
+    const row =
+      byCounterparty.get(k) ??
+      ({
+        counterparty: acc.counterparty,
+        currency: acc.currency,
+        kind,
+        currentMinor: 0,
+        d30Minor: 0,
+        d60Minor: 0,
+        d90Minor: 0,
+        olderMinor: 0,
+        totalMinor: 0,
+        items: []
+      } satisfies AgedOpenItemRow);
+    if (daysOverdue <= 30) row.currentMinor += acc.openMinor;
+    else if (daysOverdue <= 60) row.d30Minor += acc.openMinor;
+    else if (daysOverdue <= 90) row.d60Minor += acc.openMinor;
+    else if (daysOverdue <= 120) row.d90Minor += acc.openMinor;
+    else row.olderMinor += acc.openMinor;
+    row.totalMinor += acc.openMinor;
+    row.items.push({
+      ref: acc.ref,
+      accountCode: acc.accountCode,
+      openMinor: acc.openMinor,
+      raisedAt: acc.raisedAt,
+      dueAt,
+      daysOverdue
+    });
+    byCounterparty.set(k, row);
+  }
+
+  const out = [...byCounterparty.values()];
+  for (const row of out) row.items.sort((a, b) => b.daysOverdue - a.daysOverdue);
+  return out.sort((a, b) => b.totalMinor - a.totalMinor);
+}
+
+/**
+ * Half-open `[from, to)`, the window convention every metric compute windows
+ * on. A period code cannot express a month-to-date, and NORTH's money metrics
+ * are read through here rather than by NORTH querying journal lines itself
+ * (docs/27 F49) — so the reports take the window.
+ */
+export interface ReportWindow {
+  from: number;
+  to: number;
+}
+
+/**
+ * Expense movement (5xxx) in base currency over a window: debits less the
+ * credits that relieve them, so a corrected or reversed cost nets out. This is
+ * `profitAndLoss(...).expense.totalMinor` for an arbitrary window rather than
+ * a whole month.
+ */
+export async function expenseMovementMinor(ctx: Ctx, window: ReportWindow): Promise<number> {
+  const l = schema.ledgerJournalLines;
+  const [row] = await ctx.db
+    .select({
+      v: sql<number>`coalesce(sum(case when ${l.side} = 'debit' then ${l.baseAmountMinor} else -${l.baseAmountMinor} end), 0)`
+    })
+    .from(l)
+    .where(and(eq(l.tenantId, ctx.tenantId), sql`${l.accountCode} like '5%'`, gte(l.postedAt, window.from), lt(l.postedAt, window.to)));
+  return row?.v ?? 0;
+}
+
 export interface CommissionByDimension {
   dimension: string;
   value: string;
@@ -541,13 +907,19 @@ export interface CommissionByDimension {
 export async function commissionByDimension(
   ctx: Ctx,
   dimension: string,
-  opts: { periodCode?: string } = {}
+  opts: { periodCode?: string; window?: ReportWindow } = {}
 ): Promise<CommissionByDimension[]> {
   const l = schema.ledgerJournalLines;
-  const where = [eq(l.tenantId, ctx.tenantId), sql`${l.accountCode} like '40%' or ${l.accountCode} = '2100'`];
+  // Parenthesised, and that is load-bearing: `AND` binds tighter than `OR`, so
+  // an unbracketed `tenant AND code like '40%' or code = '2100' AND window`
+  // parses as `(tenant AND 40%) OR (2100 AND window)` — every commission line
+  // the tenant ever posted, whatever window was asked for.
+  const where = [eq(l.tenantId, ctx.tenantId), sql`(${l.accountCode} like '40%' or ${l.accountCode} = '2100')`];
   if (opts.periodCode) {
     const w = periodWindow(opts.periodCode);
     where.push(gte(l.postedAt, w.from), lte(l.postedAt, w.to));
+  } else if (opts.window) {
+    where.push(gte(l.postedAt, opts.window.from), lt(l.postedAt, opts.window.to));
   }
   const rows = await ctx.db
     .select()

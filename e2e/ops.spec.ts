@@ -112,9 +112,11 @@ test("J-O3 finance controller runs a reconciliation and decides an exception wit
   // The statement is pasted as the counterparty exported it — reference,
   // amount, our reference — and the amount is read in the currency's own
   // precision (docs/ui.md §7 P3-16), so 5000.50 AED is 500050 minor units.
-  await page
-    .getByLabel("Statement lines*", { exact: true })
-    .fill(`${statementRef},5000.50,${naturalKey}`);
+  // docs/27 F16 gave this screen a real file-upload alternative to the paste
+  // (CAMT/MT940/OFX), so paste and file are now alternatives rather than the
+  // one required input — neither carries a `required` asterisk of its own,
+  // and the label reads "Statement lines" without one.
+  await page.getByLabel("Statement lines", { exact: true }).fill(`${statementRef},5000.50,${naturalKey}`);
   await page.getByRole("button", { name: "Start run" }).click();
   await confirmAction(page);
   // The run itself matches every statement line against the ledger inside the

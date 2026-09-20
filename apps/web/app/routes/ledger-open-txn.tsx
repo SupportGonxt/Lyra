@@ -359,6 +359,14 @@ function ArgInput({
     >
       {money ? (
         <MoneyField name={name} currency={currency} locale={locale} required={field.required} />
+      ) : field.options?.length ? (
+        // A closed set the recipe declared: offering it as free text is how a
+        // required enum becomes a 400 the operator cannot read.
+        <Select
+          name={name}
+          defaultValue={typeof field.default === "string" ? field.default : (field.options[0] ?? "")}
+          options={field.options.map((value) => ({ value, label: value }))}
+        />
       ) : (
         <Input
           name={name}

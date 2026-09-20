@@ -367,6 +367,105 @@ describe("executeOrbitToolCalls", () => {
       .where(and(eq(schema.aiToolCalls.tenantId, ctx.tenantId), eq(schema.aiToolCalls.runId, "air_3")));
     expect(rows[0]!.outcome).toBe("error");
   });
+
+  // docs/27 F33. `seq` used to restart at 0 on every call, and the executor was
+  // only ever called once per run, so nothing noticed. A real loop calls it once
+  // per round, and a sequence that restarts is not a sequence.
+  it("continues the run's tool sequence across rounds instead of restarting it", async () => {
+    await seedPolicy("pol_8");
+    await ctx.db.insert(schema.aiRuns).values({
+      id: "air_4",
+      tenantId: ctx.tenantId,
+      agentKey: "quoting",
+      module: "orbit",
+      purpose: "orbit.copilot",
+      actorRef: "agent:quoting",
+      autonomyLevel: "act_with_approval",
+      trigger: "user",
+      state: "running",
+      inputHash: "",
+      startedAt: ctx.now
+    });
+    const allow = new Set(["fetch_policy"]);
+    const call = { id: "call_a", name: "fetch_policy", args: { policyId: "pol_8" } };
+    await executeOrbitToolCalls(ctx, "air_4", [call], allow, 0);
+    await executeOrbitToolCalls(ctx, "air_4", [{ ...call, id: "call_b" }], allow, 1);
+
+    const rows = await ctx.db
+      .select()
+      .from(schema.aiToolCalls)
+      .where(and(eq(schema.aiToolCalls.tenantId, ctx.tenantId), eq(schema.aiToolCalls.runId, "air_4")));
+    expect(rows.map((r) => r.seq).sort()).toEqual([0, 1]);
+  });
+});
+
+// docs/27 F38. `consequential: true` was written to `ai_tool_calls` and read by
+// nothing: the rule held only because the one such tool happens to gate inside
+// its handler. These hold the branch that makes it structural.
+describe("consequential tools are gated by the executor, not by the handler's goodwill", () => {
+  async function seedRun(id: string): Promise<void> {
+    await ctx.db.insert(schema.aiRuns).values({
+      id,
+      tenantId: ctx.tenantId,
+      agentKey: "quoting",
+      module: "orbit",
+      purpose: "orbit.copilot",
+      actorRef: "agent:quoting",
+      autonomyLevel: "act_with_approval",
+      trigger: "user",
+      state: "running",
+      inputHash: "",
+      startedAt: ctx.now
+    });
+  }
+
+  it("refuses a consequential tool with no registered approval policy, before the handler runs", async () => {
+    await seedRun("air_g1");
+    // The registry entry is the declaration; POLICY_FOR_TOOL is the gate behind
+    // it. Simulating the next consequential tool someone adds without one.
+    const def = ORBIT_TOOL_DEFS.find((d) => d.name === "start_quote")!;
+    const wasConsequential = def.consequential;
+    def.consequential = true;
+    try {
+      const messages = await executeOrbitToolCalls(
+        ctx,
+        "air_g1",
+        [{ id: "call_x", name: "start_quote", args: { customerId: "cus_1" } }],
+        new Set(["start_quote"])
+      );
+      expect(JSON.parse(messages[0]!.content).error).toContain("no registered approval policy");
+      // The handler never ran, so no case exists.
+      const cases = await ctx.db.select().from(schema.axisCases);
+      expect(cases).toHaveLength(0);
+    } finally {
+      def.consequential = wasConsequential;
+    }
+  });
+
+  it("leaves a registered consequential tool on its own gate", async () => {
+    await seedRun("air_g2");
+    await seedPolicy("pol_9");
+    const messages = await executeOrbitToolCalls(
+      endorser(),
+      "air_g2",
+      [
+        {
+          id: "call_y",
+          name: "create_endorsement_request",
+          args: { policyId: "pol_9", changes: { sumInsuredMinor: 1_200_00 }, premiumMinor: 1_200_00 }
+        }
+      ],
+      new Set(["create_endorsement_request"])
+    );
+    // approval_required from endorsePolicy, not the executor's refusal.
+    expect(JSON.parse(messages[0]!.content).error).toBe("approval_required");
+    const rows = await ctx.db
+      .select()
+      .from(schema.aiToolCalls)
+      .where(and(eq(schema.aiToolCalls.tenantId, ctx.tenantId), eq(schema.aiToolCalls.runId, "air_g2")));
+    expect(rows[0]!.outcome).toBe("awaiting_approval");
+    expect(rows[0]!.consequential).toBe(true);
+  });
 });
 
 describe("tool results as prompt text", () => {

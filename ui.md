@@ -27,7 +27,7 @@ of route files driven by declarative specs in [apps/web/app/modules/](apps/web/a
 - [module.tsx](apps/web/app/routes/module.tsx) — `/:module` and `/:module/:resource`, the tabbed list
 - [record.tsx](apps/web/app/routes/record.tsx) — `/:module/:resource/:id`, the single record
 
-Adding a resource adds a `ResourceSpec` entry, not a route. 130 resource tabs
+Adding a resource adds a `ResourceSpec` entry, not a route. 133 resource tabs
 across 10 workspaces render this way. §7 is the full table.
 
 **Bespoke.** A screen that is genuinely its own thing — a quote comparison, a
@@ -284,7 +284,10 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 109 declared routes, in manifest order.
+All 117 declared routes, in manifest order. `routes.inventory.test.ts` holds
+this table to `apps/web/app/routes.ts` — URL, route module and the count above —
+so a screen cannot ship missing from the inventory a reader is told to consult
+first. What each screen *does* is still written by hand; what exists is not.
 
 | URL | Route module |
 | --- | --- |
@@ -302,6 +305,7 @@ All 109 declared routes, in manifest order.
 | `/settings/:tab` | [settings.tsx](apps/web/app/routes/settings.tsx) |
 | `/approvals` | [approvals.tsx](apps/web/app/routes/approvals.tsx) |
 | `/admin/ai/console` | [ai-console.tsx](apps/web/app/routes/ai-console.tsx) |
+| `/center` | [command-center.tsx](apps/web/app/routes/command-center.tsx) |
 | `/admin/ai/budget` | [ai-budget.tsx](apps/web/app/routes/ai-budget.tsx) |
 | `/admin/ai/runs/:id` | [ai-run.tsx](apps/web/app/routes/ai-run.tsx) |
 | `/admin/cost-explorer` | [cost-explorer.tsx](apps/web/app/routes/cost-explorer.tsx) |
@@ -337,6 +341,11 @@ All 109 declared routes, in manifest order.
 | `/admin/customers/:id/360` | [customer-360.tsx](apps/web/app/routes/customer-360.tsx) |
 | `/admin/products/:id/detail` | [product-detail.tsx](apps/web/app/routes/product-detail.tsx) |
 | `/distribution/channels/:id/detail` | [channel-detail.tsx](apps/web/app/routes/channel-detail.tsx) |
+| `/surface/:module/:screen` | [surface.tsx](apps/web/app/routes/surface.tsx) |
+| `/journey/axis` | [journey-axis.tsx](apps/web/app/routes/journey-axis.tsx) |
+| `/journey/north` | [journey-north.tsx](apps/web/app/routes/journey-north.tsx) |
+| `/journey/scout` | [journey-scout.tsx](apps/web/app/routes/journey-scout.tsx) |
+| `/journey/signal` | [journey-signal.tsx](apps/web/app/routes/journey-signal.tsx) |
 | `/:module` | [module.tsx](apps/web/app/routes/module.tsx) |
 | `/:module/:resource` | [module.tsx](apps/web/app/routes/module.tsx) |
 | `/:module/:resource/:id` | [record.tsx](apps/web/app/routes/record.tsx) |
@@ -359,6 +368,7 @@ All 109 declared routes, in manifest order.
 | `/axis/claims/:id/detail` | [claim-detail.tsx](apps/web/app/routes/claim-detail.tsx) |
 | `/axis/cases/:id/evidence-bundles/:bundleId/download` | [case-evidence-download.tsx](apps/web/app/routes/case-evidence-download.tsx) |
 | `/axis/cases/:id/detail` | [case-detail.tsx](apps/web/app/routes/case-detail.tsx) |
+| `/axis/bordereaux` | [axis-bordereaux.tsx](apps/web/app/routes/axis-bordereaux.tsx) |
 | `/orbit/conversations/:id/thread` | [conversation.tsx](apps/web/app/routes/conversation.tsx) |
 | `/orbit/console` | [orbit-console.tsx](apps/web/app/routes/orbit-console.tsx) |
 | `/orbit/supervisor` | [orbit-supervisor.tsx](apps/web/app/routes/orbit-supervisor.tsx) |
@@ -391,6 +401,7 @@ All 109 declared routes, in manifest order.
 | `/north/brief` | [north-brief.tsx](apps/web/app/routes/north-brief.tsx) |
 | `/north/explorer` | [north-explorer.tsx](apps/web/app/routes/north-explorer.tsx) |
 | `/north/anomalies` | [north-anomalies.tsx](apps/web/app/routes/north-anomalies.tsx) |
+| `/north/alerts` | [north-alerts.tsx](apps/web/app/routes/north-alerts.tsx) |
 | `/north/whatif` | [north-whatif.tsx](apps/web/app/routes/north-whatif.tsx) |
 | `/north/board` | [north-board.tsx](apps/web/app/routes/north-board.tsx) |
 | `/north/board/:id/file` | [north-board-file.tsx](apps/web/app/routes/north-board-file.tsx) |
@@ -433,7 +444,7 @@ multiplier in ppm (FX 18.5 is `18500000`, never 1850%), `measure` is a number
 whose unit is a sibling column (NORTH stores money, basis points, milliseconds and
 counts in one `value`), `money` is minor units.
 
-### 7.1 The 130 resource tabs
+### 7.1 The 133 resource tabs
 
 
 #### `/admin` — 35 tabs
@@ -572,7 +583,7 @@ counts in one `value`), `money` is minor units.
 | `boardpacks` | `/v1/north/boardpacks` | `north:boardpacks:read` | ✓ |  |  |  |  |
 | `decisions` | `/v1/north/decisions` | `north:decisions:read` | ✓ | ✓ | ✓ |  |  |
 
-#### `/orbit` — 15 tabs
+#### `/orbit` — 18 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
@@ -591,6 +602,9 @@ counts in one `value`), `money` is minor units.
 | `routing-rules` | `/v1/orbit/routing-rules` | `orbit:teams:read` | ✓ | ✓ | ✓ |  |  |
 | `sla-policies` | `/v1/orbit/sla-policies` | `orbit:teams:read` | ✓ | ✓ | ✓ |  |  |
 | `agent-presence` | `/v1/orbit/agent-presence` | `orbit:presence:read` | ✓ | ✓ |  |  |  |
+| `kb-articles` | `/v1/orbit/kb-articles` | `orbit:kb:read` | ✓ | ✓ | ✓ |  |  |
+| `macros` | `/v1/orbit/macros` | `orbit:macros:read` | ✓ | ✓ | ✓ |  |  |
+| `deflections` | `/v1/orbit/deflections` | `orbit:conversations:read` |  |  |  |  |  |
 
 #### `/scout` — 6 tabs
 

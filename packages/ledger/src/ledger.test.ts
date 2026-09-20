@@ -10,9 +10,9 @@ import { balanceOf, post, reverse } from "./posting.js";
 import { openTxn, reverseTxn, runSaga, runTxn, transition } from "./txn.js";
 import { closeChecks, closePeriod, ensurePeriod, periodCode } from "./periods.js";
 import { RECIPES, argFields, buildRecipe } from "./recipes.js";
-import { clientMoneyPosition, rebuildBalances, trialBalance } from "./reports.js";
+import { clientMoneyPosition, commissionByDimension, expenseMovementMinor, rebuildBalances, trialBalance } from "./reports.js";
 import { valueFlow, valueFlowLines, type MoneyMap } from "./money-map.js";
-import { reconcile } from "./recon.js";
+import { closeRun, decideMatch, reconSummary, reconcile } from "./recon.js";
 import { TXN_TYPES, autoApprovable } from "./types.js";
 
 // docs/19 §11. These are the invariants that may not be relaxed to make a test
@@ -101,6 +101,12 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
     { amountMinor: amount, withholdingMinor: Math.floor(amount * 0.05) },
     { amountMinor: amount },
     { netMinor: amount, taxMinor: tax },
+    // Takaful surplus (H8, docs/27 F45). Its own shape because the split is the
+    // thing worth fuzzing: the participants' share is floored and the operator
+    // takes the remainder, so the balance invariant is what proves the pair
+    // never loses a minor unit between two roundings. The share is seeded, so
+    // the fuzz walks the whole 0-100% range across runs.
+    { surplusMinor: amount, participantShareBps: Math.floor(r() * 10_001) },
     // Authored entries (docs/27 F2, F3): the caller supplies the lines, so the
     // generator has to as well. Last, so no derived recipe matches these first.
     {
@@ -110,7 +116,13 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
       ],
       reason: "fuzzed authored entry for the balance invariant"
     },
-    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 }
+    { closingLines: [{ accountCode: "4000", side: "debit", amountMinor: amount }], fiscalYear: 2025 },
+    // FX revaluation (docs/27 F18): signed base-currency adjustments, so the
+    // amount is deliberately not a `Pos` and no earlier shape can match it.
+    { adjustments: [{ accountCode: "1100", deltaMinor: amount, currency: "USD" }] },
+    // A write-off states its direction and its reason; nothing above carries
+    // either, so it sits last and matches only itself.
+    { amountMinor: amount, direction: "shortfall", reason: "fuzzed reconciliation residual" }
   ];
   for (const s of shapes) {
     if (spec.schema.safeParse({ ...spec.defaults, ...s }).success) return s;
@@ -120,41 +132,12 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
 
 /* ---------------------------------------------------------------- §11.1 */
 
-describe("every journal batch balances in both currencies", () => {
-  it("holds for every financial transaction type, fuzzed", async () => {
-    const r = rng(20260615);
-    expect(FINANCIAL.length).toBeGreaterThan(20);
-
-    for (const def of FINANCIAL) {
-      for (let i = 0; i < 3; i++) {
-        const lines = buildRecipe(def.code, argsFor(def.code, r));
-        const debit = lines.filter((l) => l.side === "debit").reduce((s, l) => s + l.amountMinor, 0);
-        const credit = lines.filter((l) => l.side === "credit").reduce((s, l) => s + l.amountMinor, 0);
-        expect(debit, `${def.code} txn currency`).toBe(credit);
-
-        const txnId = `tx_${def.code}_${i}`;
-        await ctx.db.insert(schema.ledgerTxns).values(baseTxn(txnId, def.code, debit));
-        const batch = await post(ctx, {
-          txnId,
-          currency: "AED",
-          baseCurrency: "USD",
-          // A non-unit rate is the case where base-currency balance is not free.
-          fxRatePpm: 272_300,
-          lines
-        });
-        expect(batch.totalMinor).toBe(debit);
-
-        const rows = await ctx.db
-          .select()
-          .from(schema.ledgerJournalLines)
-          .where(eq(schema.ledgerJournalLines.batchId, batch.batchId));
-        const baseDebit = rows.filter((l) => l.side === "debit").reduce((s, l) => s + l.baseAmountMinor, 0);
-        const baseCredit = rows.filter((l) => l.side === "credit").reduce((s, l) => s + l.baseAmountMinor, 0);
-        expect(baseDebit, `${def.code} base currency`).toBe(baseCredit);
-      }
-    }
-  });
-});
+// Obligation 1 — "every journal batch balances in both currencies" — now lives
+// in properties.test.ts as a real property test (docs/27 F22). The seeded-LCG
+// loop that used to stand here walked one fixed path and reported "no
+// counterexample on this path"; the property searches, and shrinks what it
+// finds. Keeping both would have meant maintaining two generators over one
+// catalogue, and two guards over the same rule eventually disagree.
 
 function baseTxn(txnId: string, type: string, gross: number) {
   return {
@@ -456,6 +439,15 @@ describe("periods", () => {
 describe("reports", () => {
   it("the balances cache agrees with a rebuild from lines", async () => {
     const r = rng(4242);
+    // Fund the client account first: a claim payment or a remittance out of an
+    // empty float is refused now (docs/19 §11.11, found by the obligation-11
+    // property test), exactly as a bank would refuse it.
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_rb_fund", "CM-RECEIPT", 100_000_000));
+    await post(ctx, {
+      txnId: "tx_rb_fund",
+      currency: "AED",
+      lines: buildRecipe("CM-RECEIPT", { amountMinor: 100_000_000 })
+    });
     for (const [i, def] of FINANCIAL.slice(0, 12).entries()) {
       const txnId = `tx_rb_${i}`;
       const lines = buildRecipe(def.code, argsFor(def.code, r));
@@ -465,6 +457,65 @@ describe("reports", () => {
     }
     const drift = (await rebuildBalances(ctx)).filter((d) => d.drifted);
     expect(drift).toEqual([]);
+  });
+
+  /**
+   * docs/27 F49: NORTH's money metrics read the ledger through these two, and
+   * a month-to-date metric is windowed on [since, now), which no period code
+   * can express.
+   */
+  describe("an arbitrary window, not only a period code", () => {
+    const JAN = Date.UTC(2026, 0, 1);
+    const line = (id: string, code: string, side: "debit" | "credit", amountMinor: number, postedAt: number, channel?: string) => ({
+      id,
+      tenantId: "t_test",
+      batchId: `b_${id}`,
+      txnId: `tx_${id}`,
+      seq: 1,
+      accountCode: code,
+      side,
+      amountMinor,
+      currency: "AED",
+      baseAmountMinor: amountMinor,
+      baseCurrency: "AED",
+      ...(channel ? { dimsJson: JSON.stringify({ channel }) } : {}),
+      postedAt
+    });
+
+    it("commissionByDimension counts only the lines inside the window", async () => {
+      await ctx.db.insert(schema.ledgerJournalLines).values([
+        line("l1", "4000", "credit", 70_000, JAN + 5 * 86_400_000, "ch_web"),
+        line("l2", "2100", "credit", 30_000, JAN + 5 * 86_400_000, "ch_web"),
+        // The same commission clawed back later in the month: contra lines, not an edit.
+        line("l3", "4000", "debit", 20_000, JAN + 9 * 86_400_000, "ch_web"),
+        // Outside the window on both sides.
+        line("l4", "4000", "credit", 999_000, JAN - 86_400_000, "ch_web"),
+        line("l5", "4000", "credit", 888_000, JAN + 20 * 86_400_000, "ch_web")
+      ]);
+
+      const rows = await commissionByDimension(ctx, "channel", {
+        window: { from: JAN, to: JAN + 10 * 86_400_000 }
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ value: "ch_web", netMinor: 50_000, channelShareMinor: 30_000, grossMinor: 80_000 });
+    });
+
+    it("expenseMovementMinor nets 5xxx debits against their credits in base currency", async () => {
+      await ctx.db.insert(schema.ledgerJournalLines).values([
+        line("e1", "5100", "debit", 15_000, JAN + 2 * 86_400_000),
+        line("e2", "5300", "debit", 2_000, JAN + 3 * 86_400_000),
+        line("e3", "5100", "credit", 1_000, JAN + 4 * 86_400_000),
+        line("e4", "4000", "credit", 500_000, JAN + 4 * 86_400_000), // income is not expense
+        line("e5", "5100", "debit", 777_000, JAN + 40 * 86_400_000) // outside the window
+      ]);
+
+      expect(await expenseMovementMinor(ctx, { from: JAN, to: JAN + 10 * 86_400_000 })).toBe(16_000);
+    });
+
+    it("a window with nothing in it is zero, not a missing report", async () => {
+      expect(await expenseMovementMinor(ctx, { from: JAN, to: JAN + 86_400_000 })).toBe(0);
+      expect(await commissionByDimension(ctx, "channel", { window: { from: JAN, to: JAN + 86_400_000 } })).toEqual([]);
+    });
   });
 });
 
@@ -669,6 +720,46 @@ describe("reconciliation", () => {
     });
     expect(result.matched).toBe(0);
   });
+
+  it("closes only once every open match has been decided, and names the closer", async () => {
+    await ctx.db.insert(schema.ledgerTxns).values({
+      ...baseTxn("tx_close", "CMSN-ACCR", 7_000),
+      idempotencyKey: "close-1",
+      state: "settled"
+    });
+    const result = await reconcile(ctx, {
+      process: "insurer",
+      period: "2026-06",
+      currency: "AED",
+      lines: [
+        { ref: "K1", ourRef: "close-1", amountMinor: 7_000, currency: "AED" },
+        { ref: "K2", ourRef: "nothing-of-ours", amountMinor: 120, currency: "AED" }
+      ]
+    });
+    expect(result.state).toBe("review");
+
+    // The straggler is open, so the run may not close. There is no force flag:
+    // rejecting it with a reason is the only way through.
+    await rejects(closeRun(ctx, result.runId), /open matches/);
+
+    const open = (await ctx.db.select().from(schema.ledgerReconMatches)).filter(
+      (m) => m.state === "proposed" || m.state === "unmatched"
+    );
+    expect(open).toHaveLength(1);
+    for (const m of open) await decideMatch(ctx, m.id, "rejected", "not_ours");
+
+    await closeRun(ctx, result.runId);
+    const summary = await reconSummary(ctx, result.runId);
+    expect(summary.state).toBe("closed");
+    expect(summary.open).toBe(0);
+
+    const [run] = await ctx.db
+      .select()
+      .from(schema.ledgerReconRuns)
+      .where(eq(schema.ledgerReconRuns.id, result.runId));
+    // A human close and a system close are different facts about the same run.
+    expect(run?.closedBy).toBe("user:u_test");
+  });
 });
 
 /* ---------------------------------------------------------- the catalogue */
@@ -816,6 +907,11 @@ describe("recipe argument fields", () => {
     const fields = argFields("CM-RECEIPT");
     expect(fields).toEqual([
       { name: "amountMinor", kind: "integer", required: true },
+      // docs/27 F14: a receipt may clear the premium receivable a bind booked,
+      // and name the insurer payable it reclassifies. Both optional — a
+      // commission-only tenant books neither.
+      { name: "clearsReceivableAccount", kind: "text", required: false },
+      { name: "insurerPayableAccount", kind: "text", required: false, default: "2000" },
       { name: "memo", kind: "text", required: false }
     ]);
   });
@@ -844,5 +940,41 @@ describe("recipe argument fields", () => {
       expect(fields.length, code).toBeGreaterThan(0);
       for (const f of fields) expect(["integer", "text"], `${code}.${f.name}`).toContain(f.kind);
     }
+  });
+
+  it("offers a closed set as a closed set", () => {
+    const direction = argFields("RECON-WRITEOFF").find((f) => f.name === "direction");
+    expect(direction).toEqual({
+      name: "direction",
+      kind: "text",
+      required: true,
+      options: ["shortfall", "surplus"]
+    });
+  });
+
+  /**
+   * The inverse guard. `argFields` answers by probing, so it can only describe
+   * the shapes it was shown a sample of — and a *required* argument it cannot
+   * describe is a transaction type the generic open-transaction screen can
+   * never post, silently. This partitions every required key into published or
+   * excluded-for-a-named-reason and requires the leftover bucket to be empty.
+   */
+  it("publishes every argument a recipe requires, or names why it cannot", () => {
+    // Authored entries hand the ledger whole journal lines; no flat input can
+    // ask for those, which is why each has its own screen (F2, F3).
+    // `adjustments` (FX-REVAL, F18) is the same shape: an array of per-account
+    // deltas, not a value a single text/integer field can hold.
+    const STRUCTURED = new Set(["lines", "closingLines", "adjustments"]);
+    const undescribed: string[] = [];
+    for (const [code, spec] of Object.entries(RECIPES)) {
+      const shape = (spec.schema as unknown as { shape: Record<string, { safeParse(v: unknown): { success: boolean } }> }).shape;
+      const published = new Set(argFields(code).map((f) => f.name));
+      for (const [name, field] of Object.entries(shape)) {
+        if (name === "dims" || STRUCTURED.has(name)) continue;
+        const required = !field.safeParse(undefined).success;
+        if (required && !published.has(name)) undescribed.push(`${code}.${name}`);
+      }
+    }
+    expect(undescribed).toEqual([]);
   });
 });

@@ -10,6 +10,7 @@ import {
   TXN_TYPES,
   accountStatement,
   agedBalances,
+  agedOpenItems,
   balanceOf,
   balanceSheet,
   buildRecipe,
@@ -17,15 +18,20 @@ import {
   clientMoneyPosition,
   closeChecks,
   closePeriod,
+  closeRun,
   commissionByDimension,
   decideMatch,
   ensurePeriod,
+  FORCE_REASON_MIN,
+  fxRevaluationPlan,
   getTxn,
   periodCode,
   profitAndLoss,
   rebuildBalances,
   reconSummary,
   reconcile,
+  parseStatement,
+  STATEMENT_FORMATS,
   reopenPeriod,
   reverseTxn,
   runTxn,
@@ -202,18 +208,86 @@ ledgerRoutes.get("/period/:code", async (c) => {
 
 // The permission and approval gates live in closePeriod/reopenPeriod (ADR D10),
 // so a close reached from a scheduler is gated the same as one reached from here.
+// docs/27 F20. `force` used to be a bare boolean off the body: no reason, no
+// evidence, nothing an auditor could read. It is now a *pair* — the flag and the
+// reason arrive together or the request is a 400 — and the schema says so, so a
+// caller cannot send the flag alone and discover the rule from the engine.
+const ClosePeriodBody = z
+  .object({
+    to: z.enum(["soft_closed", "hard_closed"]),
+    force: z.boolean().default(false),
+    reason: z.string().min(FORCE_REASON_MIN).max(500).optional()
+  })
+  .refine((v) => !v.force || Boolean(v.reason), {
+    message: `forcing a close requires a reason of at least ${FORCE_REASON_MIN} characters naming the break being accepted`,
+    path: ["reason"]
+  });
+
 ledgerRoutes.post("/periods/:code/close", async (c) => {
   const ctx = ctxOf(c);
-  const input = await body(
-    c,
-    z.object({ to: z.enum(["soft_closed", "hard_closed"]), force: z.boolean().default(false) })
+  const input = await body(c, ClosePeriodBody);
+  return c.json(
+    await closePeriod(ctx, c.req.param("code"), input.to, {
+      force: input.force,
+      ...(input.reason !== undefined ? { reason: input.reason } : {})
+    })
   );
-  return c.json(await closePeriod(ctx, c.req.param("code"), input.to, { force: input.force }));
 });
 
 ledgerRoutes.post("/periods/:code/reopen", async (c) => {
   const ctx = ctxOf(c);
-  return c.json(await reopenPeriod(ctx, c.req.param("code")));
+  // A month that was signed off and is now open again says why, on the same
+  // terms as a forced close.
+  const input = await body(c, z.object({ reason: z.string().min(FORCE_REASON_MIN).max(500) }));
+  return c.json(await reopenPeriod(ctx, c.req.param("code"), { reason: input.reason }));
+});
+
+/* ----------------------------------------------------- fx revaluation (F18) */
+
+// docs/19 §5.3. Two routes and the same read behind both: the preview a
+// controller signs off and the entry that posts must be the same computation,
+// for the same reason year-end close reads its closing lines off the ledger
+// rather than accepting them from a browser.
+
+ledgerRoutes.get("/fx-revaluation", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
+  const at = asOf(qOf(c));
+  return c.json(await fxRevaluationPlan(ctx, at !== undefined ? { asOf: at } : {}));
+});
+
+ledgerRoutes.post("/fx-revaluation", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:journals:post", { tenantId: ctx.tenantId, module: "ledger" });
+  const at = asOf(qOf(c));
+  const plan = await fxRevaluationPlan(ctx, at !== undefined ? { asOf: at } : {});
+  if (!plan.adjustments.length) throw badRequest("nothing to revalue: every open foreign balance is already carried at the closing rate");
+
+  const period = periodCode(at ?? ctx.now);
+  const args = {
+    adjustments: plan.adjustments.map((a) => ({
+      accountCode: a.accountCode,
+      deltaMinor: a.deltaMinor,
+      currency: a.currency,
+      memo: `fx revaluation ${a.currency}->${plan.baseCurrency} @ ${a.ratePpm}ppm`
+    }))
+  };
+  // One revaluation per period, whoever asks and however many times.
+  const txn = await runTxn(
+    ctx,
+    {
+      type: "FX-REVAL",
+      idempotencyKey: `fxreval:${period}`,
+      currency: plan.baseCurrency,
+      grossMinor: Math.abs(plan.netMinor)
+    },
+    {
+      recipe: { lines: buildRecipe("FX-REVAL", args), currency: plan.baseCurrency },
+      args,
+      event: { name: "ledger.txn.fx-reval.settled" }
+    }
+  );
+  return c.json({ txn, plan }, 201);
 });
 
 /* ---------------------------------------------------------------- year end */
@@ -313,6 +387,29 @@ function agedOpts(q: Query): { accountCodes?: string[]; asOf?: number } {
   };
 }
 
+/**
+ * docs/27 F15. `?kind=payable` is the side that did not exist; `receivable` is
+ * the default because that is what the screen asked for before. `?legacy=1`
+ * still reaches the line-by-posting-date report — kept for one release so a
+ * controller can compare the two, and named `legacy` so nobody mistakes it for
+ * a second opinion.
+ */
+function agedItemOpts(q: Query): {
+  kind: "receivable" | "payable";
+  accountCodes?: string[];
+  asOf?: number;
+  currency?: string;
+} {
+  const codes = q("accounts")?.split(",").filter(Boolean);
+  const at = asOf(q);
+  return {
+    kind: q("kind") === "payable" ? "payable" : "receivable",
+    ...(codes?.length ? { accountCodes: codes } : {}),
+    ...(at !== undefined ? { asOf: at } : {}),
+    ...(q("currency") ? { currency: q("currency") as string } : {})
+  };
+}
+
 ledgerRoutes.get("/reports/trial-balance", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
@@ -337,7 +434,9 @@ ledgerRoutes.get("/reports/balance-sheet", async (c) => {
 ledgerRoutes.get("/reports/aged", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
-  return c.json({ data: await agedBalances(ctx, agedOpts(qOf(c))) });
+  const q = qOf(c);
+  if (q("legacy") === "1") return c.json({ data: await agedBalances(ctx, agedOpts(q)) });
+  return c.json({ data: await agedOpenItems(ctx, agedItemOpts(q)) });
 });
 
 ledgerRoutes.get("/reports/commission", async (c) => {
@@ -395,7 +494,9 @@ ledgerRoutes.get("/reports/chart-of-accounts", (c) => {
 
 /* ---------------------------------------------------------- report exports */
 
-// The six finance reports as files. Every builder calls the very function its
+// The finance reports as files — the six on /reports/*, plus the account
+// statement and the money map, which are reports a controller downloads even
+// though their JSON lives elsewhere. Every builder calls the very function its
 // JSON route calls, so the spreadsheet a controller emails and the screen they
 // read are the same numbers — a second summing path is the first thing to
 // disagree with the ledger (docs/19 §9).
@@ -454,6 +555,63 @@ const SECTION_COLUMNS: Col[] = [
 ];
 
 const REPORT_EXPORTS: Record<string, ExportSpec> = {
+  // Two of these are not on /reports/* as a JSON route — an account statement
+  // is `/accounts/:code/statement` and the money map is `/reports/value-flow` —
+  // but they are reports a controller downloads all the same, and the renderer
+  // is keyed by report name, not by path. The account code travels as `?code=`
+  // so one handler still serves every export.
+  "account-statement": {
+    permission: "ledger:journals:read",
+    build: async (ctx, q) => {
+      const code = q("code")?.trim();
+      if (!code) throw badRequest("account-statement needs ?code=<account code>");
+      const from = instantParam(q("from"));
+      const to = instantParam(q("to"));
+      const statement = await accountStatement(ctx, code, {
+        ...(q("currency") ? { currency: q("currency") as string } : {}),
+        ...(from !== undefined ? { from } : {}),
+        ...(to !== undefined ? { to } : {}),
+        limit: 1000
+      });
+      return {
+        table: {
+          title: `Account statement ${code}`,
+          columns: [
+            { key: "postedAt", label: "Posted", kind: "date" },
+            text("side", "Side"),
+            text("currency", "Currency"),
+            money("amountMinor", "Amount"),
+            money("runningMinor", "Running balance"),
+            text("txnId", "Transaction"),
+            text("memo", "Memo")
+          ],
+          rows: statement.lines as unknown as Record<string, unknown>[],
+          generatedAt: ctx.now
+        },
+        // The two figures the statement is read for, and neither is a row.
+        totals: { openingMinor: statement.openingMinor, closingMinor: statement.closingMinor }
+      };
+    }
+  },
+  "value-flow": {
+    permission: "ledger:journals:read",
+    build: async (ctx, q) => {
+      const map = await valueFlow(ctx, {
+        periodCode: q("period") ?? periodCode(ctx.now),
+        ...(q("currency") ? { currency: q("currency") as string } : {})
+      });
+      return {
+        table: {
+          title: `Money map ${map.periodCode}`,
+          columns: [text("node", "Stage"), money("amountMinor", "Amount")],
+          rows: map.nodes.map((n) => ({ node: n.key, amountMinor: n.amountMinor })),
+          currency: map.currency,
+          generatedAt: map.asOf
+        },
+        totals: { carriedMinor: map.carriedMinor }
+      };
+    }
+  },
   "trial-balance": {
     permission: "ledger:journals:read",
     build: async (ctx, q) => {
@@ -509,14 +667,14 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
   aged: {
     permission: "ledger:journals:read",
     build: async (ctx, q) => {
-      const rows = await agedBalances(ctx, agedOpts(q));
+      const rows = await agedOpenItems(ctx, agedItemOpts(q));
       return {
         table: {
-          title: "Aged analysis",
+          title: agedItemOpts(q).kind === "payable" ? "Aged payables" : "Aged receivables",
           columns: [
             text("counterparty", "Counterparty"),
             text("currency", "Currency"),
-            money("currentMinor", "0-30 days"),
+            money("currentMinor", "Not yet due / 0-30 days"),
             money("d30Minor", "31-60 days"),
             money("d60Minor", "61-90 days"),
             money("d90Minor", "91-120 days"),
@@ -577,7 +735,7 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
 };
 
 /**
- * LED-REP. The same six reports, downloadable. Permission-for-permission with the
+ * LED-REP. The same reports, downloadable. Permission-for-permission with the
  * JSON route beside it, tenant-scoped by the report functions themselves, and
  * audited — a finance export leaving the building is a read worth a record.
  */
@@ -678,17 +836,39 @@ ledgerRoutes.post("/recon/runs", async (c) => {
       toleranceMinor: z.number().int().min(0).optional(),
       /** Opt in to pass 3. Off by default: no silent AI in the money path. */
       propose: z.boolean().default(false),
-      lines: z.array(StatementLine).min(1).max(5000)
+      /** Already-parsed lines: a CSV paste, an API client, a test. */
+      lines: z.array(StatementLine).max(5000).optional(),
+      /**
+       * docs/27 F16. The counterparty's own file, as text: CAMT.053, MT940 or
+       * OFX. Parsed *here* rather than in the browser, for the same reason the
+       * CSV is - the run reconciles what the server read, so a preview that
+       * drifted cannot change what posts.
+       */
+      statementText: z.string().min(1).max(4_000_000).optional()
     })
+      .refine((v) => Boolean(v.lines?.length) !== Boolean(v.statementText), {
+        message: "give either parsed lines or a statement file, but not both",
+        path: ["statementText"]
+      })
   );
 
-  const { propose, ...rest } = input;
+  const { propose, statementText, ...rest } = input;
+  const parsed = statementText ? parseStatement(statementText) : null;
+  // The file states its own currency; a caller that also states one and
+  // disagrees is a mistake worth refusing rather than silently resolving.
+  if (parsed?.currency && parsed.currency !== input.currency) {
+    throw badRequest(
+      `the ${parsed.format} statement is in ${parsed.currency}, not the ${input.currency} this run was asked for`
+    );
+  }
+  const statementLines = parsed ? parsed.lines : (rest.lines ?? []);
   // A run posts matches against money, so a double submit must not start two of
   // them — same wrapper the transaction endpoint uses, keyed on the statement.
   return c.json(
     await withIdempotency(ctx, c.req.header("idempotency-key"), `ledger.recon.${input.process}`, input, () =>
       reconcile(ctx, {
         ...rest,
+        lines: statementLines,
         ...(propose ? { propose: aiProposer(ctx, c.get("gateway")) } : {})
       })
     ),
@@ -774,6 +954,13 @@ function safeJson(raw: string): unknown {
   }
 }
 
+/** What the importer can read, so an upload control need not hard-code it. */
+ledgerRoutes.get("/recon/statement-formats", (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:recon:read", { tenantId: ctx.tenantId, module: "ledger" });
+  return c.json({ data: [...STATEMENT_FORMATS] });
+});
+
 ledgerRoutes.get("/recon/runs/:id", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:recon:read", { tenantId: ctx.tenantId, module: "ledger" });
@@ -789,6 +976,22 @@ ledgerRoutes.post("/recon/matches/:id/decide", async (c) => {
   );
   await decideMatch(ctx, c.req.param("id"), input.decision, input.reasonCode);
   return c.body(null, 204);
+});
+
+/**
+ * Close a run. Same permission as deciding a match, because closing is the same
+ * judgement made once more: it asserts nothing is left open. The engine refuses
+ * while anything still is (`closeRun`, packages/ledger/src/recon.ts) and there
+ * is deliberately no force flag — the stragglers are rejected with a reason, one
+ * at a time, or the run stays in review. The fresh summary comes back so the
+ * caller renders the state the engine just wrote rather than one it assumed.
+ */
+ledgerRoutes.post("/recon/runs/:id/close", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:recon:confirm", { tenantId: ctx.tenantId, module: "ledger" });
+  const runId = c.req.param("id");
+  await closeRun(ctx, runId);
+  return c.json(await reconSummary(ctx, runId));
 });
 
 ledgerRoutes.post("/recon/runs/:id/evidence-bundle", async (c) => {

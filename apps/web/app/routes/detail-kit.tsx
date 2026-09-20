@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cn, focusRing, PageHeader } from "@lyra/ui";
+import { Button, cn, focusRing, PageHeader } from "@lyra/ui";
 import { ApiError } from "../api-error";
 import { pseudoText, translator } from "../i18n";
 import { optionLabel } from "../modules/spec";
@@ -64,6 +64,16 @@ export const SHARED: Record<string, Record<string, string>> = {
     colWhen: "When",
     colWho: "Who",
     colOutcome: "Outcome",
+
+    // Report downloads. Three finance screens offer the same four formats
+    // against the same export route, so the words live here once — the third
+    // screen to write them down itself is how "Excel" and "Spreadsheet" end up
+    // beside each other (docs/ui.md §7 P3-14).
+    download: "Download",
+    "download.xlsx": "Excel",
+    "download.pdf": "PDF",
+    "download.csv": "CSV",
+    "download.json": "JSON",
 
     // core_customers
     "type.person": "Individual",
@@ -201,6 +211,12 @@ export const SHARED: Record<string, Record<string, string>> = {
     colWhen: "التاريخ",
     colWho: "المنفّذ",
     colOutcome: "النتيجة",
+
+    download: "تنزيل",
+    "download.xlsx": "إكسل",
+    "download.pdf": "PDF",
+    "download.csv": "CSV",
+    "download.json": "JSON",
 
     "type.person": "فرد",
     "type.business": "منشأة",
@@ -397,6 +413,39 @@ export function Entry({ term, children }: { term: string; children: ReactNode })
 
 export function Header({ title, intro }: { title: string; intro: string }) {
   return <PageHeader title={title} description={intro} />;
+}
+
+/**
+ * The formats `GET /v1/ledger/reports/:report/export` renders. PDF is offered
+ * for every report and the API refuses it with a 400 when a row carries
+ * non-Latin text (the base-14 fonts have no Arabic), because which rows are
+ * Latin is not knowable until the report is run.
+ */
+export const EXPORT_FORMATS = ["xlsx", "pdf", "csv", "json"] as const;
+
+/**
+ * One report, four files. `url` is the export address with the query the
+ * loader normalised, ending on a separator so this only has to name the format
+ * — the file is then the answer to exactly the question the screen is showing.
+ *
+ * Plain links straight to the API: the browser downloads, so there is no
+ * progress to fake and nothing to hold in state, and nothing is written client
+ * side — a second spreadsheet writer would be a second, unaudited rendering of
+ * the same money (docs/19 §9).
+ */
+export function ReportDownloads({ url, l }: { url: string; l: Label }) {
+  return (
+    <nav aria-label={l("download")} className="flex flex-wrap items-center gap-2">
+      <span className="font-ui text-13 text-subtle">{l("download")}</span>
+      {EXPORT_FORMATS.map((format) => (
+        <Button key={format} asChild variant="ghost" size="sm">
+          <a href={`${url}format=${format}`} rel="noopener" download>
+            {l(`download.${format}`)}
+          </a>
+        </Button>
+      ))}
+    </nav>
+  );
 }
 
 /**

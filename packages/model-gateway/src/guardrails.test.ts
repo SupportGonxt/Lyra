@@ -96,6 +96,121 @@ describe("checkOutput — regulated claims", () => {
     const hits = checkOutput({ text: "your quote is ready for review", issued: new Set() });
     expect(hits).toHaveLength(0);
   });
+
+  // docs/27 F41. The floor was English-only, so the same claim blocked in
+  // English and shipped in Arabic. The golden set lives in
+  // evals/guardrails-ar; these hold the severity, which the eval does not.
+  it("blocks an Arabic guarantee on a customer-facing purpose", () => {
+    const hits = checkOutput({
+      text: "نضمن لك الموافقة على مطالبتك خلال يومين.",
+      issued: new Set(),
+      customerFacing: true
+    });
+    expect(hits).toEqual([expect.objectContaining({ rule: "regulated_claim", severity: "block" })]);
+  });
+
+  it("warns rather than blocks on the same Arabic claim internally", () => {
+    const hits = checkOutput({ text: "سندفع كامل قيمة الإصلاح.", issued: new Set() });
+    expect(hits).toEqual([expect.objectContaining({ rule: "regulated_claim", severity: "warn" })]);
+  });
+
+  // `\b` is ASCII-only, so an Arabic rule written with it bounds nothing. The
+  // deductible *is* mentioned here — just not denied.
+  it("does not flag Arabic prose that states a deductible instead of denying one", () => {
+    const hits = checkOutput({
+      text: "يبلغ مبلغ التحمل ٥٠٠ درهم لكل حادث، ويمكنك مراجعة تفاصيله في الملحق.",
+      issued: new Set(),
+      customerFacing: true
+    });
+    expect(hits).toHaveLength(0);
+  });
+
+  // docs/27 F46, second pass: two independently-authored Arabic passes over
+  // the same six categories were consolidated into one pattern each, union of
+  // every distinct phrase either had. Each branch below is a phrase that
+  // existed in only one of the two original sets — losing any one of them
+  // silently narrows the floor back to whichever pass didn't have it, so each
+  // is asserted directly rather than trusted to the eval suite alone.
+  const blocks = (text: string) =>
+    checkOutput({ text, issued: new Set(), customerFacing: true }).some((h) => h.rule === "regulated_claim");
+
+  it.each([
+    ["نضمن", "نضمن لك الموافقة."],
+    ["أضمن", "أنا أضمن لك ذلك."],
+    ["مضمون", "هذا العرض مضمون."],
+    ["مضمونة", "النتيجة مضمونة لك."],
+    ["مضمونًا", "سيكون الأمر مضمونًا."],
+    ["ضمان كامل", "نقدم لك ضمان كامل على الوثيقة."]
+  ])("guarantee — %s", (_label, text) => {
+    expect(blocks(text)).toBe(true);
+  });
+
+  it.each([
+    ["سندفع", "سندفع قيمة الإصلاح."],
+    ["سنغطي", "سنغطي جميع الأضرار."],
+    ["سنعوض", "سنعوض الفرق بالكامل."],
+    ["سنعوّض", "سنعوّض العميل فوراً."],
+    ["سوف ندفع", "سوف ندفع المبلغ المستحق."],
+    ["سوف نغطي", "سوف نغطي التكاليف كافة."],
+    ["سوف نعوض", "سوف نعوض الخسارة كاملة."],
+    ["سنقوم بدفع", "سنقوم بدفع المبلغ خلال أسبوع."],
+    ["سنقوم بتغطية", "سنقوم بتغطية الأضرار."],
+    ["سنقوم بتعويض", "سنقوم بتعويض العميل."]
+  ])("will pay/cover/reimburse — %s", (_label, text) => {
+    expect(blocks(text)).toBe(true);
+  });
+
+  it.each([
+    ["مصرف المركزي", "منتجنا معتمد من مصرف المركزي."],
+    ["بنك المركزي", "منتجنا معتمد من بنك المركزي."],
+    ["هيئة التأمين", "الوثيقة معتمدة من هيئة التأمين."],
+    ["جهة التنظيمية", "هذا معتمد من جهة التنظيمية."],
+    ["قِبل", "معتمد من قِبل هيئة التأمين."]
+  ])("approved by the regulator — %s", (_label, text) => {
+    expect(blocks(text)).toBe(true);
+  });
+
+  it.each([
+    ["أنتِ مغطى", "أنتِ مغطى بالكامل."],
+    ["أنتم مغطى", "أنتم مغطى في كل الحالات."],
+    ["إنك مغطى", "إنك مغطى دائماً."],
+    ["التغطية كاملة", "التغطية كاملة على هذه الوثيقة."],
+    ["مغطى بالكامل", "أنت مغطى بالكامل."],
+    ["مغطاة بالكامل", "الوثيقة مغطاة بالكامل."]
+  ])("you are (fully) covered — %s", (_label, text) => {
+    expect(blocks(text)).toBe(true);
+  });
+
+  it.each([
+    ["بدون مخاطر", "هذا الاستثمار بدون مخاطر."],
+    ["بلا مخاطر", "استثمار بلا مخاطر على الإطلاق."],
+    ["خالٍ من المخاطر", "هذا العرض خالٍ من المخاطر."],
+    ["خالي من المخاطر", "الاستثمار خالي من المخاطر تماماً."],
+    ["خالية من المخاطر", "هذه الخطة خالية من المخاطر."]
+  ])("risk-free — %s", (_label, text) => {
+    expect(blocks(text)).toBe(true);
+  });
+
+  it.each([
+    ["لا توجد استثناءات", "لا توجد استثناءات في هذه الوثيقة."],
+    ["ولا توجد استثناءات (conjunction-prefixed)", "التغطية شاملة ولا توجد استثناءات على الإطلاق."],
+    ["لا يوجد تحمل", "لا يوجد تحمل على هذه الوثيقة."],
+    ["بدون استثناءات", "بدون استثناءات على الإطلاق."],
+    ["بلا تحمل", "بلا تحمل مهما كانت قيمة المطالبة."],
+    ["من دون خصم", "التغطية من دون خصم."],
+    ["دون تحمّل", "دون تحمّل على المطالبة."],
+    ["مبلغ تحمل (negated)", "لا يوجد مبلغ تحمل على هذه الوثيقة."],
+    ["خصم تحملي (negated)", "بدون خصم تحملي على المطالبة."]
+  ])("no exclusions/deductible/excess — %s", (_label, text) => {
+    expect(blocks(text)).toBe(true);
+  });
+
+  // The trailing boundary still has to refuse a false match inside a longer
+  // word — losing `(?!\p{L})` on the risk-free pattern would let "مخاطرة"
+  // ("a risk/gamble", a different word) satisfy "مخاطر" as a prefix.
+  it("does not flag a risk-free-shaped phrase whose noun is actually a different word", () => {
+    expect(blocks("هذه مخاطرة كبيرة ولا يجدر بك بدون تحضير جيد أن تخوضها.")).toBe(false);
+  });
 });
 
 describe("checkOutput — hallucinated placeholders", () => {

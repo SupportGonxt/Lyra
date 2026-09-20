@@ -13,14 +13,54 @@ export interface GuardrailHit {
   detail?: string;
 }
 
-/** Claims we may not let a model make on our behalf without a stored source. */
+/**
+ * Claims we may not let a model make on our behalf without a stored source.
+ *
+ * docs/27 F41 / docs/16 H12. Lyra ships en+ar (CLAUDE.md §7) and this list was
+ * English only, so every one of these claims was blocked in English and waved
+ * through in Arabic — a floor with a hole the size of half the product's
+ * locales, on the customer-facing side where the severity is `block`. The
+ * Arabic half below mirrors the English one claim for claim; keep them paired,
+ * because a rule added to one language and not the other is the same defect
+ * again (the jailbreak list had already been half-fixed this way).
+ *
+ * `\b` is ASCII-only in JavaScript regexes, so it matches *between* any two
+ * Arabic letters and bounds nothing. `(?<!\p{L})` / `(?!\p{L})` with the `u`
+ * flag is the equivalent that works in both scripts, and is what keeps
+ * "تجاهلت" (she ignored) out of a rule written for "تجاهل" (ignore).
+ */
 const REGULATED = [
   /\bguarantee(?:d|s)?\b/i,
   /\bwe (?:will|shall) (?:pay|cover|reimburse)\b/i,
   /\bapproved by (?:the )?(?:central bank|insurance authority|regulator)\b/i,
   /\byou are (?:fully )?covered\b/i,
   /\brisk[- ]free\b/i,
-  /\bno (?:exclusions|deductible|excess)\b/i
+  /\bno (?:exclusions|deductible|excess)\b/i,
+  // ar — "we guarantee" / "guaranteed". Two independent passes (F41, F46)
+  // added Arabic coverage here with different exact phrasing over the same
+  // six claim categories, which is redundant rather than complementary
+  // (each doubled the mutation surface with no new test to kill either
+  // half) — consolidated into one pattern per category, union of every
+  // distinct phrase either pass had. `\b` is ASCII-only in JS regexes and
+  // bounds nothing between two Arabic letters; `(?<!\p{L})`/`(?!\p{L})`
+  // with the `u` flag is the equivalent that works in both scripts.
+  /(?<!\p{L})(?:نضمن|أضمن|مضمون(?:ة|ًا)?|ضمان\s+كامل)(?!\p{L})/u,
+  // ar — "we will pay / cover / reimburse"
+  /(?<!\p{L})(?:سندفع|سنغطي|سنعوض|سنعوّض|سوف\s+(?:ندفع|نغطي|نعوض)|سنقوم\s+ب(?:دفع|تغطية|تعويض))(?!\p{L})/u,
+  // ar — "approved by the central bank / insurance authority / regulator"
+  /(?<!\p{L})معتمد(?:ون|ة)?\s+من\s+(?:قِبل\s+|قبل\s+)?(?:ال)?(?:مصرف\s+المركزي|بنك\s+المركزي|هيئة\s+التأمين|جهة\s+التنظيمية)(?!\p{L})/u,
+  // ar — "you are (fully) covered"
+  /(?<!\p{L})(?:(?:أنت|أنتِ|أنتم|إنك)\s+مغطى|التغطية\s+كاملة|مغط(?:ى|اة)\s+بالكامل)(?!\p{L})/u,
+  // ar — "risk-free"
+  /(?<!\p{L})(?:بدون|بلا|خالٍ\s+من|خالي(?:ة)?\s+من)\s+(?:أي\s+)?(?:ال)?مخاطر(?!\p{L})/u,
+  // ar — "no exclusions / no deductible / no excess". The negation is
+  // required: the nouns themselves (استثناءات, تحمل) are ordinary policy
+  // vocabulary and appear in the schedule of every compliant Arabic quote
+  // we send. No leading boundary: the conjunction و ("and") attaches
+  // directly to لا with no space — "ولا توجد" — so `(?<!\p{L})` immediately
+  // before لا would refuse to match the single most common way this phrase
+  // actually appears in a sentence.
+  /(?:لا\s+(?:توجد|يوجد)|بدون|بلا|من\s+دون|دون)\s+(?:أي\s+)?(?:استثناءات|تحمّل|تحمل|مبلغ\s+تحمل|خصم\s+تحملي|خصم)(?!\p{L})/u
 ];
 
 const JAILBREAK = [
@@ -33,7 +73,13 @@ const JAILBREAK = [
   // guard with a hole the size of half the product's locales.
   /تجاهل\s+(?:كل\s+)?(?:التعليمات|الأوامر)/,
   /(?:اكشف|أظهر)\s+(?:عن\s+)?(?:موجه|تعليمات)\s*(?:النظام)?/,
-  /تظاهر\s+أنك/
+  /تظاهر\s+أنك/,
+  // docs/27 F46. The Arabic set mirrored three of the five English patterns and
+  // stopped; "developer mode" and "forget your instructions" are the two the
+  // golden set walked straight through. `انسَ` carries a fatha the keyboard
+  // often drops, so both spellings.
+  /وضع\s+المطور/,
+  /(?:انسَ|انس|تناسَ)\s+(?:كل\s+)?(?:التعليمات|الأوامر)/
 ];
 
 /** Placeholders the model invented rather than echoed — a sign it is hallucinating PII. */
