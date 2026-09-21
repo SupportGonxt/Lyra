@@ -17,11 +17,11 @@
     "@lyra/core": "workspace:*",
     "@lyra/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260811.1",
-    "@libsql/client": "^0.17.4",
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "@libsql/client": "^0.18.0",
     "@lyra/config": "workspace:*",
     "@types/node": "^22",
     "fast-check": "^4.10.1",
