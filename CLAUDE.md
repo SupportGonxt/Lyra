@@ -265,6 +265,24 @@ with "Server-only module referenced by client" and nothing before `pnpm
 from there when the call site is a component. Run the web build before pushing
 a route change, not just the three green checks.
 
+`check`'s CI runner has failed `@lyra/model-gateway#test` on four consecutive
+PRs (#41-#44, including a docs-only PR touching no source file, and surviving
+a re-run on #44) with the identical signature: `Error: [vitest-worker]:
+Timeout calling "onTaskUpdate"`, thrown from vitest's own birpc heartbeat
+between a worker thread and the main process, while every test in the same
+run reports passed (711/711, 26/26 files every time — never a real assertion
+failure, never a different count). It reproduces only under `pnpm test`'s full
+9-package concurrent turbo run on a loaded CI runner; running
+`pnpm --filter @lyra/model-gateway test` alone, locally or as a targeted CI
+step, has never reproduced it. This is CPU starvation on the RPC channel
+itself, not a slow test — `testTimeout` (see the `SQLITE_BUSY`-shaped fix
+above, and `packages/ledger/vitest.config.ts`) does not touch it, because
+nothing in a single test is timing out. Confirmed root cause, not fixed:
+narrowing this to a specific pool/concurrency knob needs it reproduced under
+a measured load, not guessed at from inside an unrelated PR. Treat it as the
+known shape of this one flake — 711/711 (or the current total) passed is the
+tell — and do not spend more than the one standard re-run confirming it.
+
 ## The recurring defect: dead seams
 
 A dead seam is a declared contract nothing routes through: a web type assumed
