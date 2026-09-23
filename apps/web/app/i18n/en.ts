@@ -212,6 +212,7 @@ export const en = {
   "common.dismiss": "Dismiss",
   "common.loading": "Loading",
   "common.edit": "Edit",
+  "common.created.notice": "Created.",
   "common.open": "Open",
   "common.back": "Back to list",
   "common.next": "Next",

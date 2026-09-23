@@ -200,6 +200,7 @@ export const ar: Messages = {
   "common.dismiss": "تجاهل",
   "common.loading": "جارٍ التحميل",
   "common.edit": "تعديل",
+  "common.created.notice": "تم الإنشاء.",
   "common.open": "فتح",
   "common.back": "العودة إلى القائمة",
   "common.next": "التالي",

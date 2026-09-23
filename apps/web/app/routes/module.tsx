@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   data,
   Form,
@@ -6,7 +6,6 @@ import {
   redirect,
   useActionData,
   useLoaderData,
-  useNavigation,
   useSearchParams,
   type ActionFunctionArgs,
   type LoaderFunctionArgs
@@ -18,6 +17,7 @@ import { ApiError, api, asRouteError, fetchMe, names } from "../api.server";
 // for exactly this, see its header).
 import { rejectedBy } from "../api-error";
 import { Cell, FieldInput } from "../components/fields";
+import { usePending } from "../components/pending";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { workspaceFor } from "../modules";
@@ -256,7 +256,14 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       // the only place a minted secret ever appears (apps/api/src/resources.ts
       // strips it from every read).
       const revealed = tab.revealOnCreate ? created[tab.revealOnCreate] : undefined;
-      if (typeof revealed === "string" && revealed) return { problem: null, revealed };
+      // The new row's id comes back so the screen can say "created", link it,
+      // and clear the form — a silent success invited a duplicate second press.
+      const createdId = typeof created.id === "string" ? created.id : "";
+      return {
+        problem: null,
+        revealed: typeof revealed === "string" && revealed ? revealed : null,
+        created: createdId
+      };
     } else if (intent === "delete" && id) {
       await api(`${tab.api}/${id}`, { env, request, method: "DELETE" });
     } else if (intent === "restore" && id) {
@@ -265,15 +272,15 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       // `DELETE /:id` and `POST /:id/restore`).
       await api(`${tab.api}/${id}/restore`, { env, request, method: "POST" });
     } else {
-      return { problem: { title: "unknown intent", status: 400 }, revealed: null };
+      return { problem: { title: "unknown intent", status: 400 }, revealed: null, created: null };
     }
   } catch (error) {
     // A rejected write is information, not a crash: keep the actor on the page
     // with their input intact and show what the API objected to.
-    if (error instanceof ApiError) return { problem: error.problem, revealed: null };
+    if (error instanceof ApiError) return { problem: error.problem, revealed: null, created: null };
     throw error;
   }
-  return { problem: null, revealed: null };
+  return { problem: null, revealed: null, created: null };
 }
 
 export default function ModuleList() {
@@ -283,7 +290,7 @@ export default function ModuleList() {
   // Lives for exactly one render — a reload or a second create clears it.
   const revealed = result?.revealed ?? null;
   const shell = useShellData();
-  const navigation = useNavigation();
+  const pending = usePending();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const locale = shell?.locale ?? "en";
@@ -303,7 +310,6 @@ export default function ModuleList() {
   const tabs = visibleTabs(spec, permissions);
   const links = visibleLinks(spec, permissions);
   const rows = loaded.rows;
-  const busy = navigation.state !== "idle";
 
   // Nothing in the spec says whether a resource has a `deletedAt` column, so
   // the actor's `remove` permission stands in for soft-deletability: the API
@@ -519,7 +525,7 @@ export default function ModuleList() {
           {pageSizeIn(searchParams) ? (
             <input type="hidden" name="limit" value={String(pageSizeIn(searchParams))} />
           ) : null}
-          <Button type="submit" variant="secondary" loading={busy}>
+          <Button type="submit" variant="secondary" loading={pending.get}>
             {t("common.apply")}
           </Button>
           {filtered ? (
@@ -548,7 +554,16 @@ export default function ModuleList() {
       ) : null}
 
       {canCreate ? (
-        <CreatePanel tab={tab} label={label} t={t} busy={busy} defaultOpen={Boolean(problem)} rejected={rejected} />
+        <CreatePanel
+          tab={tab}
+          label={label}
+          t={t}
+          busy={pending("create")}
+          defaultOpen={Boolean(problem)}
+          rejected={rejected}
+          outcome={result}
+          recordHref={(id) => `${spec.path}/${tab.key}/${encodeURIComponent(id)}`}
+        />
       ) : null}
 
       {/* The table is the screen, so it gets the screen's container: a Horizon
@@ -714,7 +729,9 @@ function CreatePanel({
   t,
   busy,
   defaultOpen,
-  rejected
+  rejected,
+  outcome,
+  recordHref
 }: {
   tab: ResourceSpec;
   label: (key: string) => string;
@@ -724,47 +741,77 @@ function CreatePanel({
   /** Which inputs the last rejected create named — the panel already reopens
    *  itself on a problem, and this is what it reopens *pointing at*. */
   rejected: (name: string) => string | undefined;
+  /** The last action result; a new object per submission. */
+  outcome: { created?: string | null } | undefined;
+  recordHref: (id: string) => string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [made, setMade] = useState<string | null>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const summary = useRef<HTMLElement>(null);
   useEffect(() => {
     if (defaultOpen) setOpen(true);
   }, [defaultOpen]);
+  // A create that went through clears the form and closes the panel, so a
+  // second press cannot send the same row again, and says so where the
+  // reader's focus lands.
+  useEffect(() => {
+    if (typeof outcome?.created !== "string") return;
+    form.current?.reset();
+    setOpen(false);
+    setMade(outcome.created);
+    summary.current?.focus();
+  }, [outcome]);
 
   return (
-    <details
-      id={CREATE_PANEL_ID}
-      open={open}
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-      className="group rounded-lg border border-border bg-surface-1"
-    >
-      <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 font-ui text-13 text-text marker:content-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-        <span
-          aria-hidden="true"
-          className="text-subtle transition-transform duration-150 group-open:rotate-45"
-        >
-          +
-        </span>
-        {/* Just "New". The panel sits under the table it adds a row to, and the
-            screen is already titled — "New — Cases" was two labels joined by a
-            dash because neither one could be dropped, which is a machine's
-            sentence, not a person's. A singular noun per resource in every
-            locale would buy "New case"; the context already says it. */}
-        {t("common.new")}
-      </summary>
-      <Form method="post" className="flex flex-col gap-4 border-t border-border p-4">
-        <input type="hidden" name="intent" value="create" />
-        <div className="grid gap-4 sm:grid-cols-2">
-          {(tab.fields ?? []).map((field) => (
-            <FieldInput key={field.name} field={field} label={label} invalid={rejected} />
-          ))}
-        </div>
-        <div>
-          <Button type="submit" loading={busy}>
-            {t("common.create")}
-          </Button>
-        </div>
-      </Form>
-    </details>
+    <div className="flex flex-col gap-2">
+      <details
+        id={CREATE_PANEL_ID}
+        open={open}
+        onToggle={(e) => setOpen(e.currentTarget.open)}
+        className="group rounded-lg border border-border bg-surface-1"
+      >
+        <summary ref={summary} className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 font-ui text-13 text-text marker:content-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          <span
+            aria-hidden="true"
+            className="text-subtle transition-transform duration-150 group-open:rotate-45"
+          >
+            +
+          </span>
+          {/* Just "New". The panel sits under the table it adds a row to, and the
+              screen is already titled — "New — Cases" was two labels joined by a
+              dash because neither one could be dropped, which is a machine's
+              sentence, not a person's. A singular noun per resource in every
+              locale would buy "New case"; the context already says it. */}
+          {t("common.new")}
+        </summary>
+        <Form ref={form} method="post" className="flex flex-col gap-4 border-t border-border p-4">
+          <input type="hidden" name="intent" value="create" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(tab.fields ?? []).map((field) => (
+              <FieldInput key={field.name} field={field} label={label} invalid={rejected} />
+            ))}
+          </div>
+          <div>
+            <Button type="submit" loading={busy}>
+              {t("common.create")}
+            </Button>
+          </div>
+        </Form>
+      </details>
+      <p role="status" className="font-ui text-13 text-muted empty:hidden">
+        {made !== null ? (
+          <>
+            <span aria-hidden="true" className="text-success">&#10003;</span> {t("common.created.notice")}{" "}
+            {made ? (
+              <Link to={recordHref(made)} className="text-accent underline underline-offset-4">
+                {t("common.open")}
+              </Link>
+            ) : null}
+          </>
+        ) : null}
+      </p>
+    </div>
   );
 }
 
