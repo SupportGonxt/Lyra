@@ -17,6 +17,7 @@ import { onLeadConverted } from "./engines/signal-outreach.js";
 import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
 import { onJourneyEvent } from "./engines/orbit-journeys.js";
+import { onAlertTriggered } from "./engines/north-alert-notify.js";
 
 // The outbox drain. Events are written in the same request that changed the row,
 // so delivery can fail all it likes without ever losing the fact that something
@@ -85,6 +86,10 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // staff are notified so the request never arrives with no owner.
       if (event.type === "compliance.dsar-requests.created") {
         await consume(ctx.db, event, "compliance.dsar", (e) => onDsarCreated(ctx, e), ctx.now);
+      }
+      // A breached NORTH threshold reaches whoever the rule names, in-app.
+      if (event.type === "north.alert.triggered") {
+        await consume(ctx.db, event, "north.alert.notify", (e) => onAlertTriggered(ctx, e), ctx.now);
       }
       // The retention loop (docs/17 SIG-007): a decided renewal folds in the
       // campaign-window conversations and their QA scores, and announces the
