@@ -891,7 +891,9 @@ function CreatePanel({
   }, [outcome]);
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    // The confirmation sits beside the button, not under it: the panel drops
+    // from the button, and would cover a line placed below.
+    <div className="flex flex-row-reverse flex-wrap items-center gap-3">
       <details
         id={CREATE_PANEL_ID}
         open={open}

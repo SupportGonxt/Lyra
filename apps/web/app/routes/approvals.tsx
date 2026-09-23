@@ -609,14 +609,22 @@ export default function Approvals() {
               ))}
             </ul>
           </nav>
-          <ul aria-label={l("queue")} className="flex flex-col gap-6">
+          {/* One list per area, each named "Requests — <area>": the items of
+              every list are requests and nothing else, so a count of them is
+              a count of what is waiting. */}
+          <div className="flex flex-col gap-6">
             {groups.map((group) => (
-              <li key={group.module} id={`area-${group.module}`} className="flex scroll-mt-4 flex-col gap-3">
+              <section
+                key={group.module}
+                id={`area-${group.module}`}
+                aria-labelledby={`area-${group.module}-title`}
+                className="flex scroll-mt-4 flex-col gap-3"
+              >
                 <h2 id={`area-${group.module}-title`} className="flex items-center gap-2 font-ui text-14 text-text">
                   {moduleName(t, group.module)}
                   <span className="font-mono text-12 tabular-nums text-subtle">{count(group.items.length)}</span>
                 </h2>
-                <ul aria-labelledby={`area-${group.module}-title`} className="flex flex-col gap-3">
+                <ul aria-label={`${l("queue")} — ${moduleName(t, group.module)}`} className="flex flex-col gap-3">
                   {group.items.map((item) => (
                     <li key={item.id}>
                       <ApprovalCard
@@ -632,9 +640,9 @@ export default function Approvals() {
                     </li>
                   ))}
                 </ul>
-              </li>
+              </section>
             ))}
-          </ul>
+          </div>
         </>
       )}
 
