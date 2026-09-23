@@ -506,6 +506,28 @@ export const LABELS: Record<string, Record<string, string>> = {
     "ye.prereqBody":
       "The year-end entry posts into months that are already frozen. Soft close each month on the period-close screen, then come back.",
     "ye.toPeriods": "Go to period close",
+    "fx.title": "Foreign-currency revaluation",
+    "fx.intro":
+      "What each open foreign balance is worth at the closing rate against what the ledger carries it at. Client money and income are never revalued.",
+    "fx.headlineEmpty": "Every foreign balance is already carried at the closing rate.",
+    "fx.headline": "{count} balances move by {amount} at the closing rate.",
+    "fx.asOf": "As of the end of",
+    "fx.net": "Net effect on income",
+    "fx.preview": "The entry that would post",
+    "fx.previewCaption": "Revaluation lines by account and currency",
+    "fx.account": "Account",
+    "fx.currency": "Currency",
+    "fx.balance": "Open balance",
+    "fx.carried": "Carried at",
+    "fx.revalued": "Worth at the closing rate",
+    "fx.delta": "Adjustment",
+    "fx.rate": "Rate",
+    "fx.nothing": "Nothing to revalue",
+    "fx.nothingBody": "Every open foreign balance is already carried at the closing rate for this day.",
+    "fx.post": "Post the revaluation",
+    "fx.postConfirm":
+      "Post this revaluation? One revaluation posts per month; asking again in the same month returns the one already posted.",
+    "fx.posted": "Revaluation posted as transaction {txn}.",
 
     /* manual journals */
     "mj.title": "Manual journal",
@@ -917,6 +939,28 @@ export const LABELS: Record<string, Record<string, string>> = {
     "ye.prereqBody":
       "قيد نهاية السنة يُرحّل في أشهر مقفلة. أقفل كل شهر إقفالًا مبدئيًا من شاشة إقفال الفترة ثم عد إلى هنا.",
     "ye.toPeriods": "إلى إقفال الفترة",
+    "fx.title": "إعادة تقييم العملات الأجنبية",
+    "fx.intro":
+      "قيمة كل رصيد أجنبي مفتوح بسعر الإقفال مقابل ما يحمله الدفتر. لا يُعاد تقييم أموال العملاء ولا الإيرادات أبدًا.",
+    "fx.headlineEmpty": "كل رصيد أجنبي محمول أصلًا بسعر الإقفال.",
+    "fx.headline": "{count} رصيدًا تتحرك بمقدار {amount} بسعر الإقفال.",
+    "fx.asOf": "حتى نهاية",
+    "fx.net": "الأثر الصافي على الدخل",
+    "fx.preview": "القيد الذي سيُرحّل",
+    "fx.previewCaption": "سطور إعادة التقييم حسب الحساب والعملة",
+    "fx.account": "الحساب",
+    "fx.currency": "العملة",
+    "fx.balance": "الرصيد المفتوح",
+    "fx.carried": "القيمة المحمولة",
+    "fx.revalued": "القيمة بسعر الإقفال",
+    "fx.delta": "التسوية",
+    "fx.rate": "السعر",
+    "fx.nothing": "لا شيء لإعادة تقييمه",
+    "fx.nothingBody": "كل رصيد أجنبي مفتوح محمول أصلًا بسعر الإقفال لهذا اليوم.",
+    "fx.post": "ترحيل إعادة التقييم",
+    "fx.postConfirm":
+      "ترحيل إعادة التقييم هذه؟ تُرحَّل إعادة تقييم واحدة لكل شهر، وطلبها مجددًا في الشهر نفسه يعيد القيد المُرحَّل.",
+    "fx.posted": "رُحِّلت إعادة التقييم في المعاملة {txn}.",
 
     "mj.title": "قيد يدوي",
     "mj.intro":
@@ -1207,6 +1251,18 @@ export function yearEndHeadline(
 ): string {
   if (preview.closingLines.length === 0) return l("ye.headlineEmpty", { year });
   return l("ye.headline", { year, amount: formatMoney(preview.netMinor, preview.currency, locale) });
+}
+
+export function fxHeadline(
+  plan: { adjustments: readonly unknown[]; netMinor: number; baseCurrency: string },
+  l: Label,
+  locale: string
+): string {
+  if (plan.adjustments.length === 0) return l("fx.headlineEmpty");
+  return l("fx.headline", {
+    count: String(plan.adjustments.length),
+    amount: formatMoney(plan.netMinor, plan.baseCurrency, locale)
+  });
 }
 
 export function accountHeadline(

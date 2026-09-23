@@ -32,6 +32,7 @@ export const ar: Messages = {
   "nav.ledger/transactions": "المعاملات",
   "nav.ledger/period-close": "إقفال الفترة",
   "nav.ledger/year-end": "إقفال السنة",
+  "nav.ledger/fx-revaluation": "إعادة تقييم العملات",
   "nav.ledger/journal": "دفتر اليومية",
   "nav.ledger/statement": "كشف الحساب",
   "nav.ledger/recon": "مطابقة الحسابات",

@@ -314,7 +314,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 119 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 120 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -345,6 +345,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/ledger/transactions/:id` | [ledger-transaction.tsx](apps/web/app/routes/ledger-transaction.tsx) |
 | `/ledger/period-close` | [ledger-periods.tsx](apps/web/app/routes/ledger-periods.tsx) |
 | `/ledger/year-end` | [ledger-year-end.tsx](apps/web/app/routes/ledger-year-end.tsx) |
+| `/ledger/fx-revaluation` | [ledger-fx-revaluation.tsx](apps/web/app/routes/ledger-fx-revaluation.tsx) |
 | `/ledger/journal` | [ledger-journal.tsx](apps/web/app/routes/ledger-journal.tsx) |
 | `/ledger/statement` | [ledger-account.tsx](apps/web/app/routes/ledger-account.tsx) |
 | `/ledger/recon` | [ledger-recon.tsx](apps/web/app/routes/ledger-recon.tsx) |

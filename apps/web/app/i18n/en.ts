@@ -33,6 +33,7 @@ export const en = {
   "nav.ledger/transactions": "Transactions",
   "nav.ledger/period-close": "Period close",
   "nav.ledger/year-end": "Year end",
+  "nav.ledger/fx-revaluation": "FX revaluation",
   "nav.ledger/journal": "Journal",
   "nav.ledger/statement": "Statement",
   "nav.ledger/recon": "Reconciliation",

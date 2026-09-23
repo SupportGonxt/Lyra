@@ -31,6 +31,7 @@ export const ledger: WorkspaceSpec = {
     // A year is closed once the months are; the entry is the one instrument that
     // can express what no recipe covers. Both post through dual control.
     { href: "/ledger/year-end", labelKey: "link.year-end", permission: "ledger:journals:read" },
+    { href: "/ledger/fx-revaluation", labelKey: "link.fx-revaluation", permission: "ledger:journals:read" },
     { href: "/ledger/journal", labelKey: "link.journal", permission: "ledger:journals:draft" },
     { href: "/ledger/statement", labelKey: "link.statement", permission: "ledger:journals:read" },
     { href: "/ledger/recon", labelKey: "link.recon", permission: "ledger:recon:read" },
@@ -71,6 +72,7 @@ export const ledger: WorkspaceSpec = {
       "link.txn-detail": "Journal, approvals and next steps",
       "link.period-close": "Period close",
       "link.year-end": "Year-end close",
+      "link.fx-revaluation": "FX revaluation",
       "link.journal": "Manual journal",
       "link.statement": "Account statement",
       "link.recon": "Reconciliation",
@@ -421,6 +423,7 @@ export const ledger: WorkspaceSpec = {
       "link.txn-detail": "القيود والموافقات والخطوات التالية",
       "link.period-close": "إقفال الفترة",
       "link.year-end": "الإقفال السنوي",
+      "link.fx-revaluation": "إعادة تقييم العملات",
       "link.journal": "قيد يدوي",
       "link.statement": "كشف حساب",
       "link.recon": "المطابقة",
