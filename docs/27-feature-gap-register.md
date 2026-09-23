@@ -1053,6 +1053,35 @@ before any screen changes.
 
 ---
 
+### ANL-009 — no report builder, no ask-in-words, AI not reportable, 2026-09-23 — closed
+
+**Closed** (ADR-0087). Found by asking what the API sends that nothing reads, the
+question behind dead seams 15 and 16: `GET /v1/analytics/datasets` — the
+semantic layer a builder offers — had **no web caller**, and
+`modules/analytics.ts` said authoring a definition belonged to a builder
+screen that did not exist, so a report could be run and exported but created
+only through the API. docs/17 ANL-009 ("natural-language analytics question →
+visible editable query, never a black box") had no implementation at all, and
+of the AI tables only `ai_audit_log` was a dataset.
+
+- **Builder** — `/analytics/builder` (`routes/analytics-builder.tsx`), linked
+  from the analytics tools list; the definition lives in `?def=`
+  (`app/analytics-def.ts`), previews through `POST /v1/analytics/run` only on
+  `run=1`, saves through `/reports` and optionally schedules.
+- **Ask in words** — purpose `analytics.ask`
+  (`packages/model-gateway/src/analytics-ask.ts`), `POST /v1/analytics/ask`,
+  a ✦ ghost line with its why on the builder, loaded on the reader's click and
+  never run. Eval `evals/analytics-ask`: 22 en + 7 ar questions, 18
+  must-refuse replies; 0.000 against the stub, 1.000 on every accuracy and
+  0.000 `invalidAcceptRate` after.
+- **AI datasets** — `aiRuns`, `aiSuggestions`, `aiGuardrails`, `aiEvals` beside
+  `aiSpend` (now with a refusal rate), permission-gated as the bespoke
+  endpoints are; tested in `apps/api/src/analytics-ai.test.ts`.
+- **AI operations** — `/admin/ai/analytics`, every figure a builder link.
+
+Still open, by decision: a live-model twin of the ask eval (ADR-0087
+Consequences), and guardrail events by module (no module column).
+
 ## What is genuinely strong
 
 Worth protecting under any refactor, because these are the parts a buyer's
