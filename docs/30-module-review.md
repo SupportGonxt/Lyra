@@ -116,7 +116,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 
 ### Compliance
 1. Admin consent writes go through `recordConsent` so suppression fires.
-2. Audit export in the UI (F59).
+2. ~~Audit export in the UI (F59).~~ **Fixed** 2026-09-23 (see Admin 2).
 3. DSAR runner that erases (`forgetMemories`, notes, `erasureLog`) — part of the per-record memory build.
 4. Screening hits block binding; a real screening provider behind the seam.
 5. Scheduled retention with more record classes.
@@ -130,7 +130,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 
 ### Admin / Platform
 1. ~~Agents CRUD could raise autonomy without the dual-control approval~~ — **fixed** 2026-09-23 (`resources.ts` agents `beforeWrite`, `ai.test.ts` "the agents CRUD cannot move autonomy").
-2. Audit log filters, search and export.
+2. ~~Audit log filters, search and export.~~ **Fixed** 2026-09-23: `GET /v1/core/audit-log/export` (CSV of the chain with every hash, `core:audit:export`, itself audited; `core-audit-export.test.ts`), search on the audit tab, and an Export CSV button (`ResourceSpec.download`, `/admin/audit-export`).
 3. Approvals pagination (F60).
 4. DLQ replay and a button for the platform AI kill switch.
 5. SCIM provisioning; then SAML.

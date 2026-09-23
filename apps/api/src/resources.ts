@@ -249,7 +249,10 @@ export const CORE = register(
     // not be the back door that shows every user's notifications tenant-wide.
     rowVisible: (ctx, row) => row.userId === ctx.actor.id
   }),
-  r("audit-log", schema.auditLog, "aud", "core", ro("core:audit:read"), { immutable: true }),
+  r("audit-log", schema.auditLog, "aud", "core", ro("core:audit:read"), {
+    immutable: true,
+    searchable: ["action", "actorRef", "subjectRef"]
+  }),
   r("event-dlq", schema.eventDlq, "dlq", "core", ro("admin:dlq:read")),
   // Read-only here on purpose. A checklist step is generated from a template and
   // moved by the onboarding engine (routes/onboarding.ts); letting CRUD PATCH

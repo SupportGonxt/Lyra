@@ -86,6 +86,7 @@ const HAND_WRITTEN: Op[] = [
   // The escape hatch out of the approval gate, so the write path validates what
   // the seed never had to: an unknown policy key is a 400 rather than an inert
   // entry, and a `neverAutoApprove` policy is refused outright (docs/19 §7).
+  { method: "get", path: "/v1/core/audit-log/export", summary: "The audit chain as CSV, oldest first with every hash; narrowed by q (action text) and from/to (ms); capped at 50,000 rows; the export is itself audited", permission: "core:audit:export", tag: "core" },
   { method: "get", path: "/v1/core/settings/auto-approve", summary: "The tenant's auto-approve allowlist and every approval policy, marking which the floor lets a tenant automate", permission: "core:settings:read", tag: "core" },
   { method: "patch", path: "/v1/core/settings/auto-approve", summary: "Add or remove approval policy keys from the tenant's auto-approve allowlist; never-auto-approve policies are refused", permission: "core:settings:update", tag: "core", requestBody: true },
 

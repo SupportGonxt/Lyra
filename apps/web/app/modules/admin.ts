@@ -316,6 +316,7 @@ export const admin: WorkspaceSpec = {
       permissionMatrix: "Roles and permissions",
       developer: "Developer portal",
       security: "Security & access",
+      auditExport: "Export CSV",
       automation: "Automatic approvals",
       brandTheme: "Brand and theme",
       billingPlan: "Plan and invoices",
@@ -628,6 +629,7 @@ export const admin: WorkspaceSpec = {
       permissionMatrix: "الأدوار والصلاحيات",
       developer: "بوابة المطوّرين",
       security: "الأمان والوصول",
+      auditExport: "تصدير CSV",
       automation: "الموافقات التلقائية",
       brandTheme: "الهوية والمظهر",
       billingPlan: "الخطة والفواتير",
@@ -1230,6 +1232,8 @@ export const admin: WorkspaceSpec = {
       api: "/v1/core/audit-log",
       read: "core:audit:read",
       sort: "ts",
+      search: true,
+      download: { href: "/admin/audit-export", labelKey: "auditExport", permission: "core:audit:export" },
       // Hash-chained and append-only: readable, exportable, never writable — an
       // edit affordance here would be a defect, not a feature.
       columns: [

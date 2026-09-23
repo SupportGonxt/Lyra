@@ -2611,6 +2611,7 @@ export interface Operations {
   "GET /v1/core/approvals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreApprovals>>;
   "GET /v1/core/approvals/{id}": Op<{ id: string }, never, never, CoreApprovals>;
   "GET /v1/core/audit-log": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreAuditLog>>;
+  "GET /v1/core/audit-log/export": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/audit-log/{id}": Op<{ id: string }, never, never, CoreAuditLog>;
   "GET /v1/core/consents": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreConsents>>;
   "POST /v1/core/consents": Op<never, never, CoreConsents, CoreConsents>;
@@ -3381,6 +3382,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/approvals": { tag: "core", summary: "List approvals", permission: "core:approvals:read", public: false },
   "GET /v1/core/approvals/{id}": { tag: "core", summary: "Fetch one approval", permission: "core:approvals:read", public: false },
   "GET /v1/core/audit-log": { tag: "core", summary: "List audit-log", permission: "core:audit:read", public: false },
+  "GET /v1/core/audit-log/export": { tag: "core", summary: "The audit chain as CSV, oldest first with every hash; narrowed by q (action text) and from/to (ms); capped at 50,000 rows; the export is itself audited", permission: "core:audit:export", public: false },
   "GET /v1/core/audit-log/{id}": { tag: "core", summary: "Fetch one audit log", permission: "core:audit:read", public: false },
   "GET /v1/core/consents": { tag: "core", summary: "List consents", permission: "core:consents:read", public: false },
   "POST /v1/core/consents": { tag: "core", summary: "Create a consent", permission: "core:consents:create", public: false },

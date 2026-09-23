@@ -175,6 +175,10 @@ export interface ResourceSpec {
   actions?: readonly ActionSpec[];
   bulk?: BulkSpec;
   import?: ImportSpec;
+  /** A download of this list as a file: a web route (which proxies the API),
+   *  its label and the permission the API gates it on. The list's `q` rides
+   *  along so the file holds what the reader was looking at. */
+  download?: { href: string; labelKey: string; permission: string };
 }
 
 export interface WorkspaceSpec {

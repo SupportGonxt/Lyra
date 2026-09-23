@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, like, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, PolicyJson, toJson, parseJson, AutonomyLevel } from "@lyra/db";
 import {
@@ -534,6 +534,53 @@ const AutoApproveBody = z
     remove: z.array(z.string().max(128)).max(64).optional()
   })
   .strict();
+
+/**
+ * The audit chain as evidence (docs/27 F59). `core:audit:export` was granted to
+ * the administrator and the compliance officer and asked for by nothing, so the
+ * hash-chained log could be paged through and never taken away. Oldest first,
+ * with every hash, so a reader can re-walk the chain outside LYRA. `q` narrows
+ * by action prefix-or-substring, `from`/`to` by instant; capped so one request
+ * cannot drag seven years of rows through a Worker.
+ */
+const AUDIT_EXPORT_CAP = 50_000;
+const AUDIT_COLUMNS = ["ts", "action", "actorRef", "subjectRef", "ip", "beforeHash", "afterHash", "prevHash", "chainHash"] as const;
+
+coreRoutes.get("/audit-log/export", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "core:audit:export", { tenantId: ctx.tenantId, module: "core" });
+  const q = c.req.query("q")?.trim();
+  const instant = (raw: string | undefined) => (raw && /^\d+$/.test(raw) ? Number(raw) : undefined);
+  const from = instant(c.req.query("from"));
+  const to = instant(c.req.query("to"));
+  const a = schema.auditLog;
+  const rows = await ctx.db
+    .select()
+    .from(a)
+    .where(
+      and(
+        eq(a.tenantId, ctx.tenantId),
+        q ? like(a.action, `%${q.replace(/[%_]/g, "")}%`) : undefined,
+        from !== undefined ? gte(a.ts, from) : undefined,
+        to !== undefined ? lte(a.ts, to) : undefined
+      )
+    )
+    .orderBy(asc(a.ts))
+    .limit(AUDIT_EXPORT_CAP);
+  const esc = (v: unknown) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [
+    AUDIT_COLUMNS.join(","),
+    ...rows.map((row) => AUDIT_COLUMNS.map((col) => esc(row[col])).join(","))
+  ];
+  await audit(ctx, { action: "core.audit.exported", subjectRef: `tenant:${ctx.tenantId}`, after: { rows: rows.length, q, from, to } });
+  return c.body(`\uFEFF${lines.join("\r\n")}\r\n`, 200, {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="audit-log-${ctx.tenantId}.csv"`
+  });
+});
 
 coreRoutes.get("/settings/auto-approve", (c) => {
   const ctx = ctxOf(c);

@@ -86,6 +86,8 @@ export const HIDDEN_ROUTES: Record<string, string> = {
     "the developer portal inside the admin workspace, linked from its tools list beside the API keys tab",
   "/admin/security":
     "the sign-in enforcement posture inside the admin workspace, linked from its tools list beside the sign-in providers tab",
+  "/admin/audit-export":
+    "a CSV download of the audit chain, linked from the audit log tab's export button",
   "/admin/automation":
     "the auto-approve allowlist inside the admin workspace, linked from its tools list beside security and access",
   "/axis/documents/:id/file": "streams one document's source file, opened from the verify-queue viewer",
