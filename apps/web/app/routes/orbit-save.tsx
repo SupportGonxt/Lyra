@@ -182,6 +182,8 @@ export const LABELS: Labels = {
     noneOutstanding: "No offer is waiting on a customer.",
     noneSettled: "Nothing has been decided yet.",
     noneBody: "The expiry sweep raises these as policies approach their end date.",
+    noneOutstandingBody: "An offer waits here from the moment it is sent until the customer answers.",
+    noneSettledBody: "A renewal lands here once the customer accepts or the offer lapses.",
     saved_discount: "Saved with a discount",
     saved_service: "Saved on service",
     price: "Price",
@@ -251,6 +253,8 @@ export const LABELS: Labels = {
     noneOutstanding: "لا عرض بانتظار عميل.",
     noneSettled: "لم يُحسم شيء بعد.",
     noneBody: "المسح الدوري يرفع هذه السجلات مع اقتراب انتهاء الوثائق.",
+    noneOutstandingBody: "ينتظر العرض هنا منذ إرساله حتى يجيب العميل.",
+    noneSettledBody: "يصل التجديد إلى هنا حين يقبله العميل أو ينقضي العرض.",
     saved_discount: "أُنقذ بخصم",
     saved_service: "أُنقذ بالخدمة",
     price: "السعر",
@@ -480,12 +484,13 @@ export default function SaveDesk() {
               busy={busy}
               caption={l("outstanding")}
               emptyTitle={l("noneOutstanding")}
+              emptyBody={l("noneOutstandingBody")}
             />
           </Card>
 
           <Card title={l("settled")} description={l("settledBody")}>
             {loaded.settled.length === 0 ? (
-              <EmptyState title={l("noneSettled")} />
+              <EmptyState title={l("noneSettled")} body={l("noneSettledBody")} />
             ) : (
               <Table
                 caption={l("settled")}
@@ -561,11 +566,11 @@ function Desk({
   busy: boolean;
   caption: string;
   emptyTitle: string;
-  /** Only the first desk explains where rows come from; the cards below it
-   *  already carry their own description. */
-  emptyBody?: string;
+  /** Each desk teaches its own empty state; one shared sentence under both
+   *  read the same line twice on one screen. */
+  emptyBody: string;
 }) {
-  if (rows.length === 0) return <EmptyState title={emptyTitle} {...(emptyBody ? { body: emptyBody } : {})} />;
+  if (rows.length === 0) return <EmptyState title={emptyTitle} body={emptyBody} />;
 
   const columns: Column<Renewal>[] = [
     {
