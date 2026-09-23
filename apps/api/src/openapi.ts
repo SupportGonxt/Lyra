@@ -303,6 +303,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "delete", path: "/v1/analytics/reports/{id}", summary: "Delete a saved report", permission: "analytics:reports:write", tag: "analytics" },
   { method: "post", path: "/v1/analytics/reports/{id}/run", summary: "Run a saved report", permission: "analytics:reports:run", tag: "analytics", requestBody: true },
   { method: "post", path: "/v1/analytics/run", summary: "Run an ad-hoc report definition without saving it", permission: "analytics:reports:run", tag: "analytics", requestBody: true },
+  { method: "post", path: "/v1/analytics/ask", summary: "Compile a question in words into a report definition over the caller's own catalogue (gateway purpose analytics.ask, audited); runs nothing, 422 ask_refused rather than a guess", permission: "analytics:reports:run", tag: "analytics", requestBody: true },
   { method: "get", path: "/v1/analytics/runs/{id}", summary: "A completed run with its rows, totals and truncation flag", permission: "analytics:reports:read", tag: "analytics" },
   { method: "post", path: "/v1/analytics/exports", summary: "Render a run to xlsx, pdf, csv or json", permission: "analytics:exports:create", tag: "analytics", requestBody: true },
   { method: "get", path: "/v1/analytics/exports", summary: "The caller's recent exports and their state", permission: "analytics:exports:create", tag: "analytics" },
