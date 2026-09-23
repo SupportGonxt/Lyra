@@ -58,9 +58,12 @@ module and let a build ship one alone), but they all render the one
 [`Shell`](apps/web/app/components/shell.tsx) through
 [`ModuleShell`](apps/web/app/components/module-shell.tsx). The rail reads, top
 to bottom: **Home and Inbox** (approvals waiting on the reader, with a count) →
-inside a module, **that module's own screens** under its heading, filtered by the
-permission each loader needs ([modules/screens.ts](apps/web/app/modules/screens.ts)) →
-every workspace the API's nav offers. The Meridian day strip is NORTH's only. A
+inside any workspace, **its menu** ([components/menu.ts](apps/web/app/components/menu.ts)):
+its screens (a module's from [modules/screens.ts](apps/web/app/modules/screens.ts),
+each filtered by the permission its loader needs; a shared workspace's from its
+spec `links`), then its record lists under a "Records" disclosure → every
+workspace the API's nav offers. The same menu shows on a module's generic lists
+and on its bespoke screens; the page's tab strip is kept for phones only. The Meridian day strip is NORTH's only. A
 paused module (the AI kill switch, J-A3) shows a degraded-mode banner on every
 screen of it. ⌘K indexes every tab the reader may open. Every screen's
 `<title>` is "Screen · Workspace · Product" ([title.ts](apps/web/app/title.ts)).

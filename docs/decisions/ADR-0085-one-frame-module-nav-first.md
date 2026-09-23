@@ -42,3 +42,15 @@ the module switcher and the shift, near the fold.
   resolve to it) and still let a build ship one module alone.
 - `ModuleSwitcher` stays unmounted: the rail's workspace list is the switcher
   (ADR-0052's reasoning, now true inside modules too).
+
+## Amendment — one menu per workspace (2026-09-23)
+
+The module section became a **workspace menu** (`components/menu.ts`), computed
+by the shell from the path on every screen rather than passed by the module
+shells: a module's generic lists (`/axis/cases`) and its bespoke screens
+(`/axis/board`) now show the same menu, and shared workspaces (Ledger, Admin,
+Distribution, Analytics, Compliance) get one too. The menu is the workspace's
+screens (modules: `modules/screens.ts`; shared: the spec's declared `links`),
+then its record lists under a "Records" disclosure that is open while one is
+on screen. The page's own tab strip is kept for phones only and its row of tool
+links is gone — both said what the rail now says.

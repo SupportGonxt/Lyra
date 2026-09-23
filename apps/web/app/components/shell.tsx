@@ -17,6 +17,7 @@ import { humanise, labelsFor, visibleTabs } from "../modules/spec";
 import { isRouted, labelKeyFor, landingFor, moduleOf } from "../routing";
 import type { AiPause } from "../session.server";
 import { ColdOpen } from "./cold-open";
+import { menuFor } from "./menu";
 import { Companion } from "./companion";
 import { ConstellationMark } from "./mark";
 import { Meridian } from "./meridian";
@@ -119,8 +120,8 @@ export interface ShellProps {
   roles?: readonly string[];
   /** Expanded permission keys, for the chrome that is absent without them. */
   permissions?: readonly string[];
-  /** Inside a module: its own screens, which lead the rail (ADR-0085). */
-  section?: ShellSection;
+  /** The domain pack, for the workspace menu's own words (CLAUDE.md §14). */
+  pack?: string;
   /** The day strip. NORTH's alone (ADR-0061, ADR-0085). */
   meridian?: boolean;
   /** For the words `t` cannot reach: a workspace's own tab names in a crumb. */
@@ -130,12 +131,6 @@ export interface ShellProps {
   children: React.ReactNode;
 }
 
-export interface ShellSection {
-  label: string;
-  /** The module's `--module-*` hue. */
-  accent: string;
-  items: Pick<NavItem, "href" | "labelKey">[];
-}
 
 /** One switchable view in the role pill: the role key, where that role lands,
  *  and whether it is the one being looked at now. */
@@ -242,7 +237,7 @@ export function Shell({
   inbox = null,
   roles = [],
   permissions = [],
-  section,
+  pack,
   meridian = false,
   locale = "en",
   aiPause,
@@ -271,8 +266,14 @@ export function Shell({
   const inboxItem: NavItem | null = mayInbox ? { labelKey: "nav.inbox", href: "/approvals", icon: "inbox" } : null;
   const inboxCount = inbox?.counts?.approvals ?? inbox?.approvals.length ?? 0;
   const pinned = [home, inboxItem].filter((item): item is NavItem => item !== null);
-  const sectionItems: NavItem[] = (section?.items ?? []).map((item) => ({ ...item, icon: "" }));
-  const items = [...pinned, ...sectionItems, ...workspaces.flatMap((g) => g.items)];
+  const { pathname } = useLocation();
+  // The workspace the reader is in leads the rail with its own menu — its
+  // screens, then its records — on every screen of it (components/menu.ts).
+  const menu = menuFor(pathname, permissions, t, locale, pack);
+  const menuScreens: NavItem[] = (menu?.screens ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
+  const menuRecords: NavItem[] = (menu?.records ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
+  const inRecords = menuRecords.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const items = [...pinned, ...menuScreens, ...workspaces.flatMap((g) => g.items)];
   // Everything ⌘K can go to: the rail, and every tab of every workspace this
   // reader may read — "Trial balance", "Period close" — named "Tab · Workspace"
   // so two tabs called "Settings" are told apart. It knew only the rail's ~11.
@@ -294,7 +295,6 @@ export function Shell({
   const logo = brand?.logo?.dark ?? brand?.logo?.light ?? brand?.logo?.mark;
   // The arrival is keyed on the path: React throws the old main away on every
   // navigation, so the entrance plays again instead of only on first paint.
-  const { pathname } = useLocation();
   // What the status strip names. The nav has already decided which destinations
   // exist, so the longest matching href wins: /axis/quotes over /axis.
   const currentItem = items
@@ -500,20 +500,37 @@ export function Shell({
                 </li>
               ))}
             </ul>
-            {/* Inside a module, its own screens come first — they are what the
-                reader came here for (ADR-0085). */}
-            {section && sectionItems.length ? (
+            {/* The workspace's own menu comes first — it is what the reader
+                came here for (ADR-0085): its screens, then its records under
+                one disclosure, open while a record list is on screen. */}
+            {menu ? (
               <div className="mb-1">
-                <h2 className="eyebrow mb-1 mt-4 px-3">
-                  {section.label}
-                </h2>
+                <h2 className="eyebrow mb-1 mt-4 px-3">{menu.label}</h2>
                 <ul className="flex flex-col gap-0.5">
-                  {sectionItems.map((item) => (
+                  {menuScreens.map((item) => (
                     <li key={item.href}>
-                      <NavItemLink item={item} t={t} nested accent={section.accent} exact />
+                      <NavItemLink item={item} t={t} nested accent={menu.accent} exact />
                     </li>
                   ))}
                 </ul>
+                {menuRecords.length ? (
+                  <details className="group/records mt-1" open={inRecords || !menuScreens.length}>
+                    <summary className="flex cursor-pointer select-none items-center gap-2 rounded-md px-3 py-1.5 font-ui text-12 text-muted marker:content-none hover:bg-surface-2 hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+                      <span aria-hidden="true" className="transition-transform duration-150 group-open/records:rotate-90 rtl:-scale-x-100">
+                        &#8250;
+                      </span>
+                      {t("nav.records")}
+                      <span className="ms-auto font-mono tabular-nums text-subtle">{menuRecords.length}</span>
+                    </summary>
+                    <ul className="flex flex-col gap-0.5 ps-3">
+                      {menuRecords.map((item) => (
+                        <li key={item.href}>
+                          <NavItemLink item={item} t={t} nested accent={menu.accent} />
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
               </div>
             ) : null}
             {workspaces.map((group, i) => (

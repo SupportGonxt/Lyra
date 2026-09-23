@@ -30,7 +30,6 @@ import {
   queryFromSavedView,
   recognizedQueryKeys,
   tabOf,
-  visibleLinks,
   visibleTabs,
   type ResourceSpec,
   type Row,
@@ -313,7 +312,6 @@ export default function ModuleList() {
   const held = new Set(permissions);
 
   const tabs = visibleTabs(spec, permissions);
-  const links = visibleLinks(spec, permissions);
   const rows = loaded.rows;
 
   // Nothing in the spec says whether a resource has a `deletedAt` column, so
@@ -394,7 +392,9 @@ export default function ModuleList() {
         {tabs.length > 1 ? (
           // One row that scrolls sideways, the current tab kept in view: admin's
           // 35 tabs used to wrap into three rows above the table.
-          <nav aria-label={t("common.tabs")} className="-mx-1 overflow-x-auto px-1 pb-1">
+          // Phones only: on a wider screen the rail's workspace menu lists
+          // these same records beside the page (components/menu.ts).
+          <nav aria-label={t("common.tabs")} className="-mx-1 overflow-x-auto px-1 pb-1 md:hidden">
             <ul className="flex w-max gap-1">
               {tabs.map((entry) => {
                 const current = entry.key === tab.key;
@@ -421,23 +421,9 @@ export default function ModuleList() {
           </nav>
         ) : null}
 
-        {/* Screens this workspace owns that are not lists — a report is a query
-            over the rows, not a page of them. They sit under the tabs because
-            they are siblings of the tabs, not one of them. Filtered like the
-            tabs: a link to a screen this actor cannot open is not offered. */}
-        {links.length ? (
-          <nav aria-label={t("common.reports")} className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                to={link.href}
-                className="font-ui text-12 text-subtle underline-offset-4 hover:text-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              >
-                {label(link.labelKey)}
-              </Link>
-            ))}
-          </nav>
-        ) : null}
+        {/* The workspace's own screens (reports, tools, desks) are in the
+            rail's workspace menu on every screen of it (components/menu.ts),
+            so they are not repeated here as a row of small links. */}
       </header>
 
       {/* Which saved filter/sort state this tab is showing (docs/27 "saved

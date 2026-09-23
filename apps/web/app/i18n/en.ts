@@ -53,6 +53,7 @@ export const en = {
   "pause.all": "AI agents are paused across the workspace. Everything else works; what they would have done waits for a person.",
   "pause.module": "AI agents are paused here. Everything else works; what they would have done waits for a person.",
   "pause.manage": "Manage the pause",
+  "nav.records": "Records",
   "nav.inbox": "Inbox",
   "nav.home": "Home",
   "nav.center": "Command center",

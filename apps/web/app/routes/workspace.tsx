@@ -65,6 +65,7 @@ export function ErrorBoundary() {
         roles={shell.roles}
         permissions={shell.permissions}
         locale={shell.locale}
+        pack={shell.domainPack}
         aiPause={shell.aiPause}
       >
         {panel}
@@ -92,6 +93,7 @@ export default function Workspace() {
         roles={shell.roles}
         permissions={shell.permissions}
         locale={shell.locale}
+        pack={shell.domainPack}
         aiPause={shell.aiPause}
       >
         <Outlet />

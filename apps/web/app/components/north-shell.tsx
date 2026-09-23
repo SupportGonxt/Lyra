@@ -1,11 +1,10 @@
 import type { SessionBootstrap } from "../session.server";
-import { NORTH_SCREENS } from "../modules/screens";
 import { ModuleShell } from "./module-shell";
 
-/** The one frame (ADR-0085), led by NORTH's own screens (modules/screens.ts). */
+/** The one frame (ADR-0085); its rail leads with NORTH's menu (components/menu.ts). */
 export function NorthShell({ session, children }: { session: SessionBootstrap; children: React.ReactNode }) {
   return (
-    <ModuleShell session={session} module="north" screens={NORTH_SCREENS}>
+    <ModuleShell session={session} module="north">
       {children}
     </ModuleShell>
   );
