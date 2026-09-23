@@ -398,52 +398,61 @@ function Quadrant({
         <span className="absolute bottom-2 start-2 font-ui text-12 uppercase tracking-widest text-subtle">
           {l("radar.park")}
         </span>
-        {plotted.map((dot) => (
-          // The `group` is the wrapper, not the link, so pointer and keyboard
-          // reveal the same commentary: hover on the group, focus-within for
-          // the link inside it. The wrapper is the zero-width anchor and centres
-          // its children on the point in both writing directions, which a
-          // -translate-x-1/2 would not; the link itself carries the label's
-          // width, because a zero-width box reads as `hidden` to a pointer and
-          // to Playwright even while its overflowing children paint and click.
-          <div
-            key={dot.id}
-            className="group absolute flex w-0 flex-col items-center"
-            style={{ insetInlineStart: `${dot.fit}%`, bottom: `${dot.momentum}%` }}
-          >
-            <Link
-              to={`/scout/radar?w=${encodeURIComponent(dot.id)}`}
-              aria-current={dot.selected ? "true" : undefined}
-              // The commentary is the dot's description, so a screen reader
-              // reads it on focus — a hover-only reveal would be information
-              // only a mouse can reach.
-              aria-describedby={dot.commentary === null ? undefined : `wc-${dot.id}`}
-              className="flex w-28 flex-col items-center gap-1"
+        {/* A list because it is one — the themes, in the order a keyboard
+            walks them — laid over the quadrant rather than beside it. */}
+        <ul className="absolute inset-0">
+          {plotted.map((dot) => (
+            // The `group` is the wrapper, not the link, so pointer and keyboard
+            // reveal the same commentary: hover on the group, focus-within for
+            // the link inside it. The wrapper is the zero-width anchor and centres
+            // its children on the point in both writing directions, which a
+            // -translate-x-1/2 would not; the link itself carries the label's
+            // width, because a zero-width box reads as `hidden` to a pointer and
+            // to Playwright even while its overflowing children paint and click.
+            <li
+              key={dot.id}
+              className="group absolute flex w-0 flex-col items-center"
+              style={{ insetInlineStart: `${dot.fit}%`, bottom: `${dot.momentum}%` }}
             >
-              <span
-                aria-hidden="true"
-                className={`block rounded-full border-2 border-module-scout ${dot.selected ? "bg-module-scout" : ""}`}
-                style={{ width: dotSize(dot.evidence), height: dotSize(dot.evidence) }}
-              />
-              {/* Bounded and wrapped, not `whitespace-nowrap`: a theme called
-                  "Agency repair lost at renewal" ran a single line straight
-                  across its neighbours' dots. Two lines, then the title. */}
-              <span
-                title={dot.label}
-                className={`line-clamp-2 w-28 text-center font-ui text-12 ${dot.selected ? "text-text" : "text-subtle"}`}
+              <Link
+                to={`/scout/radar?w=${encodeURIComponent(dot.id)}`}
+                aria-current={dot.selected ? "true" : undefined}
+                // The commentary is the dot's description, so a screen reader
+                // reads it on focus — a hover-only reveal would be information
+                // only a mouse can reach.
+                aria-describedby={dot.selected || dot.commentary === null ? undefined : `wc-${dot.id}`}
+                className="flex w-28 flex-col items-center gap-1"
               >
-                {dot.label}
-              </span>
-            </Link>
-            <CommentaryGhost
-              id={`wc-${dot.id}`}
-              commentary={dot.commentary}
-              side={dot.momentum > 65 ? "below" : "above"}
-              l={l}
-              locale={locale}
-            />
-          </div>
-        ))}
+                <span
+                  aria-hidden="true"
+                  className={`block rounded-full border-2 border-module-scout ${dot.selected ? "bg-module-scout" : ""}`}
+                  style={{ width: dotSize(dot.evidence), height: dotSize(dot.evidence) }}
+                />
+                {/* Bounded and wrapped, not `whitespace-nowrap`: a theme called
+                    "Agency repair lost at renewal" ran a single line straight
+                    across its neighbours' dots. Two lines, then the title. */}
+                <span
+                  title={dot.label}
+                  className={`line-clamp-2 w-28 text-center font-ui text-12 ${dot.selected ? "text-text" : "text-subtle"}`}
+                >
+                  {dot.label}
+                </span>
+              </Link>
+              {/* The selected dot's reading is already the dossier beside the
+                  chart, chip and evidence both; a hover card over the dot would
+                  print the same sentence a second time on one screen. */}
+              {dot.selected ? null : (
+                <CommentaryGhost
+                  id={`wc-${dot.id}`}
+                  commentary={dot.commentary}
+                  side={dot.momentum > 65 ? "below" : "above"}
+                  l={l}
+                  locale={locale}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
       </div>
       <p className="mt-2 text-center font-ui text-12 text-subtle">{l("radar.axisX")}</p>
     </div>

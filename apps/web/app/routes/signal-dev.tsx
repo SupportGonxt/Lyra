@@ -10,6 +10,7 @@ import {
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Table, type Column } from "@lyra/ui";
 import { ApiError, api, fetchMe } from "../api.server";
 import { cloudflare } from "../context";
+import { WorkLayout } from "../components/work-layout";
 import { Gate } from "./staff";
 import { useSignalSessionData } from "./signal-shell";
 import {
@@ -246,125 +247,138 @@ export default function SignalDev() {
         </p>
       ) : null}
 
-      {loaded.readable.length === 0 ? (
-        <Card title={l("dev.readTitle")} description={l("dev.readLede")}>
-          <p className="font-ui text-13 text-muted">{l("dev.denied")}</p>
-        </Card>
-      ) : (
-        <>
-          <Card title={l("dev.readTitle")} description={l("dev.readLede")}>
-            <div className="flex flex-col gap-4">
-              <Form method="post" className="flex flex-col gap-4">
-                <input type="hidden" name="intent" value="read" />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label={l("dev.resource")}>
-                    <Select
-                      name="resource"
-                      defaultValue={result?.resource ?? first}
-                      aria-label={l("dev.resource")}
-                      options={loaded.readable.map((path) => ({ value: path, label: l(`dev.res.${path}`) }))}
-                    />
-                  </Field>
-                  <Field label={l("dev.limit")} hint={l("dev.limitHint")}>
-                    <Input
-                      name="limit"
-                      type="number"
-                      min={1}
-                      max={MAX_ROWS}
-                      defaultValue="10"
-                      aria-label={l("dev.limit")}
-                    />
-                  </Field>
-                </div>
-                <div>
-                  <Button type="submit" disabled={busy}>
-                    {l("dev.read")}
-                  </Button>
-                </div>
-              </Form>
+      {/* Two halves, each whole. The REST half — the console, the same call
+          as curl (its lede says "the console above", so it stays under it)
+          and the notes on what is not built — is the work column. The
+          webhook half — the events you can subscribe to, the endpoints that
+          already do, and the sandbox tick that makes one fire — sits beside
+          it, so a listening endpoint is on the first screen rather than a
+          scroll below the console. */}
+      <WorkLayout
+        aside={
+          <>
+            <Card title={l("dev.topicsTitle")} description={l("dev.topicsLede")}>
+              <ul className="flex flex-col gap-2">
+                {TOPICS.map((topic) => (
+                  <li key={topic.name} className="flex flex-wrap items-center gap-2 font-ui text-13">
+                    <span className="font-mono text-12 text-text">{topic.name}</span>
+                    <Badge tone={topic.emitted ? "success" : "neutral"} size="sm" dot>
+                      {l(topic.emitted ? "dev.topicLive" : "dev.topicPlanned")}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </Card>
 
-              {result?.rows ? (
-                result.rows.length === 0 ? (
-                  <EmptyState title={l("dev.readEmpty")} body={l("dev.readEmpty.body")} />
-                ) : (
-                  <div className="flex flex-col gap-2">
+            <Card title={l("dev.hooksTitle")} description={l("dev.hooksLede")}>
+              <div className="flex flex-col gap-3">
+                <Table
+                  caption={l("dev.hookCaption")}
+                  columns={hookColumns}
+                  rows={loaded.hooks}
+                  rowKey={(row) => row.id}
+                  empty={<EmptyState title={l("dev.hooksEmpty")} body={l("dev.hooksEmpty.body")} />}
+                />
+                {result?.ping ? <Ping ping={result.ping} l={l} /> : null}
+              </div>
+            </Card>
+
+            {loaded.maySandbox ? (
+              <Card title={l("dev.sandboxTitle")} description={l("dev.sandboxLede")}>
+                <div className="flex flex-col gap-3">
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="tick" />
+                    <input type="hidden" name="key" value={loaded.key} />
+                    <Button type="submit" variant="secondary" disabled={busy}>
+                      {l("dev.sandboxRun")}
+                    </Button>
+                  </Form>
+                  {result?.inserted === undefined ? null : (
                     <p className="font-ui text-13 text-subtle">
-                      {l("dev.rows")}: <span className="font-mono text-text">{result.rows.length}</span>
+                      {l("dev.sandboxDone", { inserted: String(result.inserted) })}
                     </p>
-                    <details>
-                      <summary className="cursor-pointer font-ui text-13 text-accent">{l("dev.raw")}</summary>
-                      <pre className="mt-2 max-h-[28rem] overflow-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
-                        {JSON.stringify({ data: result.rows }, null, 2)}
-                      </pre>
-                    </details>
+                  )}
+                </div>
+              </Card>
+            ) : null}
+          </>
+        }
+      >
+        {loaded.readable.length === 0 ? (
+          <Card title={l("dev.readTitle")} description={l("dev.readLede")}>
+            <p className="font-ui text-13 text-muted">{l("dev.denied")}</p>
+          </Card>
+        ) : (
+          <>
+            <Card title={l("dev.readTitle")} description={l("dev.readLede")}>
+              <div className="flex flex-col gap-4">
+                <Form method="post" className="flex flex-col gap-4">
+                  <input type="hidden" name="intent" value="read" />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label={l("dev.resource")}>
+                      <Select
+                        name="resource"
+                        defaultValue={result?.resource ?? first}
+                        aria-label={l("dev.resource")}
+                        options={loaded.readable.map((path) => ({ value: path, label: l(`dev.res.${path}`) }))}
+                      />
+                    </Field>
+                    <Field label={l("dev.limit")} hint={l("dev.limitHint")}>
+                      <Input
+                        name="limit"
+                        type="number"
+                        min={1}
+                        max={MAX_ROWS}
+                        defaultValue="10"
+                        aria-label={l("dev.limit")}
+                      />
+                    </Field>
                   </div>
-                )
-              ) : null}
-            </div>
-          </Card>
+                  <div>
+                    <Button type="submit" disabled={busy}>
+                      {l("dev.read")}
+                    </Button>
+                  </div>
+                </Form>
 
-          <Card title={l("dev.curlTitle")} description={l("dev.curlLede")}>
-            <div className="flex flex-col gap-3">
-              <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
-                {curlFor(loaded.origin, result?.resource ?? first, 10)}
-              </pre>
-              {loaded.mayKeys ? (
-                <Link to="/admin/developer" className="font-ui text-13 text-accent underline underline-offset-2">
-                  {l("dev.keysOpen")}
-                </Link>
-              ) : null}
-            </div>
-          </Card>
+                {result?.rows ? (
+                  result.rows.length === 0 ? (
+                    <EmptyState title={l("dev.readEmpty")} body={l("dev.readEmpty.body")} />
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="font-ui text-13 text-subtle">
+                        {l("dev.rows")}: <span className="font-mono text-text">{result.rows.length}</span>
+                      </p>
+                      <details>
+                        <summary className="cursor-pointer font-ui text-13 text-accent">{l("dev.raw")}</summary>
+                        <pre className="mt-2 max-h-[28rem] overflow-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
+                          {JSON.stringify({ data: result.rows }, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  )
+                ) : null}
+              </div>
+            </Card>
 
-          <Card title={l("dev.pixelTitle")} description={l("dev.pixelLede")} />
-          <Card title={l("dev.feedTitle")} description={l("dev.feedLede")} />
-        </>
-      )}
+            <Card title={l("dev.curlTitle")} description={l("dev.curlLede")}>
+              <div className="flex flex-col gap-3">
+                <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
+                  {curlFor(loaded.origin, result?.resource ?? first, 10)}
+                </pre>
+                {loaded.mayKeys ? (
+                  <Link to="/admin/developer" className="font-ui text-13 text-accent underline underline-offset-2">
+                    {l("dev.keysOpen")}
+                  </Link>
+                ) : null}
+              </div>
+            </Card>
 
-      <Card title={l("dev.hooksTitle")} description={l("dev.hooksLede")}>
-        <div className="flex flex-col gap-3">
-          <Table
-            caption={l("dev.hookCaption")}
-            columns={hookColumns}
-            rows={loaded.hooks}
-            rowKey={(row) => row.id}
-            empty={<EmptyState title={l("dev.hooksEmpty")} body={l("dev.hooksEmpty.body")} />}
-          />
-          {result?.ping ? <Ping ping={result.ping} l={l} /> : null}
-        </div>
-      </Card>
-
-      <Card title={l("dev.topicsTitle")} description={l("dev.topicsLede")}>
-        <ul className="flex flex-col gap-2">
-          {TOPICS.map((topic) => (
-            <li key={topic.name} className="flex flex-wrap items-center gap-2 font-ui text-13">
-              <span className="font-mono text-12 text-text">{topic.name}</span>
-              <Badge tone={topic.emitted ? "success" : "neutral"} size="sm" dot>
-                {l(topic.emitted ? "dev.topicLive" : "dev.topicPlanned")}
-              </Badge>
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      {loaded.maySandbox ? (
-        <Card title={l("dev.sandboxTitle")} description={l("dev.sandboxLede")}>
-          <div className="flex flex-col gap-3">
-            <Form method="post">
-              <input type="hidden" name="intent" value="tick" />
-              <input type="hidden" name="key" value={loaded.key} />
-              <Button type="submit" variant="secondary" disabled={busy}>
-                {l("dev.sandboxRun")}
-              </Button>
-            </Form>
-            {result?.inserted === undefined ? null : (
-              <p className="font-ui text-13 text-subtle">
-                {l("dev.sandboxDone", { inserted: String(result.inserted) })}
-              </p>
-            )}
-          </div>
-        </Card>
-      ) : null}
+            <Card title={l("dev.pixelTitle")} description={l("dev.pixelLede")} />
+            <Card title={l("dev.feedTitle")} description={l("dev.feedLede")} />
+          </>
+        )}
+      </WorkLayout>
     </div>
   );
 }
