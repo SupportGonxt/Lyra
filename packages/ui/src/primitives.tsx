@@ -238,10 +238,19 @@ export interface InputProps extends Omit<React.ComponentPropsWithRef<"input">, "
 
 export function Input({ size = "md", prefix, suffix, className, ...props }: InputProps) {
   const field = useFieldControl();
+  // A text adornment is as wide as its text: "ZAR" under a fixed ps-9 sat on
+  // top of the value. Reserve its width in ch plus the inset either side.
+  const reserve = (adornment: React.ReactNode) =>
+    typeof adornment === "string" && adornment.length > 1 ? `calc(${adornment.length}ch + 1.25rem)` : undefined;
   const control = (
     <input
       {...field}
       {...props}
+      style={{
+        ...(reserve(prefix) ? { paddingInlineStart: reserve(prefix) } : {}),
+        ...(reserve(suffix) ? { paddingInlineEnd: reserve(suffix) } : {}),
+        ...props.style
+      }}
       className={cn(
         controlBase,
         widthFrom(className),

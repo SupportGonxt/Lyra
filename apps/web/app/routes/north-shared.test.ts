@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chosen, metricName, narrative, num, parsed, pct } from "./north-shared";
+import { chosen, metricName, metricText, narrative, num, parsed, pct } from "./north-shared";
 
 // The generic CRUD hydrates every `*Json` column before it leaves the API
 // (apps/api/src/crud.ts), while a bespoke module route hands the raw text
@@ -116,5 +116,19 @@ describe("chosen", () => {
   it("has nothing to show before the first briefing exists", () => {
     expect(chosen([], null, "en")).toBeNull();
     expect(chosen(null, null, "en")).toBeNull();
+  });
+});
+
+describe("metricText", () => {
+  // The explorer's chart axis printed "56400" beside a figure of AED 564.00:
+  // the axis took the stored integer, not the metric's units.
+  it("reads a money metric in major units with its currency", () => {
+    expect(metricText(56_400, "money", "AED", "en")).toMatch(/564\.00/);
+  });
+  it("reads a percent metric from basis points", () => {
+    expect(metricText(1_250, "percent", null, "en")).toBe("12.5%");
+  });
+  it("reads a count as a grouped number", () => {
+    expect(metricText(32_210, "count", null, "en")).toBe("32,210");
   });
 });

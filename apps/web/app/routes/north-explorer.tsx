@@ -14,6 +14,7 @@ import {
   MetricValue,
   labelsFrom,
   metricName,
+  metricText,
   parsed,
   pct,
   readable,
@@ -347,6 +348,7 @@ export default function NorthExplorer() {
                   values={values}
                   label={metric ? metricName(metric, locale) : l("series.title")}
                   xLabels={rows.map((row) => row.period)}
+                  format={(value) => metricText(value, metric?.unit ?? "count", metric?.currency ?? null, locale)}
                 />
               </Card>
 

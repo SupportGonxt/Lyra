@@ -386,7 +386,9 @@ export function Stat({
   const good = delta === undefined ? undefined : invertDelta ? delta < 0 : delta > 0;
   const tone: BadgeTone = good === undefined ? "neutral" : good ? "success" : "danger";
   return (
-    <div className={cn("flex flex-col gap-1 text-start", className)}>
+    // min-w-0: a grid item defaults to min-width:auto, so a figure wider than
+    // its track ran into the next stat ("AED 244,900.001") instead of wrapping.
+    <div className={cn("flex min-w-0 flex-col gap-1 text-start", className)}>
       <span className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{label}</span>
       {/* Mono, like every other number in Horizon: a KPI wall of these lines
           up on the decimal without anyone laying out a grid for it. */}
@@ -400,9 +402,13 @@ export function Stat({
       </span>
       {delta !== undefined ? (
         <Badge tone={tone} size="sm">
-          {delta > 0 ? "+" : ""}
-          {delta}
-          {deltaSuffix}
+          {/* A signed figure has no strong direction, so in RTL the sign
+              drifted to the far side ("143%-"). Isolate it as LTR. */}
+          <span dir="ltr">
+            {delta > 0 ? "+" : ""}
+            {delta}
+            {deltaSuffix}
+          </span>
         </Badge>
       ) : null}
       {hint ? <span className="font-ui text-12 text-subtle">{hint}</span> : null}
@@ -450,18 +456,16 @@ export function Sparkline({ values, label, tone = "accent", className }: Sparkli
           refresh". A CSS animation runs when the element mounts; React reuses
           this same <polyline> when `values` changes, so a refresh updates the
           points without replaying the draw — the rule falls out of the DOM
-          rather than needing a guard. `pathLength` normalises every shape to
-          100 units so one dash length fits any series. */}
+          rather than needing a guard. The draw is a clip reveal, not a dash:
+          a dash on a non-scaling stroke is measured in screen pixels and cut
+          the line into segments. */}
       <polyline
         points={points}
         fill="none"
         stroke={stroke}
         strokeWidth="1.5"
         vectorEffect="non-scaling-stroke"
-        pathLength={100}
-        strokeDasharray={100}
         className="motion-safe:animate-chart-draw"
-        style={{ "--draw-length": 100 } as React.CSSProperties}
       />
     </svg>
   );
@@ -562,10 +566,7 @@ export function LineChart({
             strokeWidth="2"
             strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
-            pathLength={100}
-            strokeDasharray={100}
             className="motion-safe:animate-chart-draw"
-            style={{ "--draw-length": 100 } as React.CSSProperties}
           />
         </svg>
       </div>
@@ -679,8 +680,8 @@ export function KPIWall({ children, className }: { children: React.ReactNode; cl
       // auto-fill, not auto-fit: a home with two stats and no economics panel
       // stretched them to half a screen each, which reads as an empty band
       // rather than two numbers. Empty tracks keep the stats at their own
-      // width; a full wall still fills the row.
-      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(13rem, 100%), 1fr))" }}
+      // width; a full wall still fills the row. 10rem keeps a phone two-up.
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(10rem, 100%), 1fr))" }}
     >
       {children}
     </div>

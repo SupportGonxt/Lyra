@@ -791,7 +791,7 @@
   /* Hero artwork (the login ring) draws slowly enough to be watched. Charts
      use `--animate-chart-draw` — docs/15 §3 fixes those at 400ms. */
   --animate-draw: draw 900ms var(--ease-out) both;
-  --animate-chart-draw: draw 400ms var(--ease-observatory) both;
+  --animate-chart-draw: reveal 400ms var(--ease-observatory) both;
   --animate-drift: drift 60s linear infinite;
   --animate-fade: fade var(--duration-fast) var(--ease-out) both;
   /* A changed figure pulses once and stops. docs/15 §3: "deltas pulse once,
@@ -811,6 +811,18 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* A chart line revealed along its time axis. Clip, not dash: the dash is
+   measured in screen pixels on a non-scaling stroke. Time runs left to right
+   in both directions (charts are not mirrored), so this is physical on purpose. */
+@keyframes reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
   }
 }
 

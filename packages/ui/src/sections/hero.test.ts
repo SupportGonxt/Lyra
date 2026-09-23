@@ -7,7 +7,7 @@
  * slices the suffix.
  */
 import { describe, expect, it } from "vitest";
-import { countFrame, splitHeadline } from "./hero.js";
+import { countFrame, countable, splitHeadline } from "./hero.js";
 
 describe("splitHeadline", () => {
   it("splits a real headline into prefix, numeral and suffix", () => {
@@ -60,5 +60,21 @@ describe("countFrame", () => {
   it("keeps the caller's decimals mid-flight", () => {
     expect(countFrame("4.20", 2.1)).toBe("2.10");
     expect(countFrame("61", 30.4)).toBe("30");
+  });
+});
+
+describe("countable", () => {
+  // A date or an identifier is not a quantity: counting "2026-09-22" up from
+  // zero put "1786-09-22" on screen mid-frame (journey/north).
+  it("refuses dates, times and identifiers", () => {
+    expect(countable("2026-09-22")).toBe(false);
+    expect(countable("10:09")).toBe(false);
+    expect(countable("GNX-2512")).toBe(false);
+    expect(countable("2026/09")).toBe(false);
+  });
+  it("counts quantities, money and percentages", () => {
+    expect(countable("AED 4,111.04")).toBe(true);
+    expect(countable("42%")).toBe(true);
+    expect(countable("12 cases")).toBe(true);
   });
 });

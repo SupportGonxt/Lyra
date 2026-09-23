@@ -1,4 +1,4 @@
-import { Money } from "@lyra/ui";
+import { Money, formatMoney } from "@lyra/ui";
 // ../api-error, never ../api.server: this module is not a route, so the client
 // bundle takes it whole and a `.server` import here is a build error.
 import { ApiError } from "../api-error";
@@ -199,6 +199,18 @@ export function pct(bps: number | null, locale: string): string | null {
   }).format(bps / 10_000);
 }
 
+/** One stored integer as text in its own units — for places a component cannot go (a chart axis). */
+export function metricText(value: number, unit: MetricUnit, currency: string | null | undefined, locale: string): string {
+  if (unit === "money" && currency) return formatMoney(value, currency, locale);
+  if (unit === "percent" || unit === "ratio") {
+    return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(value / 10_000);
+  }
+  if (unit === "duration_ms") {
+    return new Intl.NumberFormat(locale, { style: "unit", unit: "second", maximumFractionDigits: 1 }).format(value / 1_000);
+  }
+  return new Intl.NumberFormat(locale).format(value);
+}
+
 /**
  * One stored integer, rendered in its own units. Money goes through `<Money>`
  * so a three-decimal currency is right without this file knowing which ones
@@ -218,12 +230,5 @@ export function MetricValue({
   if (unit === "money" && currency) {
     return <Money amountMinor={value} currency={currency} locale={locale} />;
   }
-  const format =
-    unit === "percent" || unit === "ratio"
-      ? new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 })
-      : unit === "duration_ms"
-        ? new Intl.NumberFormat(locale, { style: "unit", unit: "second", maximumFractionDigits: 1 })
-        : new Intl.NumberFormat(locale);
-  const scaled = unit === "percent" || unit === "ratio" ? value / 10_000 : unit === "duration_ms" ? value / 1_000 : value;
-  return <span className="tabular-nums">{format.format(scaled)}</span>;
+  return <span className="tabular-nums">{metricText(value, unit, currency, locale)}</span>;
 }

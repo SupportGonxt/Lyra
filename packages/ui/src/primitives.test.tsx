@@ -123,3 +123,11 @@ describe("Slider", () => {
     expect(markup.match(/focus-visible:/g)!.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("Input adornments", () => {
+  // "ZAR" under a fixed ps-9 overlapped the typed value (signal studio).
+  it("reserves a text prefix's own width", () => {
+    const html = renderToStaticMarkup(<Input prefix="ZAR" aria-label="Budget" />);
+    expect(html).toContain("padding-inline-start:calc(3ch + 1.25rem)");
+  });
+});
