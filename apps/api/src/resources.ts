@@ -27,6 +27,7 @@ import { assertCanGrant, bundleOf } from "./engines/staff.js";
 import { onExperimentConcluded } from "./engines/scout-validate.js";
 import { must } from "./rows.js";
 import {
+  assertDeliverableSchedule,
   dashboardVisible,
   exportVisible,
   reportRunVisible,
@@ -1246,7 +1247,17 @@ export const ANALYTICS = register(
     rowVisible: exportVisible as NonNullable<Resource["rowVisible"]>
   }),
   r("schedules", schema.analyticsSchedules, "sch", "analytics", rw("analytics:schedules"), {
-    actorColumns: ["createdBy"]
+    actorColumns: ["createdBy"],
+    // The same refusal POST /v1/analytics/schedules makes, on the other door,
+    // judged on the row as it would stand after the write — but only for a
+    // write that changes what is delivered or switches delivery on. A legacy
+    // (seeded, paused) dashboard schedule can still be renamed or tidied.
+    beforeWrite: (_ctx, values, existing) => {
+      if ("reportId" in values || "dashboardId" in values || values.status === "active") {
+        assertDeliverableSchedule({ ...(existing ?? {}), ...values });
+      }
+      return values;
+    }
   }),
   r("saved-views", schema.savedViews, "svw", "analytics", rw("analytics:saved_views"), {
     rowVisible: savedViewVisible as NonNullable<Resource["rowVisible"]>
