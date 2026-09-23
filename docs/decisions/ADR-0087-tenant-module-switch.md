@@ -30,9 +30,14 @@ choice.
 
 ## Consequences
 
-- Scheduled sweeps and event consumers still run for a switched-off module's
-  tables. They read and write data nobody can see until it is switched back on;
-  stopping them per module is the next step (docs/30 §3, item 2).
+- Scheduled sweeps and event consumers stand down with the routes (amended
+  2026-09-23). The scheduler's ctx carries the switched-off modules in its
+  policy (`switchedOff`, `apps/api/src/auth.ts`), so `moduleEnabled(ctx.policy, m)`
+  is the one reader for both the sweeps (`index.ts` `scheduled`) and the
+  consumers (`dispatch.ts`). Platform jobs (outbox, billing, financing,
+  schedules, backups, audit anchoring, drift) always run. SIGNAL's consent
+  suppression is deliberately not gated: a withdrawal must hold when SIGNAL comes
+  back on. An event consumed while its module was off is not replayed.
 - `autonomy` and `modelTier` in `moduleConfig` are still read by nothing and are
   not offered in the UI (docs/27).
 - Cross-module features that write another module's tables directly (ORBIT →

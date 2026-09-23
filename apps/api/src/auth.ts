@@ -11,6 +11,8 @@ import {
   ensureSeedPeople,
   syncSeedEventNames,
   entitledGrants,
+  GATED_MODULES,
+  moduleEnabled,
   forbidden,
   grantsFor,
   hashPassword,
@@ -207,6 +209,18 @@ async function latestImpersonation(database: ReturnType<typeof makeDb>, platform
 export async function allTenants(env: Env): Promise<string[]> {
   const rows = await db(env).select({ id: schema.tenants.id }).from(schema.tenants);
   return rows.map((t) => t.id);
+}
+
+/**
+ * ADR-0087: the modules a tenant has switched off, for the scheduler. Reads the
+ * policy alone — not `tenantConfig`, which refuses a suspended tenant whose
+ * outbox must still drain — and a corrupt policy switches nothing off.
+ */
+export async function switchedOff(env: Env, tenantId: string): Promise<Set<string>> {
+  const rows = await db(env).select({ policyJson: schema.tenants.policyJson }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+  const parsed = PolicyJson.safeParse(safeJson<Record<string, unknown>>(rows[0]?.policyJson ?? null) ?? {});
+  if (!parsed.success) return new Set();
+  return new Set(GATED_MODULES.filter((m) => !moduleEnabled(parsed.data, m)));
 }
 
 /** Session cookie or `Authorization: Bearer <session token>`. */

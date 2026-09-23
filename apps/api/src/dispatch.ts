@@ -3,6 +3,7 @@ import { id as newId, schema } from "@lyra/db";
 import {
   consume,
   hmacHex,
+  moduleEnabled,
   markPublishFailed,
   markPublished,
   pendingOutbox,
@@ -57,6 +58,10 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
   let failed = 0;
   let queued = 0;
   const done: string[] = [];
+  // ADR-0087: a switched-off module's consumers stand down with its routes and
+  // sweeps. Suppression is not gated: a withdrawn consent must hold whenever
+  // SIGNAL comes back on.
+  const on = (module: string) => moduleEnabled(ctx.policy, module);
 
   for (const event of events) {
     // A single bad event must not abort the drain: mark it failed (so its
@@ -70,14 +75,14 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       if (event.type === "core.consent.updated") {
         await consume(ctx.db, event, "signal.suppression", (e) => onConsentUpdated(ctx, e), ctx.now);
       }
-      if (event.type === "ledger.financing.lapse_due") {
+      if (event.type === "ledger.financing.lapse_due" && on("axis")) {
         await consume(ctx.db, event, "axis.lifecycle", (e) => onFinancingLapseDue(ctx, e), ctx.now);
       }
       // A policy issued closes SIGNAL's funnel: the customer's most recent
       // attributed lead becomes a bind touch (engines/signal-attribution.ts),
       // and if that lead came from an outreach send, the loop is stamped
       // closed — the cockpit's "SIGNAL bought this customer" proof.
-      if (event.type === "axis.policy.issued") {
+      if (event.type === "axis.policy.issued" && on("signal")) {
         await consume(ctx.db, event, "signal.attribution", async (e) => {
           await onBindIssued(ctx, e);
           const data = e.data as { customerId?: string; policyId?: string };
@@ -100,7 +105,7 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
         await consume(ctx.db, event, "compliance.dsar", (e) => onDsarCreated(ctx, e), ctx.now);
       }
       // A breached NORTH threshold reaches whoever the rule names, in-app.
-      if (event.type === "north.alert.triggered") {
+      if (event.type === "north.alert.triggered" && on("north")) {
         await consume(ctx.db, event, "north.alert.notify", (e) => onAlertTriggered(ctx, e), ctx.now);
       }
       // docs/12 §3, ADR-0089: a fulfilled erasure reaches per-record memory —
@@ -117,8 +122,8 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // own `trigger` node names the event it starts on, and a list of
       // trigger-able types here would silently ignore every journey authored
       // outside it (docs/27 F30).
-      await consume(ctx.db, event, "orbit.journeys", (e) => onJourneyEvent(ctx, e), ctx.now);
-      if (event.type === "orbit.renewal.accepted" || event.type === "orbit.renewal.lost") {
+      if (on("orbit")) await consume(ctx.db, event, "orbit.journeys", (e) => onJourneyEvent(ctx, e), ctx.now);
+      if ((event.type === "orbit.renewal.accepted" || event.type === "orbit.renewal.lost") && on("orbit")) {
         await consume(ctx.db, event, "orbit.renewal.attribution", (e) => onRenewalDecided(ctx, e).then(() => undefined), ctx.now);
       }
 

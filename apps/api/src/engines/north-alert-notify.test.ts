@@ -148,6 +148,15 @@ describe("north.alert.triggered reaches an inbox", () => {
     ]);
   });
 
+  it("tells nobody while the tenant has NORTH switched off (ADR-0087)", async () => {
+    const off = { ...ctx, policy: PolicyJson.parse({ moduleConfig: { north: { enabled: false } } }) };
+    await user(off, "u_cfo");
+    await rule(off, "nar_off", "user:u_cfo");
+    await fire(off, "nar_off");
+    await drainOutbox(off);
+    expect(await inbox(off)).toEqual([]);
+  });
+
   it("tells nobody about a rule that was disabled before delivery", async () => {
     await user(ctx, "u_cfo");
     await rule(ctx, "nar_5", "user:u_cfo", false);

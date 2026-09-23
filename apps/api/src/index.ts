@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { PolicyJson, EntitlementsJson } from "@lyra/db";
-import { notFound, pruneIdempotency, type Envelope } from "@lyra/core";
+import { moduleEnabled, notFound, pruneIdempotency, type Envelope } from "@lyra/core";
 import { drainOutbox, deliverQueued } from "./dispatch.js";
 import { sweepPolicyLifecycle } from "./engines/axis-lifecycle.js";
 import { sweepPremiumFinancing } from "./engines/premium-financing.js";
@@ -21,7 +21,7 @@ import { runAcquisitionSweep } from "./engines/signal-outreach.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
 import { sweepAiDrift } from "./engines/ai-drift.js";
 import { expireDelegations } from "./engines/staff.js";
-import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions } from "./auth.js";
+import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions, switchedOff } from "./auth.js";
 import { mountAll } from "./crud.js";
 import { BY_MODULE } from "./resources.js";
 import { gatewayFor, onError, rememberStopped, withContext, withCors, withHeaders } from "./mw.js";
@@ -228,36 +228,42 @@ export default {
                 tenantId,
                 locale: "en",
                 actor: { kind: "system", id: "scheduler", tenantId, grants: [] },
-                policy: PolicyJson.parse({}),
+                // Defaults, plus the modules this tenant switched off (ADR-0087):
+                // their sweeps and consumers stand down with their routes. The
+                // outbox, billing and platform jobs are the platform, not a module.
+                policy: PolicyJson.parse({
+                  moduleConfig: Object.fromEntries([...(await switchedOff(env, tenantId))].map((m) => [m, { enabled: false }]))
+                }),
                 entitlements: EntitlementsJson.parse({})
               },
               now
             );
             await drainOutbox(ctx, env.EVENTS);
+            const on = (module: string) => moduleEnabled(ctx.policy, module);
             // Cover starts, lapses and ends on the clock, not on a request. Runs
             // before the renewal sweep so a policy that expired this tick is in
             // the right state when renewals look at it.
-            await sweepPolicyLifecycle(ctx);
+            if (on("axis")) await sweepPolicyLifecycle(ctx);
             // Collect due instalments and detect dunning cascades before renewals
             // look at this tenant's policies this tick.
             await sweepPremiumFinancing(ctx);
-            await sweepRenewals(ctx, env.WF);
+            if (on("orbit")) await sweepRenewals(ctx, env.WF);
             // Conversations that missed their SLA clock get escalated and, if their
             // agent went quiet, requeued — before anything else touches assignment
             // state this tick.
-            await sweepRouting(ctx);
+            if (on("orbit")) await sweepRouting(ctx);
             // docs/27 F30. Walks every journey run whose wait has elapsed, whose
             // task has closed or whose quiet-hours deferral has lifted. After
             // sweepRouting, because a `task` node raises a conversation this
             // tick that the next tick's routing sweep should see.
-            await advanceJourneyRuns(ctx);
+            if (on("orbit")) await advanceJourneyRuns(ctx);
             await sweepBilling(ctx);
-            await runBudgetAutopilot(ctx);
+            if (on("signal")) await runBudgetAutopilot(ctx);
             // Acquisition outreach (engines/signal-outreach.ts): draft →
             // consent gate → approval gate → send → lead touch. Quiet hours
             // and the weekly frequency cap are enforced inside the sweep; the
             // tick is just the clock that runs it.
-            await runAcquisitionSweep(ctx, gatewayFor(env));
+            if (on("signal")) await runAcquisitionSweep(ctx, gatewayFor(env));
             await runDueSchedules(ctx, env.FILES, env.BROWSER);
             // A delegation that has run out must stop showing as active, or every
             // admin screen lies about who currently holds the authority to approve.
@@ -265,11 +271,11 @@ export default {
             // docs/27 F7. Drafts the next reply for every conversation waiting
             // on us, so the inbox opens with something to approve instead of a
             // blank box. Draft only — nothing is sent without a human.
-            await sweepConversationDrafts(ctx, gatewayFor(env));
+            if (on("orbit")) await sweepConversationDrafts(ctx, gatewayFor(env));
             // QA agent (engines/orbit-qa.ts): score closed conversations that
             // have no QA score yet — docs/modules/orbit.md §2.1's "scores 100%
             // of conversations", fed by the cx-judge rubric.
-            await sweepQaScores(ctx, gatewayFor(env));
+            if (on("orbit")) await sweepQaScores(ctx, gatewayFor(env));
             // docs/10 §6: nightly D1 -> R2 backup, one write per tenant per day.
             if (isBackupWindow) await backupTenant(ctx, env.EXPORTS);
             // docs/12 §1: tamper evidence for the audit chain, pinned outside D1.
@@ -283,14 +289,14 @@ export default {
             }
             if (isBackupWindow) await nudgeApiKeyRotation(ctx);
             // docs/modules/north.md §3 Snapshotter: nightly, 02:00Z per seed.ts's timing model (ADR-0024).
-            if (isBackupWindow) await runSnapshotter(ctx);
+            if (isBackupWindow && on("north")) await runSnapshotter(ctx);
             // docs/modules/scout.md §3. Harvester "schedules per source" and
             // Bench Builder "nightly" run in the same window; the Clusterer is
             // weekly, so it gates on the day as well as the hour. All three are
             // idempotent, so a tick that runs twice writes the same rows — and
             // the harvest takes a week's lookback rather than the route's six
             // months, because only the first run would ever need the rest.
-            if (isBackupWindow) {
+            if (isBackupWindow && on("scout")) {
               await harvestSignals(ctx, gatewayFor(env), env, { lookbackMs: 7 * 86_400_000 });
               await sweepPanelBench(ctx);
               if (nowDate.getUTCDay() === 1) await sweepSignalClusters(ctx, gatewayFor(env), env);

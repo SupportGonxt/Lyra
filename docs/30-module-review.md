@@ -140,7 +140,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 1. **Wiring defects** (done 2026-09-23): duplicate emits, consent bypass, save-desk
    events, dead seeded triggers with a guard, dashboard-schedule refusal, a
    path-literal guard, commission accrual on bind, NORTH alert delivery.
-2. **Module switch** (ADR-0087, API refusal and nav done; sweeps and consumers still run): `enabled: false` makes a module's API answer
+2. **Module switch** (ADR-0087, done 2026-09-23: routes, nav, sweeps and consumers): `enabled: false` makes a module's API answer
    a refusal, stops its sweeps and consumers, and removes it from the nav and the
    module switcher; cross-module features degrade explicitly (ORBIT hides AXIS
    tools).

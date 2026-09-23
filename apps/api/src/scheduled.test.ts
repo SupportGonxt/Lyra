@@ -62,6 +62,26 @@ describe("scheduled tick", () => {
     expect(tenants).toContain("t_bad");
     expect(tenants).toContain("t_good");
   });
+
+  it("does not run a module's sweeps for a tenant that switched it off (ADR-0087)", async () => {
+    const now = Date.now();
+    await client.execute({
+      sql: `insert into core_tenants (id, slug, name, status, policy_json, created_at, updated_at)
+            values ('t_off','off','Off','active',?,?,?), ('t_on','on','On','active',?,?,?)`,
+      args: [JSON.stringify({ moduleConfig: { orbit: { enabled: false } } }), now, now, "{}", now, now]
+    });
+
+    let tail: Promise<unknown> = Promise.resolve();
+    await worker.scheduled(undefined, env, {
+      waitUntil(p: Promise<unknown>) {
+        tail = p;
+      }
+    });
+    await tail;
+
+    const tenants = vi.mocked(sweepRenewals).mock.calls.map(([c]) => (c as { tenantId: string }).tenantId);
+    expect(tenants).toEqual(["t_on"]);
+  });
 });
 
 describe("queue consumer", () => {
