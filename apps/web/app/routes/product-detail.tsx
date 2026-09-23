@@ -1,6 +1,8 @@
-import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import { Badge, Card, DateTime, EmptyState, Money, Ref, Stat, Table, type Column } from "@lyra/ui";
-import { api, fetchMe, names } from "../api.server";
+import { Form, Link, useActionData, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { Badge, Button, Card, DateTime, EmptyState, Field, Input, Money, Ref, Stat, Table, type Column } from "@lyra/ui";
+import { ApiError, api, fetchMe, names, type Problem as ProblemBody } from "../api.server";
+import { usePending } from "../components/pending";
+import { Problem } from "./module";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import {
@@ -11,6 +13,7 @@ import {
   labelsFrom,
   nameOf,
   percentOf,
+  policyKeyOf,
   rowsOf,
   safe,
   tag,
@@ -20,9 +23,9 @@ import {
 import { useShellData } from "./workspace";
 
 // One product definition: what it covers, what prices it, which underwriter
-// versions exist, and which channels are allowed to sell them. Read-only — the
-// generic record screen already owns the edit form, so this one only reads
-// (ponytail: no action(), the write path exists at /admin/products/:id).
+// versions exist, and which channels are allowed to sell them. The generic
+// record screen owns the edit form (/admin/products/:id); the one write here is
+// the Shariah lane, which the CRUD refuses on purpose (routes/compliance.ts).
 
 /* --------------------------------------------------------------- contract */
 
@@ -71,8 +74,55 @@ export interface ChannelRow {
 export const PERM = {
   read: "core:products:read",
   offerings: "dist:offerings:read",
-  channels: "dist:channels:read"
+  channels: "dist:channels:read",
+  shariahSubmit: "compliance:shariah:read",
+  shariahCertify: "compliance:shariah:certify"
 } as const;
+
+/** What the Shariah lane offers next for a product in `state`. */
+export function shariahStep(state: string | undefined): "submit" | "certify" | "resubmit" {
+  if (state === "submitted") return "certify";
+  if (state === "certified") return "resubmit";
+  return "submit";
+}
+
+type ShariahResult = { done: string | null; queued: boolean; problem: ProblemBody | null };
+
+export async function action({ request, params, context }: ActionFunctionArgs): Promise<ShariahResult> {
+  const env = context.get(cloudflare).env;
+  const form = await request.formData();
+  const intent = String(form.get("intent") ?? "");
+  const productId = params.id as string;
+  const text = (name: string) => String(form.get(name) ?? "").trim();
+  try {
+    if (intent === "shariah-submit") {
+      await api("/v1/compliance/shariah/submit", { env, request, method: "POST", body: { productId } });
+    } else if (intent === "shariah-certify") {
+      const expires = text("expiresAt");
+      const expiresAt = expires ? Date.parse(`${expires}T00:00:00Z`) : NaN;
+      await api("/v1/compliance/shariah/certify", {
+        env,
+        request,
+        method: "POST",
+        body: {
+          productId,
+          boardRef: text("boardRef"),
+          fatwaRef: text("fatwaRef"),
+          ...(Number.isFinite(expiresAt) ? { expiresAt } : {})
+        }
+      });
+    } else {
+      return { done: null, queued: false, problem: null };
+    }
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    // Certification is dual control: "a second person must approve" is the
+    // expected first answer, and it is a result rather than a failure.
+    if (policyKeyOf(error.problem) !== null) return { done: intent, queued: true, problem: null };
+    return { done: null, queued: false, problem: error.problem };
+  }
+  return { done: intent, queued: false, problem: null };
+}
 
 /* ---------------------------------------------------------------- labels */
 
@@ -112,6 +162,16 @@ export const LABELS: Record<string, Record<string, string>> = {
     "takafulState.submitted": "With the board",
     "takafulState.certified": "Certified",
     "takafulState.withdrawn": "Withdrawn",
+    shariahSubmit: "Send to the Shariah board",
+    shariahResubmit: "Send revised terms to the board",
+    shariahResubmitNote: "Sending again clears this ruling: the board certified the terms it was shown.",
+    shariahCertify: "Record the board's ruling",
+    shariahBoardRef: "Board reference",
+    shariahFatwaRef: "Ruling reference",
+    shariahExpires: "Review again on",
+    shariahSubmitted: "Sent to the board. The ruling is recorded here once it is given.",
+    shariahQueued: "Waiting for a second person. The ruling is recorded once it is approved; finish it from your inbox.",
+    shariahCertified: "Ruling recorded.",
     parametricTitle: "Parametric trigger",
     mappingTitle: "Standard mapping",
     versionsTitle: "Underwriter versions",
@@ -185,6 +245,16 @@ export const LABELS: Record<string, Record<string, string>> = {
     "takafulState.submitted": "لدى الهيئة",
     "takafulState.certified": "معتمد",
     "takafulState.withdrawn": "مسحوب",
+    shariahSubmit: "إرسال إلى هيئة الرقابة الشرعية",
+    shariahResubmit: "إرسال الأحكام المعدّلة إلى الهيئة",
+    shariahResubmitNote: "الإرسال من جديد يلغي هذا الحكم: فالهيئة أجازت الأحكام التي عُرضت عليها.",
+    shariahCertify: "تسجيل حكم الهيئة",
+    shariahBoardRef: "مرجع الهيئة",
+    shariahFatwaRef: "مرجع الحكم",
+    shariahExpires: "المراجعة القادمة في",
+    shariahSubmitted: "أُرسلت إلى الهيئة. يُسجَّل الحكم هنا عند صدوره.",
+    shariahQueued: "بانتظار شخص ثانٍ. يُسجَّل الحكم بعد الموافقة؛ أكمله من صندوق الوارد.",
+    shariahCertified: "سُجِّل الحكم.",
     parametricTitle: "محرّك التعويض البارامتري",
     mappingTitle: "الربط المعياري",
     versionsTitle: "إصدارات جهات الاكتتاب",
@@ -258,6 +328,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     offerings: [] as OfferingRow[],
     channels: [] as ChannelRow[],
     unrestricted: false,
+    may: { submit: held.has(PERM.shariahSubmit), certify: held.has(PERM.shariahCertify) },
     named: {} as Record<string, string>,
     now: Date.now()
   };
@@ -436,7 +507,7 @@ export default function ProductDetail() {
       </div>
 
       {product.structure === "takaful" ? (
-        <TakafulCard value={product.takafulJson} l={l} locale={locale} now={loaded.now} />
+        <TakafulCard value={product.takafulJson} l={l} locale={locale} now={loaded.now} may={loaded.may} />
       ) : null}
 
       {product.structure === "parametric" ? (
@@ -497,13 +568,17 @@ function TakafulCard({
   value,
   l,
   locale,
-  now
+  now,
+  may
 }: {
   value: unknown;
   l: Label;
   locale: string;
   now: number;
+  may: { submit: boolean; certify: boolean };
 }) {
+  const result = useActionData<typeof action>();
+  const pending = usePending();
   const takaful = (value && typeof value === "object" ? value : {}) as {
     model?: string;
     wakalaFeeBps?: number;
@@ -556,7 +631,77 @@ function TakafulCard({
         {current ? null : (
           <p className="font-ui text-13 text-muted">{lapsed ? l("takafulLapsed") : l("takafulNotCertified")}</p>
         )}
+        <ShariahLane step={shariahStep(shariah.state)} may={may} l={l} result={result} pending={pending} />
       </div>
     </Card>
+  );
+}
+
+/** The next move in the Shariah lane, for whoever may make it. */
+function ShariahLane({
+  step,
+  may,
+  l,
+  result,
+  pending
+}: {
+  step: ReturnType<typeof shariahStep>;
+  may: { submit: boolean; certify: boolean };
+  l: Label;
+  result: ShariahResult | undefined;
+  pending: (intent: string) => boolean;
+}) {
+  const said = result?.queued
+    ? l("shariahQueued")
+    : result?.done === "shariah-submit"
+      ? l("shariahSubmitted")
+      : result?.done === "shariah-certify"
+        ? l("shariahCertified")
+        : null;
+  return (
+    <div className="flex flex-col gap-3 border-t border-border pt-4">
+      {said ? (
+        <p role="status" className={`font-ui text-13 ${result?.queued ? "text-warning" : "text-success"}`}>
+          {said}
+        </p>
+      ) : null}
+      {result?.problem ? <Problem problem={result.problem} /> : null}
+      {step === "certify" && may.certify ? (
+        <Form method="post" className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label={l("shariahBoardRef")} required>
+              <Input name="boardRef" required maxLength={200} />
+            </Field>
+            <Field label={l("shariahFatwaRef")} required>
+              <Input name="fatwaRef" required maxLength={200} />
+            </Field>
+            <Field label={l("shariahExpires")}>
+              <Input name="expiresAt" type="date" />
+            </Field>
+          </div>
+          <div>
+            <Button type="submit" name="intent" value="shariah-certify" loading={pending("shariah-certify")}>
+              {l("shariahCertify")}
+            </Button>
+          </div>
+        </Form>
+      ) : null}
+      {step !== "certify" && may.submit ? (
+        <Form method="post" className="flex flex-col gap-2">
+          {step === "resubmit" ? <p className="font-ui text-12 text-subtle">{l("shariahResubmitNote")}</p> : null}
+          <div>
+            <Button
+              type="submit"
+              variant={step === "resubmit" ? "secondary" : "primary"}
+              name="intent"
+              value="shariah-submit"
+              loading={pending("shariah-submit")}
+            >
+              {step === "resubmit" ? l("shariahResubmit") : l("shariahSubmit")}
+            </Button>
+          </div>
+        </Form>
+      ) : null}
+    </div>
   );
 }
