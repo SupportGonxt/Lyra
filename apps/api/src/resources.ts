@@ -1,7 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
-import { PaymentPlanWrite, schema } from "@lyra/db";
+import { ChannelOptinsJson, PaymentPlanWrite, PurposesJson, schema } from "@lyra/db";
 import {
+  announceConsent,
   autoApproveProblem,
   badRequest,
   can,
@@ -74,6 +75,17 @@ const ru = (stem: string) => ({
 });
 
 const ro = (perm: string) => ({ read: perm });
+
+/** A JSON column as it arrives (object) or as it is stored (TEXT). Unparseable
+ *  text is `undefined`, which every zod object shape then refuses. */
+function jsonValue(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  try {
+    return JSON.parse(v) as unknown;
+  } catch {
+    return undefined;
+  }
+}
 
 /* -------------------------------------------------------------------- core */
 
@@ -167,7 +179,32 @@ export const CORE = register(
   r("consents", schema.consents, "cs", "core", {
     read: "core:consents:read",
     create: "core:consents:create"
-  }, { immutable: true }),
+  }, {
+    immutable: true,
+    // The two maps are what SIGNAL's suppression consumer reads, so they are
+    // held to the same shapes recordConsent writes — `{ marketing: "no" }`
+    // would otherwise land, and be read as "not a withdrawal".
+    beforeWrite: (_ctx, values) => {
+      const purposes = PurposesJson.safeParse(jsonValue(values.purposesJson));
+      const channels = ChannelOptinsJson.safeParse(jsonValue(values.channelOptinsJson));
+      if (!purposes.success) throw badRequest("purposesJson is not a purposes map");
+      if (!channels.success) throw badRequest("channelOptinsJson is not a channel opt-in map");
+      return { ...values, purposesJson: purposes.data, channelOptinsJson: channels.data };
+    },
+    // An administrator entering a withdrawal is the same fact as a customer
+    // withdrawing on the portal: it must reach suppression through the same
+    // `core.consent.updated` event (dispatch.ts), not only the generic
+    // `core.consents.created` nothing internal listens to.
+    afterWrite: async (ctx, row, action) => {
+      if (action !== "create") return;
+      await announceConsent(ctx, {
+        customerId: row.customerId as string,
+        purposes: PurposesJson.parse(jsonValue(row.purposesJson)),
+        channels: ChannelOptinsJson.parse(jsonValue(row.channelOptinsJson)),
+        source: row.source as string
+      });
+    }
+  }),
   r("products", schema.products, "prd", "core", rw("core:products"), {
     searchable: ["name", "code"],
     // docs/16 H8, docs/27 F45. A product's Shariah ruling is issued by a board

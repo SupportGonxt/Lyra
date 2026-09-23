@@ -12,6 +12,8 @@ import { crudRouter, type Resource } from "./crud.js";
 import { onError } from "./mw.js";
 import { BY_MODULE } from "./resources.js";
 import { scoutRoutes } from "./routes/scout.js";
+import { drainOutbox } from "./dispatch.js";
+import { SUPPRESSION_AUDIENCE_NAME } from "./engines/signal-suppression.js";
 import type { App } from "./env.js";
 
 // Three classes of registry bug, none of which any other test can see:
@@ -1568,5 +1570,56 @@ describe("AXIS state machines through generic CRUD (docs/27 F27)", () => {
     await seedPolicy("pol_flow_3", "bound");
     expect((await send(policies(), "PATCH", "/pol_flow_3", { status: "renewed" })).status).toBe(400);
     expect((await policyRow("pol_flow_3"))?.status).toBe("bound");
+  });
+});
+
+/* ------------------------------------------- consent writes reach suppression */
+
+describe("core/consents: an admin-entered consent is the same fact as recordConsent's", () => {
+  // Regression: POST /v1/core/consents went through generic CRUD and emitted
+  // only `core.consents.created`, while SIGNAL's suppression consumer listens
+  // for `core.consent.updated` (dispatch.ts). A withdrawal an administrator
+  // typed in therefore never suppressed outreach.
+  const consents = () => {
+    const r = BY_MODULE.core?.find((x) => x.path === "consents");
+    if (!r) throw new Error("no core/consents resource");
+    return router(r);
+  };
+
+  it("emits core.consent.updated, and a withdrawal reaches the suppression audience", async () => {
+    const res = await send(consents(), "POST", "/", {
+      customerId: "cu_withdrawn",
+      source: "agent",
+      purposesJson: { marketing: false },
+      channelOptinsJson: { email: false },
+      ts: NOW
+    });
+    expect(res.status).toBe(201);
+
+    const events = (await ctx.db.select().from(schema.eventOutbox)).filter(
+      (e) => e.type === "core.consent.updated" && e.envelopeJson.includes("cu_withdrawn")
+    );
+    expect(events).toHaveLength(1);
+    const data = JSON.parse(events[0]!.envelopeJson).data;
+    expect(data.customerId).toBe("cu_withdrawn");
+    expect(data.purposes.marketing).toBe(false);
+
+    await drainOutbox(ctx);
+    const audiences = await ctx.db
+      .select()
+      .from(schema.signalAudiences)
+      .where(eq(schema.signalAudiences.name, SUPPRESSION_AUDIENCE_NAME));
+    expect(audiences).toHaveLength(1);
+  });
+
+  it("refuses a purposes map the suppression consumer could not read", async () => {
+    const res = await send(consents(), "POST", "/", {
+      customerId: "cu_garbage",
+      source: "agent",
+      purposesJson: { marketing: "no" },
+      channelOptinsJson: {},
+      ts: NOW
+    });
+    expect(res.status).toBe(400);
   });
 });

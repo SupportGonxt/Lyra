@@ -89,6 +89,26 @@ export interface RecordConsentInput {
   expiry?: number;
 }
 
+/**
+ * The one event a consent write produces. Every consent write is a fact
+ * SIGNAL's suppression consumer needs to see — withdrawal is the case that
+ * matters, but re-consent must reach it too, or a customer who opts back in
+ * stays wrongly suppressed. Every writer routes through here: `recordConsent`
+ * and the generic `POST /v1/core/consents` (apps/api resources.ts), which used
+ * to emit only `core.consents.created` and so never suppressed anything.
+ */
+export async function announceConsent(
+  ctx: Ctx,
+  input: { customerId: string; purposes: PurposesJson; channels: ChannelOptinsJson; source: string }
+): Promise<void> {
+  await emit(ctx, {
+    module: "core",
+    type: "core.consent.updated",
+    subject: `customer:${input.customerId}`,
+    data: { customerId: input.customerId, purposes: input.purposes, channels: input.channels, source: input.source }
+  });
+}
+
 /** Append a new consent row. Withdrawal is a row with the purposes set false. */
 export async function recordConsent(ctx: Ctx, input: RecordConsentInput): Promise<ConsentState> {
   const prior = await currentConsent(ctx, input.customerId);
@@ -116,15 +136,7 @@ export async function recordConsent(ctx: Ctx, input: RecordConsentInput): Promis
     after: { purposes, channels, source: input.source }
   });
 
-  // Every consent write is a fact SIGNAL's suppression consumer needs to see —
-  // withdrawal is the case that matters, but re-consent must reach it too, or a
-  // customer who opts back in stays wrongly suppressed.
-  await emit(ctx, {
-    module: "core",
-    type: "core.consent.updated",
-    subject: `customer:${input.customerId}`,
-    data: { customerId: input.customerId, purposes, channels, source: input.source }
-  });
+  await announceConsent(ctx, { customerId: input.customerId, purposes, channels, source: input.source });
 
   return {
     id: row.id,
