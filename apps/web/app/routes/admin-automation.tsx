@@ -2,6 +2,7 @@ import { Form, useActionData, useLoaderData, type ActionFunctionArgs, type Loade
 import { Badge, Button, Card, Checkbox, EmptyState, PageHeader } from "@lyra/ui";
 import { ApiError, api, fetchMe, type Problem as ProblemBody } from "../api.server";
 import { usePending } from "../components/pending";
+import { WorkLayout } from "../components/work-layout";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { policyTitle } from "../policy";
@@ -157,59 +158,70 @@ export default function AdminAutomation() {
         description={l("intro")}
       />
 
-      <Card title={l("automatable")}>
-        <Form method="post" className="flex flex-col gap-5">
-          {byModule(open).map((group) => (
-            <fieldset key={group.module} className="flex flex-col gap-2">
-              <legend className="eyebrow mb-2">{l(`module.${group.module}`)}</legend>
-              {group.rows.map((p) => (
-                <Checkbox
-                  key={p.key}
-                  name="policy"
-                  value={p.key}
-                  defaultChecked={on.has(p.key)}
-                  disabled={!may.update}
-                  label={policyTitle(p.key, p.module, locale)}
-                />
+      <WorkLayout
+        aside={
+          <Card title={l("floorTitle")} description={l("floorIntro")}>
+            <div className="flex flex-col gap-4">
+              {byModule(floor).map((group) => (
+                <div key={group.module} className="flex flex-col gap-2">
+                  <h3 className="eyebrow">{l(`module.${group.module}`)}</h3>
+                  <ul className="flex flex-wrap gap-2">
+                    {group.rows.map((p) => (
+                      <li key={p.key}>
+                        <Badge tone="neutral" size="sm">
+                          {policyTitle(p.key, p.module, locale)}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </fieldset>
-          ))}
-          {result?.problem ? <Problem problem={result.problem} /> : null}
-          {result?.saved ? (
-            <p role="status" className="font-ui text-13 text-success">
-              {l("saved")}
-            </p>
-          ) : null}
-          {may.update ? (
-            <div>
-              <Button type="submit" name="intent" value="save" loading={pending("save")}>
-                {l("save")}
-              </Button>
             </div>
-          ) : (
-            <p className="font-ui text-13 text-muted">{l("readOnly")}</p>
-          )}
-        </Form>
-      </Card>
-
-      <Card title={l("floorTitle")} description={l("floorIntro")}>
-        <div className="flex flex-col gap-4">
-          {byModule(floor).map((group) => (
-            <div key={group.module} className="flex flex-col gap-2">
-              <h3 className="eyebrow">{l(`module.${group.module}`)}</h3>
-              <ul className="flex flex-wrap gap-2">
-                {group.rows.map((p) => (
-                  <li key={p.key}>
-                    <Badge tone="neutral" size="sm">
-                      {policyTitle(p.key, p.module, locale)}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
+          </Card>
+        }
+      >
+        <Card title={l("automatable")}>
+          <Form method="post" className="flex flex-col gap-5">
+            {/* One column of areas per ~20rem: thirty-odd policies read as one
+                screen of groups instead of a single four-screen column. */}
+            <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+              {byModule(open).map((group) => (
+                <fieldset key={group.module} className="flex min-w-0 flex-col gap-2 border-0 p-0">
+                  <legend className="eyebrow mb-2">{l(`module.${group.module}`)}</legend>
+                  <ul className="flex flex-col gap-2">
+                    {group.rows.map((p) => (
+                      <li key={p.key}>
+                        <Checkbox
+                          name="policy"
+                          value={p.key}
+                          defaultChecked={on.has(p.key)}
+                          disabled={!may.update}
+                          label={policyTitle(p.key, p.module, locale)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </fieldset>
+              ))}
             </div>
-          ))}
-        </div>
-      </Card>
+            {result?.problem ? <Problem problem={result.problem} /> : null}
+            {result?.saved ? (
+              <p role="status" className="font-ui text-13 text-success">
+                {l("saved")}
+              </p>
+            ) : null}
+            {may.update ? (
+              <div>
+                <Button type="submit" name="intent" value="save" loading={pending("save")}>
+                  {l("save")}
+                </Button>
+              </div>
+            ) : (
+              <p className="font-ui text-13 text-muted">{l("readOnly")}</p>
+            )}
+          </Form>
+        </Card>
+      </WorkLayout>
     </div>
   );
 }
