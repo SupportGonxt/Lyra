@@ -19,7 +19,7 @@ export function MobileScreenView({ screen }: { screen: MobileScreen }) {
             </div>
             <div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
               <div className="mb-1.5 text-12 uppercase tracking-wide text-muted">{phone.eyebrow}</div>
-              <div className="mb-4 font-ui text-18 font-semibold leading-snug text-fg">{phone.title}</div>
+              <div className="mb-4 font-ui text-18 font-semibold leading-snug text-text">{phone.title}</div>
               <div className="flex flex-col gap-2.5">
                 {phone.cards.map((card, j) => (
                   <div
@@ -33,7 +33,7 @@ export function MobileScreenView({ screen }: { screen: MobileScreen }) {
                       </div>
                       <div className="font-mono text-12 text-subtle">{card.stamp}</div>
                     </div>
-                    <div className="mb-1.5 text-13 leading-snug text-fg">{card.head}</div>
+                    <div className="mb-1.5 text-13 leading-snug text-text">{card.head}</div>
                     <div className="text-12 leading-relaxed text-subtle">{card.body}</div>
                   </div>
                 ))}

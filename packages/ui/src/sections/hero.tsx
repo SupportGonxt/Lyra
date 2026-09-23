@@ -44,6 +44,20 @@ export function splitHeadline(target: string): { prefix: string; numStr: string;
 }
 
 /**
+ * Whether a display value is a quantity worth counting up. A numeral followed
+ * by `-`, `/` or `:` and another digit is a date, time or reference, and a
+ * value opening on a letter-digit code is an identifier: counting either from
+ * zero shows a date or id nobody wrote.
+ */
+export function countable(target: string): boolean {
+  const parts = splitHeadline(target);
+  if (!parts) return false;
+  if (/^[-/:]\d/.test(parts.suffix)) return false;
+  if (/[A-Za-z]-$/.test(parts.prefix)) return false;
+  return true;
+}
+
+/**
  * One frame of a count-up, formatted the way the caller already formatted
  * `numStr`: to the same number of decimals, and grouped only if the source was
  * grouped.
@@ -73,7 +87,7 @@ function useCountUp(target: string, durationMs = 700): string {
   const [display, setDisplay] = React.useState(target);
   React.useEffect(() => {
     const parts = splitHeadline(target);
-    if (!parts) {
+    if (!parts || !countable(target)) {
       setDisplay(target);
       return;
     }
@@ -151,7 +165,7 @@ function Trend({ items }: { items: SparkItem[] }) {
       {active ? (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-sm border border-line2 bg-surface-3 px-2 py-1 font-mono text-12 text-fg shadow-elev"
+          className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-sm border border-line2 bg-surface-3 px-2 py-1 font-mono text-12 text-text shadow-elev"
           style={{ insetInlineStart: `${(hoverIndex! / Math.max(1, items.length - 1)) * 100}%` }}
         >
           {active.label}

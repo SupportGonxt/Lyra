@@ -40,7 +40,7 @@ export function ListScreenView({ screen }: { screen: ListScreen }) {
               className="inline-flex items-center gap-1.5 rounded-orbit border border-line2 bg-surface-2 px-3 py-1 text-12"
             >
               <span className="text-subtle">{name}</span>
-              <span className="text-fg">{value}</span>
+              <span className="text-text">{value}</span>
             </span>
           ))}
           <span className="ms-auto font-mono text-12 text-subtle">{screen.rows.length}</span>
@@ -57,7 +57,7 @@ export function ListScreenView({ screen }: { screen: ListScreen }) {
           {screen.notes.map(([hue, label, body], i) => (
             <div key={i} className="min-w-[19rem] flex-1 border-s-2 py-0.5 ps-3.5" style={{ borderColor: hue }}>
               <div className="mb-1 text-12 uppercase tracking-wide text-muted">{label}</div>
-              <p className="text-13 leading-relaxed text-fg">{body}</p>
+              <p className="text-13 leading-relaxed text-text">{body}</p>
             </div>
           ))}
         </div>

@@ -535,6 +535,11 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     ...readsOf("scout"), "scout:ai:invoke", "ai:suggestions:read", "ai:command:read",
     "scout:experiments:create", "scout:experiments:decide",
     "scout:whitespaces:promote", "scout:data_products:create",
+    // J-P2 (docs/06): the lead who ran the negotiation logs the agreed delta.
+    // A rate is create-only evidence behind dist.rate_change — never
+    // auto-approved, always dual control, decided by dist:rates:approve
+    // (finance) — so writing one here proposes; it never sets a rate alone.
+    "dist:rates:read", "dist:rates:write", "dist:offerings:read", "dist:channels:read",
     // A lead reruns the Clusterer and the Bench Builder; ingest stays admin.
     "scout:clusters:build", "scout:panel_bench:build",
     "core:products:read", "core:providers:read", "core:approvals:read", "core:approvals:decide",

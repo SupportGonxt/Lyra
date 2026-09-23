@@ -156,10 +156,10 @@ const LABELS: Record<string, Record<string, string>> = {
 
     "kpi.approvals": "بانتظار قرارك",
     "kpi.notifications": "غير مقروء",
-    "kpi.revenue": "الإيرادات خلال ٣٠ يومًا",
+    "kpi.revenue": "الإيرادات خلال 30 يومًا",
     "kpi.revenue.hint": "النسبة هي الهامش بعد تكلفة الذكاء الاصطناعي والوسائط",
     "kpi.volume": "الوحدات المنجزة",
-    "kpi.volume.trend": "الوحدات المنجزة يوميًا خلال آخر ٣٠ يومًا",
+    "kpi.volume.trend": "الوحدات المنجزة يوميًا خلال آخر 30 يومًا",
 
     "approvals.title": "قرارات بانتظارك",
     "approvals.subject": "الموضوع: {ref}",
@@ -199,7 +199,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "runs.state.budget_stopped": "توقّف لبلوغ الميزانية",
 
     "areas.title": "أين يجري العمل",
-    "areas.label": "الإنجاز حسب المجال خلال آخر ٣٠ يومًا",
+    "areas.label": "الإنجاز حسب المجال خلال آخر 30 يومًا",
     "areas.units": "{count} منجزة",
     "areas.empty": "لم يُقَس أي نشاط في هذه الفترة بعد.",
 
@@ -615,6 +615,19 @@ const RUN_TONE: Record<string, BadgeTone> = {
   budget_stopped: "warning",
 };
 
+/** Every read the four journey steps make (routes/journey-*.tsx loaders). */
+export const JOURNEY_NEEDS = [
+  "axis:cases:read",
+  "north:briefings:read",
+  "scout:whitespaces:read",
+  "signal:audiences:estimate",
+  "signal:creatives:generate"
+] as const;
+
+export function walksJourney(permissions: readonly string[]): boolean {
+  return JOURNEY_NEEDS.every((permission) => permissions.includes(permission));
+}
+
 export default function Home() {
   const loaded = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
@@ -693,7 +706,7 @@ export default function Home() {
     title: label("journey.title"),
     items: [
       {
-        code: "AXIS",
+        code: "Operations",
         dot: hueVar("axis"),
         title: moduleName(t, "axis"),
         money: econ
@@ -708,7 +721,7 @@ export default function Home() {
         hue: hueVar("axis"),
       },
       {
-        code: "NORTH",
+        code: "Insight",
         dot: hueVar("north"),
         title: moduleName(t, "north"),
         money: briefing?.audience ?? "—",
@@ -716,7 +729,7 @@ export default function Home() {
         hue: hueVar("north"),
       },
       {
-        code: "SCOUT",
+        code: "Market",
         dot: hueVar("scout"),
         title: moduleName(t, "scout"),
         money: scoutOpen === null ? "—" : number.format(scoutOpen),
@@ -724,7 +737,7 @@ export default function Home() {
         hue: hueVar("scout"),
       },
       {
-        code: "SIGNAL",
+        code: "Marketing",
         dot: hueVar("signal"),
         title: moduleName(t, "signal"),
         money: signalActive === null ? "—" : number.format(signalActive),
@@ -775,7 +788,7 @@ export default function Home() {
       ) : null}
       {/* Eyebrow's classes rather than <Eyebrow>: the block still needs a
             real heading in the outline, and the component is a <p>. */}
-      <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+      <h2 className="eyebrow">
         {label("approvals.title")}
       </h2>
       {loaded.approvals.state === "error" ? (
@@ -793,7 +806,7 @@ export default function Home() {
             // The policy key said as words, the same way /approvals says it:
             // the module owns the noun, so `axis.claim_reserve` reads as
             // "Claim reserve" without the shell knowing what a claim is.
-            summary={policyTitle(approval.policyKey, approval.module)}
+            summary={policyTitle(approval.policyKey, approval.module, locale)}
             consequence={label("approvals.subject", {
               ref: who(approval.subjectRef, loaded.names) ?? "",
             })}
@@ -801,7 +814,7 @@ export default function Home() {
             // Each strip is a region landmark. Sharing one name with the
             // section around them makes a landmark list of identical entries
             // (axe landmark-unique), so each carries what it is waiting on.
-            label={`${label("approvals.title")}: ${policyTitle(approval.policyKey, approval.module)}`}
+            label={`${label("approvals.title")}: ${policyTitle(approval.policyKey, approval.module, locale)}`}
             // A strip mid-decision explains why its buttons are gone rather
             // than offering a second click that would race the first.
             {...(busyId === approval.id
@@ -935,16 +948,21 @@ export default function Home() {
         </KPIWall>
       ) : null}
 
+      {/* The demo walks four modules, each behind its own permission. A reader
+          who holds fewer was sent into a 403 at step two, so the door shows
+          only to a reader who can walk the whole way. */}
+      {walksJourney(shell?.permissions ?? []) ? (
       <section
         aria-label={label("journey.title")}
         className="flex flex-col gap-3"
       >
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+        <h2 className="eyebrow">
           {label("journey.title")}
         </h2>
         <div>{renderSection(journeySteps, "hub")}</div>
         <JourneyContinue to="/journey/axis" label={label("journey.cta")} />
       </section>
+      ) : null}
 
       {leads ? null : decisions}
 

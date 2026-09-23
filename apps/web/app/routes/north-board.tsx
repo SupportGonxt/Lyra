@@ -87,7 +87,7 @@ const LABELS: Labels = {
     "detail.decisions": "{n} decisions",
     "none.title": "No board packs yet",
     "none.body": "Assemble one for the period you are about to present.",
-    denied: "You do not have permission to read board packs. Ask a tenant administrator for NORTH board pack access.",
+    denied: "You do not have permission to read board packs. Ask a tenant administrator for Insight board pack access.",
     saved: "Pack assembled. It is in review until somebody approves distribution.",
     approvalTitle: "Queued for approval",
     approvalBody: "Assembling this pack needs sign-off under policy {policy}. It is queued, not lost.",
@@ -113,7 +113,7 @@ const LABELS: Labels = {
     "assemble.submit": "جمِّع",
     "assemble.note":
       "التجميع يُخرج ملف PDF ويترك الحزمة قيد المراجعة. لا شيء يوزّعها — تلك الخطوة تحتاج مسار موافقة غير موجود في هذه النسخة.",
-    "list.caption": "كل حزم مجلس الإدارة في هذا المستأجر، الأحدث فترةً أولاً",
+    "list.caption": "كل حزم مجلس الإدارة في هذه المؤسسة، الأحدث فترةً أولاً",
     "list.period": "الفترة",
     "list.packTitle": "العنوان",
     "list.status": "الحالة",
@@ -134,7 +134,7 @@ const LABELS: Labels = {
     "detail.decisions": "{n} قرارات",
     "none.title": "لا توجد حزم بعد",
     "none.body": "جمِّع واحدة للفترة التي ستعرضها.",
-    denied: "لا تملك صلاحية قراءة حزم المجلس. اطلب من مدير المستأجر صلاحية حزم نورث.",
+    denied: "لا تملك صلاحية قراءة حزم المجلس. اطلب من مدير المؤسسة صلاحية حزم التحليلات التنفيذية.",
     saved: "جُمِّعت الحزمة. تبقى قيد المراجعة حتى يوافق أحد على التوزيع.",
     approvalTitle: "في انتظار الموافقة",
     approvalBody: "تجميع هذه الحزمة يحتاج موافقة بموجب سياسة {policy}. هي في الانتظار ولم تُفقد.",
@@ -281,12 +281,12 @@ export default function NorthBoard() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
+        <span className="eyebrow">{l("kicker")}</span>
         {/* The headline narrates the open pack's own assembly state rather
             than repeating the eyebrow's "Board packs" label — see headline()
             above. Lede's classes rather than <Lede>: the page needs a real h1
             in the outline, and the component is a <p>. */}
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline(open, l)}</h1>
+        <h1 className="page-title">{headline(open, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {/* routing.ts documents /north/brief as reached from the workspace
             tools list; The Brief itself links back to /north/board, so this
@@ -406,7 +406,7 @@ function PackDetail({
     <Panel module="north" eyebrow={pack.period} lede={pack.title}>
       <div className="flex flex-col gap-5">
         <section className="flex flex-col gap-2">
-          <h2 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("detail.sections")}</h2>
+          <h2 className="eyebrow">{l("detail.sections")}</h2>
           <Provenance
             rows={[
               ...lines.map((line) => {
@@ -423,7 +423,7 @@ function PackDetail({
         </section>
 
         <section className="flex flex-col gap-2">
-          <h2 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("detail.distribution")}</h2>
+          <h2 className="eyebrow">{l("detail.distribution")}</h2>
           {log.length === 0 ? (
             <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("detail.distribution.none")}</p>
           ) : (

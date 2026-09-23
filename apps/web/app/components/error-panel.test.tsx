@@ -76,4 +76,16 @@ describe("error panel", () => {
     const without = renderToStaticMarkup(<ErrorPanel error={routeError(500)} t={t} />);
     expect(without).not.toContain(t("error.requestId", { id: "" }).trim());
   });
+
+  // Loaders throw `data("workspace", { status: 404 })` — a noun, not an id.
+  // The 404 page printed "Reference workspace" for support to trace.
+  it("never offers a word as the reference", () => {
+    const noun = renderToStaticMarkup(<ErrorPanel error={routeError(404, "workspace")} t={t} />);
+    expect(noun).not.toContain(t("error.requestId", { id: "workspace" }));
+  });
+
+  it("sets the reference in a colour that passes AA as text", () => {
+    const withId = renderToStaticMarkup(<ErrorPanel error={routeError(500, "req_01KE")} t={t} />);
+    expect(withId).not.toMatch(/text-tx[56]/);
+  });
 });

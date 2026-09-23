@@ -59,6 +59,7 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/ledger/transactions/:id": "opens one transaction from the ledger transactions list",
   "/ledger/period-close": "closes an accounting period, linked from the ledger workspace tools list",
   "/ledger/year-end": "closes a fiscal year into retained earnings, linked from the ledger workspace tools list",
+  "/ledger/fx-revaluation": "revalues open foreign balances at the closing rate, linked from the ledger workspace tools list",
   "/ledger/journal": "drafts a manual journal entry, linked from the ledger workspace tools list",
   "/ledger/statement": "one account's journal lines, linked from the ledger workspace tools list",
   "/ledger/money-map": "a period's value flow inside the ledger workspace, linked from its reports list",
@@ -85,6 +86,8 @@ export const HIDDEN_ROUTES: Record<string, string> = {
     "the developer portal inside the admin workspace, linked from its tools list beside the API keys tab",
   "/admin/security":
     "the sign-in enforcement posture inside the admin workspace, linked from its tools list beside the sign-in providers tab",
+  "/admin/automation":
+    "the auto-approve allowlist inside the admin workspace, linked from its tools list beside security and access",
   "/axis/documents/:id/file": "streams one document's source file, opened from the verify-queue viewer",
   "/axis/cases/:id/evidence-bundles/:bundleId/download":
     "streams one recon evidence bundle's file, opened from the case detail evidence list",
@@ -106,7 +109,7 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/orbit/journeys/:id/builder": "opens one journey's steps from the journeys list",
   "/surface/:module/:screen":
     "one screen from the Constellation design pull, opened from the link that names it — there is no single rail slot for a whole design catalogue (routes/surface.tsx)",
-  "/journey/axis": "the flagship AXIS->NORTH->SCOUT->SIGNAL demo journey, reached from the home dashboard's journey card, not the module rail",
+  "/journey/axis": "the flagship Operations->Insight->Market->Marketing demo journey, reached from the home dashboard's journey card, not the module rail",
   "/journey/north": "next hop of the flagship demo journey, reached via JourneyContinue from /journey/axis",
   "/journey/scout": "next hop of the flagship demo journey, reached via JourneyContinue from /journey/north",
   "/journey/signal": "final hop of the flagship demo journey, reached via JourneyContinue from /journey/scout",

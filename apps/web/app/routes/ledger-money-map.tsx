@@ -364,9 +364,11 @@ const HEIGHT = 380;
 
 /** Node fill: the two that are not the aggregator's own money read as transit. */
 function fillFor(key: string): string {
-  if (key === "insurer-remittance" || key === "still-held") return "var(--vega-600)";
-  if (key === "tax") return "var(--solar-500)";
-  if (key === "net") return "var(--ion-500)";
+  // Semantic tokens only: a raw palette step (vega-600) is a pale lime that
+  // vanished on the light theme.
+  if (key === "insurer-remittance" || key === "still-held") return "var(--info)";
+  if (key === "tax") return "var(--warning)";
+  if (key === "net") return "var(--success)";
   return "var(--accent)";
 }
 
@@ -420,7 +422,7 @@ export default function LedgerMoneyMap() {
 
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {moneyMapHeadline(map, breached, l, locale)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("intro")}</p>
@@ -447,8 +449,10 @@ export default function LedgerMoneyMap() {
         // The diagram reads left to right in both locales: the ribbons are a
         // flow of time and money, not a line of text, and mirroring them would
         // put the insurer's money before the premium that paid it.
-        <section dir="ltr" className="rounded-lg border border-border bg-surface-1 p-4">
-          <svg viewBox={`0 0 ${WIDTH} ${HEIGHT + 28}`} role="img" aria-label={l("title")} className="h-[420px] w-full">
+        // Scales with its width rather than a fixed height, and scrolls inside
+        // its own frame below 640px so labels never shrink past legibility.
+        <section dir="ltr" tabIndex={0} aria-label={l("title")} className="overflow-x-auto rounded-lg border border-border bg-surface-1 p-4">
+          <svg viewBox={`0 0 ${WIDTH} ${HEIGHT + 28}`} role="img" aria-label={l("title")} className="h-auto w-full min-w-[640px]">
             {laid.links.map((link) => (
               <path key={`${link.from}-${link.to}`} d={link.path} fill="var(--accent)" opacity={0.16} />
             ))}
@@ -561,7 +565,7 @@ function Segregation({ rows, label }: { rows: ClientMoneyRow[] | null; label: La
                 </div>
                 <div className="h-3 w-full rounded-sm bg-surface-2">
                   <div
-                    className={row.breach ? "h-3 rounded-sm bg-flare-500" : "h-3 rounded-sm bg-vega-600"}
+                    className={row.breach ? "h-3 rounded-sm bg-danger" : "h-3 rounded-sm bg-accent"}
                     style={{ width: `${(row.liabilityMinor / scale) * 100}%` }}
                   />
                 </div>

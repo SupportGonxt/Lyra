@@ -23,15 +23,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "../../../..");
 const tokens = readFileSync(join(REPO, "packages/ui/src/tokens.css"), "utf8");
 
-const SHELLS = [
-  "shell.tsx",
-  "axis-shell.tsx",
-  "north-shell.tsx",
-  "orbit-shell.tsx",
-  "scout-shell.tsx",
-  "signal-shell.tsx"
-];
-const OWNED = [...SHELLS, "meridian.tsx", "shift-rail.tsx", "shift-clear.tsx"];
+// One frame (ADR-0085): the module shells are wrappers that pass their screens
+// to `Shell`, and are held to rendering no chrome of their own below.
+const SHELLS = ["shell.tsx"];
+const WRAPPERS = ["axis-shell.tsx", "north-shell.tsx", "orbit-shell.tsx", "scout-shell.tsx", "signal-shell.tsx"];
+const OWNED = [...SHELLS, "module-shell.tsx", "meridian.tsx", "shift-clear.tsx"];
 
 const source = (file: string) => readFileSync(join(HERE, file), "utf8");
 
@@ -140,5 +136,13 @@ describe("RTL: logical properties only", () => {
     for (const [label, pattern] of physical) {
       expect(pattern.test(text), `${file} uses ${label}`).toBe(false);
     }
+  });
+});
+
+describe("module shells", () => {
+  it.each(WRAPPERS)("%s renders through the one frame and draws no chrome", (file) => {
+    const text = source(file);
+    expect(text).toContain("<ModuleShell");
+    expect(text).not.toMatch(/<(header|nav|main|footer)\b/);
   });
 });

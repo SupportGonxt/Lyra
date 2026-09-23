@@ -20,7 +20,7 @@ export function QuotesSection({ section, mod }: { section: QuotesSectionData; mo
               style={{ borderColor: item.line, background: item.bg }}
             >
               <div className="min-w-0 flex-[1_1_13rem]">
-                <div className="mb-1 font-ui text-16 font-semibold text-fg">{item.insurer}</div>
+                <div className="mb-1 font-ui text-16 font-semibold text-text">{item.insurer}</div>
                 <div className="text-12 leading-relaxed text-subtle">{item.plan}</div>
               </div>
               <div className="flex flex-[1_1_17rem] flex-wrap gap-1.5">

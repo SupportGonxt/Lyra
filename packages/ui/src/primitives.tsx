@@ -69,7 +69,7 @@ export function Button({
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-ui font-medium",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md font-ui font-medium",
         "transition-colors duration-150 ease-out",
         "disabled:pointer-events-none disabled:opacity-50",
         focusRing,
@@ -172,7 +172,7 @@ export function Field({
   );
 
   return (
-    <div {...props} className={cn("flex flex-col gap-1.5 text-start", className)}>
+    <div {...props} data-field="" className={cn("flex flex-col gap-1.5 text-start", className)}>
       <RLabel.Root
         htmlFor={fieldId}
         className={cn(
@@ -189,12 +189,12 @@ export function Field({
       </RLabel.Root>
       <FieldContext.Provider value={ctx}>{children}</FieldContext.Provider>
       {hint ? (
-        <p id={hintId} className="font-ui text-12 text-subtle">
+        <p id={hintId} data-field-note="" className="font-ui text-12 text-subtle">
           {hint}
         </p>
       ) : null}
       {error ? (
-        <p id={errorId} role="alert" className="font-ui text-12 text-danger">
+        <p id={errorId} role="alert" data-field-note="" className="font-ui text-12 text-danger">
           {error}
         </p>
       ) : null}
@@ -238,10 +238,23 @@ export interface InputProps extends Omit<React.ComponentPropsWithRef<"input">, "
 
 export function Input({ size = "md", prefix, suffix, className, ...props }: InputProps) {
   const field = useFieldControl();
+  // A text adornment is as wide as its text: "ZAR" under a fixed ps-9 sat on
+  // top of the value. Reserve its width in ch plus the inset either side.
+  const reserve = (adornment: React.ReactNode) =>
+    typeof adornment === "string" && adornment.length > 1 ? `calc(${adornment.length}ch + 1.25rem)` : undefined;
+  // An address, a link or a number is written left to right in every
+  // language; in an Arabic form it was right-aligned and its punctuation moved.
+  const ltr = props.type === "email" || props.type === "url" || props.type === "tel" ? { dir: "ltr" as const } : {};
   const control = (
     <input
+      {...ltr}
       {...field}
       {...props}
+      style={{
+        ...(reserve(prefix) ? { paddingInlineStart: reserve(prefix) } : {}),
+        ...(reserve(suffix) ? { paddingInlineEnd: reserve(suffix) } : {}),
+        ...props.style
+      }}
       className={cn(
         controlBase,
         widthFrom(className),
@@ -413,7 +426,10 @@ export function Select({
           className
         )}
       >
-        <RSelect.Value placeholder={placeholder} />
+        {/* The chosen label, spelt out: Radix otherwise fills the trigger from the
+            item text only once the client has mounted, so every select painted
+            blank until hydration. */}
+        <RSelect.Value placeholder={placeholder}>{options.find((o) => o.value === current)?.label}</RSelect.Value>
         <RSelect.Icon aria-hidden="true">▾</RSelect.Icon>
       </RSelect.Trigger>
       <RSelect.Portal>
@@ -686,7 +702,7 @@ export function Card({
         <header
           className={cn(
             "flex items-start justify-between gap-4 border-b border-border",
-            padded ? "px-4 py-3" : "pb-3"
+            padded ? "px-4 py-2.5" : "pb-2.5"
           )}
         >
           <div className="min-w-0">
@@ -729,9 +745,9 @@ export function PageHeader({ eyebrow, title, description, back, meta, className 
     <header className={cn("flex flex-col", back ? "gap-2" : "gap-1", className)}>
       {back}
       {eyebrow ? (
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{eyebrow}</span>
+        <span className="eyebrow">{eyebrow}</span>
       ) : null}
-      <h1 className="font-serif text-22 leading-[1.2] text-text">{title}</h1>
+      <h1 className="page-title">{title}</h1>
       {description ? <p className="max-w-prose font-ui text-13 text-muted">{description}</p> : null}
       {meta}
     </header>

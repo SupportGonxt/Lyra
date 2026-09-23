@@ -74,7 +74,7 @@ export function Eyebrow({ module, className, children, ...props }: EyebrowProps)
   return (
     <p
       className={cn(
-        "flex items-center gap-2 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle",
+        "eyebrow flex items-center gap-2",
         className
       )}
       {...props}
@@ -254,7 +254,6 @@ export function Panel({
       className={cn("overflow-hidden rounded-md border border-border bg-surface-1 text-start", className)}
       {...props}
     >
-      {module ? <HueBar module={module} /> : null}
       {heading ? (
         <header
           className={cn(
@@ -264,7 +263,10 @@ export function Panel({
           )}
         >
           <div className="min-w-0 space-y-2">
-            {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
+            {/* The module signs a panel with the eyebrow's dot, not a second
+                hue bar: the shell already draws the one bar a page carries,
+                and three stacked bars read as rules, not as a signature. */}
+            {eyebrow ? <Eyebrow {...(module ? { module } : {})}>{eyebrow}</Eyebrow> : null}
             {lede ? <Lede>{lede}</Lede> : null}
           </div>
           {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
@@ -317,7 +319,7 @@ export function AnswerBanner({
       {module ? <HueBar module={module} /> : null}
       <div className="space-y-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-2 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+          <p className="eyebrow flex items-center gap-2">
             <span aria-hidden="true" className="text-accent">
               {AGENT_MARK}
             </span>

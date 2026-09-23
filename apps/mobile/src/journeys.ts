@@ -3,7 +3,8 @@
 // rows and answers what to show. Nothing decides what is *allowed* — the API
 // owns permissions, approvals and audit (CLAUDE.md rules 3, 4).
 
-import type { Row } from "./api";
+import type { Me, Row } from "./api";
+import { baseOf } from "./i18n";
 import { humanize } from "./rows";
 
 /* ------------------------------------------------------------------- brief */
@@ -16,13 +17,66 @@ export interface Highlight {
 }
 
 /**
- * The briefing being read: the one asked for, else the most recent. Same rule
- * as the web brief (apps/web/app/routes/north-brief.tsx `chosen`), so the two
- * surfaces never disagree about which briefing "today's" means.
+ * The briefing being read: the one asked for, else the newest in the reader's
+ * language, else the newest at all. A port of the web's `chosen(rows, id,
+ * locale)` (apps/web/app/routes/north-shared.tsx), so the two surfaces never
+ * disagree about which briefing "today's" means.
+ *
+ * NORTH narrates per locale and the rows arrive newest-first, so `rows[0]` was
+ * "newest in any language": a tenant narrating in en and ar handed an English
+ * reader whichever was generated last. `locale` is the reader's, not the row's;
+ * it is compared by base language because the session's locale can carry a
+ * region (`en-AE`) while a briefing row records the bare language.
  */
-export function chosenBriefing(rows: readonly Row[] | null, id?: string | null): Row | null {
+export function chosenBriefing(
+  rows: readonly Row[] | null,
+  id: string | null,
+  locale: string
+): Row | null {
   if (!rows?.length) return null;
-  return (id ? rows.find((row) => row.id === id) : undefined) ?? rows[0]!;
+  if (id) return rows.find((row) => row.id === id) ?? rows[0]!;
+  const reader = baseOf(locale);
+  return (
+    rows.find((row) => typeof row.locale === "string" && baseOf(row.locale) === reader) ??
+    rows[0]!
+  );
+}
+
+/**
+ * `narrativeRef` as prose, or nothing. A port of the web's `narrative()`
+ * (apps/web/app/routes/north-shared.tsx): rows seeded before f506bf7 hold a
+ * storage key like `briefings/<tenant>/<id>.md`, and no bucket was ever bound
+ * to hold that object — printing it shows a filename as a briefing.
+ */
+export function briefNarrative(ref: unknown): string | null {
+  if (typeof ref !== "string" || !ref) return null;
+  return /^[\w/-]+\.md$/.test(ref) ? null : ref;
+}
+
+/** The permission the API gates an anomaly PATCH on — the same one the web's
+ *  /north/anomalies screen checks before offering its close actions. */
+export const ANOMALY_ASSIGN = "north:anomalies:assign";
+
+/** Whether to offer "Take it on". The API still decides; this only avoids
+ *  offering a button whose press is certain to be refused. */
+export function canTakeAnomaly(permissions: readonly string[] | null | undefined): boolean {
+  return (permissions ?? []).includes(ANOMALY_ASSIGN);
+}
+
+/**
+ * The name a taken anomaly is signed with (`explainedBy`), so the next reader
+ * knows who took it: the reader's display name, else their email, else the
+ * actor id. The web asks the reader to type it; a phone already knows it.
+ */
+export function anomalyOwner(
+  me: Pick<Me, "actor" | "profile"> | null | undefined
+): string | null {
+  if (!me) return null;
+  const name = me.profile?.name?.trim();
+  if (name) return name;
+  const email = me.profile?.email?.trim();
+  if (email) return email;
+  return me.actor.id || null;
 }
 
 /** `highlights_json` as rows. Unparseable JSON shows as no highlights rather

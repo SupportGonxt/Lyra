@@ -5,7 +5,6 @@ import {
   redirect,
   useActionData,
   useLoaderData,
-  useNavigation,
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
@@ -16,8 +15,9 @@ import { ApiError, api, asRouteError, names } from "../api.server";
 // for exactly this, see its header).
 import { rejectedBy } from "../api-error";
 import { Cell, FieldInput } from "../components/fields";
+import { usePending } from "../components/pending";
 import { cloudflare } from "../context";
-import { translator } from "../i18n";
+import { localeFrom, translator } from "../i18n";
 import { ConfirmButton } from "../components/confirm";
 import { workspaceFor } from "../modules";
 import {
@@ -31,7 +31,7 @@ import {
   type Row,
   type WorkspaceSpec
 } from "../modules/spec";
-import { runAction } from "../record.server";
+import { refOptions, runAction } from "../record.server";
 import { Gate } from "./module";
 import { useShellData } from "./workspace";
 
@@ -53,6 +53,7 @@ function resolve(params: { module?: string; resource?: string }): {
 export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const { spec, tab } = resolve(params);
   const env = context.get(cloudflare).env;
+  const choices = refOptions(tab.editable ?? tab.fields ?? [], localeFrom(request), { env, request });
   const row = await api<Row>(`${tab.api}/${params.id}`, { env, request }).catch(asRouteError);
   // Same reason as the list (module.tsx): a record's fields hold refs and no
   // names for them.
@@ -60,7 +61,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     Object.values(row).filter((value): value is string => typeof value === "string" && isOpaqueRef(value)),
     { env, request }
   );
-  return { modulePath: spec.path, resource: tab.key, row, resolved };
+  return { modulePath: spec.path, resource: tab.key, row, resolved, refOptions: await choices };
 }
 
 export async function action({ request, params, context }: ActionFunctionArgs) {
@@ -92,7 +93,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     if (error instanceof ApiError) return { problem: error.problem, done: null };
     throw error;
   }
-  return { problem: null, done: null };
+  return { problem: null, done: "update" };
 }
 
 export default function Record() {
@@ -101,7 +102,7 @@ export default function Record() {
   const problem = result?.problem ?? null;
   const done = result?.done ?? null;
   const shell = useShellData();
-  const navigation = useNavigation();
+  const pending = usePending();
 
   const locale = shell?.locale ?? "en";
   const held = new Set(shell?.permissions ?? []);
@@ -115,12 +116,12 @@ export default function Record() {
   // Marks the inputs a rejected edit or create named (see module.tsx).
   const rejected = rejectedBy(problem, () => t("error.field"));
   const row = loaded.row;
-  const busy = navigation.state !== "idle";
   const editable = tab.editable ?? tab.fields ?? [];
   const canEdit = Boolean(tab.update && held.has(tab.update)) && editable.length > 0;
   const canDelete = Boolean(tab.remove && held.has(tab.remove));
   const actions = visibleActions(tab, shell?.permissions ?? []);
   const completed = actions.find((entry) => entry.intent === done) ?? null;
+  const saved = done === "update";
   // The heading is whatever this resource calls itself first — a case reference,
   // a policy number — falling back to the identifier. It goes through the same
   // two steps a cell does: an enum reads as its words ("Premium remitted", not
@@ -128,7 +129,9 @@ export default function Record() {
   // rather than printed at 26 characters across the top of the screen.
   const headingColumn = tab.columns[0]?.name ?? "id";
   const headingRaw = String(row[headingColumn] ?? row.id ?? "");
-  const heading = optionWords(label, headingColumn, headingRaw) ?? shortRef(headingRaw);
+  // A ref the loader already resolved reads as its name — the heading of a
+  // quote was `cu_01KE…9FMN` while the name sat in `resolved`.
+  const heading = optionWords(label, headingColumn, headingRaw) ?? loaded.resolved[headingRaw] ?? shortRef(headingRaw);
 
   return (
     <div className="flex flex-col gap-6">
@@ -139,7 +142,7 @@ export default function Record() {
         >
           {t("common.back")}
         </Link>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{heading}</h1>
+        <h1 className="page-title">{heading}</h1>
         <p className="font-ui text-12 text-subtle">
           {label(tab.key)} · <span className="font-mono">{String(row.id ?? "")}</span>
         </p>
@@ -166,6 +169,13 @@ export default function Record() {
           className="rounded-md border border-success/40 bg-success/10 px-3 py-2 font-ui text-13 text-text"
         >
           {orElse(label, `${completed.labelKey}.done`, t("common.saved"))}
+        </p>
+      ) : saved ? (
+        <p
+          role="status"
+          className="rounded-md border border-success/40 bg-success/10 px-3 py-2 font-ui text-13 text-text"
+        >
+          {t("common.saved")}
         </p>
       ) : null}
 
@@ -200,12 +210,12 @@ export default function Record() {
           aria-labelledby="record-actions"
           className="flex flex-col gap-4 rounded-lg border border-border bg-surface-1 p-4"
         >
-          <h2 id="record-actions" className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+          <h2 id="record-actions" className="eyebrow">
             {t("common.actions")}
           </h2>
           <div className="flex flex-wrap items-end gap-4">
             {actions.map((entry) => (
-              <ActionForm key={entry.intent} action={entry} label={label} busy={busy} rejected={rejected} />
+              <ActionForm key={entry.intent} action={entry} label={label} busy={pending(entry.intent)} rejected={rejected} />
             ))}
           </div>
         </section>
@@ -213,15 +223,22 @@ export default function Record() {
 
       {canEdit ? (
         <Form method="post" className="flex flex-col gap-4 rounded-lg border border-border bg-surface-1 p-4">
-          <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{t("common.edit")}</h2>
+          <h2 className="eyebrow">{t("common.edit")}</h2>
           <input type="hidden" name="intent" value="update" />
           <div className="grid gap-4 sm:grid-cols-2">
             {editable.map((field) => (
-              <FieldInput key={field.name} field={field} row={row} label={label} invalid={rejected} />
+              <FieldInput
+                key={field.name}
+                field={field}
+                row={row}
+                label={label}
+                invalid={rejected}
+                options={loaded.refOptions}
+              />
             ))}
           </div>
           <div>
-            <Button type="submit" loading={busy}>
+            <Button type="submit" loading={pending("update")}>
               {t("common.save")}
             </Button>
           </div>

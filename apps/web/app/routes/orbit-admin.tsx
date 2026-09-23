@@ -171,12 +171,12 @@ export function adminHeadline(faultCount: number, liveChannels: number, activeTe
 
 export const LABELS: Record<string, Record<string, string>> = {
   en: {
-    title: "ORBIT admin",
+    title: "Conversations admin",
     intro: "Read the channels, teams and routing rules together, then fix what is stranded.",
     headlineFaults: "{n} things are stranded",
     headlineOk: "{channels} live channels, {teams} active teams, nothing stranded",
     fixStranded: "Fix routing rules",
-    deniedTitle: "You cannot read ORBIT admin settings",
+    deniedTitle: "You cannot read Conversations admin settings",
     reachTitle: "Reach",
     reachIntro: "Whether an arriving conversation has a live channel to arrive on and a person to reach.",
     statChannels: "Live channels",
@@ -230,12 +230,12 @@ export const LABELS: Record<string, Record<string, string>> = {
     minutes: "{count} min"
   },
   ar: {
-    title: "إدارة ORBIT",
+    title: "إدارة Conversations",
     intro: "اقرأ القنوات والفرق وقواعد التوجيه معًا، ثم عالِج ما هو معطّل.",
     headlineFaults: "{n} أمور معطّلة",
     headlineOk: "{channels} قناة حيّة، {teams} فريق نشط، لا شيء معطّل",
     fixStranded: "أصلح قواعد التوجيه",
-    deniedTitle: "لا يمكنك قراءة إعدادات إدارة ORBIT",
+    deniedTitle: "لا يمكنك قراءة إعدادات إدارة Conversations",
     reachTitle: "الوصول",
     reachIntro: "هل تجد المحادثة الواردة قناة حيّة تصل عبرها وشخصًا تصل إليه.",
     statChannels: "قنوات حيّة",

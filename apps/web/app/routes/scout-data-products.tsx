@@ -300,7 +300,7 @@ export default function ScoutDataProducts() {
       <div className="flex flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h1 className="font-serif text-22 leading-[1.2] text-text">{dtpHeadline(loaded.rows, l, loaded.kFloor)}</h1>
+            <h1 className="page-title">{dtpHeadline(loaded.rows, l, loaded.kFloor)}</h1>
             <p className="font-ui text-13 text-muted">{l("dtp.lede")}</p>
           </div>
         </header>
@@ -318,7 +318,7 @@ export default function ScoutDataProducts() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{l("dtp.title")}</h1>
+        <h1 className="page-title">{l("dtp.title")}</h1>
         <p className="max-w-prose font-ui text-13 text-muted">{l("dtp.lede")}</p>
       </header>
 
@@ -353,7 +353,7 @@ export default function ScoutDataProducts() {
                   }}
                   aria-current={row.id === product.id ? "true" : undefined}
                   className={`flex w-full flex-col gap-1 rounded-lg border p-3 text-start ${
-                    row.id === product.id ? "border-accent bg-raised" : "border-line hover:bg-raised"
+                    row.id === product.id ? "border-accent bg-surface-2" : "border-line hover:bg-surface-2"
                   }`}
                 >
                   <span className="font-ui text-13 text-text">{row.name}</span>
@@ -516,7 +516,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
       <dt className="font-ui text-12 text-subtle">{label}</dt>
-      <dd className="font-serif text-20 text-text">{value}</dd>
+      <dd className="page-title">{value}</dd>
     </div>
   );
 }

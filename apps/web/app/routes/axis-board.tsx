@@ -141,7 +141,8 @@ const LABELS: Record<string, Record<string, string>> = {
     "headline.clear": "The board is empty",
     "headline.breached": "{count} cases are past their deadline",
     "headline.congested": "{count} lanes are holding more than they should",
-    "headline.moving": "Every lane is moving",
+    "headline.moving": "No lane is over its limit",
+    "rank.score": "priority {score}",
     "headline.open": "Open the most urgent case — {ref}"
   },
   ar: {
@@ -187,7 +188,8 @@ const LABELS: Record<string, Record<string, string>> = {
     "headline.clear": "اللوحة فارغة",
     "headline.breached": "{count} حالة تجاوزت موعدها النهائي",
     "headline.congested": "{count} مسارات تحمل أكثر مما ينبغي",
-    "headline.moving": "كل مسار يتحرك بسلاسة",
+    "headline.moving": "لا يوجد مسار تجاوز حدّه",
+    "rank.score": "الأولوية {score}",
     "headline.open": "افتح الحالة الأكثر إلحاحاً — {ref}"
   }
 };
@@ -488,7 +490,7 @@ export default function AxisBoard() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-prose font-ui text-13 text-subtle">{l("intro")}</p>
         {worst ? (
           <Link to={`/axis/cases/${worst.id}`} className="w-fit font-ui text-13 text-accent underline">
@@ -518,12 +520,18 @@ export default function AxisBoard() {
       {total === 0 ? (
         <EmptyState title={l("empty.title")} body={l("empty.body")} />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        // One row in pipeline order, scrolling sideways: a 4+3 grid broke the
+        // order a board exists to show. An empty lane keeps its place but not
+        // a full column of width.
+        <div tabIndex={0} aria-label={l("title")} className="-mx-1 flex items-start gap-3 overflow-x-auto px-1 pb-2">
           {lanes.map((lane) => (
             <section
               key={lane.lane}
               aria-label={l(`lane.${lane.lane}`)}
-              className="flex flex-col gap-2 rounded-lg border border-border bg-surface-1 p-3"
+              className={[
+                "flex shrink-0 flex-col gap-2 rounded-lg border border-border bg-surface-1 p-3",
+                lane.open ? "w-72" : "w-40"
+              ].join(" ")}
             >
               <header className="flex items-baseline justify-between gap-2">
                 <h2 className="font-ui text-13 font-medium text-text">{l(`lane.${lane.lane}`)}</h2>
@@ -572,7 +580,7 @@ export default function AxisBoard() {
                           );
                           return (
                             <span
-                              className="font-mono text-11 text-subtle"
+                              className="font-mono text-12 text-subtle"
                               title={l("rank.title")}
                             >
                               {l("rank.why", {
@@ -581,7 +589,7 @@ export default function AxisBoard() {
                                 sla: String(sla)
                               })}
                               {" · "}
-                              {Math.round(score * 100)}
+                              {l("rank.score", { score: String(Math.round(score * 100)) })}
                             </span>
                           );
                         })()}

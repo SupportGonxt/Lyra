@@ -97,7 +97,7 @@ const LABELS: Labels = {
       "These are point estimates. No confidence band was stored with them, so read them as a single line through a range nobody has measured.",
     "none.title": "No scenarios have been asked",
     "none.body": "The first question somebody writes down is the first one anybody else can argue with.",
-    denied: "You do not have permission to read scenarios. Ask a tenant administrator for NORTH scenario access.",
+    denied: "You do not have permission to read scenarios. Ask a tenant administrator for Insight scenario access.",
     saved: "Scenario saved.",
     approvalTitle: "Queued for approval",
     approvalBody: "Saving this scenario needs sign-off under policy {policy}. It is queued, not lost.",
@@ -125,7 +125,7 @@ const LABELS: Labels = {
     "ask.note":
       "الحفظ يسجّل السؤال وافتراضاته. لا يوجد محرك يحسب الإجابة بعد، لذا تبقى النتيجة فارغة حتى يملأها أحد.",
     "library.title": "السيناريوهات المحفوظة",
-    "library.caption": "كل سيناريو طُرح في هذا المستأجر، الأحدث أولاً",
+    "library.caption": "كل سيناريو طُرح في هذه المؤسسة، الأحدث أولاً",
     "library.question": "السؤال",
     "library.author": "السائل",
     "library.asked": "وقت الطرح",
@@ -143,7 +143,7 @@ const LABELS: Labels = {
     "detail.point": "هذه تقديرات نقطية. لم يُحفظ معها نطاق ثقة، فاقرأها كخط واحد داخل مدى لم يقسه أحد.",
     "none.title": "لم تُطرح أي سيناريوهات",
     "none.body": "أول سؤال يكتبه أحد هو أول سؤال يستطيع غيره مناقشته.",
-    denied: "لا تملك صلاحية قراءة السيناريوهات. اطلب من مدير المستأجر صلاحية سيناريوهات نورث.",
+    denied: "لا تملك صلاحية قراءة السيناريوهات. اطلب من مدير المؤسسة صلاحية سيناريوهات التحليلات التنفيذية.",
     saved: "حُفظ السيناريو.",
     approvalTitle: "في انتظار الموافقة",
     approvalBody: "حفظ هذا السيناريو يحتاج موافقة بموجب سياسة {policy}. هو في الانتظار ولم يُفقد.",
@@ -316,7 +316,7 @@ export default function NorthWhatIf() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
+          <span className="eyebrow">{l("kicker")}</span>
           <Link
             to="/north/brief"
             className="font-ui text-12 text-accent underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
@@ -326,7 +326,7 @@ export default function NorthWhatIf() {
         </div>
         {/* The headline narrates whichever scenario is open rather than
             repeating the "Scenarios" eyebrow — see headlineFor() above. */}
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headlineFor(open, l)}</h1>
+        <h1 className="page-title">{headlineFor(open, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
       </header>
 
@@ -432,10 +432,11 @@ function ScenarioDetail({
   const prose = Object.entries(answer).filter(([, value]) => typeof value === "string");
 
   return (
-    <Panel module="north" eyebrow={scenario.author} lede={scenario.question}>
+    // The page heading is already this question; the panel names who asked it.
+    <Panel module="north" eyebrow={scenario.author}>
       <div className="flex flex-col gap-5">
         <section className="flex flex-col gap-2">
-          <h2 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("detail.assumptions")}</h2>
+          <h2 className="eyebrow">{l("detail.assumptions")}</h2>
           <Provenance
             rows={[
               ...Object.entries(assumptions).map(([key, value]) => ({
@@ -450,7 +451,7 @@ function ScenarioDetail({
         </section>
 
         <section className="flex flex-col gap-2">
-          <h2 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("detail.result")}</h2>
+          <h2 className="eyebrow">{l("detail.result")}</h2>
           {figures.length === 0 && prose.length === 0 ? (
             <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("detail.result.none")}</p>
           ) : (
@@ -458,7 +459,7 @@ function ScenarioDetail({
               <dl className="grid gap-3 sm:grid-cols-2">
                 {figures.map(([key, value]) => (
                   <div key={key} className="flex flex-col gap-1">
-                    <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{humanKey(key)}</dt>
+                    <dt className="eyebrow">{humanKey(key)}</dt>
                     <dd className="font-mono text-16 tabular-nums text-text">
                       <Value name={key} value={value} currency={money} locale={locale} />
                     </dd>

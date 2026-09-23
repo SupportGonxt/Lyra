@@ -344,7 +344,7 @@ export default function StaffMember() {
       </Link>
 
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{user.name}</h1>
+        <h1 className="page-title">{user.name}</h1>
         <p className="font-ui text-13 text-muted">{user.email}</p>
         <p className="font-ui text-13 text-muted">{memberLede(loaded.heldRoleKeys, loaded.steps, l)}</p>
         <Badge tone={userTone(user.status)} size="sm" dot className="w-fit">

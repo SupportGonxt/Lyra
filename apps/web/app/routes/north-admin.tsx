@@ -65,14 +65,14 @@ const PATIENCE: Record<string, number> = { day: 2 * DAY, week: 9 * DAY, month: 4
 
 const LABELS: Labels = {
   en: {
-    title: "NORTH admin",
+    title: "Insight admin",
     kicker: "One version of the numbers",
     intro:
       "The metric registry as a registry: owner, audience, direction and target, plus whether the snapshotter is still feeding each one. A change here is what every chart in NORTH reads next.",
     "registry.title": "Metric registry",
     "registry.caption": "Every metric in this tenant, with its owner, audience, target and last snapshot",
     "registry.empty": "No metric is registered yet.",
-    "registry.empty.body": "NORTH has nothing to narrate until one is. Metrics are provisioned with the tenant, not added here — this screen edits the target and owner of ones that exist.",
+    "registry.empty.body": "Insight has nothing to narrate until one is. Metrics are provisioned with the tenant, not added here — this screen edits the target and owner of ones that exist.",
     "col.metric": "Metric",
     "col.grain": "Grain",
     "col.owner": "Owner",
@@ -113,9 +113,9 @@ const LABELS: Labels = {
     "schedule.open": "Open the daily brief",
     "schedule.run": "Run the snapshotter now",
     "alerts.eyebrow": "Thresholds",
-    "alerts.lede": "Alert rules watch a metric against a threshold and are managed in the NORTH workspace.",
+    "alerts.lede": "Alert rules watch a metric against a threshold and are managed in the Insight workspace.",
     "alerts.open": "Open alert rules",
-    denied: "You do not have permission to read the metric registry. Ask a tenant administrator for NORTH metric access.",
+    denied: "You do not have permission to read the metric registry. Ask a tenant administrator for Insight metric access.",
     "headline.denied": "You do not have access to the metric registry.",
     "headline.fresh": "Every metric is fed.",
     "headline.unfed": "{count} metrics have gone quiet.",
@@ -127,19 +127,19 @@ const LABELS: Labels = {
     "problem.missing_id": "That metric could not be identified.",
     "problem.missing_definition": "A metric with no definition has no number behind it.",
     "problem.bad_target": "That target is not a number. Leave it empty to clear the target instead.",
-    "problem.bad_sensitivity": "That audience level is not one NORTH recognises.",
+    "problem.bad_sensitivity": "That audience level is not one Insight recognises.",
     "problem.bad_direction": "A metric is good going up or good going down — nothing else.",
     "problem.bad_intent": "That form did not carry a recognised action."
   },
   ar: {
-    title: "إدارة نورث",
+    title: "إدارة التحليلات التنفيذية",
     kicker: "نسخة واحدة من الأرقام",
     intro:
       "سجل المقاييس بوصفه سجلاً: المالك والجمهور والاتجاه والمستهدف، ومعه هل ما زال المُلقِط يغذّي كل مقياس. أي تغيير هنا هو ما ستقرأه كل رسوم نورث بعده.",
     "registry.title": "سجل المقاييس",
     "registry.caption": "كل مقياس في هذه المؤسسة، مع مالكه وجمهوره ومستهدفه وآخر لقطة",
     "registry.empty": "لا يوجد مقياس مسجَّل بعد.",
-    "registry.empty.body": "لا شيء لنورث ليرويه حتى يُسجَّل واحد. تُهيَّأ المقاييس مع المستأجر ولا تُضاف من هنا — هذه الشاشة تعدّل هدف ومالك المقاييس الموجودة.",
+    "registry.empty.body": "لا شيء للتحليلات التنفيذية ليرويه حتى يُسجَّل واحد. تُهيَّأ المقاييس مع المؤسسة ولا تُضاف من هنا — هذه الشاشة تعدّل هدف ومالك المقاييس الموجودة.",
     "col.metric": "المقياس",
     "col.grain": "الحبيبة",
     "col.owner": "المالك",
@@ -180,9 +180,9 @@ const LABELS: Labels = {
     "schedule.open": "افتح الإحاطة اليومية",
     "schedule.run": "شغّل المُلقِط الآن",
     "alerts.eyebrow": "العتبات",
-    "alerts.lede": "قواعد التنبيه تراقب مقياساً مقابل عتبة، وتُدار في مساحة عمل نورث.",
+    "alerts.lede": "قواعد التنبيه تراقب مقياساً مقابل عتبة، وتُدار في مساحة عمل التحليلات التنفيذية.",
     "alerts.open": "افتح قواعد التنبيه",
-    denied: "لا تملك صلاحية قراءة سجل المقاييس. اطلب من مدير المستأجر صلاحية مقاييس نورث.",
+    denied: "لا تملك صلاحية قراءة سجل المقاييس. اطلب من مدير المؤسسة صلاحية مقاييس التحليلات التنفيذية.",
     "headline.denied": "لا تملك صلاحية الوصول إلى سجل المقاييس.",
     "headline.fresh": "كل مقياس مُغذّى.",
     "headline.unfed": "{count} مقاييس صمتت.",
@@ -194,7 +194,7 @@ const LABELS: Labels = {
     "problem.missing_id": "تعذّر تحديد هذا المقياس.",
     "problem.missing_definition": "المقياس بلا تعريف ليس خلفه رقم.",
     "problem.bad_target": "المستهدف ليس رقماً. اترك الحقل فارغاً لمسح المستهدف.",
-    "problem.bad_sensitivity": "مستوى الجمهور هذا غير معروف لنورث.",
+    "problem.bad_sensitivity": "مستوى الجمهور هذا غير معروف للتحليلات التنفيذية.",
     "problem.bad_direction": "المقياس إما جيد صعوداً أو جيد نزولاً — لا ثالث.",
     "problem.bad_intent": "لم يحمل هذا النموذج إجراءً معروفاً."
   }
@@ -393,7 +393,7 @@ export default function NorthAdmin() {
       render: (row) => (
         <span className="flex flex-col">
           <span className="text-text">{metricName(row, locale)}</span>
-          <span className="font-mono text-11 text-subtle">{row.key}</span>
+          <span className="font-mono text-12 text-subtle">{row.key}</span>
         </span>
       )
     },
@@ -453,8 +453,8 @@ export default function NorthAdmin() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline(metrics, health, now, l)}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline(metrics, health, now, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
       </header>
 
@@ -535,7 +535,7 @@ export default function NorthAdmin() {
           ) : null}
 
           <section className="flex flex-col gap-3">
-            <h2 className="font-serif text-18 leading-[1.3] text-text">{l("registry.title")}</h2>
+            <h2 className="section-title">{l("registry.title")}</h2>
             <Table
               columns={columns}
               rows={rows}
@@ -555,11 +555,11 @@ export default function NorthAdmin() {
               ) : (
                 <dl className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-baseline gap-2">
-                    <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("schedule.locales")}</dt>
+                    <dt className="eyebrow">{l("schedule.locales")}</dt>
                     <dd className="font-mono text-13 text-text">{locales.join(", ")}</dd>
                   </div>
                   <div className="flex flex-wrap items-baseline gap-2">
-                    <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("schedule.audiences")}</dt>
+                    <dt className="eyebrow">{l("schedule.audiences")}</dt>
                     <dd className="font-mono text-13 text-text">{audiences.join(", ")}</dd>
                   </div>
                 </dl>

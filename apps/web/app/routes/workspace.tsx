@@ -3,8 +3,7 @@ import {
   useLoaderData,
   useRouteError,
   useRouteLoaderData,
-  type LoaderFunctionArgs,
-  type MetaFunction
+  type LoaderFunctionArgs
 } from "react-router";
 import { cloudflare } from "../context";
 import { ErrorPanel } from "../components/error-panel";
@@ -12,6 +11,7 @@ import { Shell } from "../components/shell";
 import { SessionRegion } from "../components/region";
 import { DEFAULT_LOCALE, translator } from "../i18n";
 import { bootstrapSession } from "../session.server";
+import { sessionMeta } from "../title";
 
 // Everything behind a session hangs off this layout. bootstrapSession() feeds
 // the whole shell: actor, tenant brand, permissions and the nav the API
@@ -31,10 +31,9 @@ export function useShellData(): ShellData | undefined {
   return useRouteLoaderData<typeof loader>(ROUTE_ID);
 }
 
-export const meta: MetaFunction<typeof loader> = ({ loaderData: loaded }) => [
-  // The product name is tenant configuration, never a literal (CLAUDE.md §5).
-  { title: loaded?.brand?.name ?? loaded?.tenantName ?? "" }
-];
+// "Screen · Workspace · Product" — the product name is tenant configuration,
+// never a literal (CLAUDE.md §5).
+export const meta = sessionMeta;
 
 /**
  * A screen inside the session that fails is still a screen. Without a boundary
@@ -63,9 +62,11 @@ export function ErrorBoundary() {
         tenantName={shell.tenantName}
         actorName={shell.actorName}
         inbox={shell.inbox}
-        names={shell.names}
         roles={shell.roles}
         permissions={shell.permissions}
+        locale={shell.locale}
+        pack={shell.domainPack}
+        aiPause={shell.aiPause}
       >
         {panel}
       </Shell>
@@ -89,9 +90,11 @@ export default function Workspace() {
         tenantName={shell.tenantName}
         actorName={shell.actorName}
         inbox={shell.inbox}
-        names={shell.names}
         roles={shell.roles}
         permissions={shell.permissions}
+        locale={shell.locale}
+        pack={shell.domainPack}
+        aiPause={shell.aiPause}
       >
         <Outlet />
       </Shell>

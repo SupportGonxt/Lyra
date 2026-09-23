@@ -121,3 +121,13 @@ describe("the hero figure and what clicking it shows", () => {
     });
   });
 });
+
+describe("the flagship journey's door", () => {
+  // A module lead clicked it and met a 403 at step two (docs/28 §1).
+  it("opens only for a reader who can walk all four steps", async () => {
+    const { JOURNEY_NEEDS, walksJourney } = await import("./home");
+    expect(walksJourney([...JOURNEY_NEEDS])).toBe(true);
+    expect(walksJourney(["axis:cases:read"])).toBe(false);
+    expect(walksJourney([])).toBe(false);
+  });
+});

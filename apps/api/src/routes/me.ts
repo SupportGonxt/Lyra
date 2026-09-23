@@ -8,6 +8,7 @@ import {
   badRequest,
   can,
   decide,
+  readyToFinish,
   expand,
   hashPassword,
   heldDelegation,
@@ -327,6 +328,12 @@ meRoutes.post("/approvals/:id/decide", async (c) => {
   const input = await body(c, z.object({ decision: z.enum(["approved", "rejected"]), reason: z.string().max(2000).optional() }));
   const row = await decide(ctx, c.req.param("id"), input.decision, input.reason);
   return c.json(row);
+});
+
+/** Requests this actor raised, now approved and waiting for them to finish. */
+meRoutes.get("/approvals/ready", async (c) => {
+  const ctx = ctxOf(c);
+  return c.json({ data: await readyToFinish(ctx) });
 });
 
 meRoutes.post("/notifications/:id/read", async (c) => {

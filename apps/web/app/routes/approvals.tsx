@@ -49,7 +49,9 @@ const STATES = ["pending", "approved", "rejected"] as const;
 type State = (typeof STATES)[number];
 
 /** Context keys rendered as their own field; the rest are the "why" list. */
-const OWN_FIELD = new Set(["amountMinor", "currency", "dualControl", "expiresAt"]);
+// `resume`/`completedAt` are the kept request and its finish time (core
+// approvals `rememberRequest`) — machinery, not a reason to decide.
+const OWN_FIELD = new Set(["amountMinor", "currency", "dualControl", "expiresAt", "resume", "completedAt"]);
 
 interface ApprovalRow {
   id: string;
@@ -90,6 +92,16 @@ function display(value: unknown): string {
  * of a spec's `api` — so the record route can be rebuilt from it. Anything that
  * does not resolve stays plain text: a link that 404s is worse than none.
  */
+/**
+ * A context key as the approver reads it: this screen's own word when it has
+ * one (`why.<key>`), else the key said as words — never `requestedAmountMinor`
+ * uppercased by the term style.
+ */
+export function contextTerm(key: string, l: (key: string) => string): string {
+  const own = l(`why.${key}`);
+  return own === `why.${key}` ? humanise(key.replace(/Minor$/, "")) : own;
+}
+
 export function subjectOf(subjectRef: string): { text: string; href: string | null; unborn: boolean } {
   const first = subjectRef.indexOf(":");
   if (first < 0) return { text: subjectRef, href: null, unborn: false };
@@ -236,14 +248,26 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     };
   });
 
+  // What this reader asked for, somebody approved, and is theirs to finish —
+  // one press instead of finding the screen and typing it all again.
+  const readyRows = (await soft(api<{ data: ApprovalRow[] }>("/v1/me/approvals/ready", { env, request })))?.data ?? [];
+  const ready = readyRows.map((row) => ({
+    id: row.id,
+    policyKey: row.policyKey,
+    module: row.module,
+    subject: subjectOf(row.subjectRef),
+    decidedBy: row.decidedBy,
+    decidedAt: row.decidedAt
+  }));
+
   // Who raised it and who decided it are `${kind}:${id}` refs, which rendered
   // as ULIDs at the one person on the platform whose job is to judge them.
   const resolved = await names(
-    rows.flatMap((row) => [row.requestedBy, row.decidedBy]),
+    [...rows, ...readyRows].flatMap((row) => [row.requestedBy, row.decidedBy]),
     { env, request }
   );
 
-  return { state, items, cursor: next, canReadDecided, readable, resolved };
+  return { state, items, cursor: next, canReadDecided, readable, resolved, ready };
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
@@ -252,6 +276,16 @@ export async function action({ request, context }: ActionFunctionArgs) {
   const intent = String(form.get("intent") ?? "");
   const id = String(form.get("id") ?? "");
   const reason = String(form.get("reason") ?? "").trim();
+
+  if (id && intent === "finish") {
+    try {
+      await api(`/v1/me/approvals/${encodeURIComponent(id)}/finish`, { env, request, method: "POST" });
+      return { id, problem: null, decided: null, finished: id };
+    } catch (error) {
+      if (error instanceof ApiError) return { id, problem: error.problem, decided: null };
+      throw error;
+    }
+  }
 
   if (!id || (intent !== "approve" && intent !== "reject")) {
     return { id, problem: { title: "unknown intent", status: 400 }, decided: null };
@@ -317,7 +351,12 @@ const LABELS: Record<string, Record<string, string>> = {
     agent: "Raised by an agent",
     openRun: "Open the run",
     openRecord: "Open the record",
-    subjectNew: "No record yet — approving this is what creates it.",
+    subjectNew: "No record yet — once approved, the person who asked finishes it with one press.",
+    readyTitle: "Approved — ready for you to finish",
+    readyBody: "Somebody approved what you asked for. Finishing sends it exactly as you entered it; the checks run again.",
+    readyBy: "Approved by {who}",
+    finish: "Finish",
+    finished: "Done — it went through.",
     selfRaised: "You raised this request, and this rule needs a second person to decide it.",
     noPermission: "Decisions across the tenant are not yours to read, so this list stays empty.",
     unavailable: "The queue could not be read just now.",
@@ -367,7 +406,12 @@ const LABELS: Record<string, Record<string, string>> = {
     agent: "طلبها وكيل ذكاء اصطناعي",
     openRun: "فتح سجل التشغيل",
     openRecord: "فتح السجل",
-    subjectNew: "لا يوجد سجل بعد — الموافقة هي ما يُنشئه.",
+    subjectNew: "لا يوجد سجل بعد — بعد الموافقة يُكمله صاحب الطلب بضغطة واحدة.",
+    readyTitle: "تمت الموافقة — جاهز لتُكمله",
+    readyBody: "وافق أحدهم على ما طلبته. الإكمال يرسله تمامًا كما أدخلته، وتُعاد الفحوص.",
+    readyBy: "وافق عليه {who}",
+    finish: "إكمال",
+    finished: "تم — نُفِّذ الطلب.",
     selfRaised: "أنت من طلب هذا، وهذه القاعدة تتطلب شخصًا ثانيًا ليقرّر.",
     noPermission: "قرارات المؤسسة ليست من صلاحيتك للاطلاع، لذلك تبقى هذه القائمة فارغة.",
     unavailable: "تعذّرت قراءة قائمة الطلبات الآن.",
@@ -428,11 +472,41 @@ export default function Approvals() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{l("title")}</h1>
+        <h1 className="page-title">{l("title")}</h1>
         <p className="max-w-prose font-ui text-13 text-muted">
           {approvalsHeadline(loaded.state, items.length, loaded.readable, l)}
         </p>
       </header>
+
+      {result && "finished" in result && result.finished ? (
+        <p role="status" className="rounded-md border border-success/40 bg-success/10 px-3 py-2 font-ui text-13 text-text">
+          {l("finished")}
+        </p>
+      ) : null}
+
+      {loaded.ready.length ? (
+        <Card title={l("readyTitle")} description={l("readyBody")}>
+          <ul className="flex flex-col divide-y divide-border">
+            {loaded.ready.map((row) => (
+              <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="font-ui text-14 text-text">{policyTitle(row.policyKey, row.module, locale)}</span>
+                  <span className="font-ui text-12 text-subtle">
+                    {row.subject.text}
+                    {row.decidedBy ? ` · ${l("readyBy").replace("{who}", who(row.decidedBy, loaded.resolved) ?? row.decidedBy)}` : ""}
+                  </span>
+                </div>
+                <Form method="post">
+                  <input type="hidden" name="id" value={row.id} />
+                  <Button type="submit" name="intent" value="finish" loading={busy && deciding === row.id}>
+                    {l("finish")}
+                  </Button>
+                </Form>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <Form method="get" className="flex flex-wrap items-end gap-3">
         <Select
@@ -579,7 +653,7 @@ function ApprovalCard({
   return (
     <Card
       elevation="flat"
-      title={policyTitle(item.policyKey, item.module)}
+      title={policyTitle(item.policyKey, item.module, locale)}
       description={item.subject.text}
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -663,7 +737,7 @@ function ApprovalCard({
             <h3 className="font-ui text-12 text-subtle">{l("why")}</h3>
             <dl className="mt-2 grid gap-x-8 gap-y-2 sm:grid-cols-2">
               {item.why.map((entry) => (
-                <Entry key={entry.key} term={entry.key}>
+                <Entry key={entry.key} term={contextTerm(entry.key, l)}>
                   {entry.minor !== null && item.currency ? (
                     <Money amountMinor={entry.minor} currency={item.currency} locale={locale} />
                   ) : (

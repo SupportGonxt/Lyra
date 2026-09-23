@@ -34,7 +34,10 @@ export function titleKeyFor(error: unknown): string {
  * the id in `error.data`, which is what the API logged the failure under.
  */
 export function requestIdFor(error: unknown): string | null {
-  return isRouteErrorResponse(error) && typeof error.data === "string" && error.data ? error.data : null;
+  if (!isRouteErrorResponse(error) || typeof error.data !== "string") return null;
+  // An id carries a digit and no spaces. A dozen loaders throw a noun here
+  // (`data("workspace", …)`), which support cannot trace.
+  return /^[\w-]{6,}$/.test(error.data) && /\d/.test(error.data) ? error.data : null;
 }
 
 /**
@@ -63,7 +66,7 @@ export function ErrorPanel({
       <h1 className="font-display text-28 text-tx0">{t(titleKeyFor(error))}</h1>
       <p className="text-14 leading-body text-tx4">{t(messageKeyFor(error))}</p>
       {requestId ? (
-        <p className="font-mono text-12 text-tx5" dir="ltr">
+        <p className="font-mono text-12 text-muted" dir="ltr">
           {t("error.requestId", { id: requestId })}
         </p>
       ) : null}

@@ -369,7 +369,7 @@ export default function LedgerTransaction() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{txnHeadline(txn, l, locale)}</h1>
+          <h1 className="page-title">{txnHeadline(txn, l, locale)}</h1>
           <p className="font-ui text-13 text-muted">{l("txn.intro")}</p>
         </div>
       </header>
@@ -456,7 +456,7 @@ export default function LedgerTransaction() {
           <EmptyState title={l("txn.noLines")} body={l("txn.noLinesBody")} />
         ) : (
           <section className="flex flex-col gap-3">
-            <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("txn.lines")}</h2>
+            <h2 className="eyebrow">{l("txn.lines")}</h2>
             {/* The value moving: what each side gave up, what it received, and
                 the amount on the wire. Every figure is a posted line or a sum of
                 them — `PostingFlow` re-adds the legs it draws and refuses to
@@ -550,7 +550,7 @@ export default function LedgerTransaction() {
       {/* Where this transaction is in its machine: what happened with its
           timestamps, what it is doing now, and what the machine still owes. */}
       <section className="flex flex-col gap-3">
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("txn.history")}</h2>
+        <h2 className="eyebrow">{l("txn.history")}</h2>
         <StateFlow
           machine={TXN_FLOW}
           visits={visits}
@@ -563,7 +563,7 @@ export default function LedgerTransaction() {
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("txn.approvals")}</h2>
+          <h2 className="eyebrow">{l("txn.approvals")}</h2>
           {/* The queue lives at /approvals and is not rebuilt here. */}
           <Button asChild variant="ghost">
             <Link to="/approvals">{l("txn.approvalsInbox")}</Link>
@@ -584,7 +584,7 @@ export default function LedgerTransaction() {
                 header: l("txn.approvals"),
                 // The gate's own name for itself ("ledger.txn_authorize") is not
                 // a sentence. Same helper the approvals inbox reads it with.
-                render: (row) => policyTitle(row.policyKey, "ledger")
+                render: (row) => policyTitle(row.policyKey, "ledger", locale)
               },
               {
                 key: "decision",
@@ -619,7 +619,7 @@ export default function LedgerTransaction() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("txn.audit")}</h2>
+        <h2 className="eyebrow">{l("txn.audit")}</h2>
         {loaded.audit.length > 0 ? (
           <Table<AuditRow>
             caption={l("txn.audit")}
@@ -669,7 +669,7 @@ function Announcement({
         aria-live="polite"
         className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-5"
       >
-        <p className="font-serif text-18 leading-[1.3] text-text">{l("txn.approvalRaised")}</p>
+        <p className="section-title">{l("txn.approvalRaised")}</p>
         <p className="max-w-prose font-ui text-13 text-muted">{l("txn.approvalRaisedBody")}</p>
         {result.approval ? (
           <p className="font-mono text-12 text-subtle">{result.approval}</p>

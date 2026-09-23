@@ -176,7 +176,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "رفع حد إنفاق الذكاء الاصطناعي يمر بموافقة. سُجِّل الطلب ويسري بعد موافقة شخص آخر.",
     "approval.link": "فتح الموافقات",
     "acceptance.title": "ماذا اشترى الإنفاق",
-    "acceptance.window": "الاقتراحات المعروضة في آخر ٣٠ يومًا، وكم مرة أبقاها الناس.",
+    "acceptance.window": "الاقتراحات المعروضة في آخر 30 يومًا، وكم مرة أبقاها الناس.",
     "acceptance.surface": "السطح",
     "acceptance.module": "الطالب",
     "acceptance.shown": "معروضة",
@@ -478,7 +478,7 @@ export default function AiBudget() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{L("title")}</h1>
+        <h1 className="page-title">{L("title")}</h1>
         <p className="max-w-prose font-ui text-13 text-muted">{budgetHeadline(ceilings, L)}</p>
         {ceilings.some((row) => row.stoppedAt !== null) ? (
           <Link

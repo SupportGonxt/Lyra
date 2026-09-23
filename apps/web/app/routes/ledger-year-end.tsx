@@ -109,7 +109,7 @@ export default function LedgerYearEnd() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {yearEndHeadline(loaded.year, preview, l, locale)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("ye.intro")}</p>
@@ -164,7 +164,7 @@ export default function LedgerYearEnd() {
         />
       </KPIWall>
 
-      <Card title={l("ye.preview")} description={l("ye.intro")} elevation="flat">
+      <Card title={l("ye.preview")} elevation="flat">
         <div className="flex flex-col gap-4">
           <Table<ClosingLine>
             caption={l("ye.previewCaption")}

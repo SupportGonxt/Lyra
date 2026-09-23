@@ -110,7 +110,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "quote.accepted.title": "الخطوة التالية: أرسل مستنداتك",
     "quote.accepted.body":
       "لم يتم إصدار الوثيقة بعد. حمّل هويتك ورخصتك وسيتحقق أحد موظفينا من التغطية ويؤكدها معك.",
-    "quote.upload": "مستند (JPEG أو PNG أو HEIC أو PDF، حتى ١٠ ميغابايت)",
+    "quote.upload": "مستند (JPEG أو PNG أو HEIC أو PDF، حتى 10 ميغابايت)",
     "quote.upload.submit": "رفع المستند",
     "quote.upload.working": "جارٍ الرفع…",
     "quote.upload.done": "تم الاستلام. ارفع مستندًا آخر إن وجد.",
@@ -132,7 +132,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "quote.chooseColumn": "اختيارك",
     "criterion.age": "عمر السائق",
     "criterion.sumInsuredMinor": "القيمة المراد تأمينها",
-    "criterion.priorClaims": "قدمت مطالبة خلال آخر ٣ سنوات",
+    "criterion.priorClaims": "قدمت مطالبة خلال آخر 3 سنوات",
     "criterion.tripDays": "مدة الرحلة (أيام)",
     "criterion.winterSports": "تضمين الرياضات الشتوية"
   }
@@ -396,7 +396,7 @@ export default function PortalQuotes() {
       <div className="mx-auto max-w-4xl p-6">
         <header className="lyra-enter mb-8 flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h1 className="font-serif text-22 leading-[1.2] text-text">{l("quote.title")}</h1>
+            <h1 className="page-title">{l("quote.title")}</h1>
             <p className="font-ui text-13 text-muted">{l("quote.intro")}</p>
             {/* Declared criteria, visible — J-C1's own wording. */}
             {rankingLede ? <p className="font-ui text-13 text-muted">{rankingLede}</p> : null}
@@ -516,7 +516,7 @@ export default function PortalQuotes() {
                 <Row label={l("quote.total")}>
                   {offers.map((offer) => (
                     <td key={offer.offeringId} className="py-3 pe-4">
-                      <span className="font-serif text-22 leading-[1.2]">
+                      <span className="page-title">
                         <Money amountMinor={offer.totalMinor} currency={offer.currency} locale={locale} />
                       </span>
                     </td>

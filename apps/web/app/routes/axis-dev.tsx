@@ -133,7 +133,7 @@ export default function AxisDev() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{l("title")}</h1>
+        <h1 className="page-title">{l("title")}</h1>
         <p className="max-w-prose font-ui text-13 text-muted">{l("intro")}</p>
       </header>
 
@@ -157,7 +157,7 @@ export default function AxisDev() {
           {result?.result ? (
             <section aria-labelledby="results-heading" className="flex flex-col gap-3 rounded-lg border border-border p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 id="results-heading" className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+                <h2 id="results-heading" className="eyebrow">
                   {l("resultsTitle")}
                 </h2>
                 {/* F54: this is a model's finding, so it carries the single ✦
@@ -184,7 +184,7 @@ export default function AxisDev() {
           ) : null}
 
           <div className="flex flex-col gap-1 rounded-lg border border-border p-4">
-            <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("devLinkTitle")}</h2>
+            <h2 className="eyebrow">{l("devLinkTitle")}</h2>
             <Link to="/admin/developer" className="font-ui text-13 text-accent underline underline-offset-2">
               {l("devLink")}
             </Link>

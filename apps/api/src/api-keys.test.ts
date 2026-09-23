@@ -83,6 +83,25 @@ async function login(local: string): Promise<string> {
   return token;
 }
 
+/** A gonxt credential holding exactly what dev.developer holds (docs/06), by hand. */
+async function developerKey(): Promise<string> {
+  const now = Date.now();
+  const [tenant] = await database.select().from(schema.tenants).where(eq(schema.tenants.slug, "gonxt"));
+  const token = `qvk_test_DEVDEVDEVDEVDEVDEVDEVDEVDEVDEVDE`;
+  await database.insert(schema.apiKeys).values({
+    id: newId("key", now),
+    tenantId: tenant!.id,
+    name: "developer",
+    prefix: token.slice(0, 17),
+    keyHash: await sha256Hex(token),
+    mode: "test",
+    scopesJson: JSON.stringify(["dev:consoles:read", "dev:sandbox:use", "dev:keys_test:issue", "core:webhooks:read"]),
+    createdBy: "system:test",
+    createdAt: now
+  });
+  return token;
+}
+
 /** Mint a key for a second tenant by hand — the only way in without a user there. */
 async function foreignTenantKey(): Promise<string> {
   const now = Date.now();
@@ -123,7 +142,8 @@ beforeAll(async () => {
   } as unknown as Env;
   tokens = {
     admin: await login("amina.saleh"), // tenant.admin — holds core:*:*
-    agent: await login("layla.hassan") // axis.agent — holds no core:api_keys:*
+    agent: await login("layla.hassan"), // axis.agent — holds no core:api_keys:*
+    devAdmin: await login("raed.samir") // dev.admin — holds dev:keys_live:issue
   };
   otherKey = await foreignTenantKey();
 }, 120_000);
@@ -186,6 +206,24 @@ describe("POST /v1/core/api-keys", () => {
     });
     expect(res.status).toBe(400);
     expect(await countNamed("spoofed")).toBe(0);
+  });
+
+  // J-D1 (docs/06): a developer mints a *test* key; going live is dev.admin's
+  // call. The route used to check only core:api_keys:create, so neither
+  // dev:keys_test:issue nor dev:keys_live:issue did anything.
+  it("lets a holder of dev:keys_test:issue mint a test key, and only a test key", async () => {
+    const developer = await developerKey();
+    const test = await call(developer, "POST", "/v1/core/api-keys", { name: "dev test", mode: "test", scopes: [] });
+    expect(test.status).toBe(201);
+    const live = await call(developer, "POST", "/v1/core/api-keys", { name: "dev live", mode: "live", scopes: [] });
+    expect(live.status).toBe(403);
+  });
+
+  it("keeps a live key behind dev:keys_live:issue, even for a tenant admin", async () => {
+    const admin = await mint("admin", { name: "admin live", mode: "live", scopes: [] });
+    expect(admin.status).toBe(403);
+    const devAdmin = await call(tokens.devAdmin ?? null, "POST", "/v1/core/api-keys", { name: "go live", mode: "live", scopes: [] });
+    expect(devAdmin.status).toBe(201);
   });
 
   it("is 403 for a session without core:api_keys:create", async () => {

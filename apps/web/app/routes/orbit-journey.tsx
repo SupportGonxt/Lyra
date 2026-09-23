@@ -361,13 +361,13 @@ export const LABELS: Labels = {
     no_such_step: "هذه الخطوة ليست في الرحلة.",
     self_link: "لا يمكن للخطوة أن تتفرّع إلى نفسها.",
     duplicate_edge: "هذا التفرّع موجود بالفعل.",
-    bad_cooldown: "حد التكرار عدد صحيح من الأيام بين ١ و٣٦٥.",
+    bad_cooldown: "حد التكرار عدد صحيح من الأيام بين 1 و365.",
     bad_status: "اختر حالة من القائمة.",
     cannot_activate: "عالج ما ورد في تنبيه الجاهزية قبل التنشيط.",
     unknown_intent: "هذا الإجراء غير متاح.",
     approvalLink: "افتح الموافقات",
     portalsTitle: "البوابات العامة",
-    portalsBody: "الوجهة التي يمكن لخطوة \"إرسال\" توجيه العميل إليها: صفحات الخدمة الذاتية الخاصة بالمستأجر.",
+    portalsBody: "الوجهة التي يمكن لخطوة \"إرسال\" توجيه العميل إليها: صفحات الخدمة الذاتية الخاصة بالمؤسسة.",
     portalStorefront: "واجهة المتجر",
     portalRegister: "التسجيل الذاتي",
     portalPartners: "تسجيل الشركاء"
@@ -511,7 +511,7 @@ export default function JourneyBuilder() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{nameOf(loaded.journey, loaded.locale)}</h1>
+          <h1 className="page-title">{nameOf(loaded.journey, loaded.locale)}</h1>
           <p className="font-ui text-13 text-muted">{journeyLede(notReady.length, start !== null, l)}</p>
           <p className="font-ui text-12 text-subtle">
             <span className="font-mono">{loaded.journey.key}</span>{" "}

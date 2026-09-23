@@ -136,7 +136,7 @@ export const signal: WorkspaceSpec = {
       "link.experiments": "Experiments",
       "link.budget": "Budget and bounds",
       "link.analytics": "Growth analytics",
-      "link.admin": "SIGNAL admin",
+      "link.admin": "Marketing admin",
       "link.dev": "Developer bench"
     },
     ar: {
@@ -158,7 +158,7 @@ export const signal: WorkspaceSpec = {
       objective: "الهدف",
       "objective.acq": "اكتساب",
       "objective.renewal": "تجديد",
-      "objective.xsell": "بيع متقاطع",
+      "objective.xsell": "بيع تكميلي",
       state: "الوضع",
       autonomyLevel: "الاستقلالية",
       ownerRef: "المسؤول",
@@ -251,7 +251,7 @@ export const signal: WorkspaceSpec = {
       "link.experiments": "التجارب",
       "link.budget": "الميزانية والحدود",
       "link.analytics": "تحليلات النمو",
-      "link.admin": "إدارة SIGNAL",
+      "link.admin": "إدارة Marketing",
       "link.dev": "منصّة المطوّرين"
     }
   },

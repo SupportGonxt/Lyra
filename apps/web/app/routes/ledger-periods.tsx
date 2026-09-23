@@ -198,7 +198,7 @@ export default function LedgerPeriods() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {periodHeadline(period, failed.length, l)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("period.intro")}</p>
@@ -277,7 +277,7 @@ export default function LedgerPeriods() {
                 role="alert"
                 className="flex flex-col gap-2 rounded-lg border border-danger/40 bg-danger/10 p-5"
               >
-                <p className="font-serif text-18 leading-[1.3] text-text">{l("period.blocked")}</p>
+                <p className="section-title">{l("period.blocked")}</p>
                 <p className="max-w-prose font-ui text-13 text-muted">{l("period.blockedBody")}</p>
                 <ul className="flex flex-col gap-1">
                   {failed.map((check) => (
@@ -369,7 +369,7 @@ export default function LedgerPeriods() {
       )}
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("period.recent")}</h2>
+        <h2 className="eyebrow">{l("period.recent")}</h2>
         <Table<Period>
           caption={l("period.recentCaption")}
           captionHidden
@@ -444,7 +444,7 @@ export default function LedgerPeriods() {
                   role="alert"
                   className="flex flex-col gap-2 rounded-lg border border-danger/40 bg-danger/10 p-5"
                 >
-                  <p className="font-serif text-18 leading-[1.3] text-text">
+                  <p className="section-title">
                     {l("period.driftedTitle", {
                       count: drifted.length,
                       total: result?.rebuild?.total ?? drifted.length

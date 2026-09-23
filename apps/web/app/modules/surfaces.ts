@@ -36,3 +36,26 @@ export function surfaceFor(moduleId: string, slug: string): Screen | undefined {
   const qualified = `${moduleId}-${slug}`;
   return screens.find((screen) => screen.id === slug || screen.id === qualified);
 }
+
+/**
+ * The design pull as a catalogue, grouped by each screen's own `group` — listed
+ * on /design, not in the rail. These are fixture screens (routes/surface.tsx):
+ * English literals over sample data, so they sit with the design reference
+ * rather than beside the live workspaces every reader navigates.
+ */
+export function surfaceCatalogue(
+  include: (module: string) => boolean
+): { group: string; items: { href: string; label: string }[] }[] {
+  const byGroup = new Map<string, { href: string; label: string }[]>();
+  for (const [mod, screens] of Object.entries(SURFACES)) {
+    if (!include(mod)) continue;
+    for (const screen of screens) {
+      if (!screen.nav) continue;
+      const group = screen.group || mod;
+      const list = byGroup.get(group) ?? [];
+      list.push({ href: `/surface/${mod}/${screen.id}`, label: screen.nav });
+      byGroup.set(group, list);
+    }
+  }
+  return [...byGroup.entries()].map(([group, items]) => ({ group, items }));
+}

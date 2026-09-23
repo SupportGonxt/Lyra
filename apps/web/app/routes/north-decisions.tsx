@@ -26,6 +26,7 @@ import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { useNorthSessionData } from "./north-shell";
 import { ConfirmButton } from "../components/confirm";
+import { WorkLayout } from "../components/work-layout";
 import {
   labelsFrom,
   parsed,
@@ -118,7 +119,7 @@ const LABELS: Labels = {
     "close.confirm": "Close this decision? The outcome is recorded against it and the decision leaves the open list. Reopening is not something this screen can do.",
     "none.title": "Nothing decided yet",
     "none.body": "No decision has been recorded. The first one to log is the one you are about to argue about again.",
-    denied: "You do not have permission to read the decision log. Ask a tenant administrator for NORTH decision access.",
+    denied: "You do not have permission to read the decision log. Ask a tenant administrator for Insight decision access.",
     "saved.recorded": "Decision recorded.",
     "saved.reviewed": "Outcome recorded — decision closed as reviewed.",
     "saved.reversed": "Outcome recorded — decision closed as reversed.",
@@ -188,7 +189,7 @@ const LABELS: Labels = {
     "close.confirm": "هل تريد إغلاق هذا القرار؟ ستُسجَّل النتيجة عليه وسيغادر قائمة القرارات المفتوحة. إعادة الفتح ليست شيئاً تستطيع هذه الشاشة فعله.",
     "none.title": "لا قرارات بعد",
     "none.body": "لم يُسجَّل أي قرار. أول ما يُسجَّل هو ما ستختلفون عليه مرة أخرى.",
-    denied: "لا تملك صلاحية قراءة سجل القرارات. اطلب من مدير المستأجر صلاحية قرارات نورث.",
+    denied: "لا تملك صلاحية قراءة سجل القرارات. اطلب من مدير المؤسسة صلاحية قرارات التحليلات التنفيذية.",
     "saved.recorded": "سُجِّل القرار.",
     "saved.reviewed": "سُجِّلت النتيجة — أُغلق القرار كمُراجَع.",
     "saved.reversed": "سُجِّلت النتيجة — أُغلق القرار كمعكوس.",
@@ -461,8 +462,8 @@ export default function NorthDecisions() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {open.length > 0 ? (
           <Link to="/approvals" className="w-fit font-ui text-13 text-accent underline">
@@ -483,41 +484,43 @@ export default function NorthDecisions() {
           <p className="font-ui text-13 text-subtle">{l("denied")}</p>
         </Panel>
       ) : (
-        <>
-          {canWrite ? (
-            <Panel module="north" eyebrow={l("record.eyebrow")} lede={l("record.lede")}>
-              <Form method="post" className="flex flex-col gap-3">
-                <input type="hidden" name="intent" value="record" />
-                <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-                <Field label={l("record.title")} hint={l("record.title.hint")}>
-                  <Input name="title" required aria-label={l("record.title")} />
-                </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label={l("record.owner")} hint={l("record.owner.hint")}>
-                    <Input name="owner" required aria-label={l("record.owner")} />
+        <WorkLayout
+          aside={
+            canWrite ? (
+              <Panel module="north" eyebrow={l("record.eyebrow")} lede={l("record.lede")}>
+                <Form method="post" className="flex flex-col gap-3">
+                  <input type="hidden" name="intent" value="record" />
+                  <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+                  <Field label={l("record.title")} hint={l("record.title.hint")}>
+                    <Input name="title" required aria-label={l("record.title")} />
                   </Field>
-                  <Field label={l("record.review")} hint={l("record.review.hint")}>
-                    <Input type="date" name="reviewAt" aria-label={l("record.review")} />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label={l("record.owner")} hint={l("record.owner.hint")}>
+                      <Input name="owner" required aria-label={l("record.owner")} />
+                    </Field>
+                    <Field label={l("record.review")} hint={l("record.review.hint")}>
+                      <Input type="date" name="reviewAt" aria-label={l("record.review")} />
+                    </Field>
+                  </div>
+                  <Field label={l("record.context")} hint={l("record.context.hint")}>
+                    <Input name="contextRef" aria-label={l("record.context")} />
                   </Field>
-                </div>
-                <Field label={l("record.context")} hint={l("record.context.hint")}>
-                  <Input name="contextRef" aria-label={l("record.context")} />
-                </Field>
-                <Field label={l("record.options")} hint={l("record.options.hint")}>
-                  <Textarea name="options" rows={3} aria-label={l("record.options")} />
-                </Field>
-                <div>
-                  <Button type="submit" disabled={busy}>
-                    {l("record.submit")}
-                  </Button>
-                </div>
-              </Form>
-            </Panel>
-          ) : null}
-
+                  <Field label={l("record.options")} hint={l("record.options.hint")}>
+                    <Textarea name="options" rows={3} aria-label={l("record.options")} />
+                  </Field>
+                  <div>
+                    <Button type="submit" disabled={busy}>
+                      {l("record.submit")}
+                    </Button>
+                  </div>
+                </Form>
+              </Panel>
+            ) : null
+          }
+        >
           {open.length > 0 ? (
             <section className="flex flex-col gap-3">
-              <h2 className="font-serif text-18 leading-[1.3] text-text">{l("queue.title")}</h2>
+              <h2 className="section-title">{l("queue.title")}</h2>
               <p className="font-ui text-13 text-subtle">{l("queue.body")}</p>
               <AutoGrid min="24rem">
                 {open.map((decision) => (
@@ -537,14 +540,14 @@ export default function NorthDecisions() {
           ) : null}
 
           <section className="flex flex-col gap-3">
-            <h2 className="font-serif text-18 leading-[1.3] text-text">{l("log.title")}</h2>
+            <h2 className="section-title">{l("log.title")}</h2>
             {rows.length === 0 ? (
               <EmptyState title={l("none.title")} body={l("none.body")} />
             ) : (
               <Table columns={columns} rows={rows} rowKey={(row) => row.id} caption={l("log.caption")} />
             )}
           </section>
-        </>
+        </WorkLayout>
       )}
     </div>
   );
@@ -597,7 +600,7 @@ function DecisionCard({
         />
 
         <section className="flex flex-col gap-2">
-          <h3 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("card.options")}</h3>
+          <h3 className="eyebrow">{l("card.options")}</h3>
           {options.length === 0 ? (
             <p className="font-ui text-13 text-subtle">{l("card.options.none")}</p>
           ) : (
@@ -613,7 +616,7 @@ function DecisionCard({
 
         {outcome?.note ? (
           <section className="flex flex-col gap-1">
-            <h3 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("outcome.title")}</h3>
+            <h3 className="eyebrow">{l("outcome.title")}</h3>
             <p className="font-ui text-13 text-text">{outcome.note}</p>
           </section>
         ) : null}

@@ -55,9 +55,10 @@ test("J-C2 an agent approves the AI's suggested reply and it queues, not sends @
   // on the conversation id column instead of the text just typed in.
   await expect(page.getByRole("row", { name: new RegExp(shortRef(conversationId)) }).first()).toBeVisible();
 
-  // The panel is a real stateful disclosure now (module.tsx's CreatePanel):
-  // a successful create leaves it open, so clicking "New" again
-  // would toggle it shut rather than opening a fresh one.
+  // A successful create clears and closes the panel (module.tsx's
+  // CreatePanel) so the same row cannot be sent twice; open it again for the
+  // AI draft.
+  await page.locator("summary", { hasText: "New" }).click();
   const draftContent =
     "Yes — windscreen is covered under your comprehensive add-on, subject to the excess.";
   // No deliveryStatus field on this panel: conversation.tsx's loader only

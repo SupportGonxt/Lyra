@@ -1285,6 +1285,21 @@ describe("J-P2 panel negotiation", () => {
         decision: "approved"
       })
     );
+
+    // Approving it did not do it: the rate was still unwritten, and the asker
+    // had to find the form and fill it in again. The gate kept the request, so
+    // the asker now finishes it with one call, in their own session.
+    const ready = ok(await call("tenant.admin", "GET", "/v1/me/approvals/ready"));
+    expect(ready.data.map((row: { id: string }) => row.id)).toContain(attempt.body.approval_id);
+    const finished = await call("tenant.admin", "POST", `/v1/me/approvals/${attempt.body.approval_id}/finish`);
+    expect(finished.status).toBe(201);
+    expect(finished.body.baseCommissionPpm).toBe(150_000);
+    // Once.
+    const again = await call("tenant.admin", "POST", `/v1/me/approvals/${attempt.body.approval_id}/finish`);
+    expect(again.status).toBe(409);
+    // And only by whoever asked.
+    const other = await call("finance.controller", "POST", `/v1/me/approvals/${attempt.body.approval_id}/finish`);
+    expect(other.status).toBe(403);
   });
 
   it("panel benchmarks are readable by the people who negotiate", async () => {
@@ -1436,6 +1451,19 @@ describe("J-E4 alert rules, explorer and data health", () => {
       200
     );
     expect(Array.isArray(result.rows)).toBe(true);
+  });
+
+  // docs/06 §3: journey health surfaces in NORTH. Every earlier journey in this
+  // file wrote audit rows; the funnel reads them back.
+  it("reports every journey's funnel from the audit log", async () => {
+    const journeys = ok(await call("north.exec", "GET", "/v1/north/journeys?days=30"));
+    expect(journeys.data.length).toBeGreaterThan(10);
+    const p2 = journeys.data.find((j: { id: string }) => j.id === "J-P2");
+    expect(p2.steps.map((s: { key: string }) => s.key)).toEqual(["benched", "pack", "rate"]);
+    expect(["flowing", "stalled", "quiet"]).toContain(p2.status);
+    // A reader without NORTH's metrics may not see the business's funnels.
+    const refused = await call("axis.agent", "GET", "/v1/north/journeys");
+    expect(refused.status).toBe(403);
   });
 
   it("data health reports staleness per metric", async () => {

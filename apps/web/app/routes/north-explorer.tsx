@@ -14,6 +14,7 @@ import {
   MetricValue,
   labelsFrom,
   metricName,
+  metricText,
   parsed,
   pct,
   readable,
@@ -108,15 +109,15 @@ const LABELS: Labels = {
     "definition.direction": "Better when",
     "definition.target": "Target",
     "definition.unset": "Not recorded",
-    "definition.edit": "Edit this definition in NORTH admin",
+    "definition.edit": "Edit this definition in Insight admin",
     up: "Rising",
     down: "Falling",
     public: "Public",
     internal: "Internal",
     restricted: "Restricted",
     "metrics.none.title": "No metrics are registered",
-    "metrics.none.body": "A tenant administrator registers metrics in NORTH admin before anything can be explored.",
-    denied: "You do not have permission to read snapshots. Ask a tenant administrator for NORTH metric access."
+    "metrics.none.body": "A tenant administrator registers metrics in Insight admin before anything can be explored.",
+    denied: "You do not have permission to read snapshots. Ask a tenant administrator for Insight metric access."
   },
   ar: {
     title: "مستكشف المؤشرات",
@@ -135,7 +136,7 @@ const LABELS: Labels = {
     "series.change": "التغير",
     "series.taken": "وقت اللقطة",
     "series.none.title": "لا توجد لقطات لهذا المؤشر بعد",
-    "series.none.body": "يكتب المُلقِط صفاً عند إغلاق الفترة. شغّله من قسم تطوير نورث إذا احتجت لقطة قبل النافذة الليلية.",
+    "series.none.body": "يكتب المُلقِط صفاً عند إغلاق الفترة. شغّله من قسم تطوير التحليلات التنفيذية إذا احتجت لقطة قبل النافذة الليلية.",
     "forecast.title": "كيف تبدو الفترات القادمة",
     "forecast.caption": "القيمة المتوقعة لكل فترة، مع المدى الذي يضعه النموذج حولها",
     "forecast.period": "الفترة",
@@ -158,15 +159,15 @@ const LABELS: Labels = {
     "definition.direction": "الأفضل عندما",
     "definition.target": "المستهدف",
     "definition.unset": "غير مسجل",
-    "definition.edit": "عدّل هذا التعريف في إدارة نورث",
+    "definition.edit": "عدّل هذا التعريف في إدارة التحليلات التنفيذية",
     up: "يرتفع",
     down: "ينخفض",
     public: "عام",
     internal: "داخلي",
     restricted: "مقيد",
     "metrics.none.title": "لا توجد مؤشرات مسجلة",
-    "metrics.none.body": "يسجّل مدير المستأجر المؤشرات في إدارة نورث قبل أن يكون هناك ما يُستكشف.",
-    denied: "لا تملك صلاحية قراءة اللقطات. اطلب من مدير المستأجر صلاحية مؤشرات نورث."
+    "metrics.none.body": "يسجّل مدير المؤسسة المؤشرات في إدارة التحليلات التنفيذية قبل أن يكون هناك ما يُستكشف.",
+    denied: "لا تملك صلاحية قراءة اللقطات. اطلب من مدير المؤسسة صلاحية مؤشرات التحليلات التنفيذية."
   }
 };
 
@@ -289,8 +290,8 @@ export default function NorthExplorer() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {metric ? (
           <Link
@@ -347,6 +348,7 @@ export default function NorthExplorer() {
                   values={values}
                   label={metric ? metricName(metric, locale) : l("series.title")}
                   xLabels={rows.map((row) => row.period)}
+                  format={(value) => metricText(value, metric?.unit ?? "count", metric?.currency ?? null, locale)}
                 />
               </Card>
 
@@ -375,7 +377,7 @@ export default function NorthExplorer() {
               below are the inspectable "why" instead. */}
           {forecast ? (
             <Card>
-              <h2 className="mb-3 font-serif text-16 text-text">{l("forecast.title")}</h2>
+              <h2 className="mb-3 section-title">{l("forecast.title")}</h2>
               {forecast.points.length === 0 ? (
                 <p className="font-ui text-13 text-subtle">{l("forecast.none")}</p>
               ) : (
@@ -403,7 +405,7 @@ export default function NorthExplorer() {
                     {l(forecast.fit.intervalSource === "empirical" ? "forecast.band.empirical" : "forecast.band.default")}
                   </p>
                   {forecast.fit.lastObserved ? (
-                    <p className="mt-1 font-mono text-11 uppercase tracking-[0.14em] text-subtle">
+                    <p className="eyebrow mt-1">
                       {l("forecast.basis", { count: String(forecast.fit.observations), last: forecast.fit.lastObserved })}
                     </p>
                   ) : null}
@@ -414,7 +416,7 @@ export default function NorthExplorer() {
 
           {metric ? (
             <Card>
-              <h2 className="mb-3 font-serif text-16 text-text">{l("definition.title")}</h2>
+              <h2 className="mb-3 section-title">{l("definition.title")}</h2>
               <dl className="grid gap-3 sm:grid-cols-2">
                 <Definition term={l("definition.sql")} value={metric.definitionSqlRef ?? l("definition.unset")} mono />
                 <Definition term={l("definition.owner")} value={metric.owner ?? l("definition.unset")} />
@@ -427,7 +429,7 @@ export default function NorthExplorer() {
                   }
                 />
               </dl>
-              <p className="mt-3 font-mono text-11 uppercase tracking-[0.14em] text-subtle">{metric.key}</p>
+              <p className="eyebrow mt-3">{metric.key}</p>
             </Card>
           ) : null}
         </>
@@ -442,7 +444,7 @@ export const ppm = (value: number): string => (value / 1_000_000).toFixed(2);
 function Definition({ term, value, mono = false }: { term: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-1">
-      <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{term}</dt>
+      <dt className="eyebrow">{term}</dt>
       <dd className={mono ? "font-mono text-12 text-text" : "font-ui text-13 text-text"}>{value}</dd>
     </div>
   );

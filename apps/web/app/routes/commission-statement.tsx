@@ -597,7 +597,7 @@ export default function CommissionStatement() {
 
       {loaded.may.adjust ? (
         <section aria-labelledby="accrue-heading" className="flex flex-col gap-3">
-          <h2 id="accrue-heading" className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+          <h2 id="accrue-heading" className="eyebrow">
             {l("accrue")}
           </h2>
           <p className="max-w-prose font-ui text-13 text-muted">{l("accrueIntro")}</p>

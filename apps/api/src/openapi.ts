@@ -53,6 +53,11 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/me/lens", summary: "The caller's lens: role default workspace or their own learned adaptation", tag: "me" },
   { method: "post", path: "/v1/me/lens/usage", summary: "Record an interaction with a view/filter/pin, nudging its lens weight", tag: "me", requestBody: true },
   { method: "post", path: "/v1/me/lens/reset", summary: "Discard learned adaptation and revert to the role default lens", tag: "me" },
+  // The gate keeps the request it stopped; once approved, the person who asked
+  // finishes it with one call, replayed in their own session (the gate and
+  // every permission check run again). Once, and only by the requester.
+  { method: "get", path: "/v1/me/approvals/ready", summary: "The caller's requests that are approved and waiting for them to finish", tag: "me" },
+  { method: "post", path: "/v1/me/approvals/{id}/finish", summary: "Finish an approved request: replay what the gate stopped, in the requester's own session", tag: "me" },
   { method: "post", path: "/v1/me/approvals/{id}/decide", summary: "Approve or reject a pending approval (permission comes from the approval policy)", tag: "me", requestBody: true },
   { method: "post", path: "/v1/me/notifications/{id}/read", summary: "Mark one of the caller's notifications read", tag: "me" },
 
@@ -81,6 +86,7 @@ const HAND_WRITTEN: Op[] = [
   // The escape hatch out of the approval gate, so the write path validates what
   // the seed never had to: an unknown policy key is a 400 rather than an inert
   // entry, and a `neverAutoApprove` policy is refused outright (docs/19 §7).
+  { method: "get", path: "/v1/core/settings/auto-approve", summary: "The tenant's auto-approve allowlist and every approval policy, marking which the floor lets a tenant automate", permission: "core:settings:read", tag: "core" },
   { method: "patch", path: "/v1/core/settings/auto-approve", summary: "Add or remove approval policy keys from the tenant's auto-approve allowlist; never-auto-approve policies are refused", permission: "core:settings:update", tag: "core", requestBody: true },
 
   // SQL aggregate for the 360 screen's Position card — never a paged read.
@@ -457,6 +463,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/ledger/fx-revaluation", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", tag: "ledger" },
   { method: "post", path: "/v1/north/snapshots/{id}/verify", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", tag: "north", requestBody: true },
   { method: "post", path: "/v1/north/explore", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", tag: "north", requestBody: true },
+  { method: "get", path: "/v1/north/journeys", summary: "Journey health: each documented journey's funnel from the audit log, ?days= window", permission: "north:metrics:read", tag: "north" },
   { method: "get", path: "/v1/north/data-health", summary: "Staleness per metric, computed live from the snapshot table", permission: "north:metrics:read", tag: "north" },
   // docs/27 F50. Reads closed snapshots only and answers with a band per
   // period plus the fit that produced it; no model is in this path.

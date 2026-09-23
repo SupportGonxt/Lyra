@@ -635,3 +635,94 @@ export async function pendingApprovals(ctx: Ctx, module?: string, limit = 100): 
     .orderBy(schema.approvals.requestedAt)
     .limit(limit) as Promise<ApprovalRow[]>;
 }
+
+/* ------------------------------------------------------------ finish it */
+
+/**
+ * The request a gate stopped, kept so the requester can finish it once it is
+ * approved — instead of finding the screen again and re-entering the form
+ * (docs/06 J-M1, J-X2, J-P1, J-E2). It is replayed in the requester's own
+ * session, so every permission check, validation and the gate itself run
+ * again exactly as before; this only saves the typing.
+ */
+export interface StoppedRequest {
+  method: string;
+  /** Path and query, as the API received them. */
+  path: string;
+  body: string | null;
+}
+
+/** A body larger than this is not remembered: the requester re-enters it. */
+const RESUME_BODY_LIMIT = 64 * 1024;
+
+async function approvalRow(ctx: Ctx, approvalId: string): Promise<ApprovalRow | undefined> {
+  const rows = await ctx.db
+    .select()
+    .from(schema.approvals)
+    .where(and(eq(schema.approvals.tenantId, ctx.tenantId), eq(schema.approvals.id, approvalId)))
+    .limit(1);
+  return rows[0] as ApprovalRow | undefined;
+}
+
+async function writeContext(ctx: Ctx, row: ApprovalRow, patch: Record<string, unknown>): Promise<void> {
+  const context = { ...(safeJson<Record<string, unknown>>(row.contextJson) ?? {}), ...patch };
+  await ctx.db
+    .update(schema.approvals)
+    .set({ contextJson: JSON.stringify(context) })
+    .where(and(eq(schema.approvals.tenantId, ctx.tenantId), eq(schema.approvals.id, row.id)));
+}
+
+/**
+ * Keep the request that raised a pending approval. Only the requester's own
+ * pending row is written, and only once — a second attempt while pending is
+ * the same ask, not a new one.
+ */
+export async function rememberRequest(ctx: Ctx, approvalId: string, request: StoppedRequest): Promise<void> {
+  if ((request.body?.length ?? 0) > RESUME_BODY_LIMIT) return;
+  const row = await approvalRow(ctx, approvalId);
+  if (!row || row.decision !== "pending" || row.requestedBy !== actorRef(ctx)) return;
+  if (safeJson<{ resume?: unknown }>(row.contextJson)?.resume) return;
+  await writeContext(ctx, row, { resume: request });
+}
+
+/** The stopped request, if this actor may finish it now. Throws why not otherwise. */
+export async function resumeFor(ctx: Ctx, approvalId: string): Promise<StoppedRequest> {
+  const row = await approvalRow(ctx, approvalId);
+  if (!row) throw notFound("approval");
+  if (row.requestedBy !== actorRef(ctx)) throw forbidden("core:approvals:finish");
+  const context = safeJson<{ resume?: StoppedRequest; completedAt?: number }>(row.contextJson) ?? {};
+  if (row.decision !== "approved") throw conflict(`the approval is ${row.decision}`);
+  if (row.decidedAt == null || ctx.now - row.decidedAt > APPROVAL_TTL_MS) throw conflict("the approval has expired");
+  if (context.completedAt) throw conflict("already finished");
+  if (!context.resume) throw conflict("nothing to finish: the request was not kept");
+  return context.resume;
+}
+
+/** Record that the requester finished it, so it is offered once. */
+export async function markCompleted(ctx: Ctx, approvalId: string): Promise<void> {
+  const row = await approvalRow(ctx, approvalId);
+  if (!row) return;
+  await writeContext(ctx, row, { completedAt: ctx.now });
+  await audit(ctx, { action: "core.approval.finished", subjectRef: row.subjectRef, after: { approvalId } });
+}
+
+/** This actor's approved requests that are kept and not yet finished, newest first. */
+export async function readyToFinish(ctx: Ctx): Promise<ApprovalRow[]> {
+  const rows = (await ctx.db
+    .select()
+    .from(schema.approvals)
+    .where(
+      and(
+        eq(schema.approvals.tenantId, ctx.tenantId),
+        eq(schema.approvals.requestedBy, actorRef(ctx)),
+        eq(schema.approvals.decision, "approved"),
+        gt(schema.approvals.decidedAt, ctx.now - APPROVAL_TTL_MS)
+      )
+    )
+    .orderBy(desc(schema.approvals.decidedAt))
+    .limit(50)) as ApprovalRow[];
+  return rows.filter((row) => {
+    const context = safeJson<{ resume?: unknown; completedAt?: number }>(row.contextJson) ?? {};
+    return Boolean(context.resume) && !context.completedAt;
+  });
+}

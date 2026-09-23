@@ -3,6 +3,9 @@ import { cloudflare } from "../context";
 import { bootstrapSession, type SessionBootstrap } from "../session.server";
 import { ScoutShell } from "../components/scout-shell";
 import { SessionRegion } from "../components/region";
+import { sessionMeta } from "../title";
+
+export const meta = sessionMeta;
 
 // SCOUT's own layout: same bootstrap every other layout uses, but gated —
 // an actor whose roles never resolve to "scout" is real (bootstrapSession

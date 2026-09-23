@@ -212,7 +212,7 @@ export default function Experiments() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{expHeadline(l, { won: won.length, running })}</h1>
+        <h1 className="page-title">{expHeadline(l, { won: won.length, running })}</h1>
         <p className="max-w-prose font-ui text-13 text-muted">{l("exp.lede")}</p>
       </header>
 
@@ -443,7 +443,7 @@ function Detail({
         )}
       </dl>
 
-      <h3 className="mt-6 font-serif text-16 text-text">{l("exp.variants")}</h3>
+      <h3 className="mt-6 section-title">{l("exp.variants")}</h3>
       <Table
         className="mt-2"
         caption={l("exp.variants")}
@@ -453,7 +453,7 @@ function Detail({
         columns={variantColumns(l, locale, reading)}
       />
 
-      <h3 className="mt-6 font-serif text-16 text-text">{l("exp.chart")}</h3>
+      <h3 className="mt-6 section-title">{l("exp.chart")}</h3>
       {reading?.verdict === "abandoned" ? (
         <dl className="mt-2 flex flex-col gap-2 font-ui text-13">
           <div>
@@ -481,7 +481,7 @@ function Detail({
       ) : null}
 
       {mayDecide && moves.length > 0 ? (
-        <Form method="post" className="mt-6 flex flex-col gap-4 border-t border-hairline pt-4">
+        <Form method="post" className="mt-6 flex flex-col gap-4 border-t border-border pt-4">
           <input type="hidden" name="intent" value="decide" />
           <input type="hidden" name="key" value={formKey} />
           <input type="hidden" name="experimentId" value={row.id} />
@@ -609,7 +609,7 @@ function SequentialRead({ reading, l }: { reading: ExperimentResult; l: Label })
         {/* The boundary itself, drawn where 95% falls across the same track. */}
         <span
           aria-hidden="true"
-          className="absolute inset-block-0 w-px bg-text/60"
+          className="absolute inset-y-0 w-px bg-text/60"
           style={{ insetInlineStart: `${DECISION_BOUNDARY_BPS / 100}%` }}
         />
       </div>

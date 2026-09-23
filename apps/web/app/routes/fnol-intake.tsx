@@ -370,7 +370,7 @@ export default function FnolIntake() {
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-prose font-ui text-13 text-subtle">{l("intro")}</p>
       </header>
 
@@ -436,7 +436,7 @@ export default function FnolIntake() {
           <h2 className="font-medium">{l("coverage.title")}</h2>
           <Badge tone={COVERAGE_TONE[coverage.coverageState]}>{l(`coverageState.${coverage.coverageState}`)}</Badge>
           {coverage.warnings.map((warning) => (
-            <p key={warning} className="text-sm text-[var(--color-fg-muted)]">
+            <p key={warning} className="text-sm text-muted">
               {warning}
             </p>
           ))}

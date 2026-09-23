@@ -182,6 +182,8 @@ export const LABELS: Labels = {
     noneOutstanding: "No offer is waiting on a customer.",
     noneSettled: "Nothing has been decided yet.",
     noneBody: "The expiry sweep raises these as policies approach their end date.",
+    noneOutstandingBody: "An offer waits here from the moment it is sent until the customer answers.",
+    noneSettledBody: "A renewal lands here once the customer accepts or the offer lapses.",
     saved_discount: "Saved with a discount",
     saved_service: "Saved on service",
     price: "Price",
@@ -251,6 +253,8 @@ export const LABELS: Labels = {
     noneOutstanding: "لا عرض بانتظار عميل.",
     noneSettled: "لم يُحسم شيء بعد.",
     noneBody: "المسح الدوري يرفع هذه السجلات مع اقتراب انتهاء الوثائق.",
+    noneOutstandingBody: "ينتظر العرض هنا منذ إرساله حتى يجيب العميل.",
+    noneSettledBody: "يصل التجديد إلى هنا حين يقبله العميل أو ينقضي العرض.",
     saved_discount: "أُنقذ بخصم",
     saved_service: "أُنقذ بالخدمة",
     price: "السعر",
@@ -397,7 +401,7 @@ export default function SaveDesk() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">
+        <h1 className="page-title">
           {saveHeadline(risky.length, loaded.queue.total ?? loaded.queue.data.length, l)}
         </h1>
         <p className="font-ui text-13 text-muted">{l("lede")}</p>
@@ -459,6 +463,7 @@ export default function SaveDesk() {
           busy={busy}
           caption={l("queue")}
           emptyTitle={l("noneQueue")}
+          emptyBody={l("noneBody")}
         />
       </Card>
 
@@ -479,12 +484,13 @@ export default function SaveDesk() {
               busy={busy}
               caption={l("outstanding")}
               emptyTitle={l("noneOutstanding")}
+              emptyBody={l("noneOutstandingBody")}
             />
           </Card>
 
           <Card title={l("settled")} description={l("settledBody")}>
             {loaded.settled.length === 0 ? (
-              <EmptyState title={l("noneSettled")} body={l("noneBody")} />
+              <EmptyState title={l("noneSettled")} body={l("noneSettledBody")} />
             ) : (
               <Table
                 caption={l("settled")}
@@ -547,7 +553,8 @@ function Desk({
   writable,
   busy,
   caption,
-  emptyTitle
+  emptyTitle,
+  emptyBody
 }: {
   rows: Renewal[];
   l: Label;
@@ -559,8 +566,11 @@ function Desk({
   busy: boolean;
   caption: string;
   emptyTitle: string;
+  /** Each desk teaches its own empty state; one shared sentence under both
+   *  read the same line twice on one screen. */
+  emptyBody: string;
 }) {
-  if (rows.length === 0) return <EmptyState title={emptyTitle} body={l("noneBody")} />;
+  if (rows.length === 0) return <EmptyState title={emptyTitle} body={emptyBody} />;
 
   const columns: Column<Renewal>[] = [
     {

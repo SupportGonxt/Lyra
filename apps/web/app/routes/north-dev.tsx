@@ -55,7 +55,7 @@ const TOPICS = ["north.alert.triggered", "north.briefing.generated", "north.boar
 
 const LABELS: Labels = {
   en: {
-    title: "NORTH dev",
+    title: "Insight dev",
     kicker: "The integrator's bench",
     intro:
       "Run the real metric query, trigger a snapshot ahead of the nightly window, and read the contract your code will hold to. Nothing here is a mock — the console calls the same endpoint your integration will.",
@@ -88,12 +88,12 @@ const LABELS: Labels = {
     "curl.lede": "The console above sends exactly this. Mint the key in the developer portal — it is never shown here.",
     "curl.keys": "Open the developer portal",
     "hooks.eyebrow": "Webhooks",
-    "hooks.lede": "NORTH publishes these events. Subscribe an endpoint to one in the developer portal and every payload arrives signed.",
+    "hooks.lede": "Insight publishes these events. Subscribe an endpoint to one in the developer portal and every payload arrives signed.",
     "sandbox.eyebrow": "Sandbox",
     "sandbox.lede":
       "The demo tenant carries a deterministic synthetic dataset — the same fixtures every environment is seeded from, so a query written against it behaves the same on staging and in production.",
     "sandbox.open": "Open the metric explorer",
-    denied: "You do not have permission to read the snapshot layer. Ask a tenant administrator for NORTH access.",
+    denied: "You do not have permission to read the snapshot layer. Ask a tenant administrator for Insight access.",
     "headline.denied": "You do not have access to the snapshot layer.",
     "headline.empty": "Nothing to query yet — no metric is registered.",
     "headline.action": "Register a metric",
@@ -110,7 +110,7 @@ const LABELS: Labels = {
     "problem.bad_intent": "That form did not carry a recognised action."
   },
   ar: {
-    title: "مطوّرو نورث",
+    title: "مطوّرو التحليلات التنفيذية",
     kicker: "منضدة المتكامِل",
     intro:
       "شغّل استعلام المقاييس الحقيقي، وخذ لقطة قبل نافذة الليل، واقرأ العقد الذي سيلتزم به كودك. لا شيء هنا محاكاة — الوحدة تنادي نفس نقطة النهاية التي سيناديها تكاملك.",
@@ -143,12 +143,12 @@ const LABELS: Labels = {
     "curl.lede": "الوحدة أعلاه ترسل هذا بالضبط. أصدر المفتاح من بوابة المطوّرين — لا يُعرض هنا أبداً.",
     "curl.keys": "افتح بوابة المطوّرين",
     "hooks.eyebrow": "الويب هوك",
-    "hooks.lede": "ينشر نورث هذه الأحداث. اربط نقطة نهاية بأحدها من بوابة المطوّرين ويصلك كل حمل موقّعاً.",
+    "hooks.lede": "ينشر التحليلات التنفيذية هذه الأحداث. اربط نقطة نهاية بأحدها من بوابة المطوّرين ويصلك كل حمل موقّعاً.",
     "sandbox.eyebrow": "بيئة التجربة",
     "sandbox.lede":
       "تحمل المؤسسة التجريبية بيانات اصطناعية حتمية — نفس التجهيزات التي تُبذر منها كل البيئات، فالاستعلام المكتوب عليها يتصرف كما هو على التجريب والإنتاج.",
     "sandbox.open": "افتح مستكشف المقاييس",
-    denied: "لا تملك صلاحية قراءة طبقة اللقطات. اطلب من مدير المستأجر صلاحية نورث.",
+    denied: "لا تملك صلاحية قراءة طبقة اللقطات. اطلب من مدير المؤسسة صلاحية التحليلات التنفيذية.",
     "headline.denied": "لا تملك صلاحية الوصول إلى طبقة اللقطات.",
     "headline.empty": "لا شيء لاستعلامه بعد — لم يُسجَّل أي مقياس.",
     "headline.action": "سجّل مقياساً",
@@ -309,8 +309,8 @@ export default function NorthDev() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline(metrics, l)}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline(metrics, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {metrics !== null && metrics.length === 0 ? (
           <Link to="/north/admin" className="w-fit font-ui text-13 text-accent underline">
@@ -336,7 +336,7 @@ export default function NorthDev() {
             <Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="query" />
               <fieldset className="flex flex-col gap-2">
-                <legend className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">
+                <legend className="eyebrow">
                   {l("query.metrics")}
                 </legend>
                 <p className="font-ui text-12 text-subtle">{l("query.metrics.hint", { max: String(MAX_KEYS) })}</p>
@@ -352,7 +352,7 @@ export default function NorthDev() {
                       />
                       <span className="flex flex-col">
                         <span>{metricName(metric, locale)}</span>
-                        <span className="font-mono text-11 text-subtle">{metric.key}</span>
+                        <span className="font-mono text-12 text-subtle">{metric.key}</span>
                       </span>
                     </label>
                   ))}
@@ -392,7 +392,7 @@ export default function NorthDev() {
                 />
                 <details>
                   <summary className="cursor-pointer font-ui text-13 text-accent">{l("query.raw")}</summary>
-                  <pre className="mt-2 overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+                  <pre className="mt-2 overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
                     {JSON.stringify({ rows: result.rows }, null, 2)}
                   </pre>
                 </details>
@@ -402,7 +402,7 @@ export default function NorthDev() {
 
           <Panel module="north" eyebrow={l("curl.eyebrow")} lede={l("curl.lede")}>
             <div className="flex flex-col gap-3">
-              <pre className="overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+              <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
                 {curlFor(origin, {
                   metricKeys: sample.length > 0 ? sample : ["your_metric_key"],
                   grain: "day",

@@ -72,6 +72,17 @@ describe("the list loader's saved views", () => {
     expect(result.query.state).toBe("open");
   });
 
+  // The default view used to be inescapable: choosing "All" dropped `view` from
+  // the URL, which is pristine, which re-applied the default.
+  it("lets the reader opt out of the default with an empty ?view=", async () => {
+    stub([savedView({ id: "sv_default", isDefault: true, queryJson: JSON.stringify({ state: "fanned_out" }) })]);
+    const result = await loader(
+      args("https://web.test/distribution/quote-requests?view=", "distribution", "quote-requests")
+    );
+    expect(result.activeView).toBeNull();
+    expect(result.query.state).toBeUndefined();
+  });
+
   it("applies an explicitly chosen view via ?view=", async () => {
     stub([
       savedView({ id: "sv_a", queryJson: JSON.stringify({ state: "open" }) }),

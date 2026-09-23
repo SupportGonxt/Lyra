@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router";
+import { surfaceCatalogue } from "../modules/surfaces";
+import { shouldInclude } from "../routing";
 import {
   Field,
   POST_RATIOS,
@@ -67,7 +70,7 @@ export const PALETTE = [
  *  labels, not sentences, so they read the same in both languages. */
 const VOICES = [
   { key: "serif", cls: "font-serif text-28 leading-display" },
-  { key: "display", cls: "font-display text-18 font-600 tracking-[.02em]" },
+  { key: "display", cls: "font-display text-18 font-semibold tracking-[.02em]" },
   { key: "mono", cls: "font-mono text-22" }
 ] as const;
 
@@ -244,6 +247,8 @@ const LABELS: Labels = {
     "flow.debits": "Out of",
     "flow.credits": "Into",
     "ai.heading": "Ambient AI — a chip, a ghost and a tray",
+    "pull.heading": "The design pull",
+    "pull.note": "Every screen the Constellation design file drew, over its own sample data. Reference, not workspaces — the live screens are in the rail.",
     "ai.note":
       "Model output never arrives as a modal and is never sent on its own. It sits beside the thing it is about: a hover reading that is in the accessibility tree before any hover, a chip whose evidence opens as the exact lines the sentence was written from, and a tray of drafts to read rather than something that already happened. The ✦ is a claim that a model wrote it — a deterministic fallback sentence carries none, and a cell below the k-anonymity floor says why it is silent instead of going blank.",
     "ai.ghost": "Hover reading",
@@ -271,7 +276,7 @@ const LABELS: Labels = {
     "hand.tab1": "Shift",
     "hand.tab2": "Records",
     "post.heading": "The post itself",
-    "post.note": "A cleared SIGNAL variant rendered at the three frames the networks take, from the tenant\u2019s own brand. Preview and download are the same bytes.",
+    "post.note": "A cleared Marketing variant rendered at the three frames the networks take, from the tenant\u2019s own brand. Preview and download are the same bytes.",
     "post.headline": "Cover the gap before renewal.",
     "post.body": "Two minutes, no paperwork, and your no-claim year stays yours.",
     "post.kicker": "Renewal save",
@@ -295,18 +300,18 @@ const LABELS: Labels = {
     "rule.01.why": "packages/core lens · docs/06",
     "rule.02.title": "الذكاء الاصطناعي محيط لا حاجز",
     "rule.02.body":
-      "المسودات تصل كنص شبحي ورقائق هادئة بجوار العمل، لا كنافذة توقفه. كل ناتج يحمل علامة ✦ واحدة وسببًا قابلًا للفحص، ولا يُرسل شيء نيابة عنك خارج سياسة الاستقلالية.",
+      "المسودات تصل كنص تمهيدي خافت ورقائق هادئة بجوار العمل، لا كنافذة توقفه. كل ناتج يحمل علامة ✦ واحدة وسببًا قابلًا للفحص، ولا يُرسل شيء نيابة عنك خارج سياسة الاستقلالية.",
     "rule.02.why": "docs/15 §4",
     "rule.03.title": "ما له أثر ينتظر إنسانًا",
     "rule.03.body":
-      "كل ما يحرك مالًا أو حالة تعاقدية معاملة: مفتاح تكرار، وآلة حالات، وقيود متوازنة، وموافقة. الأتمتة قائمة سماح يكتبها المستأجر، لا وضعًا افتراضيًا نشحنه.",
+      "كل ما يحرك مالًا أو حالة تعاقدية معاملة: مفتاح تكرار، وآلة حالات، وقيود متوازنة، وموافقة. الأتمتة قائمة سماح تكتبها المؤسسة، لا وضعًا افتراضيًا نشحنه.",
     "rule.03.why": "docs/19",
     "rule.04.title": "المفردات بيانات",
     "rule.04.body":
-      "أسماء الأشياء في كل تسمية تأتي من حزمة المجال الفعّالة، والاسم والشعار واللون تأتي من المستأجر. لا توجد في هذه الشاشة سلسلة علامة تجارية واحدة — بما في ذلك التي في أعلاها.",
+      "أسماء الأشياء في كل تسمية تأتي من حزمة المجال الفعّالة، والاسم والشعار واللون تأتي من المؤسسة. لا توجد في هذه الشاشة سلسلة علامة تجارية واحدة — بما في ذلك التي في أعلاها.",
     "rule.04.why": "docs/21 · docs/01 §6",
     "palette.heading": "اللوحة — موروثة، معاد وزنها",
-    "palette.note": "كل مربع يقرأ الرمز الحي. غيّر سمة المستأجر وتعاد طلاء هذه الصفحة معها.",
+    "palette.note": "كل مربع يقرأ الرمز الحي. غيّر سمة المؤسسة وتعاد طلاء هذه الصفحة معها.",
     "palette.accent": "لون الهوية",
     "palette.success": "نجاح",
     "palette.warning": "تحذير",
@@ -352,6 +357,8 @@ const LABELS: Labels = {
     "flow.debits": "من",
     "flow.credits": "إلى",
     "ai.heading": "ذكاء محيطي — شارة وطيف ودرج",
+    "pull.heading": "ملف التصميم",
+    "pull.note": "كل شاشة رسمها ملف تصميم Constellation، ببياناتها التجريبية. مرجع وليست مساحات عمل — الشاشات الفعلية في شريط التنقل.",
     "ai.note":
       "لا يصل ناتج النموذج في نافذة منبثقة ولا يُرسل من تلقائه. بل يجلس بجوار ما يتحدث عنه: قراءة تظهر عند التحويم وهي أصلًا في شجرة الوصول قبله، وشارة تفتح أدلتها كالسطور ذاتها التي كُتبت منها الجملة، ودرج مسودات يُقرأ لا أمر وقع بالفعل. والعلامة ✦ ادّعاء بأن نموذجًا كتبها — فالجملة الاحتياطية الحتمية لا تحملها، والخانة تحت حد إخفاء الهوية تقول سبب صمتها بدل أن تُترك فارغة.",
     "ai.ghost": "قراءة التحويم",
@@ -372,14 +379,14 @@ const LABELS: Labels = {
     "hand.exposure": "التعرّض",
     "hand.card.label": "مسودة لك",
     "hand.card.body":
-      "التجديد مسعّر أقل بنسبة ٤٪ من المدة السابقة لأن المركبة انتقلت إلى منطقة أقل خطرًا. لم يُرسل شيء.",
+      "التجديد مسعّر أقل بنسبة 4٪ من المدة السابقة لأن المركبة انتقلت إلى منطقة أقل خطرًا. لم يُرسل شيء.",
     "hand.card.primary": "مراجعة",
     "hand.card.secondary": "لماذا",
     "hand.footer": "الموافقات والأدلة تبقى على الهاتف؛ وكل ما له أثر ينتظر ضغطتك.",
     "hand.tab1": "النوبة",
     "hand.tab2": "السجلات",
     "post.heading": "المنشور نفسه",
-    "post.note": "نسخة معتمدة من سيجنال بمقاسات المنصات الثلاثة، بهوية العميل نفسه. المعاينة والتنزيل ملف واحد.",
+    "post.note": "نسخة معتمدة من التسويق بمقاسات المنصات الثلاثة، بهوية العميل نفسه. المعاينة والتنزيل ملف واحد.",
     "post.headline": "غطِّ الفجوة قبل التجديد.",
     "post.body": "دقيقتان دون أوراق، وخصمك يبقى لك.",
     "post.kicker": "حملة التجديد",
@@ -406,7 +413,7 @@ function SliderSpecimen({ l, locale }: { l: (key: string) => string; locale: str
   const money = new Intl.NumberFormat(locale, { style: "currency", currency: "AED", maximumFractionDigits: 0 });
 
   return (
-    <div className="flex flex-col gap-4 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
+    <div className="flex flex-col gap-4 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
       <Field label={l("slider.age")} id="specimen-age">
         <Slider
           min={18}
@@ -461,9 +468,9 @@ export function Doctrine({
 
       <div className="lyra-stagger grid gap-3 sm:grid-cols-2">
         {RULES.map((rule) => (
-          <article key={rule.n} className="rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
+          <article key={rule.n} className="rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
             <p className={`font-mono text-12 ${rule.hue}`}>{rule.n}</p>
-            <h2 className="mt-2 font-display text-16 font-600 text-tx">{l(`rule.${rule.n}.title`)}</h2>
+            <h2 className="mt-2 font-display text-16 font-semibold text-tx">{l(`rule.${rule.n}.title`)}</h2>
             <p className="mt-2 text-13 leading-body text-tx4">{l(`rule.${rule.n}.body`)}</p>
             <p className="mt-3 font-mono text-12 text-tx5">{l(`rule.${rule.n}.why`)}</p>
           </article>
@@ -472,14 +479,14 @@ export function Doctrine({
 
       <div className="grid gap-7 lg:grid-cols-2">
         <section className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("palette.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("palette.heading")}</h2>
           <p className="text-13 leading-body text-tx4">{l("palette.note")}</p>
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2">
             {PALETTE.map((swatch) => (
               <li key={swatch.token} className="flex flex-col gap-1">
                 {/* The swatch is the token, not a copy of it. */}
                 <span
-                  className="block h-[42px] rounded-2 border border-line2"
+                  className="block h-[42px] rounded-sm border border-line2"
                   style={{ background: `var(${swatch.token})` }}
                 />
                 <span className="text-12 text-tx4">{l(`palette.${swatch.key}`)}</span>
@@ -494,7 +501,7 @@ export function Doctrine({
         </section>
 
         <section className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("type.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("type.heading")}</h2>
           <ul className="flex flex-col gap-4">
             {VOICES.map((voice) => (
               <li key={voice.key} className="border-t border-line2 pt-3">
@@ -515,7 +522,7 @@ export function Doctrine({
           the 328px frame below, where they are the rows of the shift list. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("hero.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("hero.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("hero.note")}</p>
         </div>
         <HeroWall focus="open" allLabel={l("heroAll")}>
@@ -543,12 +550,12 @@ export function Doctrine({
           page asserting a broken ledger reads as one. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("flow.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("flow.heading")}</h2>
           <p className="max-w-[78ch] text-13 leading-body text-tx4">{l("flow.note")}</p>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("flow.state.title")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("flow.state.title")}</h3>
             <StateFlow
               machine={SPECIMEN_MACHINE}
               visits={SPECIMEN_VISITS}
@@ -558,8 +565,8 @@ export function Doctrine({
               locale={locale}
             />
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("flow.post.title")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("flow.post.title")}</h3>
             <PostingFlow
               legs={SPECIMEN_LEGS}
               currency="ZAR"
@@ -574,6 +581,31 @@ export function Doctrine({
         </div>
       </section>
 
+      {/* The design pull's 66 fixture screens used to sit in every reader's
+          rail. They are reference, so they are listed here. */}
+      <section className="flex flex-col gap-4 border-t border-line2 pt-7">
+        <div className="flex flex-col gap-3">
+          <h2 className="font-display text-16 font-semibold text-tx">{l("pull.heading")}</h2>
+          <p className="max-w-[78ch] text-13 leading-body text-tx4">{l("pull.note")}</p>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {surfaceCatalogue(shouldInclude).map(({ group, items }) => (
+            <nav key={group} aria-label={group} className="flex flex-col gap-1">
+              <h3 className="font-mono text-12 uppercase text-tx5">{group}</h3>
+              <ul className="flex flex-col gap-0.5">
+                {items.map((item) => (
+                  <li key={item.href}>
+                    <Link to={item.href} className="font-ui text-13 text-tx3 underline-offset-4 hover:text-tx hover:underline">
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
+        </div>
+      </section>
+
       {/* components/whitespace-commentary.tsx and components/signal-handover.tsx:
           the three ambient-AI surfaces SCOUT added, each in the two states that
           carry the rule. The ghost is drawn twice — once with a reading, once
@@ -583,12 +615,12 @@ export function Doctrine({
           come back waiting for approval, and that is not a failure state. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("ai.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("ai.heading")}</h2>
           <p className="max-w-[78ch] text-13 leading-body text-tx4">{l("ai.note")}</p>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.ghost")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.ghost")}</h3>
             <p className="text-13 leading-body text-tx4">{l("ai.ghostNote")}</p>
             {/* The `group` and the height are the dot's job on the real chart
                 (routes/scout-radar.tsx); the ghost only positions itself. */}
@@ -603,14 +635,14 @@ export function Doctrine({
               <CommentaryGhost id="wc-specimen" commentary={SPECIMEN_COMMENTARY} l={wl} locale={locale} />
             </div>
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.chip")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.chip")}</h3>
             <CommentaryChip commentary={SPECIMEN_COMMENTARY} l={wl} locale={locale} />
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.chipHidden")}</h3>
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.chipHidden")}</h3>
             <CommentaryChip commentary={SPECIMEN_SUPPRESSED} l={wl} locale={locale} />
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.tray")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.tray")}</h3>
             <DraftTray
               promoted={{ state: "pending_approval", campaignId: null, drafts: 0 }}
               mayOpen={false}
@@ -618,8 +650,8 @@ export function Doctrine({
               locale={locale}
             />
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.trayDone")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.trayDone")}</h3>
             <DraftTray
               promoted={{ state: "committed", campaignId: "cmp_specimen", drafts: 3 }}
               mayOpen={true}
@@ -632,7 +664,7 @@ export function Doctrine({
 
       <section className="flex flex-col gap-4 border-t border-line2 pt-7 lg:flex-row lg:items-start lg:gap-8">
         <div className="flex flex-1 flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("slider.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("slider.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("slider.note")}</p>
         </div>
         <div className="w-full lg:max-w-[420px]">
@@ -645,7 +677,7 @@ export function Doctrine({
           frame is inert, and the phone itself is apps/mobile. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7 lg:flex-row lg:items-start lg:gap-8">
         <div className="flex flex-1 flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("hand.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("hand.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("hand.note")}</p>
         </div>
 
@@ -698,7 +730,7 @@ export function Doctrine({
                 <p className="mt-3 flex gap-2">
                   {/* WCAG 2.2 AA target size, drawn at the phone's own scale:
                       44px is the floor the real app is built to. */}
-                  <span className="flex h-11 flex-1 items-center justify-center rounded-md bg-accent text-13 font-600 text-accent-contrast">
+                  <span className="flex h-11 flex-1 items-center justify-center rounded-md bg-accent text-13 font-semibold text-accent-contrast">
                     {l("hand.card.primary")}
                   </span>
                   <span className="flex h-11 w-[88px] flex-none items-center justify-center rounded-md border border-line4 text-13 text-tx3">
@@ -728,7 +760,7 @@ export function Doctrine({
           download make. Locale drives the face and the direction. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("post.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("post.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("post.note")}</p>
         </div>
         <ul className="flex flex-wrap items-start gap-5">

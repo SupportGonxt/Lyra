@@ -40,7 +40,7 @@ describe("a secret the API returns once is shown once", () => {
     stubCreate({ id: "whk_01", url: "https://hook.test", secret: "whsec_ABC123" });
     const result = await action(args("admin", "webhooks"));
 
-    expect(result).toEqual({ problem: null, revealed: "whsec_ABC123" });
+    expect(result).toMatchObject({ problem: null, revealed: "whsec_ABC123" });
   });
 
   it("reveals nothing on a resource that mints nothing", async () => {
@@ -49,6 +49,16 @@ describe("a secret the API returns once is shown once", () => {
 
     // No `revealOnCreate` on the spec: a stray field in a response is not a
     // reason to print it on screen.
-    expect(result).toEqual({ problem: null, revealed: null });
+    expect(result).toMatchObject({ problem: null, revealed: null });
+  });
+});
+
+// A create that succeeded said nothing: the panel stayed open with the values
+// still typed, and a second press made a duplicate row.
+describe("a create says what it made", () => {
+  it("hands back the new record's id so the screen can confirm and link it", async () => {
+    stubCreate({ id: "whk_01", url: "https://hook.test", secret: "whsec_ABC123" });
+    const result = await action(args("admin", "webhooks"));
+    expect(result).toMatchObject({ created: "whk_01" });
   });
 });

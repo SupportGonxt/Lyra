@@ -38,6 +38,13 @@ export interface DialogProps {
   children?: React.ReactNode;
   /** Close button's accessible name. Defaults to the kit catalogue in the ambient locale. */
   closeLabel?: string;
+  /**
+   * Where focus goes when the dialog closes. Radix returns it to a
+   * `trigger` it rendered itself; a dialog opened by state (ConfirmButton, the
+   * palette) has none, so focus fell to <body> and a keyboard user started
+   * again from the top of the page.
+   */
+  returnFocus?: React.RefObject<HTMLElement | null>;
 }
 
 const dialogSizes = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" } as const;
@@ -52,7 +59,8 @@ export function Dialog({
   footer,
   size = "md",
   children,
-  closeLabel
+  closeLabel,
+  returnFocus
 }: DialogProps) {
   const t = useUiText();
   return (
@@ -65,13 +73,18 @@ export function Dialog({
       <RDialog.Portal>
         <RDialog.Overlay className={overlayScrim} />
         <RDialog.Content
+          onCloseAutoFocus={(event) => {
+            if (!returnFocus?.current) return;
+            event.preventDefault();
+            returnFocus.current.focus();
+          }}
           className={cn(
             "fixed top-1/2 z-50 w-[calc(100%-2rem)] -translate-y-1/2 rounded-lg border border-border bg-surface-2 p-6 text-start shadow-raised",
             "start-1/2 -translate-x-1/2 rtl:translate-x-1/2",
             dialogSizes[size]
           )}
         >
-          <RDialog.Title className="font-serif text-22 leading-[1.25] text-text">
+          <RDialog.Title className="font-display text-22 font-semibold leading-[1.25] text-text">
             {title}
           </RDialog.Title>
           {description ? (
@@ -110,9 +123,9 @@ export interface DrawerProps extends Omit<DialogProps, "size"> {
 }
 
 const drawerSides = {
-  "inline-start": "inset-block-0 start-0 h-full border-e",
-  "inline-end": "inset-block-0 end-0 h-full border-s",
-  "block-end": "inset-inline-0 bottom-0 w-full border-t rounded-t-lg"
+  "inline-start": "inset-y-0 start-0 h-full border-e",
+  "inline-end": "inset-y-0 end-0 h-full border-s",
+  "block-end": "inset-x-0 bottom-0 w-full border-t rounded-t-lg"
 } as const;
 
 export function Drawer({
@@ -147,7 +160,7 @@ export function Drawer({
         >
           <header className="flex items-start justify-between gap-4 border-b border-border p-5">
             <div>
-              <RDialog.Title className="font-serif text-18 leading-[1.3] text-text">
+              <RDialog.Title className="section-title">
                 {title}
               </RDialog.Title>
               {description ? (
@@ -259,6 +272,10 @@ export interface MenuItem {
   /** Decorative only — the label is always rendered. */
   icon?: React.ReactNode;
   shortcut?: string;
+  /** Items sharing a section sit under one heading, printed where it changes. */
+  section?: string | null;
+  /** The item the reader is on: marked, and announced as the current page. */
+  current?: boolean;
 }
 
 export interface MenuProps {
@@ -277,17 +294,25 @@ export function Menu({ trigger, items, label }: MenuProps) {
           aria-label={label}
           sideOffset={6}
           align="start"
-          className="z-50 min-w-52 rounded-md border border-border bg-surface-2 p-1 text-start shadow-glow"
+          className="z-50 max-h-[min(70vh,34rem)] min-w-52 overflow-y-auto rounded-md border border-border bg-surface-2 p-1 text-start shadow-glow"
         >
-          {items.map((item) => (
+          {items.map((item, index) => (
+            <React.Fragment key={item.id}>
+            {item.section && item.section !== items[index - 1]?.section ? (
+              <RMenu.Label className="eyebrow px-2 pb-1 pt-3 first:pt-1">{item.section}</RMenu.Label>
+            ) : null}
             <RMenu.Item
-              key={item.id}
+              {...(item.current ? { "aria-current": "page" as const } : {})}
               {...(item.disabled ? { disabled: true } : {})}
               {...(item.onSelect ? { onSelect: item.onSelect } : {})}
               className={cn(
                 "flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 font-ui text-14",
                 "data-[highlighted]:bg-surface-3 data-[highlighted]:outline-none data-[disabled]:opacity-40",
-                item.tone === "danger" ? "text-danger" : "text-muted data-[highlighted]:text-text"
+                item.tone === "danger"
+                  ? "text-danger"
+                  : item.current
+                    ? "bg-surface-3 font-medium text-text"
+                    : "text-muted data-[highlighted]:text-text"
               )}
             >
               {item.icon ? <span aria-hidden="true">{item.icon}</span> : null}
@@ -296,6 +321,7 @@ export function Menu({ trigger, items, label }: MenuProps) {
                 <kbd className="font-mono text-12 text-subtle">{item.shortcut}</kbd>
               ) : null}
             </RMenu.Item>
+            </React.Fragment>
           ))}
         </RMenu.Content>
       </RMenu.Portal>
@@ -471,6 +497,11 @@ export function CommandBar({
     [onOpenChange]
   );
   const [query, setQuery] = React.useState("");
+  const [active, setActive] = React.useState(0);
+  const listId = React.useId();
+  // Where the reader was before ⌘K: the palette has no trigger of its own for
+  // Radix to return focus to, so it went to <body> on close.
+  const before = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -483,15 +514,58 @@ export function CommandBar({
     return () => document.removeEventListener("keydown", onKey);
   }, [isOpen, setOpen]);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      before.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    } else {
+      // A palette reopened on yesterday's query answers the wrong question.
+      setQuery("");
+    }
+  }, [isOpen]);
+
   const q = query.trim().toLowerCase();
   const results = onQueryChange || !q ? items : items.filter((i) => i.label.toLowerCase().includes(q));
   const blocks = groupCommandItems(results);
+  const flat = blocks.flatMap((block) => block.items);
+  const current = Math.min(active, Math.max(flat.length - 1, 0));
+  React.useEffect(() => setActive(0), [query, items.length]);
+
+  const choose = (item: CommandItem | undefined) => {
+    if (!item) return;
+    item.onSelect();
+    setOpen(false);
+  };
+
+  // A listbox driven from its input (WAI-ARIA combobox): arrows move the
+  // active option, Enter takes it. Before this, arrows did nothing and Enter
+  // did nothing — a palette that needed a mouse or a dozen Tabs.
+  const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const last = flat.length - 1;
+    const move = (to: number) => {
+      e.preventDefault();
+      setActive(to);
+      document.getElementById(`${listId}-${to}`)?.scrollIntoView({ block: "nearest" });
+    };
+    if (e.key === "ArrowDown") move(current >= last ? 0 : current + 1);
+    else if (e.key === "ArrowUp") move(current <= 0 ? last : current - 1);
+    else if (e.key === "Home" && e.ctrlKey) move(0);
+    else if (e.key === "End" && e.ctrlKey) move(last);
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      choose(flat[current]);
+    }
+  };
 
   return (
     <RDialog.Root open={isOpen} onOpenChange={setOpen}>
       <RDialog.Portal>
         <RDialog.Overlay className={overlayScrim} />
         <RDialog.Content
+          onCloseAutoFocus={(event) => {
+            if (!before.current?.isConnected) return;
+            event.preventDefault();
+            before.current.focus();
+          }}
           aria-label={palette}
           className="fixed top-24 start-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 rounded-lg border border-border bg-surface-2 text-start shadow-raised rtl:translate-x-1/2"
         >
@@ -502,6 +576,12 @@ export function CommandBar({
           <div className="border-b border-border p-3">
             <Input
               autoFocus
+              role="combobox"
+              aria-expanded={flat.length > 0}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              {...(flat.length ? { "aria-activedescendant": `${listId}-${current}` } : {})}
+              onKeyDown={onInputKey}
               value={query}
               onChange={(e) => {
                 setQuery(e.currentTarget.value);
@@ -511,7 +591,7 @@ export function CommandBar({
               aria-label={search}
             />
           </div>
-          <ul className="max-h-96 overflow-y-auto p-2" role="listbox" aria-label={palette}>
+          <ul id={listId} className="max-h-96 overflow-y-auto p-2" role="listbox" aria-label={palette}>
             {blocks.map((block, index) => (
               <li
                 key={`${block.name ?? ""}-${index}`}
@@ -521,7 +601,7 @@ export function CommandBar({
                     record" are told apart without either row having to explain
                     itself. */}
                 {block.name ? (
-                  <span className="block px-3 pb-1 pt-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+                  <span className="eyebrow block px-3 pb-1 pt-3">
                     {block.name}
                   </span>
                 ) : null}
@@ -532,16 +612,16 @@ export function CommandBar({
                   // sense to a screen reader (axe: nested-interactive).
                   <button
                     key={item.id}
+                    id={`${listId}-${flat.indexOf(item)}`}
                     type="button"
                     role="option"
-                    aria-selected={false}
-                    onClick={() => {
-                      item.onSelect();
-                      setOpen(false);
-                    }}
+                    tabIndex={-1}
+                    aria-selected={flat.indexOf(item) === current}
+                    onMouseMove={() => setActive(flat.indexOf(item))}
+                    onClick={() => choose(item)}
                     className={cn(
                       "flex w-full items-center justify-between gap-3 rounded-sm px-3 py-2 text-start font-ui text-14 text-muted",
-                      "hover:bg-surface-3 hover:text-text",
+                      "hover:text-text aria-selected:bg-surface-3 aria-selected:text-text",
                       focusRing
                     )}
                   >

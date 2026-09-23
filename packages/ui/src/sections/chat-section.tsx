@@ -30,7 +30,7 @@ export function ChatSection({ section, mod }: { section: ChatSectionData; mod: S
                 </span>
               ) : null}
             </div>
-            <p className="text-14 leading-relaxed text-fg">{item.body}</p>
+            <p className="text-14 leading-relaxed text-text">{item.body}</p>
           </div>
         ))}
       </div>

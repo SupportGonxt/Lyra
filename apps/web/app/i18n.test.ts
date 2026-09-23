@@ -193,3 +193,51 @@ describe("shell catalogue covers every lookup", () => {
     expect(missing).toEqual([]);
   });
 });
+
+// Digits are the reader's region's (formatLocaleFrom): `ar` reads Latin, `ar-SA`
+// Eastern Arabic. A catalogue string that hard-codes "١٥" beside an
+// Intl-formatted "2,180" shows both systems in one sentence.
+describe("catalogue digits", () => {
+  it("never hard-codes Eastern Arabic numerals in a string", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const root = new URL(".", import.meta.url).pathname;
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const path = join(dir, name);
+        return statSync(path).isDirectory() ? walk(path) : /\.tsx?$/.test(name) && !name.includes(".test.") ? [path] : [];
+      });
+    const offenders = walk(root).filter((path) =>
+      readFileSync(path, "utf8")
+        .split("\n")
+        .some((line) => !/^\s*(\/\/|\*|\/\*)/.test(line) && /[٠-٩]/.test(line))
+    );
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("plural", () => {
+  // "The autopilot moved budget 5 time(s)" headlined the cockpit, and its
+  // Arabic copy printed both forms, "مرة (مرات)". 35 catalogue strings did.
+  it("says an English count once, in the right number", async () => {
+    const { plural } = await import("./i18n");
+    expect(plural("moved {n} time(s)", { n: "1" }, "en")).toBe("moved {n} time");
+    expect(plural("moved {n} time(s)", { n: "5" }, "en")).toBe("moved {n} times");
+    expect(plural("{count} currency breach(es)", { count: "2" }, "en")).toBe("{count} currency breaches");
+    expect(plural("{keys} live key(s) and {hooks} webhook(s)", { keys: "1", hooks: "3" }, "en")).toBe(
+      "{keys} live key and {hooks} webhooks"
+    );
+  });
+
+  it("picks one Arabic form instead of printing both", async () => {
+    const { plural } = await import("./i18n");
+    expect(plural("{n} مرة (مرات)", { n: "1" }, "ar")).toBe("{n} مرة");
+    expect(plural("{n} مرة (مرات)", { n: "5" }, "ar")).toBe("{n} مرات");
+    expect(plural("{n} مرة (مرات)", { n: "20" }, "ar")).toBe("{n} مرة");
+  });
+
+  it("leaves a template with no count alone", async () => {
+    const { plural } = await import("./i18n");
+    expect(plural("agent(s) are active.", {}, "en")).toBe("agent(s) are active.");
+  });
+});

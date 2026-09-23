@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   data,
   Form,
@@ -6,7 +6,6 @@ import {
   redirect,
   useActionData,
   useLoaderData,
-  useNavigation,
   useSearchParams,
   type ActionFunctionArgs,
   type LoaderFunctionArgs
@@ -16,10 +15,13 @@ import { ApiError, api, asRouteError, fetchMe, names } from "../api.server";
 // rejectedBy runs in the component, not the loader: importing it from the
 // .server module pulls that module into the client bundle (api-error.ts exists
 // for exactly this, see its header).
-import { rejectedBy } from "../api-error";
+import { rejectedBy, type Problem as ProblemBody } from "../api-error";
 import { Cell, FieldInput } from "../components/fields";
+import { usePending } from "../components/pending";
 import { cloudflare } from "../context";
-import { translator } from "../i18n";
+import { localeFrom, translator } from "../i18n";
+import { refOptions } from "../record.server";
+import type { RefOption } from "../components/ref-picker";
 import { workspaceFor } from "../modules";
 import {
   bodyFrom,
@@ -28,7 +30,6 @@ import {
   queryFromSavedView,
   recognizedQueryKeys,
   tabOf,
-  visibleLinks,
   visibleTabs,
   type ResourceSpec,
   type Row,
@@ -177,10 +178,12 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     query: parseQueryJson(row.queryJson)
   }));
 
+  // `?view=` present but empty is an explicit "no view": without it the
+  // default could never be left, since dropping `view` is pristine again.
   const requestedView = incoming.get("view");
   const chosen = requestedView
     ? savedViews.find((view) => view.id === requestedView)
-    : isPristine(tab, incoming)
+    : requestedView === null && isPristine(tab, incoming)
       ? savedViews.find((view) => view.isDefault)
       : undefined;
 
@@ -201,6 +204,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const pageSize = pageSizeIn(incoming);
   if (pageSize) query.set("limit", String(pageSize));
 
+  // Choices for the create form's id fields load beside the list, not after it.
+  const choices = refOptions(tab.fields ?? [], localeFrom(request), { env, request });
   const page = await api<Page>(`${tab.api}?${query.toString()}`, { env, request }).catch(
     async (error: unknown) => {
       // `/admin` with no resource lands on the first declared tab, which is not
@@ -231,11 +236,36 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     deleted,
     query: Object.fromEntries(query),
     savedViews: savedViews.map((view): SavedViewOption => ({ id: view.id, name: view.name, isDefault: view.isDefault })),
-    activeView: chosen?.id ?? null
+    activeView: chosen?.id ?? null,
+    refOptions: await choices
   };
 }
 
-export async function action({ request, params, context }: ActionFunctionArgs) {
+/** What the cases bulk endpoint answers: per row, never all-or-nothing. */
+interface BulkOutcome {
+  applied: number;
+  failed: number;
+  outcomes: Array<{ caseId: string; ok: boolean; error?: string }>;
+}
+
+/** What an import answers: what it made, and every line it refused. */
+interface ImportOutcome {
+  created: number;
+  skippedDuplicate: number;
+  errors: Array<{ line: number; ref: string | null; error: string }>;
+}
+
+interface ActionResult {
+  problem: ProblemBody | null;
+  revealed: string | null;
+  created: string | null;
+  bulk: BulkOutcome | null;
+  imported: ImportOutcome | null;
+}
+
+const NOTHING: ActionResult = { problem: null, revealed: null, created: null, bulk: null, imported: null };
+
+export async function action({ request, params, context }: ActionFunctionArgs): Promise<ActionResult> {
   const { tab } = resolve(params);
   const env = context.get(cloudflare).env;
   const form = await request.formData();
@@ -254,7 +284,32 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       // the only place a minted secret ever appears (apps/api/src/resources.ts
       // strips it from every read).
       const revealed = tab.revealOnCreate ? created[tab.revealOnCreate] : undefined;
-      if (typeof revealed === "string" && revealed) return { problem: null, revealed };
+      // The new row's id comes back so the screen can say "created", link it,
+      // and clear the form — a silent success invited a duplicate second press.
+      const createdId = typeof created.id === "string" ? created.id : "";
+      return {
+        ...NOTHING,
+        revealed: typeof revealed === "string" && revealed ? revealed : null,
+        created: createdId
+      };
+    } else if (intent === "bulk" && tab.bulk) {
+      const chosen = tab.bulk.actions.find((entry) => entry.value === String(form.get("bulkAction") ?? ""));
+      const ids = form.getAll("ids").map(String).filter(Boolean);
+      if (!chosen || !ids.length) return { ...NOTHING, problem: { title: "common.bulk.none", status: 400 } };
+      const param = chosen.field ? String(form.get(chosen.field.name) ?? "").trim() : "";
+      const bulk = await api<BulkOutcome>(tab.bulk.api, {
+        env,
+        request,
+        method: "POST",
+        body: { action: chosen.value, [tab.bulk.idsKey]: ids, ...(chosen.field && param ? { [chosen.field.name]: param } : {}) }
+      });
+      return { ...NOTHING, bulk };
+    } else if (intent === "import" && tab.import) {
+      const file = form.get("file");
+      const csv = file instanceof File ? await file.text() : "";
+      if (!csv.trim()) return { ...NOTHING, problem: { title: "common.import.empty", status: 400 } };
+      const imported = await api<ImportOutcome>(tab.import.api, { env, request, method: "POST", body: { csv } });
+      return { ...NOTHING, imported };
     } else if (intent === "delete" && id) {
       await api(`${tab.api}/${id}`, { env, request, method: "DELETE" });
     } else if (intent === "restore" && id) {
@@ -263,15 +318,15 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       // `DELETE /:id` and `POST /:id/restore`).
       await api(`${tab.api}/${id}/restore`, { env, request, method: "POST" });
     } else {
-      return { problem: { title: "unknown intent", status: 400 }, revealed: null };
+      return { ...NOTHING, problem: { title: "unknown intent", status: 400 } };
     }
   } catch (error) {
     // A rejected write is information, not a crash: keep the actor on the page
     // with their input intact and show what the API objected to.
-    if (error instanceof ApiError) return { problem: error.problem, revealed: null };
+    if (error instanceof ApiError) return { ...NOTHING, problem: error.problem };
     throw error;
   }
-  return { problem: null, revealed: null };
+  return NOTHING;
 }
 
 export default function ModuleList() {
@@ -281,8 +336,11 @@ export default function ModuleList() {
   // Lives for exactly one render — a reload or a second create clears it.
   const revealed = result?.revealed ?? null;
   const shell = useShellData();
-  const navigation = useNavigation();
+  const pending = usePending();
   const [searchParams, setSearchParams] = useSearchParams();
+  // How many rows are ticked: the bulk bar exists only while some are. Above
+  // the early returns below, so the hook order never changes.
+  const [selected, setSelected] = useState(0);
 
   const locale = shell?.locale ?? "en";
   const permissions = shell?.permissions ?? [];
@@ -299,9 +357,7 @@ export default function ModuleList() {
   const held = new Set(permissions);
 
   const tabs = visibleTabs(spec, permissions);
-  const links = visibleLinks(spec, permissions);
   const rows = loaded.rows;
-  const busy = navigation.state !== "idle";
 
   // Nothing in the spec says whether a resource has a `deletedAt` column, so
   // the actor's `remove` permission stands in for soft-deletability: the API
@@ -339,6 +395,42 @@ export default function ModuleList() {
       )
   }));
 
+  // Bulk (AXIS-007): a checkbox per row, owned by the bulk bar's form through
+  // the `form` attribute, so the table stays one table and not a form.
+  const recount = () =>
+    setSelected(document.querySelectorAll(`input[form="${BULK_FORM_ID}"][name="ids"]:checked`).length);
+  const bulkActions = !deletedView ? (tab.bulk?.actions ?? []).filter((entry) => held.has(entry.permission)) : [];
+  if (bulkActions.length) {
+    columns.unshift({
+      key: "__select",
+      header: (
+        <input
+          type="checkbox"
+          aria-label={t("common.bulk.selectAll")}
+          className="size-4 accent-[var(--accent)]"
+          onChange={(event) => {
+            const on = event.currentTarget.checked;
+            document
+              .querySelectorAll<HTMLInputElement>(`input[form="${BULK_FORM_ID}"][name="ids"]`)
+              .forEach((box) => (box.checked = on));
+            recount();
+          }}
+        />
+      ),
+      render: (row: Row) => (
+        <input
+          type="checkbox"
+          name="ids"
+          value={String(row.id)}
+          form={BULK_FORM_ID}
+          aria-label={t("common.bulk.select", { name: String(row[tab.columns[0]?.name ?? "id"] ?? row.id) })}
+          className="size-4 accent-[var(--accent)]"
+          onChange={recount}
+        />
+      )
+    });
+  }
+
   if (deletedView && canRestore) {
     columns.push({
       key: "restore",
@@ -356,17 +448,59 @@ export default function ModuleList() {
   }
 
   const sortKey = loaded.query.sort;
-  const filtered = (tab.filters ?? []).some((filter) => searchParams.get(filter.name)) ||
-    Boolean(searchParams.get("q"));
+  // What the rows were actually asked for — the URL, or a saved view the
+  // loader applied on its behalf. Reading only the URL showed "All" in every
+  // filter and "No records yet" under a default view that had narrowed them.
+  const current = (name: string) => searchParams.get(name) ?? loaded.query[name] ?? "";
+  const filtered =
+    (tab.filters ?? []).some((filter) => current(filter.name)) || Boolean(current("q")) || Boolean(loaded.activeView);
 
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-4">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{t(labelKeyFor(spec.path))}</h1>
+        {/* The heading names what is on screen — the tab — with the workspace
+            above it; "Operations" over every one of its 16 lists said nothing
+            about which list this was. The list's own verbs (import, new) sit on
+            the same line, so the rows start under one toolbar, not under a
+            stack of full-width panels. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          {tabs.length > 1 ? (
+            <div className="flex flex-col gap-1">
+              <p className="eyebrow">{t(labelKeyFor(spec.path))}</p>
+              <h1 className="page-title">{label(tab.key)}</h1>
+            </div>
+          ) : (
+            <h1 className="page-title">{t(labelKeyFor(spec.path))}</h1>
+          )}
+          {(tab.import && held.has(tab.import.permission) && !deletedView) || canCreate ? (
+            <div className="flex flex-wrap items-start justify-end gap-2">
+              {tab.import && held.has(tab.import.permission) && !deletedView ? (
+                <ImportPanel spec={tab.import} t={t} busy={pending("import")} outcome={result?.imported ?? null} />
+              ) : null}
+              {canCreate ? (
+                <CreatePanel
+                  tab={tab}
+                  label={label}
+                  t={t}
+                  busy={pending("create")}
+                  defaultOpen={Boolean(problem)}
+                  rejected={rejected}
+                  outcome={result}
+                  options={loaded.refOptions}
+                  recordHref={(id) => `${spec.path}/${tab.key}/${encodeURIComponent(id)}`}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
 
         {tabs.length > 1 ? (
-          <nav aria-label={t("common.tabs")}>
-            <ul className="flex flex-wrap gap-1">
+          // One row that scrolls sideways, the current tab kept in view: admin's
+          // 35 tabs used to wrap into three rows above the table.
+          // Phones only: on a wider screen the rail's workspace menu lists
+          // these same records beside the page (components/menu.ts).
+          <nav aria-label={t("common.tabs")} className="-mx-1 overflow-x-auto px-1 pb-1 md:hidden">
+            <ul className="flex w-max gap-1">
               {tabs.map((entry) => {
                 const current = entry.key === tab.key;
                 return (
@@ -374,8 +508,9 @@ export default function ModuleList() {
                     <Link
                       to={`${spec.path}/${entry.key}`}
                       aria-current={current ? "page" : undefined}
+                      ref={current ? (link) => link?.scrollIntoView?.({ block: "nearest", inline: "nearest" }) : undefined}
                       className={[
-                        "inline-flex h-8 items-center rounded-md px-3 font-ui text-13 transition-colors duration-150",
+                        "inline-flex h-8 items-center whitespace-nowrap rounded-md px-3 font-ui text-13 transition-colors duration-150",
                         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                         current
                           ? "bg-surface-2 font-medium text-text"
@@ -391,23 +526,9 @@ export default function ModuleList() {
           </nav>
         ) : null}
 
-        {/* Screens this workspace owns that are not lists — a report is a query
-            over the rows, not a page of them. They sit under the tabs because
-            they are siblings of the tabs, not one of them. Filtered like the
-            tabs: a link to a screen this actor cannot open is not offered. */}
-        {links.length ? (
-          <nav aria-label={t("common.reports")} className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            {links.map((link) => (
-              <Link
-                key={link.href}
-                to={link.href}
-                className="font-ui text-12 text-subtle underline-offset-4 hover:text-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              >
-                {label(link.labelKey)}
-              </Link>
-            ))}
-          </nav>
-        ) : null}
+        {/* The workspace's own screens (reports, tools, desks) are in the
+            rail's workspace menu on every screen of it (components/menu.ts),
+            so they are not repeated here as a row of small links. */}
       </header>
 
       {/* Which saved filter/sort state this tab is showing (docs/27 "saved
@@ -415,28 +536,6 @@ export default function ModuleList() {
           Only rendered when at least one view exists for this route — most
           tabs have none. Picking one replaces the filter bar's state below;
           it never merges with whatever the reader already typed there. */}
-      {loaded.savedViews.length ? (
-        <label className="flex items-center gap-2 font-ui text-12 text-subtle">
-          <span>{t("common.savedView")}</span>
-          <Select
-            size="sm"
-            className="w-56"
-            aria-label={t("common.savedView")}
-            value={loaded.activeView ?? ""}
-            options={[
-              { value: "", label: t("common.savedView.none") },
-              ...loaded.savedViews.map((view) => ({ value: view.id, label: view.name }))
-            ]}
-            onValueChange={(next) => {
-              const params = new URLSearchParams();
-              if (next) params.set("view", next);
-              const size = pageSizeIn(searchParams);
-              if (size) params.set("limit", String(size));
-              setSearchParams(params);
-            }}
-          />
-        </label>
-      ) : null}
 
       {/* Deleted rows look nothing like live ones: the list is banded, says so
           in words, and offers the way back. */}
@@ -455,20 +554,42 @@ export default function ModuleList() {
         </div>
       ) : null}
 
-      {tab.search || tab.filters?.length || canRestore ? (
+      {tab.search || tab.filters?.length || canRestore || loaded.savedViews.length ? (
         <Form
+          // Remount on a new query so the uncontrolled defaults follow a view
+          // picked from the saved-view menu.
+          key={JSON.stringify(loaded.query)}
           method="get"
           {...(tab.search ? { role: "search" } : {})}
-          className="flex flex-wrap items-end gap-3"
+          className="flex flex-wrap items-center gap-2"
         >
+          {/* The saved view heads the same row: it is the filter state, named. */}
+      {loaded.savedViews.length ? (
+          <Select
+            className="w-auto min-w-40 max-w-64"
+            aria-label={t("common.savedView")}
+            value={loaded.activeView ?? ""}
+            options={[
+              { value: "", label: `${t("common.savedView")}: ${t("common.savedView.none")}` },
+              ...loaded.savedViews.map((view) => ({ value: view.id, label: view.name }))
+            ]}
+            onValueChange={(next) => {
+              const params = new URLSearchParams();
+              params.set("view", next);
+              const size = pageSizeIn(searchParams);
+              if (size) params.set("limit", String(size));
+              setSearchParams(params);
+            }}
+          />
+      ) : null}
           {tab.search ? (
             <Input
               type="search"
               name="q"
-              defaultValue={searchParams.get("q") ?? ""}
+              defaultValue={current("q")}
               aria-label={t("common.search")}
               placeholder={t("common.search")}
-              className="w-64"
+              className="w-44"
             />
           ) : null}
           {(tab.filters ?? []).map((filter) => (
@@ -476,15 +597,22 @@ export default function ModuleList() {
               key={filter.name}
               name={filter.name}
               aria-label={label(filter.name)}
-              defaultValue={searchParams.get(filter.name) ?? ""}
+              defaultValue={current(filter.name)}
               placeholder={label(filter.name)}
               // Narrow on purpose: a filter strip is one line of questions above
               // the rows, not a column of full-width controls that pushes the
               // table under the fold.
-              className="w-44"
+              className="w-auto min-w-32"
+              // "All" alone under four selects did not say all of what; the
+              // name rides in the empty choice so the strip needs no labels.
               options={[
-                { value: "", label: t("common.all") },
-                ...filter.options.map((option) => ({
+                { value: "", label: `${label(filter.name)}: ${t("common.all")}` },
+                ...[
+                  ...filter.options,
+                  // A saved view may ask for a value the spec does not list; it
+                  // still shows, rather than rendering an empty select.
+                  ...(current(filter.name) && !filter.options.includes(current(filter.name)) ? [current(filter.name)] : [])
+                ].map((option) => ({
                   value: option,
                   label: optionLabel(label, filter.name, option)
                 }))
@@ -497,7 +625,7 @@ export default function ModuleList() {
               aria-label={t("common.deleted.state")}
               defaultValue={deletedView ? "1" : ""}
               placeholder={t("common.deleted.live")}
-              className="w-44"
+              className="w-auto min-w-32"
               options={[
                 { value: "", label: t("common.deleted.live") },
                 { value: "1", label: t("common.deleted.only") }
@@ -510,12 +638,12 @@ export default function ModuleList() {
           {pageSizeIn(searchParams) ? (
             <input type="hidden" name="limit" value={String(pageSizeIn(searchParams))} />
           ) : null}
-          <Button type="submit" variant="secondary" loading={busy}>
+          <Button type="submit" variant="secondary" loading={pending.get}>
             {t("common.apply")}
           </Button>
           {filtered ? (
             <Button asChild variant="ghost">
-              <Link to={`${spec.path}/${tab.key}`}>{t("common.clear")}</Link>
+              <Link to={`${spec.path}/${tab.key}?view=`}>{t("common.clear")}</Link>
             </Button>
           ) : null}
         </Form>
@@ -538,8 +666,16 @@ export default function ModuleList() {
         </div>
       ) : null}
 
-      {canCreate ? (
-        <CreatePanel tab={tab} label={label} t={t} busy={busy} defaultOpen={Boolean(problem)} rejected={rejected} />
+      {bulkActions.length ? (
+        <BulkBar
+          selected={selected}
+          actions={bulkActions}
+          label={label}
+          t={t}
+          busy={pending("bulk")}
+          outcome={result?.bulk ?? null}
+          options={loaded.refOptions}
+        />
       ) : null}
 
       {/* The table is the screen, so it gets the screen's container: a Horizon
@@ -586,7 +722,7 @@ export default function ModuleList() {
                 : filtered
                   ? {
                       action: (
-                        <Button variant="secondary" onClick={() => setSearchParams(new URLSearchParams())}>
+                        <Button variant="secondary" onClick={() => setSearchParams(new URLSearchParams({ view: "" }))}>
                           {t("common.empty.clear")}
                         </Button>
                       )
@@ -685,6 +821,19 @@ function firstPage(current: URLSearchParams): string {
  */
 const CREATE_PANEL_ID = "module-create";
 
+/** A list verb in the header: a button-shaped `<summary>` whose panel drops
+ *  over the table instead of pushing it down. */
+const ACTION_SUMMARY =
+  "inline-flex h-9 cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-3 font-ui text-13 font-medium marker:content-none [&::-webkit-details-marker]:hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const PANEL = "absolute end-0 top-full z-30 mt-2 max-h-[75vh] w-[min(52rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-border bg-surface-1 shadow-glow";
+
+/** A dropped panel closes on Escape and hands focus back to its button. */
+function closeOnEscape(event: React.KeyboardEvent<HTMLDetailsElement>) {
+  if (event.key !== "Escape" || !event.currentTarget.open) return;
+  event.currentTarget.open = false;
+  event.currentTarget.querySelector("summary")?.focus();
+}
+
 /** Open the create panel and put the cursor in it, from anywhere on the page. */
 function openCreatePanel() {
   const panel = document.getElementById(CREATE_PANEL_ID);
@@ -705,7 +854,10 @@ function CreatePanel({
   t,
   busy,
   defaultOpen,
-  rejected
+  rejected,
+  outcome,
+  options,
+  recordHref
 }: {
   tab: ResourceSpec;
   label: (key: string) => string;
@@ -715,47 +867,79 @@ function CreatePanel({
   /** Which inputs the last rejected create named — the panel already reopens
    *  itself on a problem, and this is what it reopens *pointing at*. */
   rejected: (name: string) => string | undefined;
+  /** The last action result; a new object per submission. */
+  outcome: { created?: string | null } | undefined;
+  options: Readonly<Record<string, readonly RefOption[]>>;
+  recordHref: (id: string) => string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [made, setMade] = useState<string | null>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const summary = useRef<HTMLElement>(null);
   useEffect(() => {
     if (defaultOpen) setOpen(true);
   }, [defaultOpen]);
+  // A create that went through clears the form and closes the panel, so a
+  // second press cannot send the same row again, and says so where the
+  // reader's focus lands.
+  useEffect(() => {
+    if (typeof outcome?.created !== "string") return;
+    form.current?.reset();
+    setOpen(false);
+    setMade(outcome.created);
+    summary.current?.focus();
+  }, [outcome]);
 
   return (
-    <details
-      id={CREATE_PANEL_ID}
-      open={open}
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-      className="group rounded-lg border border-border bg-surface-1"
-    >
-      <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 font-ui text-13 text-text marker:content-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-        <span
-          aria-hidden="true"
-          className="text-subtle transition-transform duration-150 group-open:rotate-45"
-        >
-          +
-        </span>
-        {/* Just "New". The panel sits under the table it adds a row to, and the
-            screen is already titled — "New — Cases" was two labels joined by a
-            dash because neither one could be dropped, which is a machine's
-            sentence, not a person's. A singular noun per resource in every
-            locale would buy "New case"; the context already says it. */}
-        {t("common.new")}
-      </summary>
-      <Form method="post" className="flex flex-col gap-4 border-t border-border p-4">
-        <input type="hidden" name="intent" value="create" />
-        <div className="grid gap-4 sm:grid-cols-2">
-          {(tab.fields ?? []).map((field) => (
-            <FieldInput key={field.name} field={field} label={label} invalid={rejected} />
-          ))}
-        </div>
-        <div>
-          <Button type="submit" loading={busy}>
-            {t("common.create")}
-          </Button>
-        </div>
-      </Form>
-    </details>
+    <div className="flex flex-col items-end gap-1">
+      <details
+        id={CREATE_PANEL_ID}
+        open={open}
+        onToggle={(e) => setOpen(e.currentTarget.open)}
+        onKeyDown={closeOnEscape}
+        className="group relative"
+      >
+        <summary ref={summary} className={`${ACTION_SUMMARY} border-accent bg-accent text-accent-contrast hover:bg-accent-hover`}>
+          <span
+            aria-hidden="true"
+            className="text-subtle transition-transform duration-150 group-open:rotate-45"
+          >
+            +
+          </span>
+          {/* Just "New". The panel sits under the table it adds a row to, and the
+              screen is already titled — "New — Cases" was two labels joined by a
+              dash because neither one could be dropped, which is a machine's
+              sentence, not a person's. A singular noun per resource in every
+              locale would buy "New case"; the context already says it. */}
+          {t("common.new")}
+        </summary>
+        <Form ref={form} method="post" className={`${PANEL} flex flex-col gap-4 p-4`}>
+          <input type="hidden" name="intent" value="create" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(tab.fields ?? []).map((field) => (
+              <FieldInput key={field.name} field={field} label={label} invalid={rejected} options={options} />
+            ))}
+          </div>
+          <div>
+            <Button type="submit" loading={busy}>
+              {t("common.create")}
+            </Button>
+          </div>
+        </Form>
+      </details>
+      <p role="status" className="font-ui text-13 text-muted empty:hidden">
+        {made !== null ? (
+          <>
+            <span aria-hidden="true" className="text-success">&#10003;</span> {t("common.created.notice")}{" "}
+            {made ? (
+              <Link to={recordHref(made)} className="text-accent underline underline-offset-4">
+                {t("common.open")}
+              </Link>
+            ) : null}
+          </>
+        ) : null}
+      </p>
+    </div>
   );
 }
 
@@ -765,9 +949,11 @@ function CreatePanel({
  * single place every route renders a refusal — instead of in each of the
  * twenty-odd `action`s that can produce one.
  */
-const LOCAL_PROBLEM_TITLES: Record<string, "error.unknownIntent"> = {
+const LOCAL_PROBLEM_TITLES: Record<string, "error.unknownIntent" | "common.bulk.none" | "common.import.empty"> = {
   "unknown intent": "error.unknownIntent",
-  unknown_intent: "error.unknownIntent"
+  unknown_intent: "error.unknownIntent",
+  "common.bulk.none": "common.bulk.none",
+  "common.import.empty": "common.import.empty"
 };
 
 /**
@@ -828,4 +1014,149 @@ export function Gate({
     );
   }
   return <Problem problem={problem} />;
+}
+
+const BULK_FORM_ID = "bulk-form";
+
+/** The action bar over a selection: pick what to do, give its one value, apply. */
+function BulkBar({
+  selected,
+  actions,
+  label,
+  t,
+  busy,
+  outcome,
+  options
+}: {
+  selected: number;
+  actions: NonNullable<ResourceSpec["bulk"]>["actions"];
+  label: (key: string) => string;
+  t: (key: string, vars?: Record<string, string>) => string;
+  busy: boolean;
+  outcome: BulkOutcome | null;
+  options: Readonly<Record<string, readonly RefOption[]>>;
+}) {
+  const [chosen, setChosen] = useState(actions[0]?.value ?? "");
+  const action = actions.find((entry) => entry.value === chosen);
+  const failures = outcome?.outcomes.filter((row) => !row.ok) ?? [];
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Always in the DOM — the row checkboxes name it through `form=` — but
+          only shown while something is ticked. */}
+      <Form
+        id={BULK_FORM_ID}
+        method="post"
+        hidden={selected === 0}
+        className="sticky top-0 z-20 flex flex-wrap items-end gap-3 rounded-lg border border-accent/40 bg-surface-2 p-3"
+      >
+        <p className="self-center font-ui text-13 font-medium text-text">
+          {t("common.bulk.count", { n: String(selected) })}
+        </p>
+        <label className="flex flex-col gap-1 font-ui text-12 text-muted">
+          {t("common.bulk.action")}
+          <Select
+            name="bulkAction"
+            value={chosen}
+            onValueChange={setChosen}
+            options={actions.map((entry) => ({ value: entry.value, label: label(entry.labelKey) }))}
+          />
+        </label>
+        {action?.field ? (
+          <div className="min-w-56">
+            <FieldInput key={action.field.name} field={action.field} label={label} options={options} />
+          </div>
+        ) : null}
+        <Button type="submit" name="intent" value="bulk" variant="secondary" loading={busy}>
+          {t("common.bulk.apply")}
+        </Button>
+      </Form>
+      {outcome ? (
+        <div role="status" className="font-ui text-13 text-muted">
+          <p>
+            {t("common.bulk.done", { applied: String(outcome.applied), failed: String(outcome.failed) })}
+          </p>
+          {failures.length ? (
+            <ul className="mt-1 list-disc ps-5 text-12 text-subtle">
+              {failures.map((row) => (
+                <li key={row.caseId}>
+                  <bdi className="font-mono">{row.caseId}</bdi>: {row.error ?? ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A CSV into this list. What was made, and every refused line, stay on screen. */
+function ImportPanel({
+  spec,
+  t,
+  busy,
+  outcome
+}: {
+  spec: NonNullable<ResourceSpec["import"]>;
+  t: (key: string, vars?: Record<string, string>) => string;
+  busy: boolean;
+  outcome: ImportOutcome | null;
+}) {
+  return (
+    <details className="group relative" open={Boolean(outcome?.errors.length)} onKeyDown={closeOnEscape}>
+      <summary className={`${ACTION_SUMMARY} border-border bg-surface-1 text-text hover:bg-surface-2`}>
+        <span aria-hidden="true" className="text-subtle">
+          &#8613;
+        </span>
+        {t("common.import.title")}
+      </summary>
+      <Form method="post" encType="multipart/form-data" className={`${PANEL} flex flex-col gap-3 p-4`}>
+        <label className="flex flex-col gap-1 font-ui text-13 text-text">
+          {t("common.import.file")}
+          <input
+            type="file"
+            name="file"
+            accept=".csv,text/csv"
+            required
+            className="font-ui text-13 text-muted file:me-3 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-text"
+          />
+        </label>
+        <p className="font-ui text-12 text-subtle">
+          {t("common.import.hint", { columns: spec.required.join(", ") })}
+        </p>
+        <div>
+          <Button type="submit" name="intent" value="import" loading={busy}>
+            {t("common.import.submit")}
+          </Button>
+        </div>
+        {outcome ? (
+          <div role="status" className="font-ui text-13 text-muted">
+            <p>
+              {t("common.import.done", {
+                created: String(outcome.created),
+                skipped: String(outcome.skippedDuplicate),
+                refused: String(outcome.errors.length)
+              })}
+            </p>
+            {outcome.errors.length ? (
+              <ul className="mt-1 list-disc ps-5 text-12 text-subtle">
+                {outcome.errors.map((row) => (
+                  <li key={`${row.line}-${row.ref ?? ""}`}>
+                    {t("common.import.line", { line: String(row.line) })}
+                    {row.ref ? (
+                      <>
+                        {" "}
+                        (<bdi className="font-mono">{row.ref}</bdi>)
+                      </>
+                    ) : null}
+                    : {row.error}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+      </Form>
+    </details>
+  );
 }

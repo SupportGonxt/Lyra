@@ -316,6 +316,7 @@ export const admin: WorkspaceSpec = {
       permissionMatrix: "Roles and permissions",
       developer: "Developer portal",
       security: "Security & access",
+      automation: "Automatic approvals",
       brandTheme: "Brand and theme",
       billingPlan: "Plan and invoices",
       dataRequests: "Data subject requests"
@@ -627,6 +628,7 @@ export const admin: WorkspaceSpec = {
       permissionMatrix: "الأدوار والصلاحيات",
       developer: "بوابة المطوّرين",
       security: "الأمان والوصول",
+      automation: "الموافقات التلقائية",
       brandTheme: "الهوية والمظهر",
       billingPlan: "الخطة والفواتير",
       dataRequests: "طلبات أصحاب البيانات"
@@ -1654,6 +1656,7 @@ export const admin: WorkspaceSpec = {
     { href: "/admin/permissions", labelKey: "permissionMatrix", permission: "core:roles:read" },
     { href: "/admin/developer", labelKey: "developer", permission: "core:api_keys:read" },
     { href: "/admin/security", labelKey: "security", permission: "core:settings:read" },
+    { href: "/admin/automation", labelKey: "automation", permission: "core:settings:read" },
     // Brand, billing and DSARs live in surfaces another workspace already owns
     // (settings owns the one validated brand editor; the ledger owns money).
     // Linking beats a second implementation of either.

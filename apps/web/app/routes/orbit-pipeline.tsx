@@ -12,7 +12,6 @@ import {
   Button,
   Card,
   DateTime,
-  EmptyState,
   shortRef,
   type BadgeTone
 } from "@lyra/ui";
@@ -121,7 +120,6 @@ export const LABELS: Labels = {
     open: "Open renewal",
     saveDesk: "Open the save desk",
     empty: "Nothing at this stage",
-    emptyBody: "Cards arrive here as the sweep raises renewals and decisions are recorded.",
     auto_requote: "Auto re-quote",
     human: "Handled by a person",
     do_not_contact: "Do not contact",
@@ -132,11 +130,11 @@ export const LABELS: Labels = {
     title: "مسار التجديدات",
     lede: "كل تجديد حسب مرحلته، الأقرب انتهاءً أولًا. تنتقل البطاقات مع تسجيل القرارات.",
     headlineOverdue: "{n} تجديد تجاوز الانتهاء دون قرار",
-    headlineSoon: "{n} تجديد ينتهي خلال ٧ أيام",
+    headlineSoon: "{n} تجديد ينتهي خلال 7 أيام",
     headlineOpen: "{n} تجديد مفتوح",
     headlineClear: "لا شيء مفتوح في المسار",
     inFlight: "التجديدات المفتوحة",
-    expiringWeek: "تنتهي خلال ٧ أيام",
+    expiringWeek: "تنتهي خلال 7 أيام",
     overdue: "تجاوزت الانتهاء دون قرار",
     winRate: "نسبة الفوز من المحسوم",
     heroAll: "إظهار الكل",
@@ -156,7 +154,6 @@ export const LABELS: Labels = {
     open: "افتح التجديد",
     saveDesk: "افتح مكتب الاستبقاء",
     empty: "لا شيء في هذه المرحلة",
-    emptyBody: "تصل البطاقات هنا مع رفع التجديدات وتسجيل القرارات.",
     auto_requote: "إعادة تسعير تلقائية",
     human: "يتولاها موظف",
     do_not_contact: "عدم التواصل",
@@ -271,7 +268,7 @@ export default function RenewalPipeline() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {pipelineHeadline(gone, soon, openTotal, l)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("lede")}</p>
@@ -339,7 +336,7 @@ export default function RenewalPipeline() {
               }
             >
               {cards.length === 0 ? (
-                <EmptyState title={l("empty")} body={l("emptyBody")} />
+                <p className="font-ui text-13 text-subtle">{l("empty")}</p>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {cards.map((row) => {

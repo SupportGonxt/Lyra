@@ -588,7 +588,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.title": "Panel intelligence",
     "panel.lede": "Where each carrier sits on price and conversion, for {period}.",
     "panel.empty": "No bench rows for this period.",
-    "panel.empty.body": "The bench holds the competitors SCOUT is watching. Nothing was collected for this period — pick another, or add a competitor in SCOUT admin.",
+    "panel.empty.body": "The bench holds the competitors Market is watching. Nothing was collected for this period — pick another, or add a competitor in Market admin.",
     "panel.lines": "Lines",
     "panel.gaps": "Wording gaps",
     "panel.cheaper": "Below the median",
@@ -604,6 +604,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.rebuilt": "{cells} cells rebuilt, {created} of them new.",
     "panel.rebuildDenied": "Rewriting the bench is a separate permission from reading it.",
     "panel.openPricing": "Price benchmarks",
+    "panel.logRate": "Log the agreed commission",
     "panel.headlineCheaper": "{n} of {total} carriers are priced below the median.",
     "panel.headlineCount": "{n} carriers are on the bench for this period.",
 
@@ -728,7 +729,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dtp.noDeliveries.body": "Nothing has been produced yet. A cut is rendered on the product's schedule, or on demand.",
     "dtp.move": "Change status",
     "dtp.moveHint": "Publishing exposes the cut to its subscribers. Suspending withdraws it without deleting it.",
-    "dtp.moveDenied": "Publishing a data product needs the SCOUT publish permission.",
+    "dtp.moveDenied": "Publishing a data product needs the Market publish permission.",
     "dtp.noMoves": "This product has no status left to move to.",
     "dtp.noMoves.body": "It is in a final state. Reopen it from an earlier stage to make the next step available.",
     "dtp.target": "New status",
@@ -754,7 +755,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dtp.headlinePublished": "{n} of {total} data products are published.",
 
     /* screen 6 — SCOUT admin */
-    "adm.title": "SCOUT settings",
+    "adm.title": "Market settings",
     "adm.lede":
       "What governs the module, and where each number lives. Some of these are tenant settings; the rest are the module's own code, and this screen says which is which rather than pretending otherwise.",
     "adm.sources": "Signal sources",
@@ -773,21 +774,21 @@ export const LABELS: Record<string, Record<string, string>> = {
       "Compiled into the module, not a tenant setting: cuts below it are suppressed before a reader sees them. Changing it is a code change with an ADR, so it cannot drift per tenant.",
     "adm.overrides": "Products with their own floor",
     "adm.noOverrides": "Every data product uses the module floor.",
-    "adm.thresholds": "SCOUT policy thresholds",
+    "adm.thresholds": "Market policy thresholds",
     "adm.thresholdsHint": "Versioned in the compliance threshold store. A change is a new version, never an edit.",
     "adm.version": "v{version}",
     "adm.dualControl": "Dual control",
     "adm.setBy": "Set by {who},",
-    "adm.noThresholds": "SCOUT has no policy threshold set",
+    "adm.noThresholds": "Market has no policy threshold set",
     "adm.noThresholdsWhy":
       "Whitespace detection compares each category against the panel's own mean rather than a fixed number, so there is no momentum threshold to tune. Nothing else in the module reads a numeric limit.",
     "adm.approvals": "Approval gates",
     "adm.approvalsHint":
       "Promoting a whitespace to a validated opportunity is the module's one gated move; publishing a data product carries the same permission check.",
     "adm.pending": "{count} awaiting a decision.",
-    "adm.headlinePending": "{n} SCOUT changes are awaiting a decision.",
+    "adm.headlinePending": "{n} Market changes are awaiting a decision.",
     "adm.headlineQuiet": "{n} signal sources have gone quiet.",
-    "adm.noApprovals": "No SCOUT change has been sent for approval.",
+    "adm.noApprovals": "No Market change has been sent for approval.",
     "adm.noApprovals.body": "Threshold and guardrail edits queue here for a second pair of eyes. Nothing on this screen has been changed yet.",
     "adm.noLibrary": "Hypothesis templates are not stored",
     "adm.noLibraryWhy":
@@ -820,7 +821,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "watch.severity.info": "Steady",
 
     /* dev */
-    "dev.title": "SCOUT for integrators",
+    "dev.title": "Market for integrators",
     "dev.lede":
       "The two SCOUT calls that are not plain CRUD, run against this tenant's own data so what you see here is what your key returns.",
     "dev.similar": "Nearest signals",
@@ -854,7 +855,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dev.ingestWhy":
       "Ingesting is not offered on this screen: writing a signal needs scout:signals:ingest, which belongs to a harvester key rather than to a person signed in here. The contract is:",
     "dev.keys": "Mint the key in the developer portal — it is never shown here.",
-    "dev.noEvents": "SCOUT publishes no events",
+    "dev.noEvents": "Market publishes no events",
     "dev.noEventsWhy":
       "Nothing in this module emits onto the event bus, so there is no topic to subscribe a webhook to. Poll the reads, or subscribe to the module that acts on a promoted opportunity.",
     "dev.openRadar": "Open the radar",
@@ -921,7 +922,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "radar.dossier": "الملف",
     "radar.demand": "تقدير الطلب",
     "radar.competition": "المنافسة",
-    "radar.momentum": "الزخم ٩٠ يومًا",
+    "radar.momentum": "الزخم 90 يومًا",
     "radar.signals": "حجم العنقود",
     "radar.pick": "اختر فكرة لقراءة ملفها.",
     "radar.pick.body": "يحوي الملف الأدلة خلف الفكرة والخطوات المتخذة عليها.",
@@ -964,7 +965,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "wsp.decisionsWithheld.body": "اطلب من المسؤول صلاحية التدقيق لترى من نقل هذه البطاقة ومتى.",
     "wsp.move": "نقل البطاقة",
     "wsp.moveHint": "اعتماد البطاقة أو إيقافها تغيير خاضع للموافقة، لذا ينتظر مراجعة ثانية.",
-    "wsp.moveDenied": "نقل البطاقة يحتاج صلاحية الاعتماد.",
+    "wsp.moveDenied": "نقل البطاقة يحتاج صلاحية الموافقة.",
     "wsp.noMoves": "هذه البطاقة في حالة لا نقل منها.",
     "wsp.noMoves.body": "انقلها من حالة أسبق، أو أعد فتحها، لتتاح الخطوة التالية.",
     "wsp.target": "النقل إلى",
@@ -978,7 +979,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.title": "معلومات قائمة الجهات المسعّرة",
     "panel.lede": "موقع كل شركة تأمين من حيث السعر والتحويل، لفترة {period}.",
     "panel.empty": "لا توجد صفوف مقارنة لهذه الفترة.",
-    "panel.empty.body": "تضم القائمة المنافسين الذين يراقبهم سكاوت. لم يُجمع شيء لهذه الفترة — اختر فترة أخرى أو أضف منافساً في إدارة سكاوت.",
+    "panel.empty.body": "تضم القائمة المنافسين الذين يراقبهم السوق. لم يُجمع شيء لهذه الفترة — اختر فترة أخرى أو أضف منافساً في إدارة السوق.",
     "panel.lines": "خطوط الأعمال",
     "panel.gaps": "فروق الصياغة",
     "panel.cheaper": "أقل من الوسيط",
@@ -994,6 +995,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.rebuilt": "أُعيد بناء {cells} خلية، {created} منها جديدة.",
     "panel.rebuildDenied": "إعادة كتابة المقارنة صلاحية منفصلة عن قراءتها.",
     "panel.openPricing": "مقاييس السعر",
+    "panel.logRate": "سجّل العمولة المتفق عليها",
     "panel.headlineCheaper": "{n} من أصل {total} شركة تأمين مسعّرة دون الوسيط.",
     "panel.headlineCount": "{n} شركة تأمين على القائمة لهذه الفترة.",
 
@@ -1115,7 +1117,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dtp.noDeliveries.body": "لم يُنتج شيء بعد. تُنتج النسخة وفق جدول المنتج أو عند الطلب.",
     "dtp.move": "تغيير الحالة",
     "dtp.moveHint": "النشر يكشف التقطيع لمشتركيه. التعليق يسحبه دون حذفه.",
-    "dtp.moveDenied": "نشر منتج معرفي يحتاج صلاحية النشر في سكاوت.",
+    "dtp.moveDenied": "نشر منتج معرفي يحتاج صلاحية النشر في السوق.",
     "dtp.noMoves": "لا حالة أخرى ينتقل إليها هذا المنتج.",
     "dtp.noMoves.body": "إنه في حالة نهائية. أعد فتحه من مرحلة أسبق لتتاح الخطوة التالية.",
     "dtp.target": "الحالة الجديدة",
@@ -1140,7 +1142,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dtp.headlinePublished": "{n} من أصل {total} منتج معرفي منشور.",
 
     /* الشاشة ٦ — إعدادات سكاوت */
-    "adm.title": "إعدادات سكاوت",
+    "adm.title": "إعدادات السوق",
     "adm.lede":
       "ما الذي يحكم الوحدة، وأين يعيش كل رقم. بعضها إعدادات للمستأجر، وبقيتها في شفرة الوحدة نفسها، وهذه الشاشة تقول أيّها أيّ.",
     "adm.sources": "مصادر الإشارات",
@@ -1156,24 +1158,24 @@ export const LABELS: Record<string, Record<string, string>> = {
     "adm.floorsHint": "ضمان إخفاء الهوية خلف كل منتج معرفي وكل مقارنة لوحة.",
     "adm.defaultFloor": "حد الوحدة",
     "adm.defaultFloorWhy":
-      "مُدمج في الوحدة لا إعدادًا للمستأجر: ما دونه يُكبت قبل أن يراه قارئ. تغييره تغيير شفرة بقرار معماري، فلا ينحرف بين المستأجرين.",
+      "مُدمج في الوحدة لا إعدادًا للمستأجر: ما دونه يُكبت قبل أن يراه قارئ. تغييره تغيير شفرة بقرار معماري، فلا ينحرف بين المؤسسات.",
     "adm.overrides": "منتجات لها حدّها الخاص",
     "adm.noOverrides": "كل منتج معرفي يستخدم حد الوحدة.",
-    "adm.thresholds": "حدود سياسة سكاوت",
+    "adm.thresholds": "حدود سياسة السوق",
     "adm.thresholdsHint": "مُصدَّرة في مخزن حدود الامتثال. التغيير نسخة جديدة، لا تعديل.",
     "adm.version": "ن{version}",
     "adm.dualControl": "رقابة مزدوجة",
     "adm.setBy": "ضبطها {who}،",
-    "adm.noThresholds": "لا حد سياسة مضبوطًا لسكاوت",
+    "adm.noThresholds": "لا حد سياسة مضبوطًا للسوق",
     "adm.noThresholdsWhy":
       "كشف الفجوات يقارن كل فئة بمتوسط اللوحة نفسه لا برقم ثابت، فلا حدّ زخم يُضبط. ولا شيء آخر في الوحدة يقرأ حدًا عدديًا.",
     "adm.approvals": "بوابات الموافقة",
     "adm.approvalsHint":
       "ترقية فجوة إلى فرصة مُتحقَّقة هي الخطوة المحكومة الوحيدة في الوحدة؛ ونشر منتج معرفي يحمل التحقق ذاته من الصلاحية.",
     "adm.pending": "{count} بانتظار قرار.",
-    "adm.headlinePending": "{n} تغييرًا في سكاوت بانتظار قرار.",
+    "adm.headlinePending": "{n} تغييرًا في السوق بانتظار قرار.",
     "adm.headlineQuiet": "{n} مصدر إشارات أصبح هادئًا.",
-    "adm.noApprovals": "لم يُرسل أي تغيير في سكاوت للموافقة.",
+    "adm.noApprovals": "لم يُرسل أي تغيير في السوق للموافقة.",
     "adm.noApprovals.body": "تنتظر تعديلات الحدود والضوابط هنا مراجعة ثانية. لم يُغيَّر شيء في هذه الشاشة بعد.",
     "adm.noLibrary": "قوالب الفرضيات غير مخزَّنة",
     "adm.noLibraryWhy":
@@ -1206,9 +1208,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "watch.severity.info": "مستقر",
 
     /* dev */
-    "dev.title": "سكاوت للمطوِّرين",
+    "dev.title": "السوق للمطوِّرين",
     "dev.lede":
-      "نداءا سكاوت اللذان ليسا عمليات سجلات عادية، يعملان على بيانات هذا المستأجر نفسها، فما تراه هنا هو ما يُعيده مفتاحك.",
+      "نداءا سكاوت اللذان ليسا عمليات سجلات عادية، يعملان على بيانات هذه المؤسسة نفسها، فما تراه هنا هو ما يُعيده مفتاحك.",
     "dev.similar": "أقرب الإشارات",
     "dev.similarWhy":
       "كل إشارة مُستقبَلة تُضمَّن في فهرس السوق. هذا يسأل الفهرس أي الإشارات المخزَّنة أقرب إلى عبارة — الفحص قبل الإرسال، لترى إن كان الحاصد يملكها أصلًا.",
@@ -1236,11 +1238,11 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dev.diffRun": "قارن",
     "dev.diffCounts": "{added} كلمة مضافة · {removed} محذوفة · {kept} دون تغيير.",
     "dev.curl": "النداءان نفسهما من عميلك",
-    "dev.curlWhy": "استيثاق بحامل مفتاح واجهة برمجة؛ المستأجر يأتي من المفتاح لا من جسم الطلب أبدًا.",
+    "dev.curlWhy": "استيثاق بحامل مفتاح واجهة برمجة؛ المؤسسة تأتي من المفتاح لا من جسم الطلب أبدًا.",
     "dev.ingestWhy":
       "الإرسال غير متاح في هذه الشاشة: كتابة إشارة تتطلب scout:signals:ingest، وهي صلاحية مفتاح حاصد لا شخص مسجَّل دخوله هنا. العقد هو:",
     "dev.keys": "أنشئ المفتاح في بوابة المطوِّرين — لا يُعرض هنا أبدًا.",
-    "dev.noEvents": "سكاوت لا تنشر أحداثًا",
+    "dev.noEvents": "السوق لا تنشر أحداثًا",
     "dev.noEventsWhy":
       "لا شيء في هذه الوحدة يبثّ على ناقل الأحداث، فلا موضوع يُشترك فيه خطاف الويب. استعلم القراءات دوريًا، أو اشترك في الوحدة التي تتصرف بناءً على فرصة مُرقّاة.",
     "dev.openRadar": "افتح الرادار",

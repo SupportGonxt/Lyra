@@ -22,7 +22,7 @@ export function EmptySection({ section, mod }: { section: EmptySectionData; mod:
           <circle cx={62} cy={32} r={2.5} fill="var(--line4)" />
           <circle cx={78} cy={14} r={4} fill="var(--acc)" stroke="none" />
         </svg>
-        <div className="mb-2 font-ui text-16 font-semibold text-fg">{section.label}</div>
+        <div className="mb-2 font-ui text-16 font-semibold text-text">{section.label}</div>
         <p className="mx-auto mb-4.5 max-w-[46ch] text-13 leading-relaxed text-subtle">{section.body}</p>
         {section.action ? (
           <span className="inline-block rounded-md bg-accent px-4 py-2 text-13 text-accent-contrast">{section.action}</span>

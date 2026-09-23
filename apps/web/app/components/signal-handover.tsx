@@ -78,7 +78,7 @@ export function DraftTray({
       <span aria-hidden="true" className="text-accent">
         {AGENT_MARK}
       </span>
-      <span className="text-12 uppercase tracking-[0.14em] text-subtle">{l("wc.drafts")}</span>
+      <span className="eyebrow">{l("wc.drafts")}</span>
       <p className={queued ? "text-muted" : "text-success"}>
         {queued
           ? l("wc.queued")

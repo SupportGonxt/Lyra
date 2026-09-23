@@ -110,6 +110,33 @@ export interface ActionSpec {
   confirm?: boolean;
 }
 
+/**
+ * One operation over a selection of rows (AXIS-007). The endpoint answers per
+ * row, so a partial success is reported, never rolled back.
+ */
+export interface BulkSpec {
+  api: string;
+  /** The body key the selected ids travel under: `caseIds`. */
+  idsKey: string;
+  actions: readonly {
+    value: string;
+    /** Key in the workspace's own label table. */
+    labelKey: string;
+    permission: string;
+    /** The one parameter this action takes, if any; its name is the body key. */
+    field?: FieldSpec;
+  }[];
+}
+
+/** A CSV import into this list (AXIS-001). The file is read as text and posted
+ *  as `{ csv }`; the answer names every line it refused. */
+export interface ImportSpec {
+  api: string;
+  permission: string;
+  /** The header the file must carry, shown beside the file input. */
+  required: readonly string[];
+}
+
 export interface ResourceSpec {
   /** URL segment inside the workspace: `/axis/cases`. */
   key: string;
@@ -146,6 +173,8 @@ export interface ResourceSpec {
   recordLink?: { href: string; labelKey: string };
   /** State changes the API owns, offered on the record. See ActionSpec. */
   actions?: readonly ActionSpec[];
+  bulk?: BulkSpec;
+  import?: ImportSpec;
 }
 
 export interface WorkspaceSpec {
@@ -354,9 +383,85 @@ export function actionUrl(tab: ResourceSpec, action: ActionSpec, id: string): st
  * "not supplied" rather than "set to empty" — clearing a value is `null`, which
  * only the JSON editor can express.
  */
+/**
+ * Where an id-shaped field's choices come from: the list endpoint, the column
+ * a person knows the row by, and the ref prefix the column stores (owner and
+ * assignee columns hold `user:<id>`, not a bare id). Keyed by field name — the
+ * same name means the same record kind across every workspace; a name that
+ * does not is excused in spec.form-kinds.test.ts with its reason.
+ */
+export const REF_SOURCES: Record<string, { api: string; label: string; prefix?: string }> = {
+  customerId: { api: "/v1/core/customers", label: "nameJson" },
+  caseId: { api: "/v1/axis/cases", label: "ref" },
+  providerId: { api: "/v1/core/providers", label: "name" },
+  channelId: { api: "/v1/dist/channels", label: "key" },
+  productId: { api: "/v1/core/products", label: "nameJson" },
+  userId: { api: "/v1/core/users", label: "name" },
+  ownerRef: { api: "/v1/core/users", label: "name", prefix: "user:" },
+  assigneeRef: { api: "/v1/core/users", label: "name", prefix: "user:" },
+  offeringId: { api: "/v1/dist/offerings", label: "code" },
+  conversationId: { api: "/v1/orbit/conversations", label: "externalRef" },
+  policyId: { api: "/v1/axis/policies", label: "policyNo" },
+  claimId: { api: "/v1/axis/claims", label: "claimNo" },
+  campaignId: { api: "/v1/signal/campaigns", label: "name" },
+  audienceId: { api: "/v1/signal/audiences", label: "name" },
+  roleId: { api: "/v1/core/roles", label: "name" },
+  partnerId: { api: "/v1/orbit/partners", label: "name" }
+};
+
+/** JSON columns that are a list of strings — typed as "a, b, c". */
+const LIST_JSON = new Set(["tagsJson", "emailsJson", "phonesJson", "skillsJson", "eventTypesJson"]);
+/** JSON columns that hold one string per language — `{ en, ar }`. */
+const LOCALIZED_JSON = /^(name|title|label|description)Json$/;
+/** The languages a localised field is written in (docs CLAUDE.md §7). */
+export const FIELD_LOCALES = ["en", "ar"] as const;
+
+export type FormKind = FieldType | "ref" | "localized" | "list";
+
+/** How a declared field is asked for: its type, or a friendlier input for a storage shape. */
+export function formKind(field: FieldSpec): FormKind {
+  if (field.type === "json" && LOCALIZED_JSON.test(field.name)) return "localized";
+  if (field.type === "json" && LIST_JSON.has(field.name)) return "list";
+  if (field.type === "text" && field.name in REF_SOURCES) return "ref";
+  return field.type;
+}
+
+/** One language of a stored localised value, for prefilling its input. */
+export function localizedValue(row: Row | undefined, name: string, locale: string): string {
+  const value = row?.[name];
+  if (typeof value === "string") {
+    try {
+      return localizedValue({ [name]: JSON.parse(value) as unknown }, name, locale);
+    } catch {
+      return locale === "en" ? value : "";
+    }
+  }
+  if (value && typeof value === "object" && locale in value) return String((value as Record<string, unknown>)[locale] ?? "");
+  return "";
+}
+
 export function bodyFrom(fields: readonly FieldSpec[], form: FormData): Row {
   const out: Row = {};
   for (const field of fields) {
+    const kind = formKind(field);
+    if (kind === "localized") {
+      const byLocale = Object.fromEntries(
+        FIELD_LOCALES.map((locale) => [locale, String(form.get(`${field.name}.${locale}`) ?? "").trim()]).filter(
+          ([, text]) => text
+        )
+      );
+      if (Object.keys(byLocale).length) out[field.name] = byLocale;
+      else if (form.get(field.name) !== null && String(form.get(field.name)).trim()) {
+        out[field.name] = JSON.parse(String(form.get(field.name))) as unknown;
+      }
+      continue;
+    }
+    if (kind === "list") {
+      const raw = String(form.get(field.name) ?? "");
+      const items = raw.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
+      if (items.length || form.get(field.name) !== null) out[field.name] = items;
+      continue;
+    }
     const raw = form.get(field.name);
     if (raw === null) {
       // An unchecked checkbox submits nothing at all, and false is a value.
@@ -406,6 +511,10 @@ export function bodyFrom(fields: readonly FieldSpec[], form: FormData): Row {
 export function inputValue(field: FieldSpec, row: Row | undefined): string {
   const value = row?.[field.name];
   if (value === null || value === undefined) return "";
+  if (formKind(field) === "list") {
+    const list = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+    return Array.isArray(list) ? list.map(String).join(", ") : "";
+  }
   switch (field.type) {
     case "json":
       return JSON.stringify(value, null, 2);

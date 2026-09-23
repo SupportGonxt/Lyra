@@ -662,6 +662,14 @@ bespoke screen at all and were swept by nothing. `routePatterns` now unions
 `WORKSPACE_PATHS` (`routing.ts`) in. A route list derived from one of two
 sources of truth is a dead seam in the tool that hunts for them.
 
+The static sweep also measures **layout** (`layoutFindings`, ui.md §4.1): a
+sentence printed twice, data starting below half the viewport, a screen over
+four viewports with no in-page nav. It runs at 1440×900 with reduced motion
+(the cold open otherwise covers the first capture); `SWEEP_ONLY` narrows it and
+`CHROMIUM=/opt/pw-browsers/chromium` points it at a preinstalled browser. It
+found 30 screens on its first run; a `Stat` counted as data only once it
+carried `data-stat`, so check the detector's selector before a screen.
+
 `scripts/sweep-detail.mjs` **exists** (`2add1ba`, rebuilt on the shared
 `sweep-lib.mjs`) — the note that stood here saying it "was never committed and no
 longer exists" was wrong, and detail routes are not unswept. It harvests the

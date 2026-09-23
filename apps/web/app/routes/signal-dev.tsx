@@ -232,8 +232,8 @@ export default function SignalDev() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("dev.kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">
+        <span className="eyebrow">{l("dev.kicker")}</span>
+        <h1 className="page-title">
           {devHeadline(l, { readable: loaded.readable.length, hooks: loaded.hooks.length })}
         </h1>
         <p className="max-w-prose font-ui text-13 text-muted">{l("dev.lede")}</p>
@@ -293,7 +293,7 @@ export default function SignalDev() {
                     </p>
                     <details>
                       <summary className="cursor-pointer font-ui text-13 text-accent">{l("dev.raw")}</summary>
-                      <pre className="mt-2 max-h-[28rem] overflow-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+                      <pre className="mt-2 max-h-[28rem] overflow-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
                         {JSON.stringify({ data: result.rows }, null, 2)}
                       </pre>
                     </details>
@@ -305,7 +305,7 @@ export default function SignalDev() {
 
           <Card title={l("dev.curlTitle")} description={l("dev.curlLede")}>
             <div className="flex flex-col gap-3">
-              <pre className="overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+              <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
                 {curlFor(loaded.origin, result?.resource ?? first, 10)}
               </pre>
               {loaded.mayKeys ? (

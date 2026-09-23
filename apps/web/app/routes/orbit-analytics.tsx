@@ -189,7 +189,7 @@ export const LABELS: Labels = {
     handover: "نسبة التحويل",
     handoverHint: "محادثات تولّاها موظف",
     csat: "رضا العملاء",
-    csatHint: "معدل آخر ١٠٠ محادثة مغلقة",
+    csatHint: "معدل آخر 100 محادثة مغلقة",
     retention: "الاستبقاء",
     retentionHint: "التجديدات المقبولة من بين المحسومة",
     quality: "درجة الجودة",
@@ -202,7 +202,7 @@ export const LABELS: Labels = {
       "لا يوجد مقياس للاكتفاء الذاتي في محرك التقارير، لذا هذا واحد ناقص عدد مذكرات التحويل على عدد المحادثات في المدة. المحادثة المحوّلة مرتين تُحسب مرتين، فتخفض النسبة ولا ترفعها.",
     csatWhy: "كيف تُؤخذ عيّنة الرضا",
     csatWhyBody:
-      "يُحسب المعدل على آخر ١٠٠ محادثة مغلقة سجّلت درجة رضا، لا على المدة كاملة. المحادثات بلا درجة تُستثنى.",
+      "يُحسب المعدل على آخر 100 محادثة مغلقة سجّلت درجة رضا، لا على المدة كاملة. المحادثات بلا درجة تُستثنى.",
     breakdown: "التفصيل",
     breakdownBody: "يشغّل محرك التقارير على بيانات المحادثات. جمّع بحسب بُعد أو فترة أو كليهما.",
     dimension: "التجميع بحسب",
@@ -407,7 +407,7 @@ export default function CustomerAnalytics() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {analyticsHeadline(loaded.containment, loaded.days, l)}
           </h1>
           <p className="max-w-prose font-ui text-13 text-muted">{l("lede")}</p>

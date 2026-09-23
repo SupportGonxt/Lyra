@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, useLocation, useNavigate, useNavigation, useSubmit } from "react-router";
+import { NavLink, useLocation, useNavigate, useNavigation, useSearchParams, useSubmit } from "react-router";
 import {
   Breadcrumbs,
   Menu,
@@ -12,18 +12,18 @@ import {
 } from "@lyra/ui";
 import type { Brand, NavItem } from "../api.server";
 import type { Translate } from "../i18n";
-import { humanise } from "../modules/spec";
-import { SURFACES } from "../modules/surfaces";
-import { isRouted, landingFor, shouldInclude } from "../routing";
+import { workspaceFor } from "../modules";
+import { humanise, labelsFor, visibleTabs } from "../modules/spec";
+import { isRouted, labelKeyFor, landingFor, moduleOf } from "../routing";
+import type { AiPause } from "../session.server";
 import { ColdOpen } from "./cold-open";
+import { menuFor, switcherFor } from "./menu";
 import { Companion } from "./companion";
 import { ConstellationMark } from "./mark";
 import { Meridian } from "./meridian";
 import { SearchPalette } from "./search";
-import type { Names } from "../names";
 import { PostureChips } from "./posture";
-import { inboxAsOf, shiftFrom, type Inbox } from "./shift";
-import { ShiftRail } from "./shift-rail";
+import type { Inbox } from "./shift";
 import { ThemeToggle } from "./theme-toggle";
 
 // The frame every workspace renders inside: a 50px top bar carrying the tenant
@@ -116,14 +116,21 @@ export interface ShellProps {
    * surfaces then render nothing rather than an invented zero.
    */
   inbox?: Inbox | null;
-  /** Display names for the approval subjects the rail lists. */
-  names?: Names;
   /** Every role key this actor holds, for the role pill (docs/07 §3 personas). */
   roles?: readonly string[];
   /** Expanded permission keys, for the chrome that is absent without them. */
   permissions?: readonly string[];
+  /** The domain pack, for the workspace menu's own words (CLAUDE.md §14). */
+  pack?: string;
+  /** The day strip. NORTH's alone (ADR-0061, ADR-0085). */
+  meridian?: boolean;
+  /** For the words `t` cannot reach: a workspace's own tab names in a crumb. */
+  locale?: string;
+  /** The AI kill switch, so a paused module says so on every screen of it (J-A3). */
+  aiPause?: AiPause;
   children: React.ReactNode;
 }
+
 
 /** One switchable view in the role pill: the role key, where that role lands,
  *  and whether it is the one being looked at now. */
@@ -174,35 +181,6 @@ const MODULE_ACCENT: Record<string, string> = {
   "/north": "var(--module-north)"
 };
 
-/** The five modules routes.ts gates behind `shouldInclude`; every other
- *  screen key (ledger, admin, portals, mobile, system, hub, …) has no such
- *  gate and is always on. */
-const GATED_MODULES = new Set(["axis", "orbit", "signal", "scout", "north"]);
-
-/**
- * Screens from the design pull (packages/ui/src/sections/types.ts) that
- * declare a `nav` label, grouped by their own `group` — a second batch of
- * rail destinations alongside the API-driven `nav` groups above, one per
- * `/surface/:module/:screen`. `nav`/`group` are the pull's own literal text
- * (like every other field on `Screen`), not i18n keys, so they render as-is
- * rather than through `t()` — the same treatment every section component
- * already gives `screen.title`/`screen.sub`.
- */
-function screenNavGroups(): { group: string; items: { href: string; label: string }[] }[] {
-  const byGroup = new Map<string, { href: string; label: string }[]>();
-  for (const [mod, screens] of Object.entries(SURFACES)) {
-    if (GATED_MODULES.has(mod) && !shouldInclude(mod)) continue;
-    for (const screen of screens) {
-      if (!screen.nav) continue;
-      const group = screen.group || mod;
-      const list = byGroup.get(group) ?? [];
-      list.push({ href: `/surface/${mod}/${screen.id}`, label: screen.nav });
-      byGroup.set(group, list);
-    }
-  }
-  return [...byGroup.entries()].map(([group, items]) => ({ group, items }));
-}
-
 /** Nav is grouped: a heading item carries no link of its own, only labelled
  *  children. Leaves (all in real, non-routed order) drop unrouted destinations
  *  the same way flat items always did. */
@@ -220,7 +198,7 @@ export function routedLeaves(item: NavItem): NavItem[] {
  * other id on screen is, and a trailing screen name (`compare`, `audit-trail`)
  * said as words.
  */
-export function crumbsFor(pathname: string, nav: NavItem[], t: Translate): Crumb[] {
+export function crumbsFor(pathname: string, nav: NavItem[], t: Translate, locale = "en"): Crumb[] {
   const leaves = nav.flatMap(routedLeaves).filter((item) => item.href !== "/");
   const ancestors = leaves
     .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
@@ -229,11 +207,24 @@ export function crumbsFor(pathname: string, nav: NavItem[], t: Translate): Crumb
   if (!deepest) return [];
   const rest = pathname.slice(deepest.href.length).split("/").filter(Boolean);
   if (!rest.length) return [];
+  const spec = workspaceFor(deepest.href);
+  // A workspace's list tab says where it is in its own eyebrow and heading
+  // (module.tsx); a trail repeating both, one line above them, is noise.
+  if (rest.length === 1 && spec?.tabs.some((entry) => entry.key === rest[0])) return [];
   return [
     ...ancestors.map((item) => ({ label: t(item.labelKey), href: item.href })),
-    ...rest.map((segment) => ({
-      label: isOpaqueRef(segment) ? shortRef(segment) : humanise(segment)
-    }))
+    ...rest.map((segment, index) => {
+      const href = `${deepest.href}/${rest.slice(0, index + 1).join("/")}`;
+      // The rail's own catalogue first (`nav.axis/quote-desk`), then the
+      // workspace's tab name — both translated and both the words the rail
+      // uses. `humanise` was English in every locale.
+      const key = labelKeyFor(href);
+      const named = t(key) !== key ? t(key) : null;
+      const tab = index === 0 && spec?.tabs.some((entry) => entry.key === segment) ? segment : null;
+      if (named) return { label: named, href };
+      if (tab && spec) return { label: labelsFor(spec, locale)(tab), href };
+      return { label: isOpaqueRef(segment) ? shortRef(segment) : humanise(segment) };
+    })
   ];
 }
 
@@ -244,9 +235,12 @@ export function Shell({
   tenantName,
   actorName,
   inbox = null,
-  names = {},
   roles = [],
   permissions = [],
+  pack,
+  meridian = false,
+  locale = "en",
+  aiPause,
   children
 }: ShellProps) {
   const { product: productName, tenant: servedName } = lockupNames(brand, tenantName);
@@ -263,21 +257,64 @@ export function Shell({
       groups.push({ heading: null, items: [item] });
     }
   }
-  const items = groups.flatMap((g) => g.items);
+  const home = groups.find((group) => !group.heading && group.items[0]?.href === "/")?.items[0] ?? null;
+  const workspaces = groups.filter((group) => group.items[0]?.href !== "/");
+  // The inbox is where a decision waiting on this reader lives (approvals).
+  // It is pinned beside Home in every frame, with its count, instead of being
+  // reachable only from a panel on the home screen.
+  const mayInbox = permissions.includes("core:approvals:read");
+  const inboxItem: NavItem | null = mayInbox ? { labelKey: "nav.inbox", href: "/approvals", icon: "inbox" } : null;
+  const inboxCount = inbox?.counts?.approvals ?? inbox?.approvals.length ?? 0;
+  const pinned = [home, inboxItem].filter((item): item is NavItem => item !== null);
+  const { pathname } = useLocation();
+  // The workspace the reader is in leads the rail with its own menu — its
+  // screens, then its records — on every screen of it (components/menu.ts).
+  const menu = menuFor(pathname, permissions, t, locale, pack);
+  const menuScreens: NavItem[] = (menu?.screens ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
+  const menuRecords: NavItem[] = (menu?.records ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
+  // Which module the reader is in, and every one they may move to (the top
+  // bar's switcher). The rail's Modules list sits under the module's own menu,
+  // below the fold on a long one — this says it where the eye starts.
+  const switcher = switcherFor(
+    pathname,
+    workspaces.map((group) => ({
+      heading: group.heading ? t(group.heading.labelKey) : null,
+      items: group.items.map((item) => ({ href: item.href, label: t(item.labelKey) }))
+    }))
+  );
+  const inRecords = menuRecords.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const items = [...pinned, ...menuScreens, ...workspaces.flatMap((g) => g.items)];
+  // The phone strip carries the module the reader is in; moving between
+  // modules is the switcher's job, so the strip no longer mixes the two.
+  const strip = [...pinned, ...menuScreens, ...menuRecords];
+  // Everything ⌘K can go to: the rail, and every tab of every workspace this
+  // reader may read — "Trial balance", "Period close" — named "Tab · Workspace"
+  // so two tabs called "Settings" are told apart. It knew only the rail's ~11.
+  const destinations = [
+    ...items.map((item) => ({ href: item.href, label: t(item.labelKey) })),
+    ...workspaces
+      .flatMap((group) => group.items)
+      .flatMap((item) => {
+        const spec = workspaceFor(item.href);
+        if (!spec) return [];
+        const label = labelsFor(spec, locale);
+        return visibleTabs(spec, permissions).map((tab) => ({
+          href: `${spec.path}/${tab.key}`,
+          label: `${label(tab.key)} · ${t(item.labelKey)}`,
+          deep: true
+        }));
+      })
+  ];
   const logo = brand?.logo?.dark ?? brand?.logo?.light ?? brand?.logo?.mark;
   // The arrival is keyed on the path: React throws the old main away on every
   // navigation, so the entrance plays again instead of only on first paint.
-  const { pathname } = useLocation();
   // What the status strip names. The nav has already decided which destinations
   // exist, so the longest matching href wins: /axis/quotes over /axis.
   const currentItem = items
     .filter((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)))
     .sort((a, b) => b.href.length - a.href.length)[0];
-  const crumbs = crumbsFor(pathname, nav, t);
-  // The pill names the role whose workspace is on screen, falling back to the
-  // first one held — an actor sitting on /settings is still someone's agent.
+  const crumbs = crumbsFor(pathname, nav, t, locale);
   const profiles = profilesFor(roles, nav, pathname);
-  const roleKey = profiles.find((profile) => profile.active)?.role ?? roles[0] ?? null;
   const navigate = useNavigate();
   const submit = useSubmit();
   // The rail is absent, not disabled, for an actor who cannot read agent runs —
@@ -286,7 +323,17 @@ export function Shell({
   const [companion, setCompanion] = useState(false);
   // Where the Meridian's playhead is parked. null while it follows now, which
   // is the only state in which the rail shows the live queue.
-  const [asOf, setAsOf] = useState<number | null>(null);
+  // The replay position lives in the URL (?asOf=) so a NORTH screen read "as
+  // of 10:09" is a link someone else can open at the same moment.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const asOfParam = searchParams.get("asOf")?.trim();
+  const initialAsOf = asOfParam && Number.isFinite(Number(asOfParam)) ? Number(asOfParam) : null;
+  const scrub = (value: number | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === null) next.delete("asOf");
+    else next.set("asOf", String(value));
+    setSearchParams(next, { replace: true });
+  };
   const mayCompanion = permissions.includes("ai:runs:read");
   // docs/07 latency doctrine: a wait under 400ms is answered by holding still —
   // a skeleton that flashes reads as a fault. Past it the screen the actor asked
@@ -336,7 +383,11 @@ export function Shell({
                   {/* ponytail: the wide tracking is the display face's Latin
                       setting. Arabic is cursive — spacing it out pulls joined
                       letters apart — so the LTR variant carries it. */}
-                  <span className="truncate font-semibold ltr:tracking-[0.15em]">{productName}</span>
+                  <span
+                    className={`truncate font-semibold ltr:tracking-[0.15em] ${switcher.entries.length ? "sr-only sm:not-sr-only" : ""}`}
+                  >
+                    {productName}
+                  </span>
                 </>
               )}
             </NavLink>
@@ -353,13 +404,48 @@ export function Shell({
             ) : null}
           </div>
 
+          {switcher.entries.length ? (
+            <Menu
+              label={t("nav.switchModule")}
+              items={switcher.entries.map((entry) => ({
+                id: entry.href,
+                label: entry.label,
+                section: entry.section,
+                current: entry.current,
+                icon: <span className="block size-2 rounded-full" style={{ background: entry.hue }} />,
+                onSelect: () => void navigate(entry.href)
+              }))}
+              trigger={
+                <button
+                  type="button"
+                  data-module-switcher
+                  aria-label={
+                    switcher.current
+                      ? t("nav.inModule", { module: switcher.current.label })
+                      : t("nav.switchModule")
+                  }
+                  className="flex min-w-0 shrink items-center gap-2 rounded-md border border-border px-2.5 py-1 font-ui text-13 text-text transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: switcher.current?.hue ?? "var(--text-subtle)" }}
+                  />
+                  <span className="truncate font-medium">
+                    {switcher.current?.label ?? t("nav.group.modules")}
+                  </span>
+                  <span aria-hidden="true" className="text-12 text-subtle">
+                    &#9662;
+                  </span>
+                </button>
+              }
+            />
+          ) : null}
+
           {/* ⌘K answers both halves of the design's two overlays: what is this,
               and where do I go. The destinations are the nav's own, so a place
               the rail cannot open is not offered here either (ADR-0031). */}
-          <SearchPalette
-            t={t}
-            destinations={items.map((item) => ({ href: item.href, label: t(item.labelKey) }))}
-          />
+          <SearchPalette t={t} destinations={destinations} />
 
           <div className="ms-auto flex shrink-0 items-center gap-1">
             <PostureChips posture={inbox?.posture} t={t} />
@@ -410,10 +496,13 @@ export function Shell({
                       already says who, and which hat they are wearing is the
                       thing that changes what the next screen shows. The name
                       stays on the tooltip and in the menu's own label. */}
-                  <span className="hidden max-w-40 truncate font-mono text-12 text-muted sm:inline">
-                    {roleKey ?? actorName ?? t("header.account")}
+                  {/* The person, in words. A role key (`axis.admin`) is a
+                      permission bundle's id, not something a reader calls
+                      themselves; which view they are in is the rail's job. */}
+                  <span className="hidden max-w-40 truncate font-ui text-12 text-muted sm:inline">
+                    {actorName ?? t("header.account")}
                   </span>
-                  <span aria-hidden="true" className="text-11 text-subtle">
+                  <span aria-hidden="true" className="text-12 text-subtle">
                     &#9662;
                   </span>
                 </button>
@@ -427,7 +516,9 @@ export function Shell({
             (horizon-1-shell.md §5.1 stacks it above the body split). Nothing
             here is sticky — the root does not scroll, so the bands hold still
             for free and only the canvas moves. */}
-        <Meridian t={t} inbox={inbox} accent={accentFor(pathname)} onScrub={setAsOf} />
+        {meridian ? (
+          <Meridian t={t} inbox={inbox} accent={accentFor(pathname)} initialAsOf={initialAsOf} onScrub={scrub} />
+        ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           <nav
@@ -438,8 +529,13 @@ export function Shell({
               "flex min-h-[var(--chrome-module)] shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-surface-1 p-2 md:hidden"
             ].join(" ")}
           >
-            {items.map((item) => (
-              <NavItemLink key={item.href} item={item} t={t} />
+            {strip.map((item) => (
+              <NavItemLink
+                key={item.href}
+                item={item}
+                t={t}
+                badge={item === inboxItem && inboxCount > 0 ? inboxCount : undefined}
+              />
             ))}
           </nav>
 
@@ -447,45 +543,55 @@ export function Shell({
             aria-label={t("nav.primary")}
             className="lyra-vt-rail hidden md:flex md:w-[var(--rail-width)] md:shrink-0 md:flex-col md:gap-0.5 md:overflow-y-auto md:border-e md:border-border md:p-[var(--gutter-rail)]"
           >
-            {/* Flagship demo entry point, pinned above everything else in the
-                rail: the AXIS→NORTH→SCOUT→SIGNAL click-through story that
-                /journey/axis opens. Not part of the API-driven `nav` contract,
-                but still t()-routed like everything else this shell renders. */}
-            <div className="mb-1">
-              <h2 className="mb-1 mt-0 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
-                {t("journey.demo")}
-              </h2>
-              <ul className="flex flex-col gap-0.5">
-                <li>
-                  <NavLink
-                    to="/journey/axis"
-                    viewTransition
-                    className={({ isActive }) =>
-                      [
-                        "group flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-start font-ui text-13 transition-colors duration-150",
-                        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                        isActive
-                          ? "bg-surface-2 font-medium text-text"
-                          : "text-muted hover:bg-surface-2 hover:text-text"
-                      ].join(" ")
-                    }
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="h-4 w-0.5 shrink-0 rounded-orbit"
-                      style={{ background: MODULE_ACCENT["/axis"] }}
-                    />
-                    <span className="truncate">{t("journey.demoLabel")}</span>
-                  </NavLink>
+            {/* Pinned: where every reader starts and what is waiting on them. */}
+            <ul className="mb-1 flex flex-col gap-0.5">
+              {pinned.map((item) => (
+                <li key={item.href}>
+                  <NavItemLink
+                    item={item}
+                    t={t}
+                    badge={item === inboxItem && inboxCount > 0 ? inboxCount : undefined}
+                  />
                 </li>
-              </ul>
-            </div>
-            {/* The shift sits above the destinations, not instead of them: the
-                comp has no nav menu at all (its search overlay is the
-                navigation), but every screen still has to be reachable without
-                knowing its name. */}
-            <ShiftRail t={t} shift={shiftFrom(asOf === null ? inbox : inboxAsOf(inbox, asOf), names)} />
-            {groups.map((group, i) => (
+              ))}
+            </ul>
+            {/* The workspace's own menu comes first — it is what the reader
+                came here for (ADR-0085): its screens, then its records under
+                one disclosure, open while a record list is on screen. */}
+            {menu ? (
+              <div className="mb-1">
+                <h2 className="eyebrow mb-1 mt-4 flex items-center gap-2 px-3">
+                  <span aria-hidden="true" className="size-1.5 rounded-full" style={{ background: menu.accent }} />
+                  {menu.label}
+                </h2>
+                <ul className="flex flex-col gap-0.5">
+                  {menuScreens.map((item) => (
+                    <li key={item.href}>
+                      <NavItemLink item={item} t={t} nested accent={menu.accent} exact />
+                    </li>
+                  ))}
+                </ul>
+                {menuRecords.length ? (
+                  <details className="group/records mt-1" open={inRecords || !menuScreens.length}>
+                    <summary className="flex cursor-pointer select-none items-center gap-2 rounded-md px-3 py-1.5 font-ui text-12 text-muted marker:content-none hover:bg-surface-2 hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+                      <span aria-hidden="true" className="transition-transform duration-150 group-open/records:rotate-90 rtl:-scale-x-100">
+                        &#8250;
+                      </span>
+                      {t("nav.records")}
+                      <span className="ms-auto font-mono tabular-nums text-subtle">{menuRecords.length}</span>
+                    </summary>
+                    <ul className="flex flex-col gap-0.5 ps-3">
+                      {menuRecords.map((item) => (
+                        <li key={item.href}>
+                          <NavItemLink item={item} t={t} nested accent={menu.accent} />
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
+            {workspaces.map((group, i) => (
               // Keyed by position: a heading's own `href` is "" (apps/api/src
               // /routes/me.ts) and `??` does not fall back on "", so every
               // heading group used to share the key "" — React then reused the
@@ -493,7 +599,7 @@ export function Shell({
               // render, so index is stable for as long as the list is.
               <div key={i} className="mb-1">
                 {group.heading ? (
-                  <h2 className="mb-1 mt-4 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle first:mt-0">
+                  <h2 className="eyebrow mb-1 mt-4 px-3">
                     {t(group.heading.labelKey)}
                   </h2>
                 ) : null}
@@ -501,34 +607,6 @@ export function Shell({
                   {group.items.map((item) => (
                     <li key={item.href}>
                       <NavItemLink item={item} t={t} nested={Boolean(group.heading)} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-            {screenNavGroups().map(({ group, items: groupItems }) => (
-              <div key={`screen:${group}`} className="mb-1">
-                <h2 className="mb-1 mt-4 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle first:mt-0">
-                  {group}
-                </h2>
-                <ul className="flex flex-col gap-0.5">
-                  {groupItems.map((item) => (
-                    <li key={item.href}>
-                      <NavLink
-                        to={item.href}
-                        viewTransition
-                        className={({ isActive }) =>
-                          [
-                            "group flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-start font-ui text-12 transition-colors duration-150",
-                            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                            isActive
-                              ? "bg-surface-2 font-medium text-text"
-                              : "text-muted hover:bg-surface-2 hover:text-text"
-                          ].join(" ")
-                        }
-                      >
-                        <span className="truncate">{item.label}</span>
-                      </NavLink>
                     </li>
                   ))}
                 </ul>
@@ -554,7 +632,18 @@ export function Shell({
             {/* Only below module level, and only when the path says more than the
                 rail can: a record opened from a queue, or a screen hanging off
                 one. At module level this renders nothing at all. */}
-            {crumbs.length ? <Breadcrumbs items={crumbs} label={t("nav.breadcrumb")} /> : null}
+            {crumbs.length ? (
+              <Breadcrumbs
+                items={crumbs}
+                label={t("nav.breadcrumb")}
+                renderLink={({ href, className, children: text }) => (
+                  <NavLink to={href} end className={className} viewTransition>
+                    {text}
+                  </NavLink>
+                )}
+              />
+            ) : null}
+            <PauseBanner pause={aiPause} pathname={pathname} t={t} mayResume={permissions.includes("ai:killswitch:use")} />
             {slow ? <PageSkeleton label={t("common.loading")} /> : children}
           </main>
 
@@ -610,7 +699,9 @@ export function accountMenuItems(
     // inventing a prose name per role would be a second vocabulary to keep true.
     ...profiles.map((profile) => ({
       id: `profile:${profile.role}`,
-      label: profile.role,
+      // Named by the workspace it opens ("Operations"), which is what
+      // switching a view means to the reader.
+      label: t(labelKeyFor(profile.href)),
       shortcut: t(profile.active ? "header.viewing" : "header.viewAs"),
       disabled: profile.active,
       onSelect: () => open(profile.href)
@@ -641,17 +732,37 @@ function accentFor(href: string): string {
   return "var(--accent)";
 }
 
-function NavItemLink({ item, t, nested }: { item: NavItem; t: Translate; nested?: boolean }) {
-  const accent = accentFor(item.href);
+function NavItemLink({
+  item,
+  t,
+  nested,
+  accent: hue,
+  exact,
+  badge
+}: {
+  item: NavItem;
+  t: Translate;
+  nested?: boolean;
+  accent?: string;
+  exact?: boolean;
+  /** A count beside the label — what is waiting there. */
+  badge?: number | undefined;
+}) {
+  const accent = hue ?? accentFor(item.href);
   return (
     <NavLink
       to={item.href}
-      end={item.href === "/"}
+      end={exact || item.href === "/"}
       // docs/15 §3: navigation runs through a view transition, so the frame
       // holds still and only the workspace changes. Browsers without the API
       // ignore this and navigate normally.
       viewTransition
       data-icon={item.icon}
+      // The mobile strip scrolls sideways; the current item is scrolled into
+      // it so the reader can see where they are without swiping to look.
+      ref={(link) => {
+        if (link?.getAttribute("aria-current") === "page") link.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      }}
       className={({ isActive }) =>
         [
           "group flex shrink-0 items-center gap-2 rounded-md px-3 text-start font-ui transition-colors duration-150",
@@ -677,9 +788,54 @@ function NavItemLink({ item, t, nested }: { item: NavItem; t: Translate; nested?
             style={{ background: accent }}
           />
           <span className="truncate">{t(item.labelKey)}</span>
+          {badge ? (
+            <span className="ms-auto rounded-orbit bg-accent px-1.5 font-mono text-12 tabular-nums text-accent-contrast">
+              {badge}
+            </span>
+          ) : null}
         </>
       )}
     </NavLink>
+  );
+}
+
+/**
+ * Degraded mode (docs/06 J-A3): an admin paused the agents, so every screen of
+ * the affected module says so — work still goes on, decisions wait for a
+ * person. Before this the pause changed behaviour and nothing on screen.
+ */
+export function pausedHere(pause: AiPause | undefined, pathname: string): boolean {
+  if (!pause) return false;
+  if (pause.all) return true;
+  const module = moduleOf(pathname);
+  return module !== null && pause.modules.includes(module);
+}
+
+function PauseBanner({
+  pause,
+  pathname,
+  t,
+  mayResume
+}: {
+  pause: AiPause | undefined;
+  pathname: string;
+  t: Translate;
+  mayResume: boolean;
+}) {
+  if (!pausedHere(pause, pathname)) return null;
+  return (
+    <p
+      role="status"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 font-ui text-13 text-text"
+    >
+      <span aria-hidden="true" className="text-warning">&#10022;</span>
+      <span>{t(pause?.all ? "pause.all" : "pause.module")}</span>
+      {mayResume ? (
+        <NavLink to="/admin/ai/console" className="text-accent underline underline-offset-4">
+          {t("pause.manage")}
+        </NavLink>
+      ) : null}
+    </p>
   );
 }
 

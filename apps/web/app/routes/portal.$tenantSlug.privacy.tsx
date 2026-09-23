@@ -163,7 +163,7 @@ export default function PortalPrivacy() {
               />
             ) : null}
             <div className="flex flex-col gap-1">
-              <h1 className="font-serif text-22 leading-[1.2] text-text">{l("privacy.title")}</h1>
+              <h1 className="page-title">{l("privacy.title")}</h1>
               <p className="font-ui text-13 text-muted">{l("privacy.intro")}</p>
               <a className="w-fit font-ui text-13 text-accent underline" href={`/portal/${tenantSlug}`}>
                 {l("privacy.back")}

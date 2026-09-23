@@ -211,10 +211,13 @@ export interface RefProps extends Omit<React.ComponentPropsWithRef<"span">, "chi
 export function Ref({ value, fallback = "—", className, title, ...props }: RefProps) {
   const short = value ? shortRef(value) : fallback;
   return (
+    // An id is Latin and directionless; inside Arabic text its hyphens and
+    // colons reorder ("portal/gonxt/"). Isolated as LTR, it reads as typed.
     <span
+      dir="ltr"
       {...props}
       title={title ?? (value && short !== value ? value : undefined)}
-      className={cn("font-mono", className)}
+      className={cn("font-mono [unicode-bidi:isolate]", className)}
     >
       {short}
     </span>
@@ -397,7 +400,9 @@ export function DateTime({
       suppressHydrationWarning={relative}
       dateTime={date.toISOString()}
       title={relative && hijri ? `${absolute} · ${hijri}` : title}
-      className={cn("tabular-nums", className)}
+      // A timestamp is one unit: "Sep 25, 2026, 07:09 / PM" broke across two
+      // lines in every narrow table column.
+      className={cn("whitespace-nowrap tabular-nums", className)}
     >
       {relative ? relativeText(date, locale) : absolute}
     </time>

@@ -23,8 +23,8 @@ test("axis.lead sees the command center with hero, constellation and ask box", a
   // The constellation names the five shells. Scoped to main: the rail's own
   // nav.axis label is also "Operations" and sits truncated in the sidebar.
   const main = page.getByRole("main");
-  for (const shell of ["Operations", "Conversations", "Marketing", "Intelligence", "Insight"]) {
-    await expect(main.getByText(shell)).toBeVisible();
+  for (const shell of ["Operations", "Conversations", "Marketing", "Market", "Insight"]) {
+    await expect(main.getByText(shell, { exact: true })).toBeVisible();
   }
 
   // The feed states its empty-or-listed state honestly either way.

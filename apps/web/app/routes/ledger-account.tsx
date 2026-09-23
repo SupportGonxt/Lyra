@@ -192,7 +192,7 @@ export default function LedgerAccount() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {accountHeadline(statement, currency, drift, l, locale)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("account.intro")}</p>
@@ -302,7 +302,7 @@ export default function LedgerAccount() {
               role="alert"
               className="flex flex-col gap-2 rounded-lg border border-danger/40 bg-danger/10 p-5"
             >
-              <p className="font-serif text-18 leading-[1.3] text-text">{l("account.drift")}</p>
+              <p className="section-title">{l("account.drift")}</p>
               <p className="max-w-prose font-ui text-13 text-muted">{l("account.driftBody")}</p>
               <div>
                 <Button asChild variant="secondary">

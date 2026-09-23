@@ -3,7 +3,7 @@ import { z } from "zod";
 import { and, asc, eq, inArray, max } from "drizzle-orm";
 import type { ReportTable } from "@lyra/ledger";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, forecast, isClosedPeriod, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
+import { actorRef, audit, forecast, isClosedPeriod, journeyHealth, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
 import { body, IsoDay, parse } from "../http.js";
 import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
@@ -282,6 +282,15 @@ northRoutes.get("/forecast", async (c) => {
     // it projected — one field, one writer.
     ...result
   });
+});
+
+// Journey health (docs/06 §3): each documented journey's funnel, read from the
+// audit log (packages/core/src/journey-health.ts). ?days= sets the window.
+northRoutes.get("/journeys", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:metrics:read", { tenantId: ctx.tenantId, module: "north" });
+  const days = z.coerce.number().int().min(7).max(365).catch(30).parse(c.req.query("days"));
+  return c.json({ days, data: await journeyHealth(ctx, { days }) });
 });
 
 // Data health: staleness per metric, computed live from the snapshot table —

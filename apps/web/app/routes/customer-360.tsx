@@ -227,7 +227,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     nonePolicies: "This customer holds no cover yet. A bound quote becomes their first agreement.",
     noneClaims: "No claim has been reported against their cover.",
     noneCases: "Nothing is in flight. Quoting, underwriting and renewal work appears here while it is open.",
-    noneConversations: "No one has spoken with this customer through ORBIT yet.",
+    noneConversations: "No one has spoken with this customer through Conversations yet.",
     noneQuotes: "They have not been quoted. Raise a comparative request to shop the market for them.",
     noneConsents: "No permissions are on file. Consent is recorded when the customer grants it.",
     noneDocuments: "No files are attached to this customer.",
@@ -299,7 +299,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     nonePolicies: "لا يملك هذا العميل أي تغطية بعد. أول اتفاقية له تنشأ من عرض سعر مرتبط.",
     noneClaims: "لم تُسجَّل أي مطالبة على تغطيته.",
     noneCases: "لا يوجد عمل جارٍ. تظهر هنا أعمال التسعير والاكتتاب والتجديد ما دامت مفتوحة.",
-    noneConversations: "لم يتحدث أحد مع هذا العميل عبر ORBIT بعد.",
+    noneConversations: "لم يتحدث أحد مع هذا العميل عبر Conversations بعد.",
     noneQuotes: "لم يُسعَّر بعد. افتح طلب مقارنة لاستطلاع السوق له.",
     noneConsents: "لا توجد أذونات مسجّلة. تُسجَّل الموافقة عندما يمنحها العميل.",
     noneDocuments: "لا توجد ملفات مرفقة بهذا العميل.",
@@ -722,7 +722,7 @@ export default function Customer360() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{nameOf(customer.nameJson, locale, customer.id)}</h1>
+          <h1 className="page-title">{nameOf(customer.nameJson, locale, customer.id)}</h1>
           <p className="font-ui text-13 text-muted">{customerLede(customer, l)}</p>
           <Link to="/admin/customers" className="w-fit font-ui text-13 text-accent underline">
             {l("back")}

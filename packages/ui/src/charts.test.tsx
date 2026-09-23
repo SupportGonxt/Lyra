@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DonutChart, LineChart } from "./data.js";
+import { DonutChart, LineChart, Sparkline } from "./data.js";
 
 // The two shapes a dashboard tile needs that a sparkline cannot make: a series
 // with a scale a reader can name, and a share of a whole (docs/ui.md §7 P3-12,
@@ -22,6 +22,13 @@ describe("LineChart", () => {
   it("plots the series across the full width, top for the highest", () => {
     const markup = renderToStaticMarkup(<LineChart values={[0, 100]} label="Two points" />);
     expect(markup).toContain('points="0.00,40.00 100.00,0.00"');
+  });
+
+  // A dash pattern on a non-scaling stroke is measured in screen pixels, not in
+  // `pathLength` units, so the "draw" dash chopped every line into segments.
+  it("draws one continuous line, never a dash pattern", () => {
+    const markup = renderToStaticMarkup(<LineChart values={[1, 3, 2, 5]} label="Series" />);
+    expect(markup).not.toContain("stroke-dasharray");
   });
 
   it("holds a single reading in the middle rather than at the edge", () => {
@@ -54,6 +61,13 @@ describe("DonutChart", () => {
     const markup = renderToStaticMarkup(
       <DonutChart label="Empty" slices={[{ name: "None", value: 0 }]} />
     );
+    expect(markup).not.toContain("stroke-dasharray");
+  });
+});
+
+describe("Sparkline", () => {
+  it("draws one continuous line, never a dash pattern", () => {
+    const markup = renderToStaticMarkup(<Sparkline values={[1, 3, 2]} label="Trend" />);
     expect(markup).not.toContain("stroke-dasharray");
   });
 });

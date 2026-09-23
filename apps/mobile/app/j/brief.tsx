@@ -2,9 +2,12 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { generateBriefing, queryRows, type Row } from "../../src/api";
+import { generateBriefing, queryRows, takeAnomaly, type Row } from "../../src/api";
 import {
+  anomalyOwner,
   bps,
+  briefNarrative,
+  canTakeAnomaly,
   chosenBriefing,
   highlightsOf,
   todayIso,
@@ -27,8 +30,10 @@ import {
 import { useLoad } from "../../src/useLoad";
 
 // J-E1, the executive brief on a phone: the narrative NORTH wrote, the figures
-// behind it, and the one deviation nobody has taken yet. Same selection rules
-// as the web brief (apps/web/app/routes/north-brief.tsx) — see src/journeys.ts.
+// behind it, and the one deviation nobody has taken yet — and the button that
+// takes it. Same selection and narrative rules as the web brief
+// (apps/web/app/routes/north-shared.tsx `chosen`, `narrative`) — see
+// src/journeys.ts.
 
 export default function Brief() {
   const session = useSession();
@@ -38,6 +43,8 @@ export default function Brief() {
   const [asked, setAsked] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [writeError, setWriteError] = useState<unknown>(null);
+  const [taking, setTaking] = useState(false);
+  const [taken, setTaken] = useState(false);
 
   const briefs = useLoad(
     (signal) =>
@@ -63,9 +70,11 @@ export default function Brief() {
   if (session.status !== "signedIn") return <Redirect href="/login" />;
 
   const rows = briefs.data?.data ?? [];
-  const brief = chosenBriefing(rows);
+  const brief = chosenBriefing(rows, null, session.locale);
   const highlights = highlightsOf(brief?.highlightsJson);
   const anomaly = unownedAnomaly(anomalies.data?.data ?? null);
+  const owner = anomalyOwner(session.me);
+  const mayTake = canTakeAnomaly(session.me?.permissions) && owner !== null;
   const error = briefs.error ?? anomalies.error;
 
   // Asking for a brief starts a workflow; the row is not readable the instant
@@ -84,6 +93,26 @@ export default function Brief() {
       setWriteError(caught);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // J-E1's last step: the reader puts their name to the deviation, the same
+  // close the web's anomaly queue calls "Take it on". Once the row is
+  // somebody's it leaves the unowned list, so the reload clears the card and
+  // the quiet line below says why.
+  const take = async (id: string) => {
+    if (!token || !owner || taking) return;
+    setTaking(true);
+    setWriteError(null);
+    setTaken(false);
+    try {
+      await takeAnomaly(token, id, owner);
+      setTaken(true);
+      anomalies.reload();
+    } catch (caught) {
+      setWriteError(caught);
+    } finally {
+      setTaking(false);
     }
   };
 
@@ -133,7 +162,7 @@ export default function Brief() {
               date: String(brief.date ?? "")
             })}
           </Muted>
-          {paragraphs(brief.narrativeRef).map((text, index) => (
+          {paragraphs(briefNarrative(brief.narrativeRef)).map((text, index) => (
             <Body chrome={chrome} key={index}>
               {text}
             </Body>
@@ -171,32 +200,46 @@ export default function Brief() {
         <Body chrome={chrome} style={{ fontWeight: "600" }}>
           {t("brief.anomaly")}
         </Body>
+        {taken ? <Muted chrome={chrome}>{t("brief.taken")}</Muted> : null}
         {anomaly ? (
-          <Body chrome={chrome}>
-            {t("brief.anomalyLine", {
-              metric: humanize(String(anomaly.metricKey ?? "")),
-              delta: bps(typeof anomaly.magnitude === "number" ? anomaly.magnitude : null) ?? "—",
-              window: String(anomaly.window ?? "")
-            })}
-          </Body>
-        ) : (
+          <>
+            <Body chrome={chrome}>
+              {t("brief.anomalyLine", {
+                metric: humanize(String(anomaly.metricKey ?? "")),
+                delta: bps(typeof anomaly.magnitude === "number" ? anomaly.magnitude : null) ?? "—",
+                window: String(anomaly.window ?? "")
+              })}
+            </Body>
+            {mayTake ? (
+              <Button
+                chrome={chrome}
+                variant="quiet"
+                label={t("brief.takeOn")}
+                onPress={() => void take(anomaly.id)}
+                busy={taking}
+              />
+            ) : null}
+          </>
+        ) : taken ? null : (
           <Muted chrome={chrome}>{t("brief.anomalyNone")}</Muted>
         )}
       </Card>
 
-      {rows.length > 1 ? (
+      {brief && rows.length > 1 ? (
         <Card chrome={chrome}>
           <Body chrome={chrome} style={{ fontWeight: "600" }}>
             {t("brief.recent")}
           </Body>
-          {rows.slice(1).map((row) => (
-            <Muted chrome={chrome} key={row.id}>
-              {t("brief.status", {
-                status: humanize(String(row.status ?? "")),
-                date: String(row.date ?? "")
-              })}
-            </Muted>
-          ))}
+          {rows
+            .filter((row) => row.id !== brief.id)
+            .map((row) => (
+              <Muted chrome={chrome} key={row.id}>
+                {t("brief.status", {
+                  status: humanize(String(row.status ?? "")),
+                  date: String(row.date ?? "")
+                })}
+              </Muted>
+            ))}
         </Card>
       ) : null}
     </ScrollView>

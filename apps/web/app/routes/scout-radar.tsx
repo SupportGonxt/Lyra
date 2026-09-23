@@ -193,7 +193,7 @@ export default function ScoutRadar() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {radarHeadline(loaded.dots, loaded.unplotted, l)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("radar.lede")}</p>
@@ -245,7 +245,7 @@ export default function ScoutRadar() {
             <EmptyState title={l("radar.pick")} body={l("radar.pick.body")} />
           ) : (
             <div className="flex flex-col gap-3">
-              <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+              <h2 className="eyebrow">
                 {loaded.cluster?.theme ?? chosen.description}
               </h2>
 
@@ -264,7 +264,10 @@ export default function ScoutRadar() {
                 </p>
               ) : null}
 
-              <p className="font-ui text-13 leading-relaxed text-text">{chosen.description}</p>
+              {/* A commentary that only restates the description says it once. */}
+              {loaded.commentary?.commentary?.trim() === chosen.description.trim() ? null : (
+                <p className="font-ui text-13 leading-relaxed text-text">{chosen.description}</p>
+              )}
 
               <CommentaryChip commentary={loaded.commentary} l={l} locale={locale} />
 

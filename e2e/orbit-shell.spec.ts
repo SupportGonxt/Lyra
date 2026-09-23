@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { goto, loginAsOrbitAgent, loginAsNorthExec } from "./fixtures.js";
+import { goto, loginAsOrbitAgent, loginAsNorthExec, expectModuleRail } from "./fixtures.js";
+import { ORBIT_SCREENS } from "../apps/web/app/modules/screens.js";
 
 // @journey:J-X1 — the "human console opens" step of J-X1 handover catch
 // (docs/06-roles-and-journeys.md:57, docs/superpowers/specs/2026-08-16-orbit-shell-fork-design.md):
@@ -11,30 +12,14 @@ import { goto, loginAsOrbitAgent, loginAsNorthExec } from "./fixtures.js";
 // just not entitled to this shell: orbit-shell.tsx's loader). No Meridian —
 // ADR-0061 is explicit that Meridian is NORTH-only.
 
-test("orbit.agent lands in OrbitShell and sees only ORBIT's own rail", async ({ page }) => {
+test("orbit.agent lands in the one frame, led by ORBIT's own screens (ADR-0085)", async ({ page }) => {
   await loginAsOrbitAgent(page);
   await goto(page, "/orbit/console");
-
-  // orbit-shell.tsx renders two <nav aria-label="Primary"> landmarks (one
-  // md:hidden for mobile, one hidden md:flex for desktop); Playwright's
-  // default chromium viewport is desktop-sized, so the mobile one is
-  // display:none and getByRole already excludes it from the a11y tree —
-  // .first() is defensive, matching axis-shell.spec.ts's convention.
-  const rail = page.getByRole("navigation", { name: /primary/i }).first();
-
-  await expect(rail.getByRole("link", { name: /console/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /supervisor/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /save desk/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /pipeline/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /quality/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /analytics/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /admin/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /dev/i })).toBeVisible();
-
-  // No other module's destinations leak into this rail.
-  await expect(rail.getByRole("link", { name: /^brief$/i })).toHaveCount(0);
-  await expect(rail.getByRole("link", { name: /exceptions/i })).toHaveCount(0);
+  // Every ORBIT screen this role may use, none it may not, and no other
+  // module's screens: those are reached through the workspace list below.
+  await expectModuleRail(page, "orbit.agent", ORBIT_SCREENS, ["/north/brief", "/axis/exceptions"]);
 });
+
 
 test("an actor with no orbit.*-resolving role gets 403, not 401, on /orbit/*", async ({ page }) => {
   await loginAsNorthExec(page);

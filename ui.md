@@ -53,6 +53,27 @@ spec. If the *shape of the answer* is the point, it is a route.
 | SCOUT | [scout-shell.tsx](apps/web/app/routes/scout-shell.tsx) | `/scout/*` bespoke screens |
 | NORTH | [north-shell.tsx](apps/web/app/routes/north-shell.tsx) | `/north/*` bespoke screens |
 
+**Module switcher (ADR-0085 amendment).** The top bar names the module the
+reader is in (its hue dot and name, "Modules" outside one) and opens every
+workspace they may open, grouped as the rail groups them (`switcherFor`,
+[menu.ts](apps/web/app/components/menu.ts)). On a phone the strip under the bar
+carries only the current module's screens and records.
+
+**One frame (ADR-0085).** The five module layouts are routes (they gate a
+module and let a build ship one alone), but they all render the one
+[`Shell`](apps/web/app/components/shell.tsx) through
+[`ModuleShell`](apps/web/app/components/module-shell.tsx). The rail reads, top
+to bottom: **Home and Inbox** (approvals waiting on the reader, with a count) →
+inside any workspace, **its menu** ([components/menu.ts](apps/web/app/components/menu.ts)):
+its screens (a module's from [modules/screens.ts](apps/web/app/modules/screens.ts),
+each filtered by the permission its loader needs; a shared workspace's from its
+spec `links`), then its record lists under a "Records" disclosure → every
+workspace the API's nav offers. The same menu shows on a module's generic lists
+and on its bespoke screens; the page's tab strip is kept for phones only. The Meridian day strip is NORTH's only. A
+paused module (the AI kill switch, J-A3) shows a degraded-mode banner on every
+screen of it. ⌘K indexes every tab the reader may open. Every screen's
+`<title>` is "Screen · Workspace · Product" ([title.ts](apps/web/app/title.ts)).
+
 All of them call `bootstrapSession()` ([session.server.ts](apps/web/app/session.server.ts)),
 which is the single source of shell data: **actor, tenant brand, permissions,
 and the nav the API has already filtered for that actor**. A route reads it with
@@ -99,9 +120,9 @@ screen composes them instead of re-deriving inline styles:
 | Mark | Component | What it is |
 | --- | --- | --- |
 | eyebrow | `Eyebrow` | small tracked-out label saying what a block *is* |
-| lede | `Lede` | one serif sentence saying what it *means* |
+| lede | `Lede` | one serif sentence saying what it *means* (the serif's only role besides the login hero and home headline, docs/01 §4) |
 | figure | `Figure` | every number in mono, tabular, unit set quietly (`tone`: neutral/ok/bad; `size`: sm/md/lg) |
-| hue bar | `HueBar` | 2px of module colour — the only place a module signs itself; `aria-hidden`, because the module is always named in text nearby |
+| hue bar | `HueBar` | 2px of module colour, drawn once per page by the shell; a `Panel` signs its module with the eyebrow's dot instead, so bars never stack |
 | hairline | `Hairline` | a rule instead of a shadow |
 | answer | `AnswerBanner` | ✦, who it was answered for, how long it took |
 | provenance | `Provenance` | the "why" behind an AI artifact, inspectable in place |
@@ -117,7 +138,12 @@ per-module figures is already colour-consistent with the rail.
 ### 2.4 Type and motion
 
 Display `Archivo`, UI `Instrument Sans`, mono `IBM Plex Mono`, serif
-`Instrument Serif`, Arabic `IBM Plex Sans Arabic` in every stack. Nine sizes
+`Instrument Serif`, Arabic `IBM Plex Sans Arabic` in every stack. Three type
+roles are utilities in tokens.css — `page-title` (Archivo 600, 28/1.15),
+`section-title` (Archivo 600, 18), `eyebrow` (12, tracked, drops tracking in
+Arabic) — and a guard fails on a copied recipe or a stray serif. KPI figures are
+Archivo 700 tabular. Every Tailwind class must compile to CSS
+([classes.resolve.test.ts](apps/web/app/classes.resolve.test.ts)). Nine sizes
 `--text-12` … `--text-48`; `--leading-body` 1.5, `--leading-display` 1.15.
 Radii are small on purpose (2/3/6px) with `--radius-orbit: 999px` for pills.
 Motion: `--duration-fast|medium|slow` 120/180/240ms on `--ease-observatory`
@@ -217,10 +243,14 @@ These are not style advice. Each one has a test, a lint rule, or a CI gate.
 3. **Approval is a step, not a dialog.** Anything `consequential: true` (pricing,
    claims guidance, regulated advice, outbound send, payment) renders an
    `ApprovalStrip` and goes to `/approvals`. It never auto-commits outside the
-   tenant's `auto_approve` allowlist (CLAUDE.md §4, docs/19).
+   tenant's `auto_approve` allowlist (CLAUDE.md §4, docs/19). The gate keeps the
+   request it stopped; once approved, the requester finishes it with one press
+   on `/approvals` ("ready for you to finish"), replayed in their own session
+   (ADR-0086).
 4. **Brand tokens, not brand strings.** Name, logo and colours come from tenant
    config. A hard-coded "LYRA" in a user-facing surface is a bug (CLAUDE.md §5).
-   `workspace.tsx`'s `meta` reads `brand.name ?? tenantName ?? ""` — never a literal.
+   Every session layout's `meta` is `sessionMeta` ([title.ts](apps/web/app/title.ts)):
+   "Screen · Workspace · (brand.name ?? tenantName)" — never a literal.
 5. **Domain-pack vocabulary.** No industry noun is hard-coded. Every label goes
    through `labeller()` / `labelsIn(locale, pack)` and resolves pack → route table
    → shared table → `common.<key>` → raw key ([vocabulary.ts](apps/web/app/modules/vocabulary.ts),
@@ -253,6 +283,28 @@ These are not style advice. Each one has a test, a lint rule, or a CI gate.
 
 ---
 
+### 4.1 Density (2026-09-23)
+
+A staff screen is read, not admired: the data comes first and fills the fold.
+Three rules, each held by `layoutFindings` in `scripts/sweep-lib.mjs` (run by
+`scripts/sweep.mjs` at 1440×900; `SWEEP_ONLY=/a,/b` for a quick loop):
+
+1. **Data starts in the top half.** The first row, figure (`Stat` carries
+   `data-stat`), chart or list item sits above 450px. A register with a
+   composer uses [`WorkLayout`](apps/web/app/components/work-layout.tsx) —
+   data column first, the form in a sticky aside on xl, stacked below on
+   narrower screens. Generic lists keep **one toolbar row** (saved view,
+   search, filters named in their own "All" choice) and put **New / Import**
+   in the header as panels that drop over the table; the bulk bar exists only
+   while rows are ticked.
+2. **Say a sentence once.** A headline is not restated as the card caption and
+   again as the empty state's body. Empty states are compact (`EmptyState`, a
+   small mark, one teaching line, one action).
+3. **Long screens carry in-page navigation.** Over four viewports tall means a
+   `nav` of anchored sections or tabs.
+
+Tables default to `compact`; `Stat` figures are `text-22`.
+
 ## 5. Interaction conventions
 
 **Navigation.** The rail is the primary; the module band switches workspace; the
@@ -284,7 +336,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 117 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 120 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -315,6 +367,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/ledger/transactions/:id` | [ledger-transaction.tsx](apps/web/app/routes/ledger-transaction.tsx) |
 | `/ledger/period-close` | [ledger-periods.tsx](apps/web/app/routes/ledger-periods.tsx) |
 | `/ledger/year-end` | [ledger-year-end.tsx](apps/web/app/routes/ledger-year-end.tsx) |
+| `/ledger/fx-revaluation` | [ledger-fx-revaluation.tsx](apps/web/app/routes/ledger-fx-revaluation.tsx) |
 | `/ledger/journal` | [ledger-journal.tsx](apps/web/app/routes/ledger-journal.tsx) |
 | `/ledger/statement` | [ledger-account.tsx](apps/web/app/routes/ledger-account.tsx) |
 | `/ledger/recon` | [ledger-recon.tsx](apps/web/app/routes/ledger-recon.tsx) |
@@ -330,6 +383,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/admin/permissions` | [admin-roles.tsx](apps/web/app/routes/admin-roles.tsx) |
 | `/admin/developer` | [admin-developer.tsx](apps/web/app/routes/admin-developer.tsx) |
 | `/admin/security` | [admin-security.tsx](apps/web/app/routes/admin-security.tsx) |
+| `/admin/automation` | [admin-automation.tsx](apps/web/app/routes/admin-automation.tsx) |
 | `/admin/staff` | [staff.tsx](apps/web/app/routes/staff.tsx) |
 | `/admin/staff/:id` | [staff-member.tsx](apps/web/app/routes/staff-member.tsx) |
 | `/platform` | [platform.tsx](apps/web/app/routes/platform.tsx) |
@@ -401,6 +455,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/north/brief` | [north-brief.tsx](apps/web/app/routes/north-brief.tsx) |
 | `/north/explorer` | [north-explorer.tsx](apps/web/app/routes/north-explorer.tsx) |
 | `/north/anomalies` | [north-anomalies.tsx](apps/web/app/routes/north-anomalies.tsx) |
+| `/north/journeys` | [north-journeys.tsx](apps/web/app/routes/north-journeys.tsx) |
 | `/north/alerts` | [north-alerts.tsx](apps/web/app/routes/north-alerts.tsx) |
 | `/north/whatif` | [north-whatif.tsx](apps/web/app/routes/north-whatif.tsx) |
 | `/north/board` | [north-board.tsx](apps/web/app/routes/north-board.tsx) |
@@ -420,6 +475,10 @@ Two route files render all of these:
   workspace's bespoke screens, a search box where the API registered the resource
   searchable, filters, sortable columns, pagination, and create when the spec
   names `create` and the actor holds it.
+  A tab may also declare **`bulk`** (a checkbox column plus a bar that applies
+  one action to the selection, answered per row) and **`import`** (a CSV file
+  posted as `{ csv }`, answered with every refused line). Cases declare both
+  (AXIS-001, AXIS-007); each action and the import carry their own permission.
 - **Record** — `/:module/:resource/:id` ([record.tsx](apps/web/app/routes/record.tsx)).
   The record's fields, an edit form from `editable ?? fields`, delete when
   `remove` is held, the `recordLink` out to a deeper bespoke screen, and the

@@ -1053,6 +1053,44 @@ before any screen changes.
 
 ---
 
+### New finding — the quote desk issues around the sale endpoint, 2026-09-23
+
+`POST /v1/axis/quote-responses/:id/bind` (apps/api/src/routes/axis.ts) is the
+sale: it checks the response is quoted and selected, takes premium, provider and
+product from the quote on the server, links the policy version to the response
+(`quoteResponseId`), runs `bindPolicy` and emits `axis.policy.issued` carrying
+the response id that attribution reads. Until 2026-09-23 no screen called it.
+The quote comparison (`quote-compare.tsx`) now does, from its "Issue from the
+selected quote" panel.
+
+The AXIS quote desk (`axis-quote-desk.tsx`, `policyFrom`) still issues through
+the generic `POST /v1/axis/policies`, with `premiumMinor`, `providerId` and
+`currency` posted from hidden inputs — the browser states the price — and no
+link back to the response. It also lets the operator pick the customer, which
+the bind endpoint does not (it refuses a request with no customer). Moving the
+desk onto bind is the right direction but drops that picker, so it wants a
+product decision first: either the desk requires a named customer at shop time,
+or bind accepts one for an anonymous request.
+
+The comparison payload does not say whether a selected response is already
+bound, so the panel is offered and the API's 409 ("already bound to pol_…") is
+the answer. A `boundPolicyId` on the comparison would need the dist route to read
+AXIS policy versions — a module boundary — so it is left for the same decision.
+
+### New finding — per-module config is stored and never read, 2026-09-23
+
+`PATCH /v1/core/modules/:module/config` (apps/api/src/routes/core.ts) writes
+`policyJson.moduleConfig[module]` — `enabled`, `autonomy`, `modelTier`,
+`settings` — and `moduleSettings()` (packages/core/src/module-config.ts) resolves
+it. Its only caller is `k-anonymity.ts`, which reads `settings.kAnonymityFloor`.
+Nothing reads `enabled`, `autonomy` or `modelTier`: disabling a module there
+leaves it answering, and an autonomy override changes no agent. The admin
+automation screen (`/admin/automation`, 2026-09-23) therefore offers the
+auto-approve allowlist only; a toggle for a flag nothing obeys would be a lie.
+Wiring it wants a spec decision first — whether `enabled: false` gates the
+module's routes, and how a module autonomy override composes with an agent's own
+`autonomyLevel` and the `ai.autonomy_raise` approval.
+
 ## What is genuinely strong
 
 Worth protecting under any refactor, because these are the parts a buyer's

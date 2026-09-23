@@ -36,6 +36,7 @@ describe("scout-shell loader", () => {
   it("throws 403 not 401 when roles don't resolve to scout", async () => {
     vi.mocked(bootstrapSession).mockResolvedValue({
       availableShells: ["north"],
+    aiPause: { all: false, modules: [] },
       brand: { name: "Test" }
     } as never);
     await expect(

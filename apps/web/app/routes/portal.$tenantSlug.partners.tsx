@@ -467,7 +467,7 @@ export default function PortalPartners() {
               />
             ) : null}
             <div className="flex flex-col gap-1">
-              <h1 className="font-serif text-22 leading-[1.2] text-text">{l("partners.title")}</h1>
+              <h1 className="page-title">{l("partners.title")}</h1>
               <p className="font-ui text-13 text-muted">{l("partners.intro")}</p>
               <a className="w-fit font-ui text-13 text-accent underline" href={`/portal/${tenantSlug}`}>
                 {l("partners.back")}
@@ -487,7 +487,7 @@ export default function PortalPartners() {
             <p role="alert" className="text-14 font-medium text-warning">
               {l("partners.key.warning")}
             </p>
-            <pre className="mt-3 overflow-x-auto rounded-lg bg-raised p-3 font-mono text-13">{signed.sandboxKey}</pre>
+            <pre className="mt-3 overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-13">{signed.sandboxKey}</pre>
             <p className="mt-2 text-12 text-muted">{l("partners.key.lost")}</p>
             <dl className="mt-4 grid grid-cols-2 gap-3 text-13">
               <div>
@@ -500,7 +500,7 @@ export default function PortalPartners() {
               </div>
             </dl>
             <p className="mt-4 text-13">{l("partners.key.next")}</p>
-            <pre className="mt-2 overflow-x-auto rounded-lg bg-raised p-3 font-mono text-12">
+            <pre className="mt-2 overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12">
               {firstCall(apiOrigin, signed.sandboxKey)}
             </pre>
           </Card>

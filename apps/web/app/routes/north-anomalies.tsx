@@ -100,7 +100,7 @@ const LABELS: Labels = {
     "headline.action": "Open the anomaly",
     "none.title": "Nothing is out of line",
     "none.body": "No anomaly matches this filter. That is the state you want most days.",
-    denied: "You do not have permission to read anomalies. Ask a tenant administrator for NORTH anomaly access.",
+    denied: "You do not have permission to read anomalies. Ask a tenant administrator for Insight anomaly access.",
     "saved.explained": "Explanation recorded.",
     "saved.action_created": "Recorded as yours.",
     "saved.dismissed": "Dismissed.",
@@ -152,7 +152,7 @@ const LABELS: Labels = {
     "headline.action": "فتح الحالة الشاذة",
     "none.title": "لا شيء خارج الحد",
     "none.body": "لا توجد حالة تطابق هذا المرشّح. وهذه هي الحالة المرجوة في معظم الأيام.",
-    denied: "لا تملك صلاحية قراءة الحالات الشاذة. اطلب من مدير المستأجر صلاحية حالات نورث.",
+    denied: "لا تملك صلاحية قراءة الحالات الشاذة. اطلب من مدير المؤسسة صلاحية حالات التحليلات التنفيذية.",
     "saved.explained": "سُجّل التفسير.",
     "saved.action_created": "سُجّلت باسمك.",
     "saved.dismissed": "استُبعدت.",
@@ -323,8 +323,8 @@ export default function NorthAnomalies() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline(anomalies, l)}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline(anomalies, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {openAnomaly ? (
           <Link to={`/north/anomalies/${openAnomaly.id}`} className="w-fit font-ui text-13 text-accent underline">
@@ -430,7 +430,7 @@ function AnomalyCard({
         />
 
         <section className="flex flex-col gap-2">
-          <h3 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("drivers.title")}</h3>
+          <h3 className="eyebrow">{l("drivers.title")}</h3>
           {drivers.length === 0 ? (
             <p className="font-ui text-13 text-subtle">{l("drivers.none")}</p>
           ) : (
@@ -441,7 +441,7 @@ function AnomalyCard({
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="font-ui text-13 text-text">
                         {driver.key}
-                        <span className="ms-2 font-mono text-11 uppercase tracking-[0.12em] text-subtle">
+                        <span className="eyebrow ms-2">
                           {driver.dimension}
                         </span>
                       </span>
@@ -469,7 +469,7 @@ function AnomalyCard({
               decomposition and still has a named baseline, and "no breakdown
               was recorded" must not read as "nothing was compared". */}
           {analysis.method || analysis.baseline ? (
-            <p className="font-mono text-11 uppercase tracking-[0.12em] text-subtle">
+            <p className="eyebrow">
               {[
                 analysis.method ? `${l("drivers.method")}: ${words(analysis.method)}` : null,
                 analysis.baseline ? `${l("drivers.baseline")}: ${words(analysis.baseline)}` : null

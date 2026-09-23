@@ -188,7 +188,7 @@ describe("moneyMapHeadline", () => {
 
   it("puts a client-money breach above everything else", () => {
     expect(moneyMapHeadline(MAP, [{ currency: "AED" }, { currency: "ZAR" }], l, "en")).toBe(
-      "2 currency breach(es) in client money."
+      "2 currency breaches in client money."
     );
   });
 

@@ -104,9 +104,9 @@ export function headlineFor(
 
 export const LABELS: Record<string, Record<string, string>> = {
   en: {
-    title: "AXIS admin",
+    title: "Operations admin",
     intro: "Publish procedures, read connector health, and reach operating policy.",
-    deniedTitle: "You cannot read AXIS admin settings",
+    deniedTitle: "You cannot read Operations admin settings",
     sopsTitle: "Procedures",
     sopsIntro: "The version marked active is the one cases follow. Publishing one retires whichever version it replaces.",
     sopsCaption: "Procedure versions",
@@ -139,9 +139,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "headline.open": "Manage webhooks in the developer console"
   },
   ar: {
-    title: "إدارة AXIS",
+    title: "إدارة Operations",
     intro: "انشر الإجراءات، اطّلع على سلامة الموصلات، وادخل إلى سياسات التشغيل.",
-    deniedTitle: "لا يمكنك قراءة إعدادات إدارة AXIS",
+    deniedTitle: "لا يمكنك قراءة إعدادات إدارة Operations",
     sopsTitle: "الإجراءات",
     sopsIntro: "النسخة المفعّلة هي التي تتبعها الحالات. نشر نسخة يسحب النسخة التي تحل محلها.",
     sopsCaption: "نسخ الإجراءات",
@@ -277,7 +277,7 @@ export default function AxisAdmin() {
     return (
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{l("title")}</h1>
+          <h1 className="page-title">{l("title")}</h1>
           <p className="max-w-prose font-ui text-13 text-subtle">{l("intro")}</p>
         </header>
         <EmptyState title={l("deniedTitle")} body={t("error.forbidden")} />
@@ -353,7 +353,7 @@ export default function AxisAdmin() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-prose font-ui text-13 text-subtle">{l("intro")}</p>
         {loaded.may.hooksRead && connectorTrouble ? (
           <Link to="/admin/developer" className="w-fit font-ui text-13 text-accent underline">

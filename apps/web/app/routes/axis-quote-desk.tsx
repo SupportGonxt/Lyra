@@ -613,7 +613,7 @@ export default function AxisQuoteDesk() {
             is arithmetic on the same groups the KPI wall below counts, not text
             an agent produced, so it carries no ✦ (CLAUDE.md §11). Falls back to
             the plain title once there is nothing on the desk to narrate. */}
-        <h1 className="font-serif text-22 leading-[1.2] text-text">
+        <h1 className="page-title">
           {headlineKey ? l(headlineKey) : l(group ? "title.group" : "title")}
         </h1>
         <p className="max-w-prose font-ui text-13 text-subtle">{l(group ? "intro.group" : "intro")}</p>

@@ -501,7 +501,7 @@ function Shell({
           >
             {l("back")}
           </Link>
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {l("title")}
           </h1>
           <p className="max-w-prose font-ui text-13 text-muted">

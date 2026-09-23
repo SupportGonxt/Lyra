@@ -404,7 +404,7 @@ function Shell({
       {policy ? (
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h1 className="font-serif text-22 leading-[1.2] text-text">{`${l("policyId")} ${policy.policyNo}`}</h1>
+            <h1 className="page-title">{`${l("policyId")} ${policy.policyNo}`}</h1>
             <p className="font-ui text-13 text-muted">{policyLede(policy, l, locale ?? "en")}</p>
             <Link to={`/axis/policies/${policy.id}/detail`} className="w-fit font-ui text-13 text-accent underline">
               {l("back")}
@@ -414,7 +414,7 @@ function Shell({
       ) : (
         <header className="flex flex-col gap-2">
           <h1 className="text-xl font-semibold">{l("title")}</h1>
-          <p className="text-sm text-[var(--color-fg-muted)]">{l("intro")}</p>
+          <p className="text-sm text-muted">{l("intro")}</p>
         </header>
       )}
       {children}

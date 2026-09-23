@@ -268,7 +268,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "budget.near.reason": "المستهلك اليوم حتى الآن:",
     "budget.unavailable": "لا تملك صلاحية الاطلاع على أرقام الميزانية.",
     "spend.title": "الإنفاق حسب الوحدة والغرض",
-    "spend.window": "آخر ٣٠ يومًا",
+    "spend.window": "آخر 30 يومًا",
     "spend.module": "الوحدة",
     "spend.purpose": "الغرض",
     "spend.calls": "الاستدعاءات",
@@ -277,11 +277,11 @@ const LABELS: Record<string, Record<string, string>> = {
     "spend.errors": "الأخطاء",
     "spend.total": "الإجمالي",
     "kill.title": "مفاتيح الإيقاف",
-    "kill.intro": "أوقف استدعاءات النماذج لهذا المستأجر أو لوحدة واحدة. كل إيقاف يُسجَّل باسمك.",
+    "kill.intro": "أوقف استدعاءات النماذج لهذه المؤسسة أو لوحدة واحدة. كل إيقاف يُسجَّل باسمك.",
     "kill.global": "على مستوى المنصة",
     "kill.globalOn": "أوقفت عمليات المنصة الذكاء الاصطناعي. لا شيء هنا يرفع هذا الإيقاف.",
     "kill.globalOff": "لا يوجد إيقاف على مستوى المنصة.",
-    "kill.tenant": "هذا المستأجر",
+    "kill.tenant": "هذه المؤسسة",
     "kill.tenantOn": "الذكاء الاصطناعي موقوف للمستأجر بأكمله. تُرفض كل استدعاءات النماذج.",
     "kill.tenantOff": "يعمل.",
     "kill.modules": "الوحدات الموقوفة",
@@ -320,7 +320,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "المستوى المعروض أعلاه هو ما تحتفظ به الواجهة البرمجية، ولا يتغير إلا بعد منح الموافقة.",
     "agents.noControls": "أدوارك لا تشمل تغيير الوكلاء.",
     "agents.unavailable": "لا تملك صلاحية الاطلاع على قائمة الوكلاء.",
-    "headline.noAgents": "لا يوجد وكلاء مهيّأون لهذا المستأجر.",
+    "headline.noAgents": "لا يوجد وكلاء مهيّأون لهذه المؤسسة.",
     "headline.agentsActive": "وكيل نشط.",
     "headline.allPaused": "كل وكيل مهيّأ متوقف مؤقتًا.",
     "autonomy.suggest": "يقترح فقط",
@@ -953,7 +953,7 @@ export default function AiConsole() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{L("title")}</h1>
+        <h1 className="page-title">{L("title")}</h1>
         <p className="font-ui text-13 text-muted">{consoleHeadline(loaded.kill, loaded.agents, L)}</p>
       </header>
 
@@ -1081,7 +1081,7 @@ export default function AiConsole() {
 
       {/* ------------------------------------------------------------ agents */}
       <section className="flex flex-col gap-4">
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{L("agents.title")}</h2>
+        <h2 className="eyebrow">{L("agents.title")}</h2>
         {loaded.agents ? (
           loaded.agents.length ? (
             loaded.agents.map((agent) => (

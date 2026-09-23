@@ -370,7 +370,7 @@ export default function Login() {
       <Card>
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h1 className="font-serif text-22 leading-[1.2] text-text">{t(title)}</h1>
+            <h1 className="page-title">{t(title)}</h1>
             <p className="font-ui text-13 text-muted">{t(intro)}</p>
           </div>
         </header>

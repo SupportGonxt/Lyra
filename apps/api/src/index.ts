@@ -24,7 +24,8 @@ import { expireDelegations } from "./engines/staff.js";
 import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions } from "./auth.js";
 import { mountAll } from "./crud.js";
 import { BY_MODULE } from "./resources.js";
-import { gatewayFor, onError, withContext, withCors, withHeaders } from "./mw.js";
+import { gatewayFor, onError, rememberStopped, withContext, withCors, withHeaders } from "./mw.js";
+import { markCompleted, resumeFor } from "@lyra/core";
 import { openapi } from "./openapi.js";
 import { meRoutes } from "./routes/me.js";
 import { coreRoutes } from "./routes/core.js";
@@ -64,6 +65,7 @@ app.onError(onError);
 app.use("*", withHeaders);
 app.use("*", withCors);
 app.use("*", withContext);
+app.use("/v1/*", rememberStopped);
 
 app.get("/health", (c) =>
   c.json({ ok: true, environment: c.env.ENVIRONMENT ?? "production", ts: Date.now() })
@@ -75,6 +77,33 @@ app.get("/openapi.json", (c) => c.json(openapi(c.env.SESSION_COOKIE ?? COOKIE)))
 app.route("/v1/auth/sso", ssoRoutes);
 app.route("/v1/auth", authRoutes);
 app.route("/v1/me", meRoutes);
+
+/**
+ * Finish an approved request (docs/06 J-M1, J-X2, J-P1, J-P2, J-E2). The gate
+ * kept what it stopped; this replays it through this same app in the
+ * requester's own session, so permissions, validation and the gate run again
+ * exactly as they would on a retry — and the gate spends the approval. Only
+ * the requester may finish it, and only once. Mounted here rather than in
+ * routes/me.ts because it needs `app` itself.
+ */
+app.post("/v1/me/approvals/:id/finish", async (c) => {
+  const ctx = c.get("ctx");
+  const id = c.req.param("id");
+  const stopped = await resumeFor(ctx, id);
+  const headers = new Headers({ "content-type": "application/json" });
+  for (const name of ["authorization", "cookie", "accept-language"]) {
+    const value = c.req.header(name);
+    if (value) headers.set(name, value);
+  }
+  const replay = new Request(new URL(stopped.path, c.req.url), {
+    method: stopped.method,
+    headers,
+    ...(stopped.body ? { body: stopped.body } : {})
+  });
+  const res = await app.fetch(replay, c.env, c.executionCtx);
+  if (res.ok) await markCompleted(ctx, id);
+  return res;
+});
 app.route("/v1/realtime", realtimeRoutes);
 
 // Hand-written routes mount BEFORE generated CRUD. Hono returns handlers in

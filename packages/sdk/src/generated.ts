@@ -2690,6 +2690,7 @@ export interface Operations {
   "GET /v1/core/rulepacks/{id}": Op<{ id: string }, never, never, CoreRulepacks>;
   "PATCH /v1/core/rulepacks/{id}": Op<{ id: string }, never, CoreRulepacks, CoreRulepacks>;
   "GET /v1/core/security-posture": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/core/settings/auto-approve": Op<never, never, never, Record<string, unknown>>;
   "PATCH /v1/core/settings/auto-approve": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/core/teams": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreTeams>>;
   "POST /v1/core/teams": Op<never, never, CoreTeams, CoreTeams>;
@@ -2848,7 +2849,9 @@ export interface Operations {
   "POST /v1/ledger/year-end/{year}": Op<{ year: string }, never, never, Record<string, unknown>>;
   "GET /v1/me": Op<never, never, never, Record<string, unknown>>;
   "PATCH /v1/me": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/me/approvals/ready": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/me/approvals/{id}/decide": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/me/approvals/{id}/finish": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/me/inbox": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/me/lens": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/me/lens/reset": Op<never, never, never, Record<string, unknown>>;
@@ -2882,6 +2885,7 @@ export interface Operations {
   "DELETE /v1/north/decisions/{id}": Op<{ id: string }, never, never, void>;
   "POST /v1/north/explore": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/north/forecast": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/north/journeys": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/north/metrics": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthMetrics>>;
   "POST /v1/north/metrics": Op<never, never, NorthMetrics, NorthMetrics>;
   "GET /v1/north/metrics/{id}": Op<{ id: string }, never, never, NorthMetrics>;
@@ -3456,6 +3460,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/rulepacks/{id}": { tag: "core", summary: "Fetch one rulepack", permission: "compliance:rulepacks:read", public: false },
   "PATCH /v1/core/rulepacks/{id}": { tag: "core", summary: "Update a rulepack", permission: "compliance:rulepacks:apply", public: false },
   "GET /v1/core/security-posture": { tag: "core", summary: "MFA enrolment and session posture for the tenant's people, against the estate-wide floor", permission: "core:settings:read", public: false },
+  "GET /v1/core/settings/auto-approve": { tag: "core", summary: "The tenant's auto-approve allowlist and every approval policy, marking which the floor lets a tenant automate", permission: "core:settings:read", public: false },
   "PATCH /v1/core/settings/auto-approve": { tag: "core", summary: "Add or remove approval policy keys from the tenant's auto-approve allowlist; never-auto-approve policies are refused", permission: "core:settings:update", public: false },
   "GET /v1/core/teams": { tag: "core", summary: "List teams", permission: "core:teams:read", public: false },
   "POST /v1/core/teams": { tag: "core", summary: "Create a team", permission: "core:teams:write", public: false },
@@ -3614,7 +3619,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ledger/year-end/{year}": { tag: "ledger", summary: "Post the year-end close (dual control)", permission: "ledger:periods:year_end", public: false },
   "GET /v1/me": { tag: "me", summary: "Bootstrap: actor, tenant, roles, permissions, entitlements, policy and navigation", permission: null, public: false },
   "PATCH /v1/me": { tag: "me", summary: "Update the caller's own profile", permission: null, public: false },
+  "GET /v1/me/approvals/ready": { tag: "me", summary: "The caller's requests that are approved and waiting for them to finish", permission: null, public: false },
   "POST /v1/me/approvals/{id}/decide": { tag: "me", summary: "Approve or reject a pending approval (permission comes from the approval policy)", permission: null, public: false },
+  "POST /v1/me/approvals/{id}/finish": { tag: "me", summary: "Finish an approved request: replay what the gate stopped, in the requester's own session", permission: null, public: false },
   "GET /v1/me/inbox": { tag: "me", summary: "Notifications and approvals waiting on the caller", permission: null, public: false },
   "GET /v1/me/lens": { tag: "me", summary: "The caller's lens: role default workspace or their own learned adaptation", permission: null, public: false },
   "POST /v1/me/lens/reset": { tag: "me", summary: "Discard learned adaptation and revert to the role default lens", permission: null, public: false },
@@ -3648,6 +3655,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "DELETE /v1/north/decisions/{id}": { tag: "north", summary: "Soft-delete a decision", permission: "north:decisions:write", public: false },
   "POST /v1/north/explore": { tag: "north", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", public: false },
   "GET /v1/north/forecast": { tag: "north", summary: "Project a metric forward from its closed snapshots — damped Holt, p10/p50/p90, with the fitted parameters", permission: "north:forecasts:read", public: false },
+  "GET /v1/north/journeys": { tag: "north", summary: "Journey health: each documented journey's funnel from the audit log, ?days= window", permission: "north:metrics:read", public: false },
   "GET /v1/north/metrics": { tag: "north", summary: "List metrics", permission: "north:metrics:read", public: false },
   "POST /v1/north/metrics": { tag: "north", summary: "Create a metric", permission: "north:metrics:write", public: false },
   "GET /v1/north/metrics/{id}": { tag: "north", summary: "Fetch one metric", permission: "north:metrics:read", public: false },
