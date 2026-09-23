@@ -49,6 +49,7 @@ export function ConfirmButton({ message, guard, children, ...props }: ConfirmBut
         title={t("common.confirmTitle")}
         description={message}
         closeLabel={t("common.cancel")}
+        returnFocus={trigger}
         footer={
           <>
             <Button variant="secondary" onClick={() => setAsking(false)}>
@@ -62,7 +63,10 @@ export function ConfirmButton({ message, guard, children, ...props }: ConfirmBut
                 button?.form?.requestSubmit(button);
               }}
             >
-              {t("common.confirmGo")}
+              {/* The button names the act — "Delete", "Reject" — the way the
+                  trigger did; a bare "Continue" made the reader re-read the
+                  question to know what they were agreeing to. */}
+              {typeof children === "string" ? children : t("common.confirmGo")}
             </Button>
           </>
         }

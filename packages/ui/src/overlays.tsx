@@ -38,6 +38,13 @@ export interface DialogProps {
   children?: React.ReactNode;
   /** Close button's accessible name. Defaults to the kit catalogue in the ambient locale. */
   closeLabel?: string;
+  /**
+   * Where focus goes when the dialog closes. Radix returns it to a
+   * `trigger` it rendered itself; a dialog opened by state (ConfirmButton, the
+   * palette) has none, so focus fell to <body> and a keyboard user started
+   * again from the top of the page.
+   */
+  returnFocus?: React.RefObject<HTMLElement | null>;
 }
 
 const dialogSizes = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" } as const;
@@ -52,7 +59,8 @@ export function Dialog({
   footer,
   size = "md",
   children,
-  closeLabel
+  closeLabel,
+  returnFocus
 }: DialogProps) {
   const t = useUiText();
   return (
@@ -65,6 +73,11 @@ export function Dialog({
       <RDialog.Portal>
         <RDialog.Overlay className={overlayScrim} />
         <RDialog.Content
+          onCloseAutoFocus={(event) => {
+            if (!returnFocus?.current) return;
+            event.preventDefault();
+            returnFocus.current.focus();
+          }}
           className={cn(
             "fixed top-1/2 z-50 w-[calc(100%-2rem)] -translate-y-1/2 rounded-lg border border-border bg-surface-2 p-6 text-start shadow-raised",
             "start-1/2 -translate-x-1/2 rtl:translate-x-1/2",
@@ -471,6 +484,11 @@ export function CommandBar({
     [onOpenChange]
   );
   const [query, setQuery] = React.useState("");
+  const [active, setActive] = React.useState(0);
+  const listId = React.useId();
+  // Where the reader was before ⌘K: the palette has no trigger of its own for
+  // Radix to return focus to, so it went to <body> on close.
+  const before = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -483,15 +501,58 @@ export function CommandBar({
     return () => document.removeEventListener("keydown", onKey);
   }, [isOpen, setOpen]);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      before.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    } else {
+      // A palette reopened on yesterday's query answers the wrong question.
+      setQuery("");
+    }
+  }, [isOpen]);
+
   const q = query.trim().toLowerCase();
   const results = onQueryChange || !q ? items : items.filter((i) => i.label.toLowerCase().includes(q));
   const blocks = groupCommandItems(results);
+  const flat = blocks.flatMap((block) => block.items);
+  const current = Math.min(active, Math.max(flat.length - 1, 0));
+  React.useEffect(() => setActive(0), [query, items.length]);
+
+  const choose = (item: CommandItem | undefined) => {
+    if (!item) return;
+    item.onSelect();
+    setOpen(false);
+  };
+
+  // A listbox driven from its input (WAI-ARIA combobox): arrows move the
+  // active option, Enter takes it. Before this, arrows did nothing and Enter
+  // did nothing — a palette that needed a mouse or a dozen Tabs.
+  const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const last = flat.length - 1;
+    const move = (to: number) => {
+      e.preventDefault();
+      setActive(to);
+      document.getElementById(`${listId}-${to}`)?.scrollIntoView({ block: "nearest" });
+    };
+    if (e.key === "ArrowDown") move(current >= last ? 0 : current + 1);
+    else if (e.key === "ArrowUp") move(current <= 0 ? last : current - 1);
+    else if (e.key === "Home" && e.ctrlKey) move(0);
+    else if (e.key === "End" && e.ctrlKey) move(last);
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      choose(flat[current]);
+    }
+  };
 
   return (
     <RDialog.Root open={isOpen} onOpenChange={setOpen}>
       <RDialog.Portal>
         <RDialog.Overlay className={overlayScrim} />
         <RDialog.Content
+          onCloseAutoFocus={(event) => {
+            if (!before.current?.isConnected) return;
+            event.preventDefault();
+            before.current.focus();
+          }}
           aria-label={palette}
           className="fixed top-24 start-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 rounded-lg border border-border bg-surface-2 text-start shadow-raised rtl:translate-x-1/2"
         >
@@ -502,6 +563,12 @@ export function CommandBar({
           <div className="border-b border-border p-3">
             <Input
               autoFocus
+              role="combobox"
+              aria-expanded={flat.length > 0}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              {...(flat.length ? { "aria-activedescendant": `${listId}-${current}` } : {})}
+              onKeyDown={onInputKey}
               value={query}
               onChange={(e) => {
                 setQuery(e.currentTarget.value);
@@ -511,7 +578,7 @@ export function CommandBar({
               aria-label={search}
             />
           </div>
-          <ul className="max-h-96 overflow-y-auto p-2" role="listbox" aria-label={palette}>
+          <ul id={listId} className="max-h-96 overflow-y-auto p-2" role="listbox" aria-label={palette}>
             {blocks.map((block, index) => (
               <li
                 key={`${block.name ?? ""}-${index}`}
@@ -532,16 +599,16 @@ export function CommandBar({
                   // sense to a screen reader (axe: nested-interactive).
                   <button
                     key={item.id}
+                    id={`${listId}-${flat.indexOf(item)}`}
                     type="button"
                     role="option"
-                    aria-selected={false}
-                    onClick={() => {
-                      item.onSelect();
-                      setOpen(false);
-                    }}
+                    tabIndex={-1}
+                    aria-selected={flat.indexOf(item) === current}
+                    onMouseMove={() => setActive(flat.indexOf(item))}
+                    onClick={() => choose(item)}
                     className={cn(
                       "flex w-full items-center justify-between gap-3 rounded-sm px-3 py-2 text-start font-ui text-14 text-muted",
-                      "hover:bg-surface-3 hover:text-text",
+                      "hover:text-text aria-selected:bg-surface-3 aria-selected:text-text",
                       focusRing
                     )}
                   >
