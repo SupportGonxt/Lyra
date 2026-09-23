@@ -119,21 +119,9 @@ export const ar: Messages = {
   "nav.platform": "فريق المنصة",
   "nav.settings": "الإعدادات",
 
-  "journey.demo": "تجريبي",
   "journey.demoLabel": "الرحلة التجريبية",
-  "journey.axis.title": "المعاملات مصنّفة حسب خط المنتج",
   "journey.axis.empty": "لا توجد حالات بعد",
-  "journey.north.title": "رؤية منقولة من Operations",
   "journey.north.empty": "لا يوجد موجز بعد",
-  "journey.north.continue": "اطّلع على الفراغ السوقي في Market",
-  "journey.scout.title": "الفراغ السوقي، منقول من Insight",
-  "journey.scout.empty": "لا يوجد فراغ سوقي بعد",
-  "journey.scout.continue": "صِغ حملة Marketing",
-  "journey.signal.title": "حملة منقولة من Market",
-  "journey.signal.subject": "الموضوع",
-  "journey.signal.suggestAudienceCard": "اقترح جمهورًا",
-  "journey.signal.suggestAudience": "اقتراح الجمهور",
-  "journey.signal.generateCreativesCard": "توليد المواد الإبداعية",
 
   "surface.empty": "لا يوجد شيء في هذه الشاشة بعد",
 

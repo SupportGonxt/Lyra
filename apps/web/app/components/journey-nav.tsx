@@ -68,7 +68,7 @@ const JOURNEY: Labels = {
   ar: {
     "step.axis": "العمليات",
     "step.axis.detail": "المعاملات",
-    "step.north": "الرؤى",
+    "step.north": "التحليلات التنفيذية",
     "step.north.detail": "الموجز",
     "step.scout": "السوق",
     "step.scout.detail": "الفراغ السوقي",

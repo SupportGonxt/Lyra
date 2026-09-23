@@ -123,21 +123,9 @@ export const en = {
 
   // The flagship demo journey: AXIS -> NORTH -> SCOUT -> SIGNAL
   // (components/journey-nav.tsx, routes/journey-*.tsx).
-  "journey.demo": "Demo",
   "journey.demoLabel": "Demo journey",
-  "journey.axis.title": "Transactions, grouped by product line",
   "journey.axis.empty": "No cases yet",
-  "journey.north.title": "Insight, carried from Operations",
   "journey.north.empty": "No briefing yet",
-  "journey.north.continue": "See Market's whitespace",
-  "journey.scout.title": "Whitespace, carried from Insight",
-  "journey.scout.empty": "No whitespace yet",
-  "journey.scout.continue": "Draft Marketing's campaign",
-  "journey.signal.title": "Campaign, carried from Market",
-  "journey.signal.subject": "Subject",
-  "journey.signal.suggestAudienceCard": "Suggest an audience",
-  "journey.signal.suggestAudience": "Suggest audience",
-  "journey.signal.generateCreativesCard": "Generate creatives",
 
   "surface.empty": "Nothing on this screen yet",
 
