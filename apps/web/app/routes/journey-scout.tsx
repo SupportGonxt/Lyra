@@ -241,110 +241,118 @@ export default function JourneyScout({ loaderData }: { loaderData: Awaited<Retur
     <div className="flex flex-col gap-6 pb-12">
       <JourneyNav current="scout" locale={locale} pack={pack} t={t} />
       <JourneyHeader step="scout" title={l("title")} locale={locale} pack={pack} />
-      <Hero
-        eyebrow={l("heroEyebrow")}
-        title={lede}
-        mod="scout"
-        {...(rows.length > 0
-          ? {
-              hero: {
-                chips: [
-                  { label: l("open"), value: num.format(rows.length), hue: hueVar("scout") },
-                  ...groups.map((g) => ({
-                    label: groupLabel(l, g.key),
-                    value: num.format(g.count),
-                    hue: hueVar("scout"),
-                    detail: l("share", { pct: pct.format(g.count / rows.length) })
-                  }))
-                ]
-              }
-            }
-          : {})}
-      />
-      <ScreenState state={rows.length === 0 ? "empty" : "ready"} title={l("emptyTitle")} body={l("emptyBody")}>
-        <div className="flex flex-col gap-5">
+      {/* The gaps to choose from sit beside the hero and its radar on a wide
+          screen rather than under both, so the list this step exists for is in
+          the first screen; narrower, it follows the radar as before. */}
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <Hero
+            eyebrow={l("heroEyebrow")}
+            title={lede}
+            mod="scout"
+            {...(rows.length > 0
+              ? {
+                  hero: {
+                    chips: [
+                      { label: l("open"), value: num.format(rows.length), hue: hueVar("scout") },
+                      ...groups.map((g) => ({
+                        label: groupLabel(l, g.key),
+                        value: num.format(g.count),
+                        hue: hueVar("scout"),
+                        detail: l("share", { pct: pct.format(g.count / rows.length) })
+                      }))
+                    ]
+                  }
+                }
+              : {})}
+          />
           {groups.length > 1 ? <div>{renderSection(quadrant, "scout")}</div> : null}
-
-          <section aria-labelledby="journey-scout-choose" className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <h2 id="journey-scout-choose" className="section-title">
-                {l("choose")}
-              </h2>
-              <p className="text-13 text-subtle">{l("chooseHint")}</p>
-            </div>
-            <ul className="flex flex-col gap-2">
-              {rows.slice(0, CHOICES).map((row) => {
-                const here = row.whitespaceId === chosen?.whitespaceId;
-                return (
-                  <li key={row.whitespaceId}>
-                    <Link
-                      to={stepHref("scout", search, { whitespaceId: row.whitespaceId })}
-                      replace
-                      preventScrollReset
-                      aria-current={here ? "true" : undefined}
-                      className={cn(
-                        "flex flex-col gap-1 rounded-md border p-3 text-start",
-                        focusRing,
-                        here ? "border-accent-line bg-accent-soft" : "border-border bg-surface-1 hover:bg-surface-2"
-                      )}
-                    >
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-14 font-medium text-text">{groupLabel(l, groupKey(row))}</span>
-                        <Badge tone="neutral" size="sm">
-                          {tag(l, "status", row.status)}
-                        </Badge>
-                        {matchesLine(row.category, productLine) ? (
-                          <Badge tone="accent" size="sm">
-                            {l("matches", { line })}
-                          </Badge>
-                        ) : null}
-                        {here ? (
-                          <Badge tone="success" size="sm">
-                            {l("chosen")}
-                          </Badge>
-                        ) : null}
-                      </span>
-                      <span className="text-13 text-subtle">{row.commentary ?? l("noCommentary")}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-
-          {chosen && chosen.why.length > 0 ? (
-            <section aria-labelledby="journey-scout-why" className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 id="journey-scout-why" className="section-title">
-                  {l("why")}
-                </h2>
-                {chosen.ai ? (
-                  <AgentBadge
-                    agent={l("agentKey.discovery")}
-                    why={
-                      <div className="flex flex-col gap-1 text-13">
-                        <ul className="flex flex-col gap-1">
-                          {chosen.why.map((reason, i) => (
-                            <li key={i}>{reason}</li>
-                          ))}
-                        </ul>
-                        <p className="text-subtle">{l("model", { model: chosen.ai.model })}</p>
-                      </div>
-                    }
-                  />
-                ) : null}
-              </div>
-              <ol className="flex flex-col gap-1">
-                {chosen.why.map((reason, i) => (
-                  <li key={i} className="text-13 text-text">
-                    {reason}
-                  </li>
-                ))}
-              </ol>
-            </section>
-          ) : null}
         </div>
-      </ScreenState>
+        <div className="flex min-w-0 flex-col gap-6">
+          <ScreenState state={rows.length === 0 ? "empty" : "ready"} title={l("emptyTitle")} body={l("emptyBody")}>
+            <div className="flex flex-col gap-5">
+              <section aria-labelledby="journey-scout-choose" className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                  <h2 id="journey-scout-choose" className="section-title">
+                    {l("choose")}
+                  </h2>
+                  <p className="text-13 text-subtle">{l("chooseHint")}</p>
+                </div>
+                <ul className="flex flex-col gap-2">
+                  {rows.slice(0, CHOICES).map((row) => {
+                    const here = row.whitespaceId === chosen?.whitespaceId;
+                    return (
+                      <li key={row.whitespaceId}>
+                        <Link
+                          to={stepHref("scout", search, { whitespaceId: row.whitespaceId })}
+                          replace
+                          preventScrollReset
+                          aria-current={here ? "true" : undefined}
+                          className={cn(
+                            "flex flex-col gap-1 rounded-md border p-3 text-start",
+                            focusRing,
+                            here ? "border-accent-line bg-accent-soft" : "border-border bg-surface-1 hover:bg-surface-2"
+                          )}
+                        >
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-14 font-medium text-text">{groupLabel(l, groupKey(row))}</span>
+                            <Badge tone="neutral" size="sm">
+                              {tag(l, "status", row.status)}
+                            </Badge>
+                            {matchesLine(row.category, productLine) ? (
+                              <Badge tone="accent" size="sm">
+                                {l("matches", { line })}
+                              </Badge>
+                            ) : null}
+                            {here ? (
+                              <Badge tone="success" size="sm">
+                                {l("chosen")}
+                              </Badge>
+                            ) : null}
+                          </span>
+                          <span className="text-13 text-subtle">{row.commentary ?? l("noCommentary")}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              {chosen && chosen.why.length > 0 ? (
+                <section aria-labelledby="journey-scout-why" className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 id="journey-scout-why" className="section-title">
+                      {l("why")}
+                    </h2>
+                    {chosen.ai ? (
+                      <AgentBadge
+                        agent={l("agentKey.discovery")}
+                        why={
+                          <div className="flex flex-col gap-1 text-13">
+                            <ul className="flex flex-col gap-1">
+                              {chosen.why.map((reason, i) => (
+                                <li key={i}>{reason}</li>
+                              ))}
+                            </ul>
+                            <p className="text-subtle">{l("model", { model: chosen.ai.model })}</p>
+                          </div>
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  <ol className="flex flex-col gap-1">
+                    {chosen.why.map((reason, i) => (
+                      <li key={i} className="text-13 text-text">
+                        {reason}
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
+            </div>
+          </ScreenState>
+        </div>
+      </div>
       {chosen ? (
         <JourneyContinue
           to={stepHref("signal", search, { whitespaceId: chosen.whitespaceId, subject })}
