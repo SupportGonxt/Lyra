@@ -18,6 +18,7 @@ import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
 import { onJourneyEvent } from "./engines/orbit-journeys.js";
 import { onAlertTriggered } from "./engines/north-alert-notify.js";
+import { onAccrualDecided, onPolicyIssuedAccrue } from "./engines/commission-accrual.js";
 
 // The outbox drain. Events are written in the same request that changed the row,
 // so delivery can fail all it likes without ever losing the fact that something
@@ -81,6 +82,16 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
           const data = e.data as { customerId?: string; policyId?: string };
           if (data.customerId && data.policyId) await onLeadConverted(ctx, data.customerId, data.policyId);
         }, ctx.now);
+      }
+      // ...and it opens Distribution's side: the channel's commission accrues
+      // through the same gate and unique index as the manual route
+      // (engines/commission-accrual.ts). The bind raises the approval; the
+      // approver's decision, arriving as `core.approval.decided`, books it.
+      if (event.type === "axis.policy.issued") {
+        await consume(ctx.db, event, "dist.commission.accrual", (e) => onPolicyIssuedAccrue(ctx, e), ctx.now);
+      }
+      if (event.type === "core.approval.decided") {
+        await consume(ctx.db, event, "dist.commission.accrual.decided", (e) => onAccrualDecided(ctx, e), ctx.now);
       }
       // F61: a portal-filed DSAR gets its acknowledgement here — the compliance
       // staff are notified so the request never arrives with no owner.
