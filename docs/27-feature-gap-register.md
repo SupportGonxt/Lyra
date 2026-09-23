@@ -1053,6 +1053,20 @@ before any screen changes.
 
 ---
 
+### New finding — per-module config is stored and never read, 2026-09-23
+
+`PATCH /v1/core/modules/:module/config` (apps/api/src/routes/core.ts) writes
+`policyJson.moduleConfig[module]` — `enabled`, `autonomy`, `modelTier`,
+`settings` — and `moduleSettings()` (packages/core/src/module-config.ts) resolves
+it. Its only caller is `k-anonymity.ts`, which reads `settings.kAnonymityFloor`.
+Nothing reads `enabled`, `autonomy` or `modelTier`: disabling a module there
+leaves it answering, and an autonomy override changes no agent. The admin
+automation screen (`/admin/automation`, 2026-09-23) therefore offers the
+auto-approve allowlist only; a toggle for a flag nothing obeys would be a lie.
+Wiring it wants a spec decision first — whether `enabled: false` gates the
+module's routes, and how a module autonomy override composes with an agent's own
+`autonomyLevel` and the `ai.autonomy_raise` approval.
+
 ## What is genuinely strong
 
 Worth protecting under any refactor, because these are the parts a buyer's

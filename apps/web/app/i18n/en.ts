@@ -42,6 +42,7 @@ export const en = {
   "nav.admin/permissions": "Roles and permissions",
   "nav.admin/developer": "Developer portal",
   "nav.admin/security": "Security and access",
+  "nav.admin/automation": "Automatic approvals",
   "nav.admin/staff": "Staff",
   "nav.search/results": "Search results",
   "nav.journey/axis": "Journey: Operations",

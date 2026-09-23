@@ -53,6 +53,7 @@ export default [
     route("admin/permissions", "routes/admin-roles.tsx"),
     route("admin/developer", "routes/admin-developer.tsx"),
     route("admin/security", "routes/admin-security.tsx"),
+    route("admin/automation", "routes/admin-automation.tsx"),
     route("admin/staff", "routes/staff.tsx"),
     route("admin/staff/:id", "routes/staff-member.tsx"),
     route("platform", "routes/platform.tsx"),

@@ -41,6 +41,7 @@ export const ar: Messages = {
   "nav.admin/permissions": "الأدوار والصلاحيات",
   "nav.admin/developer": "بوابة المطورين",
   "nav.admin/security": "الأمان والوصول",
+  "nav.admin/automation": "الموافقات التلقائية",
   "nav.admin/staff": "الموظفون",
   "nav.search/results": "نتائج البحث",
   "nav.journey/axis": "الرحلة: العمليات",
