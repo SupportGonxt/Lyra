@@ -19,8 +19,10 @@ import {
   ConfidenceMeter,
   DateTime,
   EmptyState,
+  Field,
   focusRing,
   GuardrailNotice,
+  Input,
   Money,
   Ref,
   shortRef
@@ -52,8 +54,15 @@ const PERM = {
   select: "dist:quote_requests:select",
   commissions: "dist:commissions:read",
   offersRead: "dist:offers:read",
-  offersDecide: "dist:offers:override"
+  offersDecide: "dist:offers:override",
+  bind: "axis:policies:bind"
 } as const;
+
+/** A calendar day as the API's instant: midnight UTC. */
+function dayStart(value: FormDataEntryValue | null): number {
+  const day = String(value ?? "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(`${day}T00:00:00Z`) : NaN;
+}
 
 interface QuoteRequest {
   id: string;
@@ -181,6 +190,15 @@ const LABELS: Record<string, Record<string, string>> = {
     reason: "Reason",
     "done.share": "Marked as shared with the customer.",
     "done.select": "Selection recorded and the comparison closed as converted.",
+    "done.bind": "Issued.",
+    openPolicy: "Open what was issued",
+    bindTitle: "Issue from the selected quote",
+    bindBody: "The selected quote becomes what the customer holds. Price, provider and product come from the quote itself; give it a number and a term.",
+    bindNoCustomer: "This comparison has no customer, so it can be priced but not sold. Shop it again for a named customer to issue it.",
+    policyNo: "Policy number",
+    startAt: "Starts",
+    endAt: "Ends",
+    bindSubmit: "Issue",
     "done.accepted": "Interest recorded against this suggestion.",
     "done.dismissed": "Suggestion dismissed. It will not be shown again.",
     approvalRef: "Approval {id}",
@@ -262,6 +280,15 @@ const LABELS: Record<string, Record<string, string>> = {
     reason: "السبب",
     "done.share": "سُجّلت المشاركة مع العميل.",
     "done.select": "سُجّل الاختيار وأُغلقت المقارنة كمحوّلة.",
+    "done.bind": "تم الإصدار.",
+    openPolicy: "فتح ما صدر",
+    bindTitle: "الإصدار من العرض المختار",
+    bindBody: "يصبح العرض المختار ما يحمله العميل. السعر والجهة والمنتج من العرض نفسه؛ أدخل رقمًا ومدة.",
+    bindNoCustomer: "لا عميل لهذه المقارنة، فيمكن تسعيرها لا بيعها. أعد طلب العروض لعميل محدد لإصدارها.",
+    policyNo: "رقم الوثيقة",
+    startAt: "تبدأ",
+    endAt: "تنتهي",
+    bindSubmit: "إصدار",
     "done.accepted": "سُجّل الاهتمام بهذا الاقتراح.",
     "done.dismissed": "تم تجاهل الاقتراح ولن يُعرض ثانية.",
     approvalRef: "الموافقة {id}",
@@ -392,7 +419,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
       shop: held.has(PERM.shop),
       share: held.has(PERM.share),
       select: held.has(PERM.select),
-      decide: held.has(PERM.offersDecide)
+      decide: held.has(PERM.offersDecide),
+      bind: held.has(PERM.bind)
     }
   };
 }
@@ -407,6 +435,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
   // What the write actually did, echoed back so the page can say so out loud
   // instead of leaving the operator to infer it from a changed table.
   let done: string | null = null;
+  let policyId: string | null = null;
 
   // F56: every consequential write here carries an idempotency key, unique per
   // intent and target so two different decisions in one page load never share
@@ -427,6 +456,24 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
         ...(baseKey ? { headers: { "idempotency-key": `${baseKey}:${responseId}:select` } } : {})
       });
       done = "done.select";
+    } else if (intent === "bind") {
+      // The sale: the selected quote becomes the policy. The API holds it for
+      // approval where policy says so (axis.bind); that answer is a gate, shown
+      // beside this form like every other one on the page.
+      const responseId = String(form.get("responseId") ?? "");
+      const bound = await api<{ policy: { id: string } }>(`/v1/axis/quote-responses/${encodeURIComponent(responseId)}/bind`, {
+        env,
+        request,
+        method: "POST",
+        body: {
+          policyNo: String(form.get("policyNo") ?? "").trim(),
+          startAt: dayStart(form.get("startAt")),
+          endAt: dayStart(form.get("endAt"))
+        },
+        ...(baseKey ? { headers: { "idempotency-key": `${baseKey}:${responseId}:bind` } } : {})
+      });
+      policyId = bound.policy.id;
+      done = "done.bind";
     } else if (intent === "offer") {
       const decision = String(form.get("decision") ?? "");
       const offerId = String(form.get("offerId") ?? "");
@@ -461,15 +508,15 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       // silently no-ops, redirecting back to a URL no route matches.
       return redirect(`/distribution/quote-requests/${fresh.request.id}/compare`);
     } else {
-      return { problem: { title: "unknown intent", status: 400 }, done: null };
+      return { problem: { title: "unknown intent", status: 400 }, done: null, policyId: null, intent };
     }
   } catch (error) {
     // A rejected write is information, not a crash: an expired quote, a missing
     // consent or an approval gate all belong on this page, next to the offer.
-    if (error instanceof ApiError) return { problem: error.problem, done: null };
+    if (error instanceof ApiError) return { problem: error.problem, done: null, policyId: null, intent };
     throw error;
   }
-  return { problem: null, done };
+  return { problem: null, done, policyId, intent };
 }
 
 /* --------------------------------------------------------------- component */
@@ -477,7 +524,10 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 export default function QuoteCompare() {
   const loaded = useLoaderData<typeof loader>();
   const result = useActionData<typeof action>();
-  const problem = result?.problem ?? null;
+  // A refused issue is shown inside the issue form, at the foot of a long page,
+  // rather than at the top where its reader cannot see it.
+  const bindProblem = result?.intent === "bind" ? (result.problem ?? null) : null;
+  const problem = bindProblem ? null : (result?.problem ?? null);
   const done = result?.done ?? null;
   const shell = useShellData();
   const navigation = useNavigation();
@@ -497,6 +547,7 @@ export default function QuoteCompare() {
 
   const attributes = attributesFor(quotes, { locale, L, t, commission: loaded.can.commission });
   const alreadySelected = quotes.some((quote) => quote.selectedAt !== null);
+  const chosen = quotes.find((quote) => quote.selectedAt !== null && quote.premiumMinor !== null) ?? null;
   // Past its expiry the API refuses a selection (routes/dist.ts returns 409), so
   // the button says so up front rather than letting the click find out.
   const expired = requestExpired(request.expiresAt, loaded.now);
@@ -585,6 +636,14 @@ export default function QuoteCompare() {
         // obvious from the redrawn table alone.
         <p role="status" className="rounded-md border border-border bg-surface-2 p-3 font-ui text-13 text-text">
           {L(done)}
+          {result?.policyId ? (
+            <>
+              {" "}
+              <Link to={`/axis/policies/${result.policyId}`} className="text-accent underline underline-offset-4">
+                {L("openPolicy")}
+              </Link>
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -728,6 +787,16 @@ export default function QuoteCompare() {
             // audited, it converts the request, and policy may hold it for
             // approval (CLAUDE.md §4).
             <p className="font-ui text-12 text-subtle">{L("selectConsequence")}</p>
+          ) : null}
+          {chosen && loaded.can.bind && result?.done !== "done.bind" ? (
+            <BindPanel
+              quote={chosen}
+              customer={request.customerId}
+              L={L}
+              busy={busy}
+              idempotencyKey={loaded.idempotencyKey}
+              problem={bindProblem}
+            />
           ) : null}
         </div>
       )}
@@ -1137,4 +1206,71 @@ function approvalOf(problem: ApiProblem | null): { policyKey: string; approvalId
     policyKey: extras.policy_key ?? problem.detail ?? problem.title,
     ...(extras.approval_id ? { approvalId: extras.approval_id } : {})
   };
+}
+
+/**
+ * The sale. A selected quote becomes the policy the customer holds: a number
+ * and a term, nothing else typed — premium, provider and product come from the
+ * quote itself on the server. A comparison with no customer can price a risk
+ * but not sell one (routes/axis.ts refuses it), so the form says why instead.
+ */
+function BindPanel({
+  quote,
+  customer,
+  L,
+  busy,
+  idempotencyKey,
+  problem
+}: {
+  quote: Quote;
+  customer: string | null;
+  L: (key: string, vars?: Record<string, string>) => string;
+  busy: boolean;
+  idempotencyKey: string;
+  problem: ApiProblem | null;
+}) {
+  const gated = approvalOf(problem);
+  const today = new Date();
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const nextYear = new Date(Date.UTC(today.getUTCFullYear() + 1, today.getUTCMonth(), today.getUTCDate() - 1));
+  return (
+    <section aria-labelledby="bind-heading" className="flex flex-col gap-3 rounded-lg border border-border bg-surface-1 p-4">
+      <h2 id="bind-heading" className="section-title">
+        {L("bindTitle")}
+      </h2>
+      {customer ? (
+        <Form method="post" className="flex flex-col gap-3">
+          <p className="max-w-prose font-ui text-13 text-muted">{L("bindBody")}</p>
+          <input type="hidden" name="intent" value="bind" />
+          <input type="hidden" name="responseId" value={quote.id} />
+          <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label={L("policyNo")} required>
+              <Input name="policyNo" required maxLength={64} />
+            </Field>
+            <Field label={L("startAt")} required>
+              <Input name="startAt" type="date" required defaultValue={iso(today)} />
+            </Field>
+            <Field label={L("endAt")} required>
+              <Input name="endAt" type="date" required defaultValue={iso(nextYear)} />
+            </Field>
+          </div>
+          {gated ? (
+            <p role="status" className="font-ui text-13 text-warning">
+              {L("approvalBody", { policy: gated.policyKey })}
+            </p>
+          ) : problem ? (
+            <Problem problem={problem} />
+          ) : null}
+          <div>
+            <Button type="submit" loading={busy}>
+              {L("bindSubmit")}
+            </Button>
+          </div>
+        </Form>
+      ) : (
+        <p className="max-w-prose font-ui text-13 text-muted">{L("bindNoCustomer")}</p>
+      )}
+    </section>
+  );
 }
