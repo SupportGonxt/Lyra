@@ -391,7 +391,7 @@ export function Stat({
   return (
     // min-w-0: a grid item defaults to min-width:auto, so a figure wider than
     // its track ran into the next stat ("AED 244,900.001") instead of wrapping.
-    <div className={cn("flex min-w-0 flex-col gap-1 text-start", className)}>
+    <div data-stat="" className={cn("flex min-w-0 flex-col gap-1 text-start", className)}>
       <span className="eyebrow">{label}</span>
       {/* docs/01 §4: KPI numbers are Archivo 700, tabular — a wall of these
           still lines up on the decimal without a grid laid out for it. */}

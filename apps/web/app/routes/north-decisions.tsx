@@ -26,6 +26,7 @@ import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { useNorthSessionData } from "./north-shell";
 import { ConfirmButton } from "../components/confirm";
+import { WorkLayout } from "../components/work-layout";
 import {
   labelsFrom,
   parsed,
@@ -483,38 +484,40 @@ export default function NorthDecisions() {
           <p className="font-ui text-13 text-subtle">{l("denied")}</p>
         </Panel>
       ) : (
-        <>
-          {canWrite ? (
-            <Panel module="north" eyebrow={l("record.eyebrow")} lede={l("record.lede")}>
-              <Form method="post" className="flex flex-col gap-3">
-                <input type="hidden" name="intent" value="record" />
-                <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-                <Field label={l("record.title")} hint={l("record.title.hint")}>
-                  <Input name="title" required aria-label={l("record.title")} />
-                </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label={l("record.owner")} hint={l("record.owner.hint")}>
-                    <Input name="owner" required aria-label={l("record.owner")} />
+        <WorkLayout
+          aside={
+            canWrite ? (
+              <Panel module="north" eyebrow={l("record.eyebrow")} lede={l("record.lede")}>
+                <Form method="post" className="flex flex-col gap-3">
+                  <input type="hidden" name="intent" value="record" />
+                  <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+                  <Field label={l("record.title")} hint={l("record.title.hint")}>
+                    <Input name="title" required aria-label={l("record.title")} />
                   </Field>
-                  <Field label={l("record.review")} hint={l("record.review.hint")}>
-                    <Input type="date" name="reviewAt" aria-label={l("record.review")} />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label={l("record.owner")} hint={l("record.owner.hint")}>
+                      <Input name="owner" required aria-label={l("record.owner")} />
+                    </Field>
+                    <Field label={l("record.review")} hint={l("record.review.hint")}>
+                      <Input type="date" name="reviewAt" aria-label={l("record.review")} />
+                    </Field>
+                  </div>
+                  <Field label={l("record.context")} hint={l("record.context.hint")}>
+                    <Input name="contextRef" aria-label={l("record.context")} />
                   </Field>
-                </div>
-                <Field label={l("record.context")} hint={l("record.context.hint")}>
-                  <Input name="contextRef" aria-label={l("record.context")} />
-                </Field>
-                <Field label={l("record.options")} hint={l("record.options.hint")}>
-                  <Textarea name="options" rows={3} aria-label={l("record.options")} />
-                </Field>
-                <div>
-                  <Button type="submit" disabled={busy}>
-                    {l("record.submit")}
-                  </Button>
-                </div>
-              </Form>
-            </Panel>
-          ) : null}
-
+                  <Field label={l("record.options")} hint={l("record.options.hint")}>
+                    <Textarea name="options" rows={3} aria-label={l("record.options")} />
+                  </Field>
+                  <div>
+                    <Button type="submit" disabled={busy}>
+                      {l("record.submit")}
+                    </Button>
+                  </div>
+                </Form>
+              </Panel>
+            ) : null
+          }
+        >
           {open.length > 0 ? (
             <section className="flex flex-col gap-3">
               <h2 className="section-title">{l("queue.title")}</h2>
@@ -544,7 +547,7 @@ export default function NorthDecisions() {
               <Table columns={columns} rows={rows} rowKey={(row) => row.id} caption={l("log.caption")} />
             )}
           </section>
-        </>
+        </WorkLayout>
       )}
     </div>
   );

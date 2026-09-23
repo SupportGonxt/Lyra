@@ -283,6 +283,28 @@ These are not style advice. Each one has a test, a lint rule, or a CI gate.
 
 ---
 
+### 4.1 Density (2026-09-23)
+
+A staff screen is read, not admired: the data comes first and fills the fold.
+Three rules, each held by `layoutFindings` in `scripts/sweep-lib.mjs` (run by
+`scripts/sweep.mjs` at 1440×900; `SWEEP_ONLY=/a,/b` for a quick loop):
+
+1. **Data starts in the top half.** The first row, figure (`Stat` carries
+   `data-stat`), chart or list item sits above 450px. A register with a
+   composer uses [`WorkLayout`](apps/web/app/components/work-layout.tsx) —
+   data column first, the form in a sticky aside on xl, stacked below on
+   narrower screens. Generic lists keep **one toolbar row** (saved view,
+   search, filters named in their own "All" choice) and put **New / Import**
+   in the header as panels that drop over the table; the bulk bar exists only
+   while rows are ticked.
+2. **Say a sentence once.** A headline is not restated as the card caption and
+   again as the empty state's body. Empty states are compact (`EmptyState`, a
+   small mark, one teaching line, one action).
+3. **Long screens carry in-page navigation.** Over four viewports tall means a
+   `nav` of anchored sections or tabs.
+
+Tables default to `compact`; `Stat` figures are `text-22`.
+
 ## 5. Interaction conventions
 
 **Navigation.** The rail is the primary; the module band switches workspace; the
