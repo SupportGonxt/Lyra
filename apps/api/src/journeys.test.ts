@@ -526,6 +526,8 @@ describe("J-O2 group medical bid", () => {
       await call("axis.lead", "POST", "/v1/dist/quote-requests/shop", {
         productId: products.health,
         channelId: seeded.channels.brokerAlpha,
+        customerId,
+        consentId,
         inputs: { age: 41, sumInsuredMinor: 10_000_000, priorClaims: false, lives: 120 },
         currency: "AED"
       }),

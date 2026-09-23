@@ -1056,6 +1056,15 @@ before any screen changes.
 
 ### New finding — the quote desk issues around the sale endpoint, 2026-09-23
 
+**Closed, same day — decided: a named customer is required at shop time.**
+`POST /v1/dist/quote-requests/shop` and the generic quote-request create both
+refuse a request with no `customerId` (400, `errors.customerId`); the portal
+already names its visitor. The desk now issues through
+`/quote-responses/:id/bind` (`bindFrom`, `axis-quote-desk.tsx`): the form sends
+the contract number and cover dates only, and the server reads price, provider
+and customer off the quote. The desk shows the customer and cannot change it.
+Contract note: `customerId` on `/shop` went from optional to required.
+
 `POST /v1/axis/quote-responses/:id/bind` (apps/api/src/routes/axis.ts) is the
 sale: it checks the response is quoted and selected, takes premium, provider and
 product from the quote on the server, links the policy version to the response

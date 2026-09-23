@@ -473,7 +473,8 @@ export const distribution: WorkspaceSpec = {
       fields: [
         { name: "channelId", type: "text", required: true },
         { name: "productId", type: "text", required: true },
-        { name: "customerId", type: "text" },
+        // A shop is the start of a sale; the API refuses one with no customer.
+        { name: "customerId", type: "text", required: true },
         { name: "caseId", type: "text" },
         { name: "inputsJson", type: "json", required: true },
         { name: "consentId", type: "text" },

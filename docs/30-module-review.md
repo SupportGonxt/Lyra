@@ -68,7 +68,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### AXIS · Operations
 1. ~~Document extraction from an uploaded file — the vision path exists in the API; the web screen demands pasted text.~~ **Fixed** 2026-09-23: an empty paste now reads the stored file (`axis-doc-intel.tsx`, test "reads the stored file when nothing is pasted").
 2. Policy schedule produced on bind (the document engine exists; only a manual route calls it).
-3. Quote desk issues through `/quote-responses/:id/bind` — needs the customer-at-shop decision (docs/27, 2026-09-23).
+3. ~~Quote desk issues through `/quote-responses/:id/bind`.~~ **Fixed** 2026-09-23: a named customer is required at shop time; the desk binds (docs/27).
 4. ~~Screens for NTU / lapse / reinstate~~ — **reviewer was wrong**: all three are declared actions on the policies tab (`apps/web/app/modules/axis.ts` `/{id}/ntu`, `/lapse`, `/reinstate`) and render on the generic record page. SLA prediction (`axis.ts:454`) still has no web caller.
 5. Reinsurance treaties and cessions (missing).
 

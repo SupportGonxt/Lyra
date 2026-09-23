@@ -355,6 +355,16 @@ export const DIST = register(
     read: "dist:quote_requests:read",
     create: "dist:quote_requests:create",
     update: "dist:quote_requests:create"
+  }, {
+    // A shop is the start of a sale and a sale needs someone to sell to
+    // (docs/27, 2026-09-23): the same rule as `/shop`, at the other door.
+    beforeWrite: (_ctx, values, existing) => {
+      const customerId = "customerId" in values ? values.customerId : existing?.customerId;
+      if (typeof customerId !== "string" || !customerId) {
+        throw badRequest("a quote request names its customer", { customerId: "required" });
+      }
+      return values;
+    }
   }),
   r("quote-responses", schema.distQuoteResponses, "qs", "dist", ro("dist:quote_requests:read")),
   // `state`, `channelSettlementId` and `txnId` are settlement-engine-owned:

@@ -41,7 +41,10 @@ const ctxOf = (c: { get(k: "ctx"): Ctx }): Ctx => c.get("ctx");
 const ShopBody = z.object({
   productId: z.string().min(1),
   channelId: z.string().min(1),
-  customerId: z.string().optional(),
+  /** A shop is the start of a sale, and a sale needs someone to sell to: the
+   *  bind refuses a request with no customer, so the shop refuses it first
+   *  (docs/27, 2026-09-23). The portal names its visitor the same way. */
+  customerId: z.string().min(1),
   consentId: z.string().optional(),
   caseId: z.string().optional(),
   /** The risk, in the product's rating inputs. */
@@ -68,20 +71,18 @@ distRoutes.post("/quote-requests/shop", async (c) => {
 
       // Passing a customer's details to third-party underwriters is data sharing
       // and needs a recorded basis. No consent, no fan-out (docs/12 §3).
-      if (input.customerId) {
-        if (!input.consentId) throw badRequest("consentId is required when a customer is identified");
-        const consent = await one(ctx, schema.consents, input.consentId);
-        if (!consent || consent.customerId !== input.customerId) throw badRequest("consent does not match customer");
-        const purposes = JSON.parse(consent.purposesJson) as { dataSharing?: boolean };
-        if (!purposes.dataSharing) throw badRequest("consent does not permit sharing with providers");
-      }
+      if (!input.consentId) throw badRequest("consentId is required when a customer is identified");
+      const consent = await one(ctx, schema.consents, input.consentId);
+      if (!consent || consent.customerId !== input.customerId) throw badRequest("consent does not match customer");
+      const purposes = JSON.parse(consent.purposesJson) as { dataSharing?: boolean };
+      if (!purposes.dataSharing) throw badRequest("consent does not permit sharing with providers");
 
       const { request, responses } = await runShop(ctx, {
         request: {
           id: newId("qr", ctx.now),
           tenantId: ctx.tenantId,
           caseId: input.caseId ?? null,
-          customerId: input.customerId ?? null,
+          customerId: input.customerId,
           channelId: input.channelId,
           productId: input.productId,
           inputsJson: JSON.stringify(input.inputs),

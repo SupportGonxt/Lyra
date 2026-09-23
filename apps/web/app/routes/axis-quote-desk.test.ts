@@ -10,7 +10,6 @@ import {
   action,
   byPressure,
   deskFocus,
-  deskCustomers,
   deskGroups,
   deskHeadlineKey,
   epochOf,
@@ -18,7 +17,7 @@ import {
   flagsOf,
   labelsIn,
   phrase,
-  policyFrom,
+  bindFrom,
   toDeskQuotes,
   type DeskCase,
   type DeskQuote,
@@ -399,74 +398,79 @@ describe("pick / decline", () => {
   });
 });
 
-describe("policyFrom", () => {
+// The desk issues through the sale endpoint: the quote names the price, the
+// provider and the customer on the server, so the form carries none of them
+// (docs/27, 2026-09-23 — a named customer is required at shop time).
+describe("bindFrom", () => {
   const full = () => {
     const form = new FormData();
+    form.set("quoteId", "qs_1");
     form.set("caseId", "case_1");
-    form.set("customerId", "cus_1");
-    form.set("providerId", "prov_a");
     form.set("policyNo", "POL-1");
     form.set("startAt", "2026-09-01");
     form.set("endAt", "2027-08-31");
-    form.set("premiumMinor", "500000");
-    form.set("currency", "AED");
     return form;
   };
 
-  it("builds exactly the not-null columns the contract needs", () => {
-    const built = policyFrom(full());
-    expect(built).toEqual({
+  it("names the quote and sends only what the operator decides", () => {
+    expect(bindFrom(full())).toEqual({
+      quoteId: "qs_1",
       body: {
         caseId: "case_1",
-        customerId: "cus_1",
-        providerId: "prov_a",
         policyNo: "POL-1",
         startAt: Date.parse("2026-09-01T00:00:00Z"),
-        endAt: Date.parse("2027-08-31T00:00:00Z"),
-        premiumMinor: 500_000,
-        currency: "AED"
+        endAt: Date.parse("2027-08-31T00:00:00Z")
       }
     });
+  });
+
+  it("does not carry a price, provider or customer even when a form posts one", () => {
+    const form = full();
+    form.set("premiumMinor", "1");
+    form.set("customerId", "cus_other");
+    const built = bindFrom(form);
+    expect("body" in built && Object.keys(built.body).sort()).toEqual(["caseId", "endAt", "policyNo", "startAt"]);
   });
 
   it("refuses cover that ends before it starts", () => {
     const form = full();
     form.set("endAt", "2026-08-01");
-    expect(policyFrom(form)).toEqual({ code: "bad_dates" });
+    expect(bindFrom(form)).toEqual({ code: "bad_dates" });
   });
 
-  it("refuses a contract missing its number, customer or either date", () => {
-    for (const field of ["policyNo", "customerId", "startAt", "endAt"]) {
+  it("refuses a contract missing its number or either date", () => {
+    for (const field of ["policyNo", "startAt", "endAt"]) {
       const form = full();
       form.set(field, "");
-      expect(policyFrom(form), field).toEqual({ code: "missing_policy" });
+      expect(bindFrom(form), field).toEqual({ code: "missing_policy" });
     }
   });
 
-  it("refuses to invent the money when the quote fields are gone", () => {
+  it("refuses without the quote it issues from", () => {
     const form = full();
-    form.delete("premiumMinor");
-    expect(policyFrom(form)).toEqual({ code: "missing_quote" });
+    form.delete("quoteId");
+    expect(bindFrom(form)).toEqual({ code: "missing_quote" });
   });
 });
 
 describe("issue", () => {
-  it("creates the contract from the picked quote", async () => {
-    const calls = stubFetch(new Response(JSON.stringify({ id: "pol_1" }), { status: 201 }));
+  const issueForm = () => {
     const form = new FormData();
     form.set("intent", "issue");
+    form.set("quoteId", "qs_1");
     form.set("caseId", "case_1");
-    form.set("customerId", "cus_1");
-    form.set("providerId", "prov_a");
     form.set("policyNo", "POL-1");
     form.set("startAt", "2026-09-01");
     form.set("endAt", "2027-08-31");
-    form.set("premiumMinor", "500000");
-    form.set("currency", "AED");
+    return form;
+  };
 
-    const result = await action(args(form));
+  it("binds the picked quote", async () => {
+    const calls = stubFetch(new Response(JSON.stringify({ policy: { id: "pol_1" } }), { status: 201 }));
 
-    expect(calls[0]?.url).toBe("https://api.test/v1/axis/policies");
+    const result = await action(args(issueForm()));
+
+    expect(calls[0]?.url).toBe("https://api.test/v1/axis/quote-responses/qs_1/bind");
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.key).toMatch(/^[0-9a-f-]{36}$/);
     expect(result.done).toBe("issue");
@@ -486,18 +490,8 @@ describe("issue", () => {
         { status: 403, headers: { "content-type": "application/json" } }
       )
     );
-    const form = new FormData();
-    form.set("intent", "issue");
-    form.set("caseId", "case_1");
-    form.set("customerId", "cus_1");
-    form.set("providerId", "prov_a");
-    form.set("policyNo", "POL-1");
-    form.set("startAt", "2026-09-01");
-    form.set("endAt", "2027-08-31");
-    form.set("premiumMinor", "500000");
-    form.set("currency", "AED");
 
-    const result = await action(args(form));
+    const result = await action(args(issueForm()));
 
     expect(result.done).toBeNull();
     expect(result.problem?.code).toBe("approval_required");
@@ -535,29 +529,6 @@ describe("the cases on the desk", () => {
     expect([...OPEN_CASE_STATUSES]).toEqual(["quoting", "review", "approval"]);
     expect(OPEN_CASE_STATUSES).not.toContain("issued");
     expect(OPEN_CASE_STATUSES).not.toContain("cancelled");
-  });
-});
-
-// The issue form asked for the customer as a pasted `cu_01KE…`, so the desk
-// offers the customers it already has by name.
-describe("deskCustomers", () => {
-  it("offers a named customer once, however many cases they have open", () => {
-    const cases = [
-      kase({ id: "case_1", customerId: "cu_1" }),
-      kase({ id: "case_2", customerId: "cu_1" })
-    ];
-
-    expect(deskCustomers(cases, { cu_1: "Amina Haddad" })).toEqual([
-      { id: "cu_1", label: "Amina Haddad" }
-    ]);
-  });
-
-  it("leaves out a customer the actor may not read rather than offering a ULID", () => {
-    expect(deskCustomers([kase({ customerId: "cu_1" })], {})).toEqual([]);
-  });
-
-  it("skips a case that has no customer yet", () => {
-    expect(deskCustomers([kase({ customerId: null })], { cu_1: "Amina Haddad" })).toEqual([]);
   });
 });
 
