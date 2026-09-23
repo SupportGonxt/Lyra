@@ -110,6 +110,8 @@ export const en = {
   "brief.anomaly": "Needs an owner",
   "brief.anomalyNone": "Nothing is unexplained right now.",
   "brief.anomalyLine": "{metric} is {delta} against expectation over {window}.",
+  "brief.takeOn": "Take it on",
+  "brief.taken": "Recorded as yours.",
   "brief.recent": "Earlier briefs",
 
   "approvals.title": "Waiting on you",
@@ -387,6 +389,8 @@ export const ar: Messages = {
   "brief.anomaly": "يحتاج إلى مسؤول",
   "brief.anomalyNone": "لا يوجد شيء بلا تفسير الآن.",
   "brief.anomalyLine": "{metric} بمقدار {delta} عن المتوقع خلال {window}.",
+  "brief.takeOn": "تولّها",
+  "brief.taken": "سُجّلت باسمك.",
   "brief.recent": "موجزات سابقة",
 
   "approvals.title": "بانتظار قرارك",

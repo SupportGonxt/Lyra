@@ -51,6 +51,9 @@ const {
   cacMinor,
   caseSeverity,
   channelLabel,
+  anomalyOwner,
+  briefNarrative,
+  canTakeAnomaly,
   chosenBriefing,
   clusterOrder,
   contentTypeOf,
@@ -105,6 +108,7 @@ const {
   setOnSessionEnd,
   stepAfterClearing,
   stepAfterLogin,
+  takeAnomaly,
   uploadDocument,
   verifyThenLoad
 } = await import("./api");
@@ -823,6 +827,17 @@ describe("write calls", () => {
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ decision: "approved" });
   });
 
+  it("takes an anomaly with the same PATCH the web's anomaly queue sends", async () => {
+    stub({ id: "ano/1", state: "action_created" });
+    await takeAnomaly("t", "ano/1", "Rana Hadid");
+    expect(calls[0]!.url).toContain("/v1/north/anomalies/ano%2F1");
+    expect(calls[0]!.init.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
+      state: "action_created",
+      explainedBy: "Rana Hadid"
+    });
+  });
+
   it("escapes an id into the path", async () => {
     stub(null, 204);
     await markNotificationRead("t", "ntf/1");
@@ -920,13 +935,59 @@ describe("name resolution", () => {
 });
 
 describe("journey helpers", () => {
-  it("reads the asked-for briefing, else the most recent", () => {
-    const rows = [{ id: "brf_2" }, { id: "brf_1" }];
-    expect(chosenBriefing(rows)?.id).toBe("brf_2");
-    expect(chosenBriefing(rows, "brf_1")?.id).toBe("brf_1");
-    expect(chosenBriefing(rows, "brf_9")?.id).toBe("brf_2");
-    expect(chosenBriefing([])).toBeNull();
-    expect(chosenBriefing(null)).toBeNull();
+  it("reads the asked-for briefing, else the newest in the reader's language", () => {
+    // Newest-first, as the API sorts them. Same rule as the web's `chosen`
+    // (apps/web/app/routes/north-shared.tsx).
+    const rows = [
+      { id: "brf_3", locale: "ar" },
+      { id: "brf_2", locale: "en" },
+      { id: "brf_1", locale: "en" }
+    ];
+    expect(chosenBriefing(rows, null, "en")?.id).toBe("brf_2");
+    expect(chosenBriefing(rows, null, "ar")?.id).toBe("brf_3");
+    // A regional tag is still that language.
+    expect(chosenBriefing(rows, null, "en-AE")?.id).toBe("brf_2");
+    // Nothing in the reader's language: newest at all rather than nothing.
+    expect(chosenBriefing(rows, null, "fr")?.id).toBe("brf_3");
+    // An explicit id wins over language; an unknown one falls back to newest.
+    expect(chosenBriefing(rows, "brf_3", "en")?.id).toBe("brf_3");
+    expect(chosenBriefing(rows, "brf_9", "en")?.id).toBe("brf_3");
+    expect(chosenBriefing([], null, "en")).toBeNull();
+    expect(chosenBriefing(null, null, "en")).toBeNull();
+  });
+
+  it("never shows a storage key as the briefing's prose", () => {
+    expect(briefNarrative("briefings/gonxt/brf_1.md")).toBeNull();
+    expect(briefNarrative("brf_1.md")).toBeNull();
+    expect(briefNarrative("Motor premiums rose.\n\nClaims held.")).toBe(
+      "Motor premiums rose.\n\nClaims held."
+    );
+    expect(briefNarrative("")).toBeNull();
+    expect(briefNarrative(null)).toBeNull();
+    expect(briefNarrative(42)).toBeNull();
+  });
+
+  it("offers to take an anomaly only to a reader who may assign it", () => {
+    expect(canTakeAnomaly(["north:anomalies:assign"])).toBe(true);
+    expect(canTakeAnomaly(["north:anomalies:read"])).toBe(false);
+    expect(canTakeAnomaly(null)).toBe(false);
+  });
+
+  it("signs a taken anomaly with the reader's name, else their email", () => {
+    const actor = { kind: "user", id: "u1" };
+    const profile = {
+      id: "u1",
+      name: "Rana Hadid",
+      email: "rana.hadid@gonxt.ae",
+      locale: "en",
+      status: "active"
+    };
+    expect(anomalyOwner({ actor, profile })).toBe("Rana Hadid");
+    expect(anomalyOwner({ actor, profile: { ...profile, name: "  " } })).toBe(
+      "rana.hadid@gonxt.ae"
+    );
+    expect(anomalyOwner({ actor, profile: null })).toBe("u1");
+    expect(anomalyOwner(null)).toBeNull();
   });
 
   it("shows no highlights rather than crashing on a bad column", () => {

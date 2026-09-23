@@ -392,6 +392,18 @@ export const generateBriefing = (
 ): Promise<Row> =>
   request<Row>("/v1/north/briefings/generate", { method: "POST", token, body: input });
 
+/**
+ * Takes an anomaly on: the same PATCH the web's /north/anomalies "Take it on"
+ * sends (apps/web/app/routes/north-anomalies.tsx `action`, intent `own`) —
+ * state `action_created`, signed with the reader's name (J-E1).
+ */
+export const takeAnomaly = (token: string, id: string, owner: string): Promise<Row> =>
+  request<Row>(`/v1/north/anomalies/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    token,
+    body: { state: "action_created", explainedBy: owner }
+  });
+
 /** Sends a human reply out over the conversation's bound channel (ADR-0038). */
 export const replyToConversation = (token: string, id: string, text: string): Promise<Row> =>
   request<Row>(`/v1/orbit/conversations/${encodeURIComponent(id)}/reply`, {
