@@ -57,8 +57,15 @@ export function menuFor(
     : spec && label
       ? visibleLinks(spec, permissions).map((link) => ({ href: link.href, label: label(link.labelKey) }))
       : [];
+  // A bespoke screen can sit at a list's own address (/north/anomalies); it is
+  // listed once, as the screen.
+  const taken = new Set(screens.map((screen) => screen.href));
   const records: MenuEntry[] =
-    spec && label ? visibleTabs(spec, permissions).map((tab) => ({ href: `${spec.path}/${tab.key}`, label: label(tab.key) })) : [];
+    spec && label
+      ? visibleTabs(spec, permissions)
+          .map((tab) => ({ href: `${spec.path}/${tab.key}`, label: label(tab.key) }))
+          .filter((entry) => !taken.has(entry.href))
+      : [];
   if (!screens.length && !records.length) return null;
 
   return {

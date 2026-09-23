@@ -39,3 +39,11 @@ describe("menuFor", () => {
     expect(menuFor("/axis/cases", all, translator("ar"), "ar")?.label).toBe("العمليات");
   });
 });
+
+describe("menu entries are unique", () => {
+  it("lists a screen that sits at a list's address once", () => {
+    const menu = menuFor("/north/anomalies", ["north:anomalies:read", "north:metrics:read"], t, "en");
+    const hrefs = [...(menu?.screens ?? []), ...(menu?.records ?? [])].map((e) => e.href);
+    expect(hrefs.filter((h) => h === "/north/anomalies")).toHaveLength(1);
+  });
+});
