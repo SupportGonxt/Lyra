@@ -3,6 +3,9 @@ import { cloudflare } from "../context";
 import { bootstrapSession, type SessionBootstrap } from "../session.server";
 import { OrbitShell } from "../components/orbit-shell";
 import { SessionRegion } from "../components/region";
+import { sessionMeta } from "../title";
+
+export const meta = sessionMeta;
 
 // ORBIT's own layout: same bootstrap every other layout uses, but gated —
 // an actor whose roles never resolve to "orbit" is real (bootstrapSession

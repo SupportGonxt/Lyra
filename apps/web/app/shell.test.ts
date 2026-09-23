@@ -206,3 +206,12 @@ function isProse(text: string): boolean {
   if (/\w\.\w/.test(text)) return false;
   return /[A-Za-z]{2,}(\s+[A-Za-z]{2,})+/.test(text) || /^[A-Za-z]{3,}$/.test(text);
 }
+
+describe("the rail", () => {
+  // 66 fixture screens (English literals over sample data) sat in every
+  // reader's rail. They belong to /design, not to the live navigation.
+  it("never lists the design pull's fixture screens", () => {
+    const shell = readFileSync(join(APP_DIR, "components/shell.tsx"), "utf8");
+    expect(shell).not.toMatch(/\/surface\/|SURFACES|surfaceCatalogue/);
+  });
+});

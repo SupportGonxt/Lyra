@@ -177,10 +177,12 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     query: parseQueryJson(row.queryJson)
   }));
 
+  // `?view=` present but empty is an explicit "no view": without it the
+  // default could never be left, since dropping `view` is pristine again.
   const requestedView = incoming.get("view");
   const chosen = requestedView
     ? savedViews.find((view) => view.id === requestedView)
-    : isPristine(tab, incoming)
+    : requestedView === null && isPristine(tab, incoming)
       ? savedViews.find((view) => view.isDefault)
       : undefined;
 
@@ -356,8 +358,12 @@ export default function ModuleList() {
   }
 
   const sortKey = loaded.query.sort;
-  const filtered = (tab.filters ?? []).some((filter) => searchParams.get(filter.name)) ||
-    Boolean(searchParams.get("q"));
+  // What the rows were actually asked for — the URL, or a saved view the
+  // loader applied on its behalf. Reading only the URL showed "All" in every
+  // filter and "No records yet" under a default view that had narrowed them.
+  const current = (name: string) => searchParams.get(name) ?? loaded.query[name] ?? "";
+  const filtered =
+    (tab.filters ?? []).some((filter) => current(filter.name)) || Boolean(current("q")) || Boolean(loaded.activeView);
 
   return (
     <div className="flex flex-col gap-6">
@@ -429,7 +435,7 @@ export default function ModuleList() {
             ]}
             onValueChange={(next) => {
               const params = new URLSearchParams();
-              if (next) params.set("view", next);
+              params.set("view", next);
               const size = pageSizeIn(searchParams);
               if (size) params.set("limit", String(size));
               setSearchParams(params);
@@ -457,6 +463,9 @@ export default function ModuleList() {
 
       {tab.search || tab.filters?.length || canRestore ? (
         <Form
+          // Remount on a new query so the uncontrolled defaults follow a view
+          // picked from the saved-view menu.
+          key={JSON.stringify(loaded.query)}
           method="get"
           {...(tab.search ? { role: "search" } : {})}
           className="flex flex-wrap items-end gap-3"
@@ -465,7 +474,7 @@ export default function ModuleList() {
             <Input
               type="search"
               name="q"
-              defaultValue={searchParams.get("q") ?? ""}
+              defaultValue={current("q")}
               aria-label={t("common.search")}
               placeholder={t("common.search")}
               className="w-64"
@@ -476,7 +485,7 @@ export default function ModuleList() {
               key={filter.name}
               name={filter.name}
               aria-label={label(filter.name)}
-              defaultValue={searchParams.get(filter.name) ?? ""}
+              defaultValue={current(filter.name)}
               placeholder={label(filter.name)}
               // Narrow on purpose: a filter strip is one line of questions above
               // the rows, not a column of full-width controls that pushes the
@@ -515,7 +524,7 @@ export default function ModuleList() {
           </Button>
           {filtered ? (
             <Button asChild variant="ghost">
-              <Link to={`${spec.path}/${tab.key}`}>{t("common.clear")}</Link>
+              <Link to={`${spec.path}/${tab.key}?view=`}>{t("common.clear")}</Link>
             </Button>
           ) : null}
         </Form>
@@ -586,7 +595,7 @@ export default function ModuleList() {
                 : filtered
                   ? {
                       action: (
-                        <Button variant="secondary" onClick={() => setSearchParams(new URLSearchParams())}>
+                        <Button variant="secondary" onClick={() => setSearchParams(new URLSearchParams({ view: "" }))}>
                           {t("common.empty.clear")}
                         </Button>
                       )

@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router";
+import { surfaceCatalogue } from "../modules/surfaces";
+import { shouldInclude } from "../routing";
 import {
   Field,
   POST_RATIOS,
@@ -244,6 +247,8 @@ const LABELS: Labels = {
     "flow.debits": "Out of",
     "flow.credits": "Into",
     "ai.heading": "Ambient AI — a chip, a ghost and a tray",
+    "pull.heading": "The design pull",
+    "pull.note": "Every screen the Constellation design file drew, over its own sample data. Reference, not workspaces — the live screens are in the rail.",
     "ai.note":
       "Model output never arrives as a modal and is never sent on its own. It sits beside the thing it is about: a hover reading that is in the accessibility tree before any hover, a chip whose evidence opens as the exact lines the sentence was written from, and a tray of drafts to read rather than something that already happened. The ✦ is a claim that a model wrote it — a deterministic fallback sentence carries none, and a cell below the k-anonymity floor says why it is silent instead of going blank.",
     "ai.ghost": "Hover reading",
@@ -352,6 +357,8 @@ const LABELS: Labels = {
     "flow.debits": "من",
     "flow.credits": "إلى",
     "ai.heading": "ذكاء محيطي — شارة وطيف ودرج",
+    "pull.heading": "ملف التصميم",
+    "pull.note": "كل شاشة رسمها ملف تصميم Constellation، ببياناتها التجريبية. مرجع وليست مساحات عمل — الشاشات الفعلية في شريط التنقل.",
     "ai.note":
       "لا يصل ناتج النموذج في نافذة منبثقة ولا يُرسل من تلقائه. بل يجلس بجوار ما يتحدث عنه: قراءة تظهر عند التحويم وهي أصلًا في شجرة الوصول قبله، وشارة تفتح أدلتها كالسطور ذاتها التي كُتبت منها الجملة، ودرج مسودات يُقرأ لا أمر وقع بالفعل. والعلامة ✦ ادّعاء بأن نموذجًا كتبها — فالجملة الاحتياطية الحتمية لا تحملها، والخانة تحت حد إخفاء الهوية تقول سبب صمتها بدل أن تُترك فارغة.",
     "ai.ghost": "قراءة التحويم",
@@ -571,6 +578,31 @@ export function Doctrine({
               locale={locale}
             />
           </div>
+        </div>
+      </section>
+
+      {/* The design pull's 66 fixture screens used to sit in every reader's
+          rail. They are reference, so they are listed here. */}
+      <section className="flex flex-col gap-4 border-t border-line2 pt-7">
+        <div className="flex flex-col gap-3">
+          <h2 className="font-display text-16 font-600 text-tx">{l("pull.heading")}</h2>
+          <p className="max-w-[78ch] text-13 leading-body text-tx4">{l("pull.note")}</p>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {surfaceCatalogue(shouldInclude).map(({ group, items }) => (
+            <nav key={group} aria-label={group} className="flex flex-col gap-1">
+              <h3 className="font-mono text-12 uppercase text-tx5">{group}</h3>
+              <ul className="flex flex-col gap-0.5">
+                {items.map((item) => (
+                  <li key={item.href}>
+                    <Link to={item.href} className="font-ui text-13 text-tx3 underline-offset-4 hover:text-tx hover:underline">
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
         </div>
       </section>
 
