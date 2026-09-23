@@ -30,6 +30,7 @@ export default [
     route("admin/ai/console", "routes/ai-console.tsx"),
     route("center", "routes/command-center.tsx"),
     route("admin/ai/budget", "routes/ai-budget.tsx"),
+    route("admin/ai/analytics", "routes/ai-analytics.tsx"),
     route("admin/ai/runs/:id", "routes/ai-run.tsx"),
     route("admin/cost-explorer", "routes/cost-explorer.tsx"),
     route("ledger/reports/:report", "routes/ledger-reports.tsx"),
