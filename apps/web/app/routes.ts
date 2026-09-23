@@ -41,6 +41,7 @@ export default [
     route("ledger/journal", "routes/ledger-journal.tsx"),
     route("ledger/statement", "routes/ledger-account.tsx"),
     route("ledger/recon", "routes/ledger-recon.tsx"),
+    route("analytics/builder", "routes/analytics-builder.tsx"),
     route("analytics/report/:id", "routes/analytics-report.tsx"),
     route("analytics/dashboard/:id", "routes/analytics-dashboard.tsx"),
     route("distribution/quote-requests/:id/compare", "routes/quote-compare.tsx"),

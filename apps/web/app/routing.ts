@@ -67,6 +67,8 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/ledger/settlements/:id": "opens one settlement from the settlement runs list",
   "/admin/staff": "a screen inside the admin workspace, reached from its staff tab",
   "/admin/staff/:id": "opens one staff member from the staff directory",
+  "/analytics/builder":
+    "builds, previews and saves a report, linked from the analytics workspace tools list and from every figure on the AI operations dashboard",
   "/analytics/report/:id": "opens one saved report from the analytics report list",
   "/analytics/dashboard/:id": "opens one dashboard from the analytics dashboard list",
   "/distribution/quote-requests/:id/compare": "opens from a single quote request record",
