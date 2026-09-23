@@ -37,6 +37,7 @@ function sessionWith(overrides: Partial<SessionBootstrap> = {}): SessionBootstra
     currency: "AED",
     overrides: {},
     availableShells: ["north"],
+    aiPause: { all: false, modules: [] },
     ...overrides
   };
 }

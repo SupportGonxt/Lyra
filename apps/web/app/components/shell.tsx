@@ -14,7 +14,8 @@ import type { Brand, NavItem } from "../api.server";
 import type { Translate } from "../i18n";
 import { workspaceFor } from "../modules";
 import { humanise, labelsFor, visibleTabs } from "../modules/spec";
-import { isRouted, labelKeyFor, landingFor } from "../routing";
+import { isRouted, labelKeyFor, landingFor, moduleOf } from "../routing";
+import type { AiPause } from "../session.server";
 import { ColdOpen } from "./cold-open";
 import { Companion } from "./companion";
 import { ConstellationMark } from "./mark";
@@ -124,6 +125,8 @@ export interface ShellProps {
   meridian?: boolean;
   /** For the words `t` cannot reach: a workspace's own tab names in a crumb. */
   locale?: string;
+  /** The AI kill switch, so a paused module says so on every screen of it (J-A3). */
+  aiPause?: AiPause;
   children: React.ReactNode;
 }
 
@@ -242,6 +245,7 @@ export function Shell({
   section,
   meridian = false,
   locale = "en",
+  aiPause,
   children
 }: ShellProps) {
   const { product: productName, tenant: servedName } = lockupNames(brand, tenantName);
@@ -564,6 +568,7 @@ export function Shell({
                 )}
               />
             ) : null}
+            <PauseBanner pause={aiPause} pathname={pathname} t={t} mayResume={permissions.includes("ai:killswitch:use")} />
             {slow ? <PageSkeleton label={t("common.loading")} /> : children}
           </main>
 
@@ -716,6 +721,46 @@ function NavItemLink({
         </>
       )}
     </NavLink>
+  );
+}
+
+/**
+ * Degraded mode (docs/06 J-A3): an admin paused the agents, so every screen of
+ * the affected module says so — work still goes on, decisions wait for a
+ * person. Before this the pause changed behaviour and nothing on screen.
+ */
+export function pausedHere(pause: AiPause | undefined, pathname: string): boolean {
+  if (!pause) return false;
+  if (pause.all) return true;
+  const module = moduleOf(pathname);
+  return module !== null && pause.modules.includes(module);
+}
+
+function PauseBanner({
+  pause,
+  pathname,
+  t,
+  mayResume
+}: {
+  pause: AiPause | undefined;
+  pathname: string;
+  t: Translate;
+  mayResume: boolean;
+}) {
+  if (!pausedHere(pause, pathname)) return null;
+  return (
+    <p
+      role="status"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 font-ui text-13 text-text"
+    >
+      <span aria-hidden="true" className="text-warning">&#10022;</span>
+      <span>{t(pause?.all ? "pause.all" : "pause.module")}</span>
+      {mayResume ? (
+        <NavLink to="/admin/ai/console" className="text-accent underline underline-offset-4">
+          {t("pause.manage")}
+        </NavLink>
+      ) : null}
+    </p>
   );
 }
 

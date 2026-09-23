@@ -36,6 +36,13 @@ export interface SessionBootstrap {
    *  availableShellsForRoles), not just the first-wins default. Powers the
    *  multi-role switcher — absent or length-1 means it never renders. */
   availableShells: string[];
+  /** The AI kill switch (tenant policy): everything, or these modules. J-A3. */
+  aiPause: AiPause;
+}
+
+export interface AiPause {
+  all: boolean;
+  modules: string[];
 }
 
 export async function bootstrapSession(env: Env, request: Request): Promise<SessionBootstrap> {
@@ -94,6 +101,10 @@ export async function bootstrapSession(env: Env, request: Request): Promise<Sess
     // A tenant admin's i18n key relabels (core_locale_overrides), merged by
     // translator() over the static catalogue — see apps/web/app/i18n.ts.
     overrides: me.overrides ?? {},
-    availableShells: availableShellsForRoles(me.roles)
+    availableShells: availableShellsForRoles(me.roles),
+    aiPause: {
+      all: me.policy?.aiPaused === true,
+      modules: Array.isArray(me.policy?.aiPausedModules) ? me.policy.aiPausedModules.filter((m): m is string => typeof m === "string") : []
+    }
   };
 }

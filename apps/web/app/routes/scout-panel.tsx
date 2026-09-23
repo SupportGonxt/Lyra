@@ -222,6 +222,11 @@ export default function ScoutPanel() {
         <Link to="/scout/analytics" className="font-ui text-13 text-accent underline-offset-2 hover:underline">
           {l("an.title")}
         </Link>
+        {/* J-P2 ends with the delta logged: the rate table the negotiation
+            changes, proposed here and approved by finance. */}
+        <Link to="/distribution/commission-rates" className="font-ui text-13 text-accent underline-offset-2 hover:underline">
+          {l("panel.logRate")}
+        </Link>
       </footer>
     </div>
   );

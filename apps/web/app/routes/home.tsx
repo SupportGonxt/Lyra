@@ -615,6 +615,19 @@ const RUN_TONE: Record<string, BadgeTone> = {
   budget_stopped: "warning",
 };
 
+/** Every read the four journey steps make (routes/journey-*.tsx loaders). */
+export const JOURNEY_NEEDS = [
+  "axis:cases:read",
+  "north:briefings:read",
+  "scout:whitespaces:read",
+  "signal:audiences:estimate",
+  "signal:creatives:generate"
+] as const;
+
+export function walksJourney(permissions: readonly string[]): boolean {
+  return JOURNEY_NEEDS.every((permission) => permissions.includes(permission));
+}
+
 export default function Home() {
   const loaded = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
@@ -935,6 +948,10 @@ export default function Home() {
         </KPIWall>
       ) : null}
 
+      {/* The demo walks four modules, each behind its own permission. A reader
+          who holds fewer was sent into a 403 at step two, so the door shows
+          only to a reader who can walk the whole way. */}
+      {walksJourney(shell?.permissions ?? []) ? (
       <section
         aria-label={label("journey.title")}
         className="flex flex-col gap-3"
@@ -945,6 +962,7 @@ export default function Home() {
         <div>{renderSection(journeySteps, "hub")}</div>
         <JourneyContinue to="/journey/axis" label={label("journey.cta")} />
       </section>
+      ) : null}
 
       {leads ? null : decisions}
 

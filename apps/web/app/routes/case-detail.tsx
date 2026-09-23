@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Form,
   Link,
@@ -387,6 +388,7 @@ export function CopilotAnswer({
   confidence?: number | null | undefined;
   mismatches?: unknown[] | null | undefined;
 }) {
+  const [dismissed, setDismissed] = useState<string | null>(null);
   if (pending) {
     return (
       <div className="mt-4 flex flex-col gap-3" aria-live="polite" aria-busy="true">
@@ -398,7 +400,7 @@ export function CopilotAnswer({
       </div>
     );
   }
-  if (!answer) return null;
+  if (!answer || dismissed === answer) return null;
   return (
     <div className="mt-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -410,7 +412,9 @@ export function CopilotAnswer({
               : l("copilotWhyGrounded")
           }
         />
-        <GhostText text={answer} onAccept={() => {}} onDiscard={() => {}} />
+        {/* An answer, not a draft: there is nothing to accept it into, so
+            it offers only to go away. */}
+        <GhostText text={answer} onDiscard={() => setDismissed(answer)} />
       </div>
       <ConfidenceMeter value={confidence ?? 0} />
     </div>

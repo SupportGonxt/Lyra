@@ -65,6 +65,7 @@ export function ErrorBoundary() {
         roles={shell.roles}
         permissions={shell.permissions}
         locale={shell.locale}
+        aiPause={shell.aiPause}
       >
         {panel}
       </Shell>
@@ -91,6 +92,7 @@ export default function Workspace() {
         roles={shell.roles}
         permissions={shell.permissions}
         locale={shell.locale}
+        aiPause={shell.aiPause}
       >
         <Outlet />
       </Shell>

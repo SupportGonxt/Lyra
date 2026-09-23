@@ -604,6 +604,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.rebuilt": "{cells} cells rebuilt, {created} of them new.",
     "panel.rebuildDenied": "Rewriting the bench is a separate permission from reading it.",
     "panel.openPricing": "Price benchmarks",
+    "panel.logRate": "Log the agreed commission",
     "panel.headlineCheaper": "{n} of {total} carriers are priced below the median.",
     "panel.headlineCount": "{n} carriers are on the bench for this period.",
 
@@ -994,6 +995,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "panel.rebuilt": "أُعيد بناء {cells} خلية، {created} منها جديدة.",
     "panel.rebuildDenied": "إعادة كتابة المقارنة صلاحية منفصلة عن قراءتها.",
     "panel.openPricing": "مقاييس السعر",
+    "panel.logRate": "سجّل العمولة المتفق عليها",
     "panel.headlineCheaper": "{n} من أصل {total} شركة تأمين مسعّرة دون الوسيط.",
     "panel.headlineCount": "{n} شركة تأمين على القائمة لهذه الفترة.",
 

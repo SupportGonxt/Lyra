@@ -55,11 +55,34 @@ export interface GhostTextProps {
   text: string;
   onAccept?: () => void;
   onDiscard?: () => void;
+  /**
+   * The composer the suggestion continues. With it, Tab accepts and Esc
+   * discards while the composer has focus (docs/15 §4.1) and the key caps are
+   * shown; without it there are only the buttons — a key cap on a key nothing
+   * listens to is a promise the screen does not keep.
+   */
+  composer?: React.RefObject<HTMLElement | null>;
   className?: string;
 }
 
-export function GhostText({ text, onAccept, onDiscard, className }: GhostTextProps) {
+export function GhostText({ text, onAccept, onDiscard, composer, className }: GhostTextProps) {
   const t = useUiText();
+  React.useEffect(() => {
+    const target = composer?.current;
+    if (!target) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Tab" && !event.shiftKey && onAccept) {
+        event.preventDefault();
+        onAccept();
+      } else if (event.key === "Escape" && onDiscard) {
+        event.preventDefault();
+        onDiscard();
+      }
+    };
+    target.addEventListener("keydown", onKey);
+    return () => target.removeEventListener("keydown", onKey);
+  }, [composer, onAccept, onDiscard]);
+  const keys = Boolean(composer);
   return (
     <span className={cn("inline", className)}>
       <span aria-live="polite" className="font-ui text-subtle">
@@ -69,12 +92,12 @@ export function GhostText({ text, onAccept, onDiscard, className }: GhostTextPro
         <span className="ms-2 inline-flex items-center gap-1 align-middle">
           {onAccept ? (
             <Button size="sm" variant="ghost" onClick={onAccept}>
-              {t("accept")} <kbd className="font-mono text-12">Tab</kbd>
+              {t("accept")} {keys ? <kbd className="font-mono text-12">Tab</kbd> : null}
             </Button>
           ) : null}
           {onDiscard ? (
             <Button size="sm" variant="ghost" onClick={onDiscard}>
-              {t("discard")} <kbd className="font-mono text-12">Esc</kbd>
+              {t("discard")} {keys ? <kbd className="font-mono text-12">Esc</kbd> : null}
             </Button>
           ) : null}
         </span>

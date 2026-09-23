@@ -55,3 +55,17 @@ describe("crumbsFor", () => {
     expect(crumbsFor("/mystery/thing", nav, t)).toEqual([]);
   });
 });
+
+describe("pausedHere (J-A3 degraded mode)", () => {
+  it("shows on every screen when the whole tenant is paused", async () => {
+    const { pausedHere } = await import("./shell");
+    expect(pausedHere({ all: true, modules: [] }, "/ledger")).toBe(true);
+  });
+  it("shows only inside a paused module", async () => {
+    const { pausedHere } = await import("./shell");
+    const pause = { all: false, modules: ["signal"] };
+    expect(pausedHere(pause, "/signal/cockpit")).toBe(true);
+    expect(pausedHere(pause, "/axis/board")).toBe(false);
+    expect(pausedHere(undefined, "/signal/cockpit")).toBe(false);
+  });
+});

@@ -139,3 +139,13 @@ describe("type roles", () => {
     expect(copied).toEqual([]);
   });
 });
+
+// The claims copilot passed `onAccept={() => {}}`: an Accept button that did
+// nothing, under a Tab key cap nothing listened to. A control that looks like
+// it acts must act.
+describe("controls do something", () => {
+  it("never wires a handler to an empty function", () => {
+    const empty = [...files(APP), ...files(UI)].filter((path) => /\bon[A-Z]\w*=\{\(\) => \{\}\}/.test(readFileSync(path, "utf8")));
+    expect(empty.map((path) => path.slice(APP.length - 3))).toEqual([]);
+  });
+});

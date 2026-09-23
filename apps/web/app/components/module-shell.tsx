@@ -40,6 +40,7 @@ export function ModuleShell({
       }}
       meridian={module === "north"}
       locale={session.locale}
+      aiPause={session.aiPause}
     >
       {children}
     </Shell>
