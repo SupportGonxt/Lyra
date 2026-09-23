@@ -115,7 +115,6 @@ describe("labelsIn", () => {
       "approvalLink",
       "problem.bad_intent",
       "problem.missing_doc",
-      "problem.missing_text",
       "problem.no_change",
       "problem.conflict",
       "headline.clear",
@@ -522,15 +521,19 @@ describe("extract", () => {
     expect(calls[0]?.body).toBe(JSON.stringify({ rawText: "text", locale: "en" }));
   });
 
-  it("refuses an empty paste without spending a model call", async () => {
+  // The API reads the stored file itself when no text is sent (vision,
+  // routes/axis.ts); the screen used to refuse an empty paste, so a scanned
+  // upload could only be read by retyping it (docs/30, AXIS gap 1).
+  it("reads the stored file when nothing is pasted", async () => {
     const calls = stubFetch(new Response(null, { status: 204 }));
     const form = new FormData();
     form.set("intent", "extract");
     form.set("docId", "doc_4");
     form.set("rawText", "   ");
+    form.set("locale", "ar");
 
-    expect((await action(args(form))).problem?.code).toBe("missing_text");
-    expect(calls).toHaveLength(0);
+    expect((await action(args(form))).done).toBe("extract");
+    expect(calls[0]?.body).toBe(JSON.stringify({ locale: "ar" }));
   });
 });
 
