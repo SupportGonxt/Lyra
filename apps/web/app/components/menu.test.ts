@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { translator } from "../i18n";
-import { menuFor } from "./menu";
+import { menuFor, switcherFor } from "./menu";
 
 const t = translator("en");
 const all = ["axis:cases:read", "axis:policies:read", "axis:claims:read", "ledger:txns:read", "ledger:journals:read"];
@@ -45,5 +45,38 @@ describe("menu entries are unique", () => {
     const menu = menuFor("/north/anomalies", ["north:anomalies:read", "north:metrics:read"], t, "en");
     const hrefs = [...(menu?.screens ?? []), ...(menu?.records ?? [])].map((e) => e.href);
     expect(hrefs.filter((h) => h === "/north/anomalies")).toHaveLength(1);
+  });
+});
+
+describe("switcherFor", () => {
+  const groups = [
+    { heading: "Modules", items: [{ href: "/axis", label: "Operations" }, { href: "/scout", label: "Market" }] },
+    { heading: "Records & finance", items: [{ href: "/ledger", label: "Ledger" }] }
+  ];
+
+  // The reader asked "which module am I in?" — every screen of a module answers
+  // with that module, in its own hue, however deep the path.
+  it("names the module the reader is in, from any depth", () => {
+    const s = switcherFor("/scout/whitespace/wsp_1", groups);
+    expect(s.current).toEqual({ href: "/scout", label: "Market", hue: "var(--module-scout)" });
+    expect(s.entries.filter((e) => e.current).map((e) => e.href)).toEqual(["/scout"]);
+  });
+
+  it("offers every module, under the rail's own headings", () => {
+    const s = switcherFor("/axis", groups);
+    expect(s.entries.map((e) => [e.section, e.href])).toEqual([
+      ["Modules", "/axis"],
+      ["Modules", "/scout"],
+      ["Records & finance", "/ledger"]
+    ]);
+    expect(s.entries.find((e) => e.href === "/ledger")?.hue).toBe("var(--accent)");
+  });
+
+  it("is in no module on Home, Settings or the Inbox", () => {
+    for (const path of ["/", "/settings", "/approvals"]) expect(switcherFor(path, groups).current).toBeNull();
+  });
+
+  it("does not take /axis-like prefixes for the module", () => {
+    expect(switcherFor("/axisx", groups).current).toBeNull();
   });
 });

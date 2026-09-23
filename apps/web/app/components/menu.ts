@@ -75,3 +75,27 @@ export function menuFor(
     records
   };
 }
+
+export interface SwitcherEntry extends MenuEntry {
+  section: string | null;
+  hue: string;
+  current: boolean;
+}
+
+/**
+ * The module switcher in the top bar: which workspace the reader is in, and
+ * every one they may move to, under the rail's own headings. A module wears its
+ * `--module-*` hue; a shared workspace (Ledger, Admin) the tenant accent.
+ */
+export function switcherFor(
+  pathname: string,
+  groups: readonly { heading: string | null; items: readonly MenuEntry[] }[]
+): { current: { href: string; label: string; hue: string } | null; entries: SwitcherEntry[] } {
+  const root = `/${pathname.split("/")[1] ?? ""}`;
+  const hueOf = (href: string) => (MODULE_SCREENS[href.slice(1)] ? `var(--module-${href.slice(1)})` : "var(--accent)");
+  const entries = groups.flatMap((group) =>
+    group.items.map((item) => ({ ...item, section: group.heading, hue: hueOf(item.href), current: item.href === root }))
+  );
+  const here = entries.find((entry) => entry.current);
+  return { current: here ? { href: here.href, label: here.label, hue: here.hue } : null, entries };
+}

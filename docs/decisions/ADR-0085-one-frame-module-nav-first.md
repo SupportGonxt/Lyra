@@ -54,3 +54,18 @@ screens (modules: `modules/screens.ts`; shared: the spec's declared `links`),
 then its record lists under a "Records" disclosure that is open while one is
 on screen. The page's own tab strip is kept for phones only and its row of tool
 links is gone — both said what the rail now says.
+
+## Amendment — the module switcher (2026-09-23)
+
+Readers could not tell at a glance which module they were in: the module's
+name was a rail eyebrow, and the list of modules sat under the module's own
+menu, below the fold on a long one. On a phone the strip mixed a module's
+screens with every other module.
+
+The top bar now carries a switcher beside the lockup: the current module's
+hue dot and name (or "Modules" outside one), opening every workspace the
+reader may open under the rail's own headings, the current one marked
+`aria-current="page"`. It is derived from the same nav the rail renders
+(`switcherFor`, `components/menu.ts`), so it cannot offer a place the rail
+would not. The phone strip now carries only the current module's screens and
+records; moving between modules is the switcher's job.

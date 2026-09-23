@@ -53,6 +53,8 @@ export const ar: Messages = {
   "pause.module": "وكلاء الذكاء الاصطناعي متوقفون هنا. كل شيء آخر يعمل، وما كانوا سيفعلونه ينتظر شخصًا.",
   "pause.manage": "إدارة الإيقاف",
   "nav.records": "السجلات",
+  "nav.switchModule": "التبديل إلى وحدة أخرى",
+  "nav.inModule": "أنت في {module}. التبديل إلى وحدة أخرى",
   "nav.inbox": "صندوق الوارد",
   "nav.home": "الرئيسية",
   "nav.center": "مركز القيادة",

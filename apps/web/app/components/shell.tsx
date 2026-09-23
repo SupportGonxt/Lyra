@@ -17,7 +17,7 @@ import { humanise, labelsFor, visibleTabs } from "../modules/spec";
 import { isRouted, labelKeyFor, landingFor, moduleOf } from "../routing";
 import type { AiPause } from "../session.server";
 import { ColdOpen } from "./cold-open";
-import { menuFor } from "./menu";
+import { menuFor, switcherFor } from "./menu";
 import { Companion } from "./companion";
 import { ConstellationMark } from "./mark";
 import { Meridian } from "./meridian";
@@ -272,8 +272,21 @@ export function Shell({
   const menu = menuFor(pathname, permissions, t, locale, pack);
   const menuScreens: NavItem[] = (menu?.screens ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
   const menuRecords: NavItem[] = (menu?.records ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
+  // Which module the reader is in, and every one they may move to (the top
+  // bar's switcher). The rail's Modules list sits under the module's own menu,
+  // below the fold on a long one — this says it where the eye starts.
+  const switcher = switcherFor(
+    pathname,
+    workspaces.map((group) => ({
+      heading: group.heading ? t(group.heading.labelKey) : null,
+      items: group.items.map((item) => ({ href: item.href, label: t(item.labelKey) }))
+    }))
+  );
   const inRecords = menuRecords.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
   const items = [...pinned, ...menuScreens, ...workspaces.flatMap((g) => g.items)];
+  // The phone strip carries the module the reader is in; moving between
+  // modules is the switcher's job, so the strip no longer mixes the two.
+  const strip = [...pinned, ...menuScreens, ...menuRecords];
   // Everything ⌘K can go to: the rail, and every tab of every workspace this
   // reader may read — "Trial balance", "Period close" — named "Tab · Workspace"
   // so two tabs called "Settings" are told apart. It knew only the rail's ~11.
@@ -370,7 +383,11 @@ export function Shell({
                   {/* ponytail: the wide tracking is the display face's Latin
                       setting. Arabic is cursive — spacing it out pulls joined
                       letters apart — so the LTR variant carries it. */}
-                  <span className="truncate font-semibold ltr:tracking-[0.15em]">{productName}</span>
+                  <span
+                    className={`truncate font-semibold ltr:tracking-[0.15em] ${switcher.entries.length ? "sr-only sm:not-sr-only" : ""}`}
+                  >
+                    {productName}
+                  </span>
                 </>
               )}
             </NavLink>
@@ -386,6 +403,44 @@ export function Shell({
               </>
             ) : null}
           </div>
+
+          {switcher.entries.length ? (
+            <Menu
+              label={t("nav.switchModule")}
+              items={switcher.entries.map((entry) => ({
+                id: entry.href,
+                label: entry.label,
+                section: entry.section,
+                current: entry.current,
+                icon: <span className="block size-2 rounded-full" style={{ background: entry.hue }} />,
+                onSelect: () => void navigate(entry.href)
+              }))}
+              trigger={
+                <button
+                  type="button"
+                  data-module-switcher
+                  aria-label={
+                    switcher.current
+                      ? t("nav.inModule", { module: switcher.current.label })
+                      : t("nav.switchModule")
+                  }
+                  className="flex min-w-0 shrink items-center gap-2 rounded-md border border-border px-2.5 py-1 font-ui text-13 text-text transition-colors duration-150 hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: switcher.current?.hue ?? "var(--text-subtle)" }}
+                  />
+                  <span className="truncate font-medium">
+                    {switcher.current?.label ?? t("nav.group.modules")}
+                  </span>
+                  <span aria-hidden="true" className="text-12 text-subtle">
+                    &#9662;
+                  </span>
+                </button>
+              }
+            />
+          ) : null}
 
           {/* ⌘K answers both halves of the design's two overlays: what is this,
               and where do I go. The destinations are the nav's own, so a place
@@ -474,7 +529,7 @@ export function Shell({
               "flex min-h-[var(--chrome-module)] shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-surface-1 p-2 md:hidden"
             ].join(" ")}
           >
-            {items.map((item) => (
+            {strip.map((item) => (
               <NavItemLink
                 key={item.href}
                 item={item}
@@ -505,7 +560,10 @@ export function Shell({
                 one disclosure, open while a record list is on screen. */}
             {menu ? (
               <div className="mb-1">
-                <h2 className="eyebrow mb-1 mt-4 px-3">{menu.label}</h2>
+                <h2 className="eyebrow mb-1 mt-4 flex items-center gap-2 px-3">
+                  <span aria-hidden="true" className="size-1.5 rounded-full" style={{ background: menu.accent }} />
+                  {menu.label}
+                </h2>
                 <ul className="flex flex-col gap-0.5">
                   {menuScreens.map((item) => (
                     <li key={item.href}>

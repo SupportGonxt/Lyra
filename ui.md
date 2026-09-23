@@ -53,6 +53,12 @@ spec. If the *shape of the answer* is the point, it is a route.
 | SCOUT | [scout-shell.tsx](apps/web/app/routes/scout-shell.tsx) | `/scout/*` bespoke screens |
 | NORTH | [north-shell.tsx](apps/web/app/routes/north-shell.tsx) | `/north/*` bespoke screens |
 
+**Module switcher (ADR-0085 amendment).** The top bar names the module the
+reader is in (its hue dot and name, "Modules" outside one) and opens every
+workspace they may open, grouped as the rail groups them (`switcherFor`,
+[menu.ts](apps/web/app/components/menu.ts)). On a phone the strip under the bar
+carries only the current module's screens and records.
+
 **One frame (ADR-0085).** The five module layouts are routes (they gate a
 module and let a build ship one alone), but they all render the one
 [`Shell`](apps/web/app/components/shell.tsx) through

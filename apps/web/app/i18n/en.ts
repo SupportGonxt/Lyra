@@ -54,6 +54,8 @@ export const en = {
   "pause.module": "AI agents are paused here. Everything else works; what they would have done waits for a person.",
   "pause.manage": "Manage the pause",
   "nav.records": "Records",
+  "nav.switchModule": "Switch module",
+  "nav.inModule": "You are in {module}. Switch module",
   "nav.inbox": "Inbox",
   "nav.home": "Home",
   "nav.center": "Command center",

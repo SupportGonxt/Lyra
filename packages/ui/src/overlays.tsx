@@ -272,6 +272,10 @@ export interface MenuItem {
   /** Decorative only — the label is always rendered. */
   icon?: React.ReactNode;
   shortcut?: string;
+  /** Items sharing a section sit under one heading, printed where it changes. */
+  section?: string | null;
+  /** The item the reader is on: marked, and announced as the current page. */
+  current?: boolean;
 }
 
 export interface MenuProps {
@@ -290,17 +294,25 @@ export function Menu({ trigger, items, label }: MenuProps) {
           aria-label={label}
           sideOffset={6}
           align="start"
-          className="z-50 min-w-52 rounded-md border border-border bg-surface-2 p-1 text-start shadow-glow"
+          className="z-50 max-h-[min(70vh,34rem)] min-w-52 overflow-y-auto rounded-md border border-border bg-surface-2 p-1 text-start shadow-glow"
         >
-          {items.map((item) => (
+          {items.map((item, index) => (
+            <React.Fragment key={item.id}>
+            {item.section && item.section !== items[index - 1]?.section ? (
+              <RMenu.Label className="eyebrow px-2 pb-1 pt-3 first:pt-1">{item.section}</RMenu.Label>
+            ) : null}
             <RMenu.Item
-              key={item.id}
+              {...(item.current ? { "aria-current": "page" as const } : {})}
               {...(item.disabled ? { disabled: true } : {})}
               {...(item.onSelect ? { onSelect: item.onSelect } : {})}
               className={cn(
                 "flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 font-ui text-14",
                 "data-[highlighted]:bg-surface-3 data-[highlighted]:outline-none data-[disabled]:opacity-40",
-                item.tone === "danger" ? "text-danger" : "text-muted data-[highlighted]:text-text"
+                item.tone === "danger"
+                  ? "text-danger"
+                  : item.current
+                    ? "bg-surface-3 font-medium text-text"
+                    : "text-muted data-[highlighted]:text-text"
               )}
             >
               {item.icon ? <span aria-hidden="true">{item.icon}</span> : null}
@@ -309,6 +321,7 @@ export function Menu({ trigger, items, label }: MenuProps) {
                 <kbd className="font-mono text-12 text-subtle">{item.shortcut}</kbd>
               ) : null}
             </RMenu.Item>
+            </React.Fragment>
           ))}
         </RMenu.Content>
       </RMenu.Portal>
