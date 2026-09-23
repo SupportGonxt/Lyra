@@ -154,7 +154,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
       // screen reports them the same way it reports autopilot moves — what
       // happened, in numbers, with the loop panel right below showing rows.
       case "outreach": {
-        const result = await api<{ sent: number; pendingApproval: number }>("v1/signal/outreach/run", {
+        const result = await api<{ sent: number; pendingApproval: number }>("/v1/signal/outreach/run", {
           env,
           request,
           method: "POST",
