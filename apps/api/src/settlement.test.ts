@@ -335,6 +335,25 @@ describe("re-running a period", () => {
   });
 });
 
+describe("events", () => {
+  // Regression: approve and pay each emitted their event twice — once through
+  // runTxn's `event` option and once by hand — so every webhook subscriber
+  // received each settlement fact twice.
+  it("emits ledger.settlement.approved and ledger.settlement.paid exactly once each", async () => {
+    await partner(ctx, 0);
+    await entry(ctx, 30_000, NOW - 2 * DAY);
+    const { settlement } = await run(ctx);
+    await settleFully(settlement.id);
+
+    const outbox = await ctx.db.select().from(schema.eventOutbox);
+    const count = (type: string) => outbox.filter((r) => r.type === type).length;
+    expect(count("ledger.settlement.approved")).toBe(1);
+    expect(count("ledger.settlement.paid")).toBe(1);
+    const approved = outbox.find((r) => r.type === "ledger.settlement.approved");
+    expect(JSON.parse(approved?.envelopeJson ?? "{}").subject).toBe(settlement.id);
+  });
+});
+
 /* ----------------------------------------------------------------- carry */
 
 describe("the payout floor", () => {
