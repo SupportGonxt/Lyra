@@ -544,6 +544,50 @@ export const memories = sqliteTable(
   (t) => [index("core_memories_idx").on(t.tenantId, t.subjectRef, t.kind)]
 );
 
+/**
+ * H11, ADR-0085: one markdown note per record, written by people. `subjectRef`
+ * is the canonical `<kind>:<id>` the API derives from the record's own id
+ * prefix, so every spelling of a ref reaches the same note. `version` is the
+ * optimistic-concurrency counter a save must name. Erased with its subject
+ * (docs/12 §3) along with every link to or from it.
+ */
+export const notes = sqliteTable(
+  "core_notes",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    subjectRef: text("subject_ref").notNull(),
+    bodyMd: text("body_md").notNull(),
+    authorRef: text("author_ref").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [uniqueIndex("core_notes_subject_uq").on(t.tenantId, t.subjectRef)]
+);
+
+/**
+ * Derived, never written by hand: the `[[wikilinks]]` of one note, rebuilt from
+ * its body on every save. `fromRef` is the note's subject, `toRef` the linked
+ * record's canonical ref. Backlinks read `toRef`; the graph walks both.
+ */
+export const links = sqliteTable(
+  "core_links",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    noteId: text("note_id").notNull(),
+    fromRef: text("from_ref").notNull(),
+    toRef: text("to_ref").notNull(),
+    createdAt: integer("created_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("core_links_note_to_uq").on(t.tenantId, t.noteId, t.toRef),
+    index("core_links_to_idx").on(t.tenantId, t.toRef),
+    index("core_links_from_idx").on(t.tenantId, t.fromRef)
+  ]
+);
+
 /** docs/15 §5 lens engine: role default workspace + learned personal adaptation. */
 export const lenses = sqliteTable(
   "core_lenses",
