@@ -21,10 +21,10 @@ import { confirmAction, goto, loginAsTenantAdmin } from "./fixtures.js";
 // (apps/web/app/routes/settings.tsx:951-982, reached from the account menu,
 // not the module rail — apps/web/app/routing.ts:30):
 // mint a test or live key, see the plaintext once, list it, revoke it.
-// "Promote to live" is not a distinct approval step either: routes/core.ts's
-// POST /v1/core/api-keys never calls gate() — minting a "live" key takes the
-// same one require_(core:api_keys:create) check as "test", with no dual
-// control. (packages/core/src/approvals.ts's "core.mandate_register" policy
+// "Promote to live" is dev.admin's call: routes/core.ts's POST
+// /v1/core/api-keys requires dev:keys_live:issue for a live key (a tenant
+// admin's core:*:* does not reach it), while a test key takes either
+// core:api_keys:create or the developer's dev:keys_test:issue. (packages/core/src/approvals.ts's "core.mandate_register" policy
 // reuses the same permission string for an unrelated agent-mandate feature;
 // it does not gate this route.) Per CLAUDE.md's TDD rule, this spec matches
 // the real scope: the public contract at the API layer, and the full,

@@ -108,6 +108,9 @@ interface BrandShape {
 const CAN = {
   keysRead: "core:api_keys:read",
   keysCreate: "core:api_keys:create",
+  // J-D1: a developer issues test keys; only dev.admin issues live ones.
+  keysTest: "dev:keys_test:issue",
+  keysLive: "dev:keys_live:issue",
   keysRevoke: "core:api_keys:revoke",
   tenantWrite: "core:tenants:update",
   usersRead: "core:users:read",
@@ -659,7 +662,8 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     tenantName: me.tenant.name,
     can: {
       keysRead: held.has(CAN.keysRead),
-      keysCreate: held.has(CAN.keysCreate),
+      keysCreate: held.has(CAN.keysCreate) || held.has(CAN.keysTest),
+      keysLive: held.has(CAN.keysLive),
       keysRevoke: held.has(CAN.keysRevoke),
       brand: held.has(CAN.tenantWrite),
       dsarRead: held.has(CAN.dsarRead),
@@ -686,7 +690,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
      * box could only ever produce a 403. /v1/me returns wildcards already
      * expanded, so these are the concrete strings the API will check.
      */
-    grantable: held.has(CAN.keysCreate) ? me.permissions : [],
+    grantable: held.has(CAN.keysCreate) || held.has(CAN.keysTest) ? me.permissions : [],
     /** `null` when the actor cannot read their own user row — an unknown, not a no. */
     mfaEnrolled: typeof self.value?.mfaEnrolled === "boolean" ? self.value.mfaEnrolled : null,
     brand: {
@@ -1303,6 +1307,7 @@ export default function Settings() {
             {loaded.can.keysCreate ? (
               <NewKeyForm
                 grantable={loaded.grantable}
+                mayLive={loaded.can.keysLive}
                 result={result}
                 pending={pending}
                 label={label}
@@ -1705,6 +1710,7 @@ function PermissionsPanel({
  */
 function NewKeyForm({
   grantable,
+  mayLive,
   result,
   pending,
   label,
@@ -1712,6 +1718,7 @@ function NewKeyForm({
   failure
 }: {
   grantable: string[];
+  mayLive: boolean;
   result: ActionResult | undefined;
   pending: FormDataEntryValue | undefined | null;
   label: (key: string) => string;
@@ -1756,7 +1763,7 @@ function NewKeyForm({
               defaultValue="test"
               options={[
                 { value: "test", label: label("keys.test") },
-                { value: "live", label: label("keys.live") }
+                ...(mayLive ? [{ value: "live", label: label("keys.live") }] : [])
               ]}
             />
           </Field>

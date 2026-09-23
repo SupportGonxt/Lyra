@@ -56,8 +56,14 @@ const SECRET_BYTES = 32;
 
 coreRoutes.post("/api-keys", async (c) => {
   const ctx = ctxOf(c);
-  require_(ctx.actor, "core:api_keys:create", { tenantId: ctx.tenantId, module: "core" });
   const input = await body(c, KeyBody);
+  // J-D1 (docs/06): a developer mints test keys; going live is dev.admin's
+  // call. A live key needs `dev:keys_live:issue` whoever asks — core:*:* on a
+  // tenant admin included. A test key takes either the key-admin grant or
+  // the developer's own `dev:keys_test:issue`.
+  const subject = { tenantId: ctx.tenantId, module: "core" };
+  if (input.mode === "live") require_(ctx.actor, "dev:keys_live:issue", subject);
+  else if (!can(ctx.actor, "dev:keys_test:issue", subject)) require_(ctx.actor, "core:api_keys:create", subject);
   if (input.expiresAt !== undefined && input.expiresAt <= ctx.now) throw badRequest("expiresAt is in the past");
 
   // A key may never be stronger than the person who minted it. Unknown strings
