@@ -50,6 +50,7 @@ import { staffRoutes } from "./routes/staff.js";
 import { searchRoutes } from "./routes/search.js";
 import { directoryRoutes } from "./routes/directory.js";
 import { nameRoutes } from "./routes/names.js";
+import { noteRoutes } from "./routes/notes.js";
 import type { App, Env } from "./env.js";
 
 // docs/04. One worker, one router. `/v1/<module>/<resource>` is generated CRUD;
@@ -87,6 +88,10 @@ app.route("/v1/realtime", realtimeRoutes);
 // `POST /v1/north/boardpacks` (which would otherwise accept a client-supplied
 // sectionsJson/pdfFileId with no assembly or render behind it).
 app.route("/v1/core", coreRoutes);
+// ADR-0085: record notes, backlinks, graph and vault export. No generated
+// resource shares these paths, but they mount here with the other hand-written
+// core routes so that stays true if one is ever registered.
+app.route("/v1/core", noteRoutes);
 app.route("/v1/axis", axisRoutes);
 app.route("/v1/dist", distRoutes);
 app.route("/v1/ledger", ledgerRoutes);

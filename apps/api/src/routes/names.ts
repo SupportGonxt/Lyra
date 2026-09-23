@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { getTableColumns, inArray } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { badRequest, can, mask, scoped, type Ctx, type PiiKind, type PiiMap } from "@lyra/core";
-import { REGISTRY } from "../crud.js";
+import { REGISTRY, type Resource } from "../crud.js";
 import type { App } from "../env.js";
 
 // One batch resolver for "what is this ref called?". Rows carry refs
@@ -115,7 +115,7 @@ interface Parsed {
 }
 
 /** `cu_01H…` and `user:us_01H…` both reduce to an id and its prefix. */
-function parseRef(ref: string): Parsed | null {
+export function parseRef(ref: string): Parsed | null {
   const colon = ref.indexOf(":");
   const id = colon > 0 ? ref.slice(colon + 1) : ref;
   const under = id.indexOf("_");
@@ -142,11 +142,30 @@ function displayText(value: unknown, locale: string): string | null {
   return null;
 }
 
+/** The registered resource a ref points at, by its id prefix (aliases included). */
+export function resourceOf(ref: string): { resource: Resource; id: string } | null {
+  const parsed = parseRef(ref);
+  if (!parsed) return null;
+  const resource = REGISTRY.find((one) => one.idPrefix === parsed.prefix);
+  return resource ? { resource, id: parsed.id } : null;
+}
+
 nameRoutes.get("/", async (c) => {
   const ctx = ctxOf(c);
   const asked = [...new Set((c.req.query("refs") ?? "").split(",").map((one) => one.trim()).filter(Boolean))];
   if (!asked.length) throw badRequest("refs is required");
   if (asked.length > MAX_REFS) throw badRequest(`refs is capped at ${MAX_REFS}`);
+  // Unresolved refs are absent rather than null: a view falls back to the short
+  // ref it already holds, and never renders the word "null" at a person.
+  return c.json({ names: await resolveNames(ctx, asked) });
+});
+
+/**
+ * Ref → display name for every ref the caller may read; the rest are absent.
+ * The route above is one caller; the notes backlinks, graph and vault export
+ * (routes/notes.ts) are the others, so a name means the same thing in all four.
+ */
+export async function resolveNames(ctx: Ctx, asked: readonly string[]): Promise<Record<string, string>> {
 
   // Group by prefix so one resource costs one query however many refs point at
   // it, and drop anything unparseable here: a stale ref in a list must not fail
@@ -203,7 +222,5 @@ nameRoutes.get("/", async (c) => {
     })
   );
 
-  // Unresolved refs are absent rather than null: a view falls back to the short
-  // ref it already holds, and never renders the word "null" at a person.
-  return c.json({ names });
-});
+  return names;
+}

@@ -2631,6 +2631,7 @@ export interface Operations {
   "GET /v1/core/files/{id}": Op<{ id: string }, never, never, CoreFiles>;
   "DELETE /v1/core/files/{id}": Op<{ id: string }, never, never, void>;
   "POST /v1/core/files/{id}/restore": Op<{ id: string }, never, never, CoreFiles>;
+  "GET /v1/core/graph": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/identity-providers": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreIdentityProviders>>;
   "POST /v1/core/identity-providers": Op<never, never, CoreIdentityProviders, CoreIdentityProviders>;
   "GET /v1/core/identity-providers/{id}": Op<{ id: string }, never, never, CoreIdentityProviders>;
@@ -2643,6 +2644,7 @@ export interface Operations {
   "GET /v1/core/lenses/{id}": Op<{ id: string }, never, never, CoreLenses>;
   "PATCH /v1/core/lenses/{id}": Op<{ id: string }, never, CoreLenses, CoreLenses>;
   "DELETE /v1/core/lenses/{id}": Op<{ id: string }, never, never, void>;
+  "GET /v1/core/links": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/locale-overrides": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreLocaleOverrides>>;
   "POST /v1/core/locale-overrides": Op<never, never, CoreLocaleOverrides, CoreLocaleOverrides>;
   "GET /v1/core/locale-overrides/{id}": Op<{ id: string }, never, never, CoreLocaleOverrides>;
@@ -2666,6 +2668,9 @@ export interface Operations {
   "POST /v1/core/message-templates/{id}/restore": Op<{ id: string }, never, never, CoreMessageTemplates>;
   "GET /v1/core/modules/config": Op<never, never, never, Record<string, unknown>>;
   "PATCH /v1/core/modules/{module}/config": Op<{ module: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/core/notes": Op<never, never, never, Record<string, unknown>>;
+  "PUT /v1/core/notes": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/core/notes/export": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/notifications": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreNotifications>>;
   "GET /v1/core/notifications/{id}": Op<{ id: string }, never, never, CoreNotifications>;
   "GET /v1/core/onboarding-steps": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreOnboardingSteps>>;
@@ -3397,6 +3402,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/files/{id}": { tag: "core", summary: "Fetch one file", permission: "core:files:read", public: false },
   "DELETE /v1/core/files/{id}": { tag: "core", summary: "Soft-delete a file", permission: "core:files:delete", public: false },
   "POST /v1/core/files/{id}/restore": { tag: "core", summary: "Restore a soft-deleted file", permission: "core:files:delete", public: false },
+  "GET /v1/core/graph": { tag: "core", summary: "The records linked to one record within `depth` 1 or 2 hops (`?subject=<ref>&depth=`), capped at 40 nodes", permission: "core:notes:read", public: false },
   "GET /v1/core/identity-providers": { tag: "core", summary: "List identity-providers", permission: "core:identity_providers:read", public: false },
   "POST /v1/core/identity-providers": { tag: "core", summary: "Create a identity provider", permission: "core:identity_providers:write", public: false },
   "GET /v1/core/identity-providers/{id}": { tag: "core", summary: "Fetch one identity provider", permission: "core:identity_providers:read", public: false },
@@ -3409,6 +3415,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/lenses/{id}": { tag: "core", summary: "Fetch one lens", permission: "core:settings:read", public: false },
   "PATCH /v1/core/lenses/{id}": { tag: "core", summary: "Update a lens", permission: "core:settings:update", public: false },
   "DELETE /v1/core/lenses/{id}": { tag: "core", summary: "Soft-delete a lens", permission: "core:settings:update", public: false },
+  "GET /v1/core/links": { tag: "core", summary: "Backlinks: the notes that link to one record (`?to=<ref>`), with their names and where each opens", permission: "core:notes:read", public: false },
   "GET /v1/core/locale-overrides": { tag: "core", summary: "List locale-overrides", permission: "core:locale_overrides:read", public: false },
   "POST /v1/core/locale-overrides": { tag: "core", summary: "Create a locale override", permission: "core:locale_overrides:write", public: false },
   "GET /v1/core/locale-overrides/{id}": { tag: "core", summary: "Fetch one locale override", permission: "core:locale_overrides:read", public: false },
@@ -3432,6 +3439,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/core/message-templates/{id}/restore": { tag: "core", summary: "Restore a soft-deleted message template", permission: "core:templates:write", public: false },
   "GET /v1/core/modules/config": { tag: "core", summary: "Every module's effective configuration — enabled flag, autonomy override, model tier and settings", permission: "core:settings:read", public: false },
   "PATCH /v1/core/modules/{module}/config": { tag: "core", summary: "Update one module's configuration; absent keys fall through to the tenant-wide defaults", permission: "core:settings:update", public: false },
+  "GET /v1/core/notes": { tag: "core", summary: "Read the markdown note on one record (`?subject=<ref>`); `note` is null when none is written", permission: "core:notes:read", public: false },
+  "PUT /v1/core/notes": { tag: "core", summary: "Write the note on one record (`?subject=<ref>`, body `{bodyMd, version}`); 409 when someone saved since `version`; [[wikilinks]] become links", permission: "core:notes:write", public: false },
+  "GET /v1/core/notes/export": { tag: "core", summary: "Download the notes the caller may read as an Obsidian vault (application/zip, one `<Type>/<name>.md` per note)", permission: "core:notes:read", public: false },
   "GET /v1/core/notifications": { tag: "core", summary: "List notifications", permission: "core:notifications:read", public: false },
   "GET /v1/core/notifications/{id}": { tag: "core", summary: "Fetch one notification", permission: "core:notifications:read", public: false },
   "GET /v1/core/onboarding-steps": { tag: "core", summary: "List onboarding-steps", permission: "core:onboarding:read", public: false },

@@ -9,7 +9,7 @@ import type { Resource } from "./crud.js";
 // below cover the module routers, which are not CRUD.
 
 interface Op {
-  method: "get" | "post" | "patch" | "delete";
+  method: "get" | "post" | "patch" | "put" | "delete";
   path: string;
   summary: string;
   /** Omitted when the endpoint is authenticated but scoped to the caller itself. */
@@ -70,6 +70,15 @@ const HAND_WRITTEN: Op[] = [
   // Not the generated delete either: the key has `revokedAt`, not `deletedAt`,
   // so generic CRUD delete would hard-delete it. This sets `revokedAt` instead.
   { method: "delete", path: "/v1/core/api-keys/{id}", summary: "Revoke an API key; the row is kept for audit, the key stops authenticating", permission: "core:api_keys:revoke", tag: "core" },
+
+  // ADR-0085, docs/16 H11: per-record memory. Each read is gated twice — the
+  // notes permission and the read permission of the record the note is about —
+  // and every other record a response names is filtered by its own read.
+  { method: "get", path: "/v1/core/notes", summary: "Read the markdown note on one record (`?subject=<ref>`); `note` is null when none is written", permission: "core:notes:read", tag: "core" },
+  { method: "put", path: "/v1/core/notes", summary: "Write the note on one record (`?subject=<ref>`, body `{bodyMd, version}`); 409 when someone saved since `version`; [[wikilinks]] become links", permission: "core:notes:write", tag: "core", requestBody: true },
+  { method: "get", path: "/v1/core/links", summary: "Backlinks: the notes that link to one record (`?to=<ref>`), with their names and where each opens", permission: "core:notes:read", tag: "core" },
+  { method: "get", path: "/v1/core/graph", summary: "The records linked to one record within `depth` 1 or 2 hops (`?subject=<ref>&depth=`), capped at 40 nodes", permission: "core:notes:read", tag: "core" },
+  { method: "get", path: "/v1/core/notes/export", summary: "Download the notes the caller may read as an Obsidian vault (application/zip, one `<Type>/<name>.md` per note)", permission: "core:notes:read", tag: "core" },
 
   { method: "post", path: "/v1/core/webhooks/{id}/rotate", summary: "Rotate a webhook's signing secret to a fresh, server-generated one", permission: "core:webhooks:write", tag: "core" },
 
