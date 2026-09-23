@@ -1,6 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
-import { PaymentPlanWrite, schema } from "@lyra/db";
+import { AGENT_AUTONOMY, PaymentPlanWrite, schema } from "@lyra/db";
 import {
   autoApproveProblem,
   badRequest,
@@ -1093,7 +1093,24 @@ export const LEDGER = register(
 /* ---------------------------------------------------------------------- ai */
 
 export const AI = register(
-  r("agents", schema.aiAgents, "agt", "ai", rw("ai:agents")),
+  r("agents", schema.aiAgents, "agt", "ai", rw("ai:agents"), {
+    // Raising autonomy is dual control, never auto-approvable
+    // (`ai.autonomy_raise`, POST /v1/ai/agents/:key/autonomy). This CRUD was a
+    // second door with no gate, so here it may only hold or lower the level: a
+    // create starts at most on the table's default rung, and an update never
+    // climbs. Narrowing what an agent may do needs no second seat.
+    beforeWrite: (_ctx, values, existing) => {
+      const next = values.autonomyLevel;
+      if (next === undefined || next === null) return values;
+      const rung = (level: unknown) => AGENT_AUTONOMY.indexOf(level as (typeof AGENT_AUTONOMY)[number]);
+      if (rung(next) < 0) throw badRequest(`unknown autonomy level ${String(next)}`);
+      const ceiling = existing ? rung(existing.autonomyLevel) : rung("act_with_approval");
+      if (rung(next) > ceiling) {
+        throw badRequest("raising an agent's autonomy needs an approval: use POST /v1/ai/agents/:key/autonomy");
+      }
+      return values;
+    }
+  }),
   r("prompts", schema.aiPrompts, "prm", "ai", rw("ai:prompts"), {
     actorColumns: ["createdBy"],
     approval: { update: "ai.prompt_publish" }

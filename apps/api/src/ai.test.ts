@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
+import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { schema, type Db } from "@lyra/db";
 import { seed, totpAt, TOTP_STEP_SEC } from "@lyra/core";
@@ -316,5 +317,51 @@ describe("tenant and module kill switches", () => {
 
   it("needs a reason, so the audit row says why", async () => {
     expect((await call("tenant.admin", "POST", "/v1/ai/pause", {})).status).toBe(400);
+  });
+});
+
+/* ----------------------------------------------- autonomy has one door only */
+
+// Raising an agent's autonomy is dual control, never auto-approvable
+// (`ai.autonomy_raise`, POST /v1/ai/agents/:key/autonomy). The generic agents
+// CRUD was a second door with no gate: a PATCH of `autonomyLevel`, or a create
+// that starts above the floor, widened what an agent may do without asking.
+describe("the agents CRUD cannot move autonomy", () => {
+  it("refuses a PATCH that changes autonomyLevel", async () => {
+    const [agent] = await database.select().from(schema.aiAgents).where(eq(schema.aiAgents.tenantId, tenantId)).limit(1);
+    const res = await call("tenant.admin", "PATCH", `/v1/ai/agents/${agent!.id}`, { autonomyLevel: "autonomous" });
+    expect(res.status).toBe(400);
+    const [after] = await database.select().from(schema.aiAgents).where(eq(schema.aiAgents.id, agent!.id));
+    expect(after!.autonomyLevel).toBe(agent!.autonomyLevel);
+  });
+
+  it("still lets the CRUD change other fields and restate the same level", async () => {
+    const [agent] = await database.select().from(schema.aiAgents).where(eq(schema.aiAgents.tenantId, tenantId)).limit(1);
+    const res = await call("tenant.admin", "PATCH", `/v1/ai/agents/${agent!.id}`, {
+      tier: "standard",
+      autonomyLevel: agent!.autonomyLevel
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("lets the CRUD lower autonomy — narrowing needs no second seat", async () => {
+    const [agent] = await database.select().from(schema.aiAgents).where(eq(schema.aiAgents.tenantId, tenantId)).limit(1);
+    const res = await call("tenant.admin", "PATCH", `/v1/ai/agents/${agent!.id}`, { autonomyLevel: "suggest" });
+    expect(res.status).toBe(200);
+    const [after] = await database.select().from(schema.aiAgents).where(eq(schema.aiAgents.id, agent!.id));
+    expect(after!.autonomyLevel).toBe("suggest");
+  });
+
+  it("refuses a create above the default rung, and allows one at it", async () => {
+    const body = (key: string, autonomyLevel: string) => ({
+      key,
+      module: "signal",
+      nameJson: { en: "Probe", ar: "مسبار" },
+      autonomyLevel
+    });
+    const high = await call("tenant.admin", "POST", "/v1/ai/agents", body("autonomy-bypass-probe", "autonomous"));
+    expect(high.status).toBe(400);
+    const ok = await call("tenant.admin", "POST", "/v1/ai/agents", body("autonomy-floor-probe", "act_with_approval"));
+    expect(ok.status).toBe(201);
   });
 });
