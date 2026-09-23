@@ -16,6 +16,7 @@ import { onBindIssued } from "./engines/signal-attribution.js";
 import { onLeadConverted } from "./engines/signal-outreach.js";
 import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
+import { onDsarUpdated } from "./engines/compliance-erasure.js";
 import { onJourneyEvent } from "./engines/orbit-journeys.js";
 
 // The outbox drain. Events are written in the same request that changed the row,
@@ -85,6 +86,11 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // staff are notified so the request never arrives with no owner.
       if (event.type === "compliance.dsar-requests.created") {
         await consume(ctx.db, event, "compliance.dsar", (e) => onDsarCreated(ctx, e), ctx.now);
+      }
+      // docs/12 §3, ADR-0085: a fulfilled erasure reaches per-record memory —
+      // the AI's memories and the notes staff wrote — and logs what it erased.
+      if (event.type === "compliance.dsar-requests.updated") {
+        await consume(ctx.db, event, "compliance.erasure", (e) => onDsarUpdated(ctx, e), ctx.now);
       }
       // The retention loop (docs/17 SIG-007): a decided renewal folds in the
       // campaign-window conversations and their QA scores, and announces the
