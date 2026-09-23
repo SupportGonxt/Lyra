@@ -1,6 +1,6 @@
 import { and, sql, type SQL } from "drizzle-orm";
 import { schema } from "@lyra/db";
-import { badRequest, sha256Hex, type Ctx } from "@lyra/core";
+import { badRequest, REPORT_MAX_ROWS, sha256Hex, type Ctx } from "@lyra/core";
 import type { ReportTable } from "@lyra/ledger";
 
 // The reporting engine. A report is a definition over a registered dataset, not
@@ -464,7 +464,7 @@ export interface ReportDefinition {
 }
 
 /** Hard ceiling on any single materialisation; bigger jobs export, not render. */
-export const MAX_ROWS = 50_000;
+export const MAX_ROWS = REPORT_MAX_ROWS;
 
 const GRAIN_FORMAT: Record<Exclude<Grain, "none">, string> = {
   day: "%Y-%m-%d",

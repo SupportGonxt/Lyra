@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkInput, checkOutput, blocked } from "../src/guardrails.js";
@@ -15,6 +15,7 @@ import { parseWhitespaceBrief, type WhitespaceEvidence } from "../src/whitespace
 import { parseAudienceProposal, type AudienceEvidence } from "../src/audience-brief.js";
 import { CAMPAIGN_CHANNELS, parseCampaignPlan, type CampaignPlanEvidence } from "../src/campaign-plan.js";
 import { promptNouns } from "../src/vocabulary.js";
+import { parseAnalyticsAsk, type AskCatalogueEntry } from "../src/analytics-ask.js";
 import { aggregateCxScore, cxRubricSummary } from "../src/cx-judge.js";
 import {
   verifyNumericClaims,
@@ -22,7 +23,8 @@ import {
   recallable,
   checkCompliance as checkSignalCompliance,
   PROTECTED_AXES,
-  type BriefingSnapshot
+  type BriefingSnapshot,
+  type ReportDefinition
 } from "@lyra/core";
 import { loadCases, loadThresholds, metric, metricOk, type Metric } from "./harness.js";
 import { LIVE_SCORERS } from "./live.js";
@@ -1401,7 +1403,118 @@ async function scoreCampaignPlan(dir: string): Promise<Metric[]> {
   ];
 }
 
+interface AnalyticsAskCase {
+  id: string;
+  locale: "en" | "ar";
+  question: string;
+  /** The model's reply, canned — this suite scores the trust boundary. */
+  reply: string;
+  /** The definition the question means, or null when the only right answer is a refusal. */
+  expect: ReportDefinition | null;
+  /** A relative window the reply states; scored as `from = NOW - n days`. */
+  expectLastDays?: number;
+}
+
+interface AnalyticsAskThresholds {
+  datasetAccuracyMin: number;
+  metricAccuracyMin: number;
+  dimensionAccuracyMin: number;
+  grainAccuracyMin: number;
+  filterAccuracyMin: number;
+  windowAccuracyMin: number;
+  arabicMatchMin: number;
+  falseRefusalMax: number;
+  invalidAcceptMax: number;
+}
+
+/** The instant every ask case is compiled at, so a relative window is a fixed number. */
+const ASK_NOW = Date.UTC(2026, 5, 15, 12);
+
+/**
+ * docs/05 "ask a question in words → compiled to a visible, editable query"
+ * (src/analytics-ask.ts). Canned replies, the same posture as the whitespace
+ * and audience suites: what is scored here is the parser that stands between a
+ * model and the report builder, over a catalogue snapshot of the real registry
+ * (catalogue.json, from apps/api/src/engines/report.ts `DATASETS`).
+ *
+ * `invalidAcceptRate` is the gate that does not move. Every refusal case is a
+ * reply naming something the catalogue does not hold, breaking the schema, or
+ * omitting its "why"; accepting one is a guess dressed as a query, handed to a
+ * reader under a ✦. The field accuracies are scored per component so a
+ * regression names the part of the definition it broke.
+ */
+async function scoreAnalyticsAsk(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<AnalyticsAskCase>(dir);
+  const thresholds = await loadThresholds<AnalyticsAskThresholds>(dir);
+  const catalogue = JSON.parse(await readFile(join(dir, "catalogue.json"), "utf8")) as AskCatalogueEntry[];
+
+  const scored = cases.map((c) => ({ case: c, got: parseAnalyticsAsk(c.reply, catalogue, ASK_NOW) }));
+  const valid = scored.filter((s) => s.case.expect !== null);
+  const invalid = scored.filter((s) => s.case.expect === null);
+
+  const set = (xs: readonly string[] | undefined) => [...(xs ?? [])].sort().join("|");
+  const filters = (fs: ReportDefinition["filters"]) =>
+    (fs ?? []).map((f) => JSON.stringify([f.field, f.op, f.value ?? null])).sort().join("|");
+  const def = (s: (typeof scored)[number]) => (s.got.ok ? s.got.definition : null);
+  const rate = (hits: number, of: number) => (of ? hits / of : 0);
+
+  const hit = (pick: (got: ReportDefinition, want: ReportDefinition) => boolean) =>
+    valid.filter((s) => {
+      const got = def(s);
+      return got !== null && pick(got, s.case.expect!);
+    }).length;
+
+  const whole = (got: ReportDefinition, want: ReportDefinition, lastDays?: number) =>
+    got.dataset === want.dataset &&
+    set(got.metrics) === set(want.metrics) &&
+    set(got.dimensions) === set(want.dimensions) &&
+    (got.grain ?? "none") === (want.grain ?? "none") &&
+    filters(got.filters) === filters(want.filters) &&
+    JSON.stringify(got.sort ?? null) === JSON.stringify(want.sort ?? null) &&
+    (got.limit ?? null) === (want.limit ?? null) &&
+    (got.from ?? null) === (lastDays === undefined ? null : ASK_NOW - lastDays * 86_400_000);
+
+  const windowed = valid.filter((s) => s.case.expectLastDays !== undefined);
+  const arabic = valid.filter((s) => s.case.locale === "ar");
+
+  return [
+    metric("datasetAccuracy", rate(hit((g, w) => g.dataset === w.dataset), valid.length), { min: thresholds.datasetAccuracyMin }),
+    metric("metricAccuracy", rate(hit((g, w) => set(g.metrics) === set(w.metrics)), valid.length), {
+      min: thresholds.metricAccuracyMin
+    }),
+    metric("dimensionAccuracy", rate(hit((g, w) => set(g.dimensions) === set(w.dimensions)), valid.length), {
+      min: thresholds.dimensionAccuracyMin
+    }),
+    metric("grainAccuracy", rate(hit((g, w) => (g.grain ?? "none") === (w.grain ?? "none")), valid.length), {
+      min: thresholds.grainAccuracyMin
+    }),
+    metric("filterAccuracy", rate(hit((g, w) => filters(g.filters) === filters(w.filters)), valid.length), {
+      min: thresholds.filterAccuracyMin
+    }),
+    metric(
+      "windowAccuracy",
+      rate(
+        windowed.filter((s) => def(s)?.from === ASK_NOW - s.case.expectLastDays! * 86_400_000).length,
+        windowed.length
+      ),
+      { min: thresholds.windowAccuracyMin }
+    ),
+    metric(
+      "arabicMatch",
+      rate(arabic.filter((s) => def(s) !== null && whole(def(s)!, s.case.expect!, s.case.expectLastDays)).length, arabic.length),
+      { min: thresholds.arabicMatchMin }
+    ),
+    metric("falseRefusalRate", rate(valid.filter((s) => !s.got.ok).length, valid.length), {
+      max: thresholds.falseRefusalMax
+    }),
+    metric("invalidAcceptRate", rate(invalid.filter((s) => s.got.ok).length, invalid.length), {
+      max: thresholds.invalidAcceptMax
+    })
+  ];
+}
+
 const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
+  "analytics-ask": scoreAnalyticsAsk,
   injection: scoreInjection,
   "creative-image": scoreInjection,
   compliance: scoreCompliance,

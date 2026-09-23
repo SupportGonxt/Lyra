@@ -13,6 +13,8 @@ import {
   mask,
   notFound,
   require_,
+  ReportDefinitionSchema,
+  ReportFilterSchema,
   scoped,
   sha256Hex,
   withIdempotency,
@@ -63,23 +65,10 @@ analyticsRoutes.get("/datasets", (c) => {
 
 /* -------------------------------------------------------------------- reports */
 
-const Filter = z.object({
-  field: z.string().min(1).max(64),
-  op: z.enum(["eq", "neq", "in", "gt", "gte", "lt", "lte", "contains", "is_null", "not_null"]),
-  value: z.union([z.string().max(200), z.number(), z.array(z.union([z.string().max(200), z.number()])).max(200)]).optional()
-});
-
-const Definition = z.object({
-  dataset: z.string().min(1).max(64),
-  metrics: z.array(z.string().min(1).max(64)).min(1).max(12),
-  dimensions: z.array(z.string().min(1).max(64)).max(6).optional(),
-  filters: z.array(Filter).max(20).optional(),
-  grain: z.enum(["none", "day", "week", "month", "quarter", "year"]).optional(),
-  from: z.number().int().optional(),
-  to: z.number().int().optional(),
-  sort: z.object({ field: z.string().min(1).max(64), dir: z.enum(["asc", "desc"]) }).optional(),
-  limit: z.number().int().min(1).max(MAX_ROWS).optional()
-});
+// One schema for every reader of a definition, the ask purpose included
+// (packages/core/src/report-definition.ts).
+const Filter = ReportFilterSchema;
+const Definition = ReportDefinitionSchema;
 
 const ReportBody = z.object({
   key: z.string().min(1).max(64).regex(/^[a-z0-9_.-]+$/),
