@@ -203,6 +203,108 @@ describe("AI datasets", () => {
   });
 });
 
+/* ------------------------------------------------------------ ask in words */
+
+describe("POST /v1/analytics/ask", () => {
+  /** A Workers AI binding that answers every call with `reply`, and records what it was sent. */
+  function model(reply: unknown): { env: Env; sent: unknown[] } {
+    const sent: unknown[] = [];
+    return {
+      sent,
+      env: {
+        AI: {
+          run: async (_model: string, input: unknown) => {
+            sent.push(input);
+            return { response: typeof reply === "string" ? reply : JSON.stringify(reply) };
+          }
+        }
+      } as unknown as Env
+    };
+  }
+
+  async function ask(question: string, env: Env, over: Partial<Ctx> = {}): Promise<{ status: number; body: any }> {
+    const res = await router(over).fetch(
+      new Request("http://api.test/v1/analytics/ask", {
+        method: "POST",
+        body: JSON.stringify({ question }),
+        headers: { "content-type": "application/json" }
+      }),
+      env as never
+    );
+    return { status: res.status, body: await res.json() };
+  }
+
+  const GOOD = { dataset: "aiSpend", metrics: ["costMicro"], dimensions: ["purpose"], lastDays: 30, why: "Spend per purpose." };
+
+  it("compiles a question into a definition and a why, and runs nothing", async () => {
+    const { env } = model(GOOD);
+    const { status, body } = await ask("What did AI cost by purpose this month?", env);
+    expect(status).toBe(200);
+    expect(body.definition).toEqual({
+      dataset: "aiSpend",
+      metrics: ["costMicro"],
+      dimensions: ["purpose"],
+      from: NOW - 30 * DAY
+    });
+    expect(body.why).toBe("Spend per purpose.");
+    // The ask is not a run: no report_runs row is written until the reader previews.
+    expect(await ctx.db.select().from(schema.reportRuns)).toEqual([]);
+  });
+
+  it("goes through the gateway: one ai_audit_log row under analytics / analytics.ask, naming the actor", async () => {
+    const { env } = model(GOOD);
+    const { body } = await ask("What did AI cost by purpose?", env);
+    const rows = await ctx.db.select().from(schema.aiAuditLog);
+    const mine = rows.filter((r) => r.purpose === "analytics.ask");
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ tenantId: "t_test", module: "analytics", actorRef: "user:u_test", id: body.auditId });
+  });
+
+  it("shows the model only the datasets the caller may read", async () => {
+    const { env, sent } = model(GOOD);
+    await ask("What did AI cost?", env, { actor: actor([...READ, "ai:budgets:read"]) });
+    const prompt = JSON.stringify(sent[0]);
+    expect(prompt).toContain("dataset aiSpend");
+    expect(prompt).not.toContain("dataset aiRuns");
+    expect(prompt).not.toContain("dataset policies");
+  });
+
+  it("refuses — never guesses — when the reply names something the caller's catalogue lacks", async () => {
+    // aiRuns exists, but this caller may not read it, so it is not in their catalogue.
+    const { env } = model({ ...GOOD, dataset: "aiRuns", metrics: ["runs"], dimensions: [] });
+    const { status, body } = await ask("How many runs?", env, { actor: actor([...READ, "ai:budgets:read"]) });
+    expect(status).toBe(422);
+    expect(body).toMatchObject({ code: "ask_refused", reason: "unknown_dataset" });
+    expect(body.audit_id).toBeTruthy();
+  });
+
+  it("refuses a reply that is not a definition, with the reason as a code", async () => {
+    const { env } = model("I think you want spend by purpose.");
+    const { status, body } = await ask("spend?", env);
+    expect(status).toBe(422);
+    expect(body.reason).toBe("unparseable");
+  });
+
+  it("passes the model's own refusal on as a refusal", async () => {
+    const { env } = model({ refusal: "Nothing holds salaries." });
+    const { body } = await ask("What are salaries?", env);
+    expect(body).toMatchObject({ code: "ask_refused", reason: "refused" });
+  });
+
+  it("is gated on building reports", async () => {
+    const { env } = model(GOOD);
+    const { status } = await ask("What did AI cost?", env, { actor: actor(["ai:budgets:read"]) });
+    expect(status).toBe(403);
+  });
+
+  it("rejects a question too short to mean anything", async () => {
+    const { env, sent } = model(GOOD);
+    const { status } = await ask("?", env);
+    expect(status).toBe(400);
+    expect(sent).toEqual([]);
+  });
+});
+
 /* -------------------------------------------------------------------- seeds */
 
 async function seed(): Promise<void> {
