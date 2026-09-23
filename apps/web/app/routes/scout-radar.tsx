@@ -264,7 +264,10 @@ export default function ScoutRadar() {
                 </p>
               ) : null}
 
-              <p className="font-ui text-13 leading-relaxed text-text">{chosen.description}</p>
+              {/* A commentary that only restates the description says it once. */}
+              {loaded.commentary?.commentary?.trim() === chosen.description.trim() ? null : (
+                <p className="font-ui text-13 leading-relaxed text-text">{chosen.description}</p>
+              )}
 
               <CommentaryChip commentary={loaded.commentary} l={l} locale={locale} />
 

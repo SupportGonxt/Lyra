@@ -12,7 +12,6 @@ import {
   Button,
   Card,
   DateTime,
-  EmptyState,
   shortRef,
   type BadgeTone
 } from "@lyra/ui";
@@ -121,7 +120,6 @@ export const LABELS: Labels = {
     open: "Open renewal",
     saveDesk: "Open the save desk",
     empty: "Nothing at this stage",
-    emptyBody: "Cards arrive here as the sweep raises renewals and decisions are recorded.",
     auto_requote: "Auto re-quote",
     human: "Handled by a person",
     do_not_contact: "Do not contact",
@@ -156,7 +154,6 @@ export const LABELS: Labels = {
     open: "افتح التجديد",
     saveDesk: "افتح مكتب الاستبقاء",
     empty: "لا شيء في هذه المرحلة",
-    emptyBody: "تصل البطاقات هنا مع رفع التجديدات وتسجيل القرارات.",
     auto_requote: "إعادة تسعير تلقائية",
     human: "يتولاها موظف",
     do_not_contact: "عدم التواصل",
@@ -339,7 +336,7 @@ export default function RenewalPipeline() {
               }
             >
               {cards.length === 0 ? (
-                <EmptyState title={l("empty")} body={l("emptyBody")} />
+                <p className="font-ui text-13 text-subtle">{l("empty")}</p>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {cards.map((row) => {

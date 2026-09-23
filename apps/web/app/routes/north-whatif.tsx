@@ -432,7 +432,8 @@ function ScenarioDetail({
   const prose = Object.entries(answer).filter(([, value]) => typeof value === "string");
 
   return (
-    <Panel module="north" eyebrow={scenario.author} lede={scenario.question}>
+    // The page heading is already this question; the panel names who asked it.
+    <Panel module="north" eyebrow={scenario.author}>
       <div className="flex flex-col gap-5">
         <section className="flex flex-col gap-2">
           <h2 className="eyebrow">{l("detail.assumptions")}</h2>

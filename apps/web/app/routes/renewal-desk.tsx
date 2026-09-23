@@ -83,6 +83,8 @@ const LABELS: Record<string, Record<string, string>> = {
     // promise a column that does not exist.
     intro: "Terms expiring in the next 60 days, their churn risk, and the one-tap bind.",
     empty: "No terms expiring in the next 60 days.",
+    emptyTitle: "Nothing to renew yet",
+    emptyBody: "A term appears here 60 days before it ends, highest churn risk first.",
     count: "Expiring",
     holder: "Holder",
     expires: "Expires",
@@ -115,6 +117,8 @@ const LABELS: Record<string, Record<string, string>> = {
     title: "مكتب التجديد",
     intro: "الوثائق التي تنتهي خلال 60 يومًا القادمة، وخطر تسربها، والتجديد بلمسة واحدة.",
     empty: "لا توجد وثائق تنتهي خلال 60 يومًا القادمة.",
+    emptyTitle: "لا شيء للتجديد بعد",
+    emptyBody: "تظهر المدة هنا قبل انتهائها بستين يومًا، الأعلى خطر تسرب أولًا.",
     count: "على وشك الانتهاء",
     holder: "حامل الوثيقة",
     expires: "تنتهي",
@@ -299,9 +303,9 @@ export default function RenewalDesk() {
         <Stat label={l("count")} value={String(loaded.rows.length)} />
       </KPIWall>
 
-      <Card title={l("title")} description={l("intro")}>
+      <Card title={l("title")}>
         {loaded.rows.length === 0 ? (
-          <EmptyState title={l("empty")} body={l("intro")} />
+          <EmptyState title={l("emptyTitle")} body={l("emptyBody")} />
         ) : (
           <Table
             caption={l("title")}

@@ -459,6 +459,7 @@ export default function SaveDesk() {
           busy={busy}
           caption={l("queue")}
           emptyTitle={l("noneQueue")}
+          emptyBody={l("noneBody")}
         />
       </Card>
 
@@ -484,7 +485,7 @@ export default function SaveDesk() {
 
           <Card title={l("settled")} description={l("settledBody")}>
             {loaded.settled.length === 0 ? (
-              <EmptyState title={l("noneSettled")} body={l("noneBody")} />
+              <EmptyState title={l("noneSettled")} />
             ) : (
               <Table
                 caption={l("settled")}
@@ -547,7 +548,8 @@ function Desk({
   writable,
   busy,
   caption,
-  emptyTitle
+  emptyTitle,
+  emptyBody
 }: {
   rows: Renewal[];
   l: Label;
@@ -559,8 +561,11 @@ function Desk({
   busy: boolean;
   caption: string;
   emptyTitle: string;
+  /** Only the first desk explains where rows come from; the cards below it
+   *  already carry their own description. */
+  emptyBody?: string;
 }) {
-  if (rows.length === 0) return <EmptyState title={emptyTitle} body={l("noneBody")} />;
+  if (rows.length === 0) return <EmptyState title={emptyTitle} {...(emptyBody ? { body: emptyBody } : {})} />;
 
   const columns: Column<Renewal>[] = [
     {

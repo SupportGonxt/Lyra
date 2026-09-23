@@ -10,13 +10,17 @@
 import { chromium } from "@playwright/test";
 import { BASE, routePatterns, signIn, sweepRoute, report } from "./sweep-lib.mjs";
 
-const ROUTES = routePatterns({ param: false });
-if (!ROUTES.includes("/")) ROUTES.unshift("/");
+// SWEEP_ONLY=/a,/b re-sweeps just those routes — the loop while fixing them.
+const ONLY = process.env.SWEEP_ONLY?.split(",");
+const ROUTES = routePatterns({ param: false }).filter((r) => !ONLY || ONLY.includes(r));
+if (!ONLY && !ROUTES.includes("/")) ROUTES.unshift("/");
 
 console.log(`sweeping ${ROUTES.length} routes on ${BASE}\n`);
 
-const browser = await chromium.launch();
-const page = await browser.newPage();
+const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+// A fixed desktop viewport, so the layout findings (sweep-lib `layoutFindings`)
+// measure the same screen every run; reduced motion skips the cold open.
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
 await signIn(page);
 
 const tally = { ok: 0, hit: 0, bad: 0, denied: 0 };

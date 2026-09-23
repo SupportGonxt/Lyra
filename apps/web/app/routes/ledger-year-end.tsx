@@ -164,7 +164,7 @@ export default function LedgerYearEnd() {
         />
       </KPIWall>
 
-      <Card title={l("ye.preview")} description={l("ye.intro")} elevation="flat">
+      <Card title={l("ye.preview")} elevation="flat">
         <div className="flex flex-col gap-4">
           <Table<ClosingLine>
             caption={l("ye.previewCaption")}

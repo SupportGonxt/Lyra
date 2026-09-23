@@ -1,3 +1,4 @@
+/* global document, window -- layoutFindings runs inside the page */
 // Shared by sweep.mjs (static routes) and sweep-detail.mjs (routes behind an
 // :id). The two differ only in how they find routes; sign-in, the not-prose
 // checks and the per-route verdict are identical, and the last time they were
@@ -196,7 +197,44 @@ export async function signOut(page) {
  * a caller can tally; a denied route is counted as unswept and never as a pass,
  * because a route nothing rendered has been checked for nothing.
  */
-export async function sweepRoute(page, path, { walls = true, quiet = false } = {}) {
+/**
+ * Layout, not text: what a reader sees in the first screen. Three findings,
+ * each the shape a density audit (2026-09-23) found across most screens:
+ *  - the same sentence printed twice (a headline restated as a card caption
+ *    and again as the empty state's body);
+ *  - the first piece of data (a row, a figure, a chart) starting in the lower
+ *    half of the viewport, under forms, panels and prose;
+ *  - a screen more than four viewports tall with no in-page navigation.
+ * Measured on the rendered page, so it sees what the reader sees.
+ */
+export async function layoutFindings(page) {
+  return page.evaluate(() => {
+    const main = document.querySelector("main");
+    if (!main) return [];
+    const found = [];
+    const seen = new Map();
+    for (const el of main.querySelectorAll("h1, h2, h3, p, dd")) {
+      const text = el.innerText?.trim().replace(/\s+/g, " ");
+      // Prose only: a label or a name repeated once per card or row is data
+      // doing its job, not a restated sentence.
+      if (!text || text.split(" ").length < 6 || el.closest("[aria-hidden=true], table, li, article, [role=row], .eyebrow, [data-field-note]")) continue;
+      seen.set(text, (seen.get(text) ?? 0) + 1);
+    }
+    const repeated = [...seen].filter(([, n]) => n > 1).map(([t]) => t);
+    if (repeated.length) found.push(`repeated sentence: ${JSON.stringify(repeated[0].slice(0, 60))}`);
+    const top = main.getBoundingClientRect().top;
+    const first = main.querySelector("tbody tr, dd, [data-stat], svg[role=img], ul:not(nav ul) > li, ol:not(nav ol) > li, article");
+    const at = first ? first.getBoundingClientRect().top - top : null;
+    if (at !== null && at > window.innerHeight / 2) found.push(`data starts ${Math.round(at)}px down`);
+    const screens = main.scrollHeight / window.innerHeight;
+    if (screens > 4 && !main.querySelector("nav, [role=tablist]")) {
+      found.push(`${screens.toFixed(1)} screens tall with no in-page navigation`);
+    }
+    return found;
+  });
+}
+
+export async function sweepRoute(page, path, { walls = true, quiet = false, layout = true } = {}) {
   // `walls` is the permission-wall CHECK, and it is only ever true of the seat
   // holding every tenant role. Sweeping as `axis.agent` and calling every wall
   // a defect would bury the thing a per-persona sweep is actually for — a
@@ -231,6 +269,7 @@ export async function sweepRoute(page, path, { walls = true, quiet = false } = {
       const m = text.match(re);
       return `${label}: ${JSON.stringify(m[0].slice(0, 60))}`;
     });
+  if (layout) hits.push(...(await layoutFindings(page).catch(() => [])));
   if (hits.length) {
     console.log(`HIT  ${path}  [${status}]  ${hits.join(" | ")}`);
     return "hit";

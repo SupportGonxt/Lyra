@@ -71,6 +71,7 @@ const LABELS: Record<string, Record<string, string>> = {
     title: "Referral desk",
     intro: "Risks held outside delegated authority, soonest deadline first. Accept, decline or counter.",
     empty: "Nothing is waiting on an underwriter.",
+    emptyBody: "A risk lands here when it is written outside delegated authority.",
     count: "Waiting",
     referral: "Referral",
     value: "Value",
@@ -105,6 +106,7 @@ const LABELS: Record<string, Record<string, string>> = {
     title: "مكتب الإحالات",
     intro: "المخاطر خارج الصلاحية المفوَّضة، الأقرب موعدًا أولًا. اقبل أو ارفض أو اعرض بديلًا.",
     empty: "لا شيء ينتظر مكتتبًا.",
+    emptyBody: "تصل المخاطرة إلى هنا حين تُكتب خارج الصلاحية المفوَّضة.",
     count: "قيد الانتظار",
     referral: "الإحالة",
     value: "القيمة",
@@ -301,9 +303,9 @@ export default function ReferralDesk() {
         <Stat label={l("count")} value={String(loaded.rows.length)} />
       </KPIWall>
 
-      <Card title={l("title")} description={l("intro")}>
+      <Card title={l("title")}>
         {loaded.rows.length === 0 ? (
-          <EmptyState title={l("empty")} body={l("intro")} />
+          <EmptyState title={l("empty")} body={l("emptyBody")} />
         ) : (
           <Table
             caption={l("title")}

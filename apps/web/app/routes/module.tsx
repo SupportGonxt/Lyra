@@ -338,6 +338,9 @@ export default function ModuleList() {
   const shell = useShellData();
   const pending = usePending();
   const [searchParams, setSearchParams] = useSearchParams();
+  // How many rows are ticked: the bulk bar exists only while some are. Above
+  // the early returns below, so the hook order never changes.
+  const [selected, setSelected] = useState(0);
 
   const locale = shell?.locale ?? "en";
   const permissions = shell?.permissions ?? [];
@@ -394,8 +397,6 @@ export default function ModuleList() {
 
   // Bulk (AXIS-007): a checkbox per row, owned by the bulk bar's form through
   // the `form` attribute, so the table stays one table and not a form.
-  // How many rows are ticked: the bulk bar exists only while some are.
-  const [selected, setSelected] = useState(0);
   const recount = () =>
     setSelected(document.querySelectorAll(`input[form="${BULK_FORM_ID}"][name="ids"]:checked`).length);
   const bulkActions = !deletedView ? (tab.bulk?.actions ?? []).filter((entry) => held.has(entry.permission)) : [];
