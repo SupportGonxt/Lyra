@@ -65,7 +65,9 @@ export function Table<T>({
   captionHidden = true,
   sort,
   onSortChange,
-  density = "comfortable",
+  // Staff screens read many rows at once: compact is the default, comfortable
+  // the opt-in for a short list that wants air.
+  density = "compact",
   stickyHeader = true,
   rowState,
   onRowActivate,
@@ -324,7 +326,7 @@ export interface EmptyStateProps {
 /** Thin-line constellation — the house illustration idiom (docs/01 §5). */
 function ConstellationArt() {
   return (
-    <svg viewBox="0 0 120 80" className="h-16 w-auto" role="presentation" aria-hidden="true">
+    <svg viewBox="0 0 120 80" className="h-10 w-auto" role="presentation" aria-hidden="true">
       <g fill="none" stroke="var(--text-subtle)" strokeWidth="1.2" opacity="0.7">
         <path d="M42 44 L72 36 L83 68 L53 76 Z" />
         <path d="M25 24 L42 44" />
@@ -344,14 +346,14 @@ export function EmptyState({ title, body, action, className }: EmptyStateProps) 
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-3 rounded-md border border-dashed border-border p-10 text-center",
+        "flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-6 py-6 text-center",
         className
       )}
     >
       <ConstellationArt />
       <h3 className="section-title">{title}</h3>
       {body ? <p className="max-w-prose font-ui text-13 text-subtle">{body}</p> : null}
-      {action ? <div className="mt-2">{action}</div> : null}
+      {action ? <div className="mt-1">{action}</div> : null}
     </div>
   );
 }
@@ -395,7 +397,7 @@ export function Stat({
           still lines up on the decimal without a grid laid out for it. */}
       <span
         className={cn(
-          "font-display text-28 font-bold tabular-nums leading-[1.15] text-text [overflow-wrap:anywhere]",
+          "font-display text-22 font-bold tabular-nums leading-[1.15] text-text [overflow-wrap:anywhere]",
           live && "motion-safe:animate-twinkle"
         )}
       >
