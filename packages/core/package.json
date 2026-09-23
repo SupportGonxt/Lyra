@@ -10,7 +10,8 @@
     "./rbac": "./src/rbac.ts",
     "./seed": "./src/seed.ts",
     "./totp": "./src/totp.ts",
-    "./words": "./src/words.ts"
+    "./words": "./src/words.ts",
+    "./wikilinks": "./src/wikilinks.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

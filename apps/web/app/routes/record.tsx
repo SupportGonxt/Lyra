@@ -19,6 +19,7 @@ import { Cell, FieldInput } from "../components/fields";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { ConfirmButton } from "../components/confirm";
+import { MemoryPanel } from "../components/memory-panel";
 import { workspaceFor } from "../modules";
 import {
   bodyFrom,
@@ -226,6 +227,13 @@ export default function Record() {
             </Button>
           </div>
         </Form>
+      ) : null}
+
+      {/* The record's memory (ADR-0085): its note, what links here, its graph
+          and what the platform remembers. Below the record's own fields and
+          forms, loaded after them, so it never pushes the record down. */}
+      {row.id ? (
+        <MemoryPanel subject={String(row.id)} t={t} locale={locale} permissions={shell?.permissions ?? []} />
       ) : null}
 
       {canDelete ? (

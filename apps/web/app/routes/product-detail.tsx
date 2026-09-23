@@ -18,6 +18,7 @@ import {
   type Page
 } from "./detail-kit";
 import { useShellData } from "./workspace";
+import { MemoryPanel } from "../components/memory-panel";
 
 // One product definition: what it covers, what prices it, which underwriter
 // versions exist, and which channels are allowed to sell them. Read-only — the
@@ -474,6 +475,15 @@ export default function ProductDetail() {
       <Card title={l("mappingTitle")}>
         <Payload value={product.standardMappingJson} />
       </Card>
+
+      {/* The record's memory (ADR-0085), last: below everything the record
+          itself shows, loaded after it, so it never pushes the record down. */}
+      <MemoryPanel
+        subject={product.id}
+        t={t}
+        locale={locale}
+        permissions={shell?.permissions ?? []}
+      />
     </div>
   );
 }

@@ -268,6 +268,15 @@ is the screen. `CommandBar` + `groupCommandItems` is the keyboard path.
 **The companion rail.** `/companion` ([companion.ts](apps/web/app/routes/companion.ts))
 has no screen of its own — it feeds the shell's companion rail.
 
+**Record memory (ADR-0085).** `/memory` ([memory.ts](apps/web/app/routes/memory.ts))
+has no screen of its own — it is the loader and action behind `MemoryPanel`, and
+answers `{ available: false }` rather than an error when the reader may not see a
+record's notes, so a refusal thins the panel and never the record. `/memory/export`
+([memory-export.ts](apps/web/app/routes/memory-export.ts)) streams the notes vault as
+a zip through `proxyFile`; the admin tools list links it with `download: true`
+(`LinkSpec.download` renders `reloadDocument`, because a client-side navigation to
+a route with no component has nothing to render).
+
 **Drill-down.** Every hero figure is a link. `Figure` inside a `KPIWall` resolves to
 the list or record that produced it; a number that cannot be opened is a number
 nobody can check.
@@ -284,7 +293,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 117 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 119 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -337,6 +346,8 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/search` | [search.ts](apps/web/app/routes/search.ts) |
 | `/companion` | [companion.ts](apps/web/app/routes/companion.ts) |
 | `/search/results` | [search-results.tsx](apps/web/app/routes/search-results.tsx) |
+| `/memory` | [memory.ts](apps/web/app/routes/memory.ts) |
+| `/memory/export` | [memory-export.ts](apps/web/app/routes/memory-export.ts) |
 | `/onboarding/:kind/:ref` | [onboarding.tsx](apps/web/app/routes/onboarding.tsx) |
 | `/admin/customers/:id/360` | [customer-360.tsx](apps/web/app/routes/customer-360.tsx) |
 | `/admin/products/:id/detail` | [product-detail.tsx](apps/web/app/routes/product-detail.tsx) |
@@ -423,7 +434,11 @@ Two route files render all of these:
 - **Record** — `/:module/:resource/:id` ([record.tsx](apps/web/app/routes/record.tsx)).
   The record's fields, an edit form from `editable ?? fields`, delete when
   `remove` is held, the `recordLink` out to a deeper bespoke screen, and the
-  state-change `actions` the API owns.
+  state-change `actions` the API owns. Below the edit form and above delete sits
+  `MemoryPanel` (§8, ADR-0085) for the record's id — loaded after the record, so
+  the record's own fields never wait on it or move below the fold for it. The
+  bespoke detail screens carry the same panel last on the page: customer 360,
+  policy, claim, case, conversation thread, product and channel detail.
 
 ### 7.0 Saved views on the list screen
 
@@ -708,6 +723,8 @@ left to whichever module chapter happened to mention them.
 | [mark.tsx](apps/web/app/components/mark.tsx) | `ConstellationMark` — the Lyra harp logotype, four charted stars with Vega set apart in the tenant accent. Decorative (`aria-hidden`); the wordmark beside it carries the name. |
 | [theme-toggle.tsx](apps/web/app/components/theme-toggle.tsx) | Flips `data-theme` on the document and the `lyra_theme` cookie together, so the first paint already carries the right palette. The only reader of theme state is CSS — no context, no provider, no store (ponytail). |
 | [turnstile.tsx](apps/web/app/components/turnstile.tsx) | The Cloudflare Turnstile challenge on the two forms a stranger can post without a session — portal lead capture and public DSAR intake (docs/10 §6). Writes a hidden `cf-turnstile-response` input the route's action forwards as `turnstileToken`. Renders nothing where no site key is bound (dev, on-prem, CI, or an un-applied `infra/cloudflare/turnstile.tf`), matching the API side, which requires no challenge where it holds no secret. |
+| [memory-panel.tsx](apps/web/app/components/memory-panel.tsx) | A record's memory, Obsidian-shaped (ADR-0085, docs/16 H11), in four tabs: **Note** — the record's markdown note rendered through `Markdown`, `[[links]]` resolved to names and screens; *Edit* (with `core:notes:write`) swaps in a textarea whose `[[` opens a record picker over `/search`, and saves with the version it loaded (a 409 says someone else saved, keeps the text, offers reload). **Linked from** — the notes that link here. **Graph** — an inline SVG of the records 1 or 2 hops away, every node a keyboard-reachable link, capped at 40. **AI memory** — the `core_memories` rows for the subject, each with ✦ `AgentBadge` whose why names provenance, purposes and sensitivity, with *Forget* for `core:settings:update`. Tabs are withheld, not emptied: the note tabs need `core:notes:read`, the AI tab needs the memories resource to answer. `MemoryView` is the pure half, tested without a router's data layer. |
+| [markdown.tsx](apps/web/app/components/markdown.tsx) | The minimal markdown a note needs — headings (shifted under the page's h1/h2), paragraphs, lists, quotes, code, emphasis, links, `[[wikilinks]]` — with no dependency. It builds React elements and never an HTML string, so a typed `<script>` is text; `safeHref` admits only http(s), mailto and same-site paths. |
 | [fields.tsx](apps/web/app/components/fields.tsx) | The generated-CRUD renderers for `ColumnSpec`/`FieldSpec` — money, rate, ratio, measure, ref, badge-toned enum — shared by `module.tsx` and `record.tsx` so a field type means the same thing everywhere it appears. |
 | [whitespace-commentary.tsx](apps/web/app/components/whitespace-commentary.tsx) + [whitespace-api.server.ts](apps/web/app/components/whitespace-api.server.ts) | SCOUT's hover commentary and the promote-to-signal handover. `whitespace-api.server.ts` is the two calls the feature needs in one file: `GET /v1/scout/whitespaces/commentary?limit=N` (a read of already-stored commentary, not a model call, so the radar can prefetch every dot in one round) and the promote call. See `docs/ui/scout.md` for the fuller history of this contract, including the shipped mismatch between the assumed and actual response shape. |
 | [signal-handover.tsx](apps/web/app/components/signal-handover.tsx) | The button that hands a SCOUT whitespace to the SIGNAL campaign studio. Marked consequential (CLAUDE.md §4): the label says exactly what pressing it does, the API may answer "queued for approval" rather than "done", and any drafts land in a tray to be read rather than sent (docs/15 §4 pattern 3). `may: false` renders the reason in place of the button rather than a disabled control, because a disabled control cannot have its explanation announced to a screen reader. |

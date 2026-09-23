@@ -20,6 +20,7 @@ import {
 } from "./detail-kit";
 import { useShellData } from "./workspace";
 import { FALLBACK_CURRENCY } from "../calendar";
+import { MemoryPanel } from "../components/memory-panel";
 
 // One distribution channel: what it may sell, what it is paid, how much it is
 // actually asking for, and where its money stands. Read-only — rate changes and
@@ -577,6 +578,15 @@ export default function ChannelDetail() {
           empty={<EmptyState title={l("none")} body={l("noneSettlements")} />}
         />
       </Card>
+
+      {/* The record's memory (ADR-0085), last: below everything the record
+          itself shows, loaded after it, so it never pushes the record down. */}
+      <MemoryPanel
+        subject={channel.id}
+        t={t}
+        locale={locale}
+        permissions={shell?.permissions ?? []}
+      />
     </div>
   );
 }

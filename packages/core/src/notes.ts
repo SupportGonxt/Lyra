@@ -366,8 +366,10 @@ export interface VaultFile {
 
 /** Characters no file name can carry across the three desktop filesystems, plus Obsidian's link syntax. */
 function fileSafe(name: string): string {
-  return name
-    .replace(/[\\/:*?"<>|#^[\]\u0000-\u001f]+/g, " ")
+  return [...name]
+    .map((ch) => (ch.charCodeAt(0) < 0x20 ? " " : ch))
+    .join("")
+    .replace(/[\\/:*?"<>|#^[\]]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120)

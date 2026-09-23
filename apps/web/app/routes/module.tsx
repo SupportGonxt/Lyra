@@ -401,6 +401,7 @@ export default function ModuleList() {
               <Link
                 key={link.href}
                 to={link.href}
+                {...(link.download ? { reloadDocument: true } : {})}
                 className="font-ui text-12 text-subtle underline-offset-4 hover:text-text hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 {label(link.labelKey)}

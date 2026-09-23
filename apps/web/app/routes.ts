@@ -63,6 +63,9 @@ export default [
     // Feeds the shell's companion rail; no screen of its own (routes/companion.ts).
     route("companion", "routes/companion.ts"),
     route("search/results", "routes/search-results.tsx"),
+    // Record memory (ADR-0085): the panel's loader/action, and the vault file.
+    route("memory", "routes/memory.ts"),
+    route("memory/export", "routes/memory-export.ts"),
     // The checklist is the same screen for every subject; the pair of segments
     // is what it is about (partners|channels|staff, then the subject's id).
     route("onboarding/:kind/:ref", "routes/onboarding.tsx"),

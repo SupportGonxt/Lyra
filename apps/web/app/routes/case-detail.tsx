@@ -37,6 +37,7 @@ import { humanise } from "../modules/spec";
 import { Entry, Facts, Header, Payload, labelsFrom, rowsOf, safe, tag, type Label, type Page } from "./detail-kit";
 import { Gate } from "./staff";
 import { useAxisSessionData } from "./axis-shell";
+import { MemoryPanel } from "../components/memory-panel";
 
 // One AXIS work item: where it stands, the steps that got it there, what is
 // waiting on sign-off, and the two transitions the API actually owns — move the
@@ -881,6 +882,15 @@ export default function CaseDetail() {
           />
         </Card>
       ) : null}
+
+      {/* The record's memory (ADR-0085), last: below everything the record
+          itself shows, loaded after it, so it never pushes the record down. */}
+      <MemoryPanel
+        subject={workItem.id}
+        t={t}
+        locale={locale}
+        permissions={shell?.permissions ?? []}
+      />
     </div>
   );
 }

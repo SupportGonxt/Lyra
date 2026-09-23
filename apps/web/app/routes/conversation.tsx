@@ -36,6 +36,7 @@ import { optionLabel } from "../modules/spec";
 import { labelsFrom } from "./detail-kit";
 import { Problem } from "./module";
 import { useOrbitSessionData } from "./orbit-shell";
+import { MemoryPanel } from "../components/memory-panel";
 
 // One conversation, read and replied to. ORBIT has no hand-written router: the
 // whole surface is the generated CRUD in apps/api/src/crud.ts, so this screen is
@@ -996,6 +997,15 @@ export default function ConversationThread() {
           )}
         </Card>
       ) : null}
+
+      {/* The record's memory (ADR-0085), last: below everything the record
+          itself shows, loaded after it, so it never pushes the record down. */}
+      <MemoryPanel
+        subject={conversation.id}
+        t={t}
+        locale={locale}
+        permissions={shell?.permissions ?? []}
+      />
     </div>
   );
 }
