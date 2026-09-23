@@ -426,7 +426,10 @@ export function Select({
           className
         )}
       >
-        <RSelect.Value placeholder={placeholder} />
+        {/* The chosen label, spelt out: Radix otherwise fills the trigger from the
+            item text only once the client has mounted, so every select painted
+            blank until hydration. */}
+        <RSelect.Value placeholder={placeholder}>{options.find((o) => o.value === current)?.label}</RSelect.Value>
         <RSelect.Icon aria-hidden="true">▾</RSelect.Icon>
       </RSelect.Trigger>
       <RSelect.Portal>

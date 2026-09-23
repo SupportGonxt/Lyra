@@ -195,7 +195,7 @@ const LABELS: Record<string, Record<string, string>> = {
     bindTitle: "Issue from the selected quote",
     bindBody: "The selected quote becomes what the customer holds. Price, provider and product come from the quote itself; give it a number and a term.",
     bindNoCustomer: "This comparison has no customer, so it can be priced but not sold. Shop it again for a named customer to issue it.",
-    policyNo: "Policy number",
+    "bind.policyNo": "Policy number",
     startAt: "Starts",
     endAt: "Ends",
     bindSubmit: "Issue",
@@ -285,7 +285,7 @@ const LABELS: Record<string, Record<string, string>> = {
     bindTitle: "الإصدار من العرض المختار",
     bindBody: "يصبح العرض المختار ما يحمله العميل. السعر والجهة والمنتج من العرض نفسه؛ أدخل رقمًا ومدة.",
     bindNoCustomer: "لا عميل لهذه المقارنة، فيمكن تسعيرها لا بيعها. أعد طلب العروض لعميل محدد لإصدارها.",
-    policyNo: "رقم الوثيقة",
+    "bind.policyNo": "رقم الوثيقة",
     startAt: "تبدأ",
     endAt: "تنتهي",
     bindSubmit: "إصدار",
@@ -1245,7 +1245,7 @@ function BindPanel({
           <input type="hidden" name="responseId" value={quote.id} />
           <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label={L("policyNo")} required>
+            <Field label={L("bind.policyNo")} required>
               <Input name="policyNo" required maxLength={64} />
             </Field>
             <Field label={L("startAt")} required>

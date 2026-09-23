@@ -240,6 +240,7 @@ export const en = {
   "common.bulk.selectAll": "Select every row on this page",
   "common.bulk.none": "Choose an action and select at least one row first.",
   "common.bulk.done": "Done for {applied}. Not done for {failed}.",
+  "common.bulk.count": "{n} selected",
   "common.import.title": "Import from a CSV file",
   "common.import.file": "CSV file",
   "common.import.hint": "The first line names the columns. It must include {columns}; other columns are kept with each row.",

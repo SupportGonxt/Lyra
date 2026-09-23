@@ -228,6 +228,7 @@ export const ar: Messages = {
   "common.bulk.selectAll": "تحديد كل صفوف هذه الصفحة",
   "common.bulk.none": "اختر إجراءً وحدّد صفًا واحدًا على الأقل أولًا.",
   "common.bulk.done": "تم لـ {applied}. لم يتم لـ {failed}.",
+  "common.bulk.count": "المحدَّد: {n}",
   "common.import.title": "استيراد من ملف CSV",
   "common.import.file": "ملف CSV",
   "common.import.hint": "السطر الأول يسمّي الأعمدة، ويجب أن يتضمن {columns}؛ وتُحفظ الأعمدة الأخرى مع كل صف.",

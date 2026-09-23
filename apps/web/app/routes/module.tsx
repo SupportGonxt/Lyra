@@ -394,6 +394,10 @@ export default function ModuleList() {
 
   // Bulk (AXIS-007): a checkbox per row, owned by the bulk bar's form through
   // the `form` attribute, so the table stays one table and not a form.
+  // How many rows are ticked: the bulk bar exists only while some are.
+  const [selected, setSelected] = useState(0);
+  const recount = () =>
+    setSelected(document.querySelectorAll(`input[form="${BULK_FORM_ID}"][name="ids"]:checked`).length);
   const bulkActions = !deletedView ? (tab.bulk?.actions ?? []).filter((entry) => held.has(entry.permission)) : [];
   if (bulkActions.length) {
     columns.unshift({
@@ -408,6 +412,7 @@ export default function ModuleList() {
             document
               .querySelectorAll<HTMLInputElement>(`input[form="${BULK_FORM_ID}"][name="ids"]`)
               .forEach((box) => (box.checked = on));
+            recount();
           }}
         />
       ),
@@ -419,6 +424,7 @@ export default function ModuleList() {
           form={BULK_FORM_ID}
           aria-label={t("common.bulk.select", { name: String(row[tab.columns[0]?.name ?? "id"] ?? row.id) })}
           className="size-4 accent-[var(--accent)]"
+          onChange={recount}
         />
       )
     });
@@ -453,15 +459,39 @@ export default function ModuleList() {
       <header className="flex flex-col gap-4">
         {/* The heading names what is on screen — the tab — with the workspace
             above it; "Operations" over every one of its 16 lists said nothing
-            about which list this was. */}
-        {tabs.length > 1 ? (
-          <div className="flex flex-col gap-1">
-            <p className="eyebrow">{t(labelKeyFor(spec.path))}</p>
-            <h1 className="page-title">{label(tab.key)}</h1>
-          </div>
-        ) : (
-          <h1 className="page-title">{t(labelKeyFor(spec.path))}</h1>
-        )}
+            about which list this was. The list's own verbs (import, new) sit on
+            the same line, so the rows start under one toolbar, not under a
+            stack of full-width panels. */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          {tabs.length > 1 ? (
+            <div className="flex flex-col gap-1">
+              <p className="eyebrow">{t(labelKeyFor(spec.path))}</p>
+              <h1 className="page-title">{label(tab.key)}</h1>
+            </div>
+          ) : (
+            <h1 className="page-title">{t(labelKeyFor(spec.path))}</h1>
+          )}
+          {(tab.import && held.has(tab.import.permission) && !deletedView) || canCreate ? (
+            <div className="flex flex-wrap items-start justify-end gap-2">
+              {tab.import && held.has(tab.import.permission) && !deletedView ? (
+                <ImportPanel spec={tab.import} t={t} busy={pending("import")} outcome={result?.imported ?? null} />
+              ) : null}
+              {canCreate ? (
+                <CreatePanel
+                  tab={tab}
+                  label={label}
+                  t={t}
+                  busy={pending("create")}
+                  defaultOpen={Boolean(problem)}
+                  rejected={rejected}
+                  outcome={result}
+                  options={loaded.refOptions}
+                  recordHref={(id) => `${spec.path}/${tab.key}/${encodeURIComponent(id)}`}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
 
         {tabs.length > 1 ? (
           // One row that scrolls sideways, the current tab kept in view: admin's
@@ -505,28 +535,6 @@ export default function ModuleList() {
           Only rendered when at least one view exists for this route — most
           tabs have none. Picking one replaces the filter bar's state below;
           it never merges with whatever the reader already typed there. */}
-      {loaded.savedViews.length ? (
-        <label className="flex items-center gap-2 font-ui text-12 text-subtle">
-          <span>{t("common.savedView")}</span>
-          <Select
-            size="sm"
-            className="w-56"
-            aria-label={t("common.savedView")}
-            value={loaded.activeView ?? ""}
-            options={[
-              { value: "", label: t("common.savedView.none") },
-              ...loaded.savedViews.map((view) => ({ value: view.id, label: view.name }))
-            ]}
-            onValueChange={(next) => {
-              const params = new URLSearchParams();
-              params.set("view", next);
-              const size = pageSizeIn(searchParams);
-              if (size) params.set("limit", String(size));
-              setSearchParams(params);
-            }}
-          />
-        </label>
-      ) : null}
 
       {/* Deleted rows look nothing like live ones: the list is banded, says so
           in words, and offers the way back. */}
@@ -545,15 +553,34 @@ export default function ModuleList() {
         </div>
       ) : null}
 
-      {tab.search || tab.filters?.length || canRestore ? (
+      {tab.search || tab.filters?.length || canRestore || loaded.savedViews.length ? (
         <Form
           // Remount on a new query so the uncontrolled defaults follow a view
           // picked from the saved-view menu.
           key={JSON.stringify(loaded.query)}
           method="get"
           {...(tab.search ? { role: "search" } : {})}
-          className="flex flex-wrap items-end gap-3"
+          className="flex flex-wrap items-center gap-2"
         >
+          {/* The saved view heads the same row: it is the filter state, named. */}
+      {loaded.savedViews.length ? (
+          <Select
+            className="w-auto min-w-40 max-w-64"
+            aria-label={t("common.savedView")}
+            value={loaded.activeView ?? ""}
+            options={[
+              { value: "", label: `${t("common.savedView")}: ${t("common.savedView.none")}` },
+              ...loaded.savedViews.map((view) => ({ value: view.id, label: view.name }))
+            ]}
+            onValueChange={(next) => {
+              const params = new URLSearchParams();
+              params.set("view", next);
+              const size = pageSizeIn(searchParams);
+              if (size) params.set("limit", String(size));
+              setSearchParams(params);
+            }}
+          />
+      ) : null}
           {tab.search ? (
             <Input
               type="search"
@@ -561,7 +588,7 @@ export default function ModuleList() {
               defaultValue={current("q")}
               aria-label={t("common.search")}
               placeholder={t("common.search")}
-              className="w-64"
+              className="w-44"
             />
           ) : null}
           {(tab.filters ?? []).map((filter) => (
@@ -574,10 +601,17 @@ export default function ModuleList() {
               // Narrow on purpose: a filter strip is one line of questions above
               // the rows, not a column of full-width controls that pushes the
               // table under the fold.
-              className="w-44"
+              className="w-auto min-w-32"
+              // "All" alone under four selects did not say all of what; the
+              // name rides in the empty choice so the strip needs no labels.
               options={[
-                { value: "", label: t("common.all") },
-                ...filter.options.map((option) => ({
+                { value: "", label: `${label(filter.name)}: ${t("common.all")}` },
+                ...[
+                  ...filter.options,
+                  // A saved view may ask for a value the spec does not list; it
+                  // still shows, rather than rendering an empty select.
+                  ...(current(filter.name) && !filter.options.includes(current(filter.name)) ? [current(filter.name)] : [])
+                ].map((option) => ({
                   value: option,
                   label: optionLabel(label, filter.name, option)
                 }))
@@ -590,7 +624,7 @@ export default function ModuleList() {
               aria-label={t("common.deleted.state")}
               defaultValue={deletedView ? "1" : ""}
               placeholder={t("common.deleted.live")}
-              className="w-44"
+              className="w-auto min-w-32"
               options={[
                 { value: "", label: t("common.deleted.live") },
                 { value: "1", label: t("common.deleted.only") }
@@ -631,32 +665,15 @@ export default function ModuleList() {
         </div>
       ) : null}
 
-      {tab.import && held.has(tab.import.permission) && !deletedView ? (
-        <ImportPanel spec={tab.import} t={t} busy={pending("import")} outcome={result?.imported ?? null} />
-      ) : null}
-
       {bulkActions.length ? (
         <BulkBar
+          selected={selected}
           actions={bulkActions}
           label={label}
           t={t}
           busy={pending("bulk")}
           outcome={result?.bulk ?? null}
           options={loaded.refOptions}
-        />
-      ) : null}
-
-      {canCreate ? (
-        <CreatePanel
-          tab={tab}
-          label={label}
-          t={t}
-          busy={pending("create")}
-          defaultOpen={Boolean(problem)}
-          rejected={rejected}
-          outcome={result}
-          options={loaded.refOptions}
-          recordHref={(id) => `${spec.path}/${tab.key}/${encodeURIComponent(id)}`}
         />
       ) : null}
 
@@ -803,6 +820,19 @@ function firstPage(current: URLSearchParams): string {
  */
 const CREATE_PANEL_ID = "module-create";
 
+/** A list verb in the header: a button-shaped `<summary>` whose panel drops
+ *  over the table instead of pushing it down. */
+const ACTION_SUMMARY =
+  "inline-flex h-9 cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md border px-3 font-ui text-13 font-medium marker:content-none [&::-webkit-details-marker]:hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const PANEL = "absolute end-0 top-full z-30 mt-2 max-h-[75vh] w-[min(52rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-border bg-surface-1 shadow-glow";
+
+/** A dropped panel closes on Escape and hands focus back to its button. */
+function closeOnEscape(event: React.KeyboardEvent<HTMLDetailsElement>) {
+  if (event.key !== "Escape" || !event.currentTarget.open) return;
+  event.currentTarget.open = false;
+  event.currentTarget.querySelector("summary")?.focus();
+}
+
 /** Open the create panel and put the cursor in it, from anywhere on the page. */
 function openCreatePanel() {
   const panel = document.getElementById(CREATE_PANEL_ID);
@@ -860,14 +890,15 @@ function CreatePanel({
   }, [outcome]);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col items-end gap-1">
       <details
         id={CREATE_PANEL_ID}
         open={open}
         onToggle={(e) => setOpen(e.currentTarget.open)}
-        className="group rounded-lg border border-border bg-surface-1"
+        onKeyDown={closeOnEscape}
+        className="group relative"
       >
-        <summary ref={summary} className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 font-ui text-13 text-text marker:content-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+        <summary ref={summary} className={`${ACTION_SUMMARY} border-accent bg-accent text-accent-contrast hover:bg-accent-hover`}>
           <span
             aria-hidden="true"
             className="text-subtle transition-transform duration-150 group-open:rotate-45"
@@ -881,7 +912,7 @@ function CreatePanel({
               locale would buy "New case"; the context already says it. */}
           {t("common.new")}
         </summary>
-        <Form ref={form} method="post" className="flex flex-col gap-4 border-t border-border p-4">
+        <Form ref={form} method="post" className={`${PANEL} flex flex-col gap-4 p-4`}>
           <input type="hidden" name="intent" value="create" />
           <div className="grid gap-4 sm:grid-cols-2">
             {(tab.fields ?? []).map((field) => (
@@ -988,6 +1019,7 @@ const BULK_FORM_ID = "bulk-form";
 
 /** The action bar over a selection: pick what to do, give its one value, apply. */
 function BulkBar({
+  selected,
   actions,
   label,
   t,
@@ -995,6 +1027,7 @@ function BulkBar({
   outcome,
   options
 }: {
+  selected: number;
   actions: NonNullable<ResourceSpec["bulk"]>["actions"];
   label: (key: string) => string;
   t: (key: string, vars?: Record<string, string>) => string;
@@ -1007,7 +1040,17 @@ function BulkBar({
   const failures = outcome?.outcomes.filter((row) => !row.ok) ?? [];
   return (
     <div className="flex flex-col gap-2">
-      <Form id={BULK_FORM_ID} method="post" className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-1 p-3">
+      {/* Always in the DOM — the row checkboxes name it through `form=` — but
+          only shown while something is ticked. */}
+      <Form
+        id={BULK_FORM_ID}
+        method="post"
+        hidden={selected === 0}
+        className="sticky top-0 z-20 flex flex-wrap items-end gap-3 rounded-lg border border-accent/40 bg-surface-2 p-3"
+      >
+        <p className="self-center font-ui text-13 font-medium text-text">
+          {t("common.bulk.count", { n: String(selected) })}
+        </p>
         <label className="flex flex-col gap-1 font-ui text-12 text-muted">
           {t("common.bulk.action")}
           <Select
@@ -1059,14 +1102,14 @@ function ImportPanel({
   outcome: ImportOutcome | null;
 }) {
   return (
-    <details className="group rounded-lg border border-border bg-surface-1" open={Boolean(outcome?.errors.length)}>
-      <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 font-ui text-13 text-text marker:content-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+    <details className="group relative" open={Boolean(outcome?.errors.length)} onKeyDown={closeOnEscape}>
+      <summary className={`${ACTION_SUMMARY} border-border bg-surface-1 text-text hover:bg-surface-2`}>
         <span aria-hidden="true" className="text-subtle">
           &#8613;
         </span>
         {t("common.import.title")}
       </summary>
-      <Form method="post" encType="multipart/form-data" className="flex flex-col gap-3 border-t border-border p-4">
+      <Form method="post" encType="multipart/form-data" className={`${PANEL} flex flex-col gap-3 p-4`}>
         <label className="flex flex-col gap-1 font-ui text-13 text-text">
           {t("common.import.file")}
           <input
