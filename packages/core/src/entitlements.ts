@@ -14,15 +14,23 @@ import type { Grant } from "./rbac.js";
 export const GATED_MODULES = ["axis", "orbit", "signal", "scout", "north"] as const;
 
 /**
- * Drop permissions belonging to modules the tenant is not entitled to.
- * Literal module prefixes only: a wildcard-module grant (`*:*:*`) is platform
- * staff acting across tenants and stays whole.
+ * Drop permissions belonging to modules the tenant is not entitled to, or has
+ * switched off itself (`policy.moduleConfig[m].enabled === false`, set by
+ * PATCH /v1/core/modules/:module/config — ADR-0087). One subtraction for both:
+ * what was bought and what is turned on answer the same question, so a
+ * switched-off module refuses its routes and leaves the nav exactly as an
+ * unlicensed one does, and core staying ungated is what lets it be turned
+ * back on. Literal module prefixes only: a wildcard-module grant (`*:*:*`) is
+ * platform staff acting across tenants and stays whole.
  */
 export function entitledGrants(
   grants: readonly Grant[],
-  entitlements: EntitlementsJson
+  entitlements: EntitlementsJson,
+  moduleConfig: Readonly<Record<string, { enabled?: boolean }>> = {}
 ): Grant[] {
-  const off = GATED_MODULES.filter((m) => !entitlements.modules.includes(m));
+  const off = GATED_MODULES.filter(
+    (m) => !entitlements.modules.includes(m) || moduleConfig[m]?.enabled === false
+  );
   if (off.length === 0) return [...grants];
   return grants.map((g) => ({
     ...g,

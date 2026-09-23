@@ -1079,6 +1079,10 @@ AXIS policy versions — a module boundary — so it is left for the same decisi
 
 ### New finding — per-module config is stored and never read, 2026-09-23
 
+**Update, same day: `enabled` is read now** (ADR-0087) — it subtracts the
+module's permissions exactly as a missing entitlement does, and
+`/admin/automation` offers the switch. `autonomy` and `modelTier` remain unread.
+
 `PATCH /v1/core/modules/:module/config` (apps/api/src/routes/core.ts) writes
 `policyJson.moduleConfig[module]` — `enabled`, `autonomy`, `modelTier`,
 `settings` — and `moduleSettings()` (packages/core/src/module-config.ts) resolves

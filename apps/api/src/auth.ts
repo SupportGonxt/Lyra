@@ -260,7 +260,7 @@ async function fromSession(
       kind: "user",
       id: row.user.id,
       tenantId: effectiveTenantId,
-      grants: entitledGrants(grants, config.entitlements),
+      grants: entitledGrants(grants, config.entitlements, config.policy.moduleConfig),
       ...(impersonation ? { impersonating: true as const } : {})
     },
     ...config
@@ -306,7 +306,8 @@ async function fromApiKey(
       // reach a module its tenant has not licensed, whatever its scopes say.
       grants: entitledGrants(
         [{ roleKey: `apikey.${key.mode}`, permissions: scopes }],
-        config.entitlements
+        config.entitlements,
+        config.policy.moduleConfig
       )
     },
     ...config

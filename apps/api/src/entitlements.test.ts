@@ -135,6 +135,25 @@ describe("module gating (docs/21 entitlements)", () => {
     }
   });
 
+  // The tenant's own switch (PATCH /v1/core/modules/:module/config) used to be
+  // stored and read by nothing. It now subtracts exactly as a missing
+  // entitlement does, and — core being ungated — the same admin can turn the
+  // module back on.
+  it("a module the tenant switched off answers 403 and leaves the nav, and can be switched back", async () => {
+    const off = await call("PATCH", "/v1/core/modules/orbit/config", { enabled: false });
+    expect(off.status).toBe(200);
+    try {
+      expect((await call("GET", "/v1/orbit/conversations")).status).toBe(403);
+      const me = await call("GET", "/v1/me");
+      expect(navHrefs(me.body.nav)).not.toContain("/orbit");
+      expect(me.body.permissions.some((p: string) => p.startsWith("orbit:"))).toBe(false);
+      expect((await call("GET", "/v1/axis/cases")).status).toBe(200);
+    } finally {
+      expect((await call("PATCH", "/v1/core/modules/orbit/config", { enabled: true })).status).toBe(200);
+    }
+    expect((await call("GET", "/v1/orbit/conversations")).status).toBe(200);
+  });
+
   it("entitledGrants keeps wildcard-module grants (platform staff) whole", () => {
     const grants: Grant[] = [{ roleKey: "platform.admin", permissions: ["*:*:*"] }];
     const filtered = entitledGrants(grants, EntitlementsJson.parse({}));
