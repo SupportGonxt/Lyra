@@ -49,6 +49,7 @@ export const en = {
   "nav.journey/scout": "Journey: Market",
   "nav.journey/signal": "Journey: Marketing",
   "nav.axis/claims/new": "New claim",
+  "nav.north/journeys": "Journeys",
   "nav.inbox": "Inbox",
   "nav.home": "Home",
   "nav.center": "Command center",

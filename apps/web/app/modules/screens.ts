@@ -63,6 +63,7 @@ export const NORTH_SCREENS: readonly ModuleScreen[] = [
   { href: "/north/brief", permission: "north:briefings:read" },
   { href: "/north/explorer", permission: "north:metrics:read" },
   { href: "/north/anomalies", permission: "north:anomalies:read" },
+  { href: "/north/journeys", permission: "north:metrics:read" },
   { href: "/north/alerts", permission: "north:alerts:read" },
   { href: "/north/whatif", permission: "north:scenarios:read" },
   { href: "/north/board", permission: "north:boardpacks:read" },

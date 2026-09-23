@@ -2884,6 +2884,7 @@ export interface Operations {
   "DELETE /v1/north/decisions/{id}": Op<{ id: string }, never, never, void>;
   "POST /v1/north/explore": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/north/forecast": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/north/journeys": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/north/metrics": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthMetrics>>;
   "POST /v1/north/metrics": Op<never, never, NorthMetrics, NorthMetrics>;
   "GET /v1/north/metrics/{id}": Op<{ id: string }, never, never, NorthMetrics>;
@@ -3652,6 +3653,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "DELETE /v1/north/decisions/{id}": { tag: "north", summary: "Soft-delete a decision", permission: "north:decisions:write", public: false },
   "POST /v1/north/explore": { tag: "north", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", public: false },
   "GET /v1/north/forecast": { tag: "north", summary: "Project a metric forward from its closed snapshots — damped Holt, p10/p50/p90, with the fitted parameters", permission: "north:forecasts:read", public: false },
+  "GET /v1/north/journeys": { tag: "north", summary: "Journey health: each documented journey's funnel from the audit log, ?days= window", permission: "north:metrics:read", public: false },
   "GET /v1/north/metrics": { tag: "north", summary: "List metrics", permission: "north:metrics:read", public: false },
   "POST /v1/north/metrics": { tag: "north", summary: "Create a metric", permission: "north:metrics:write", public: false },
   "GET /v1/north/metrics/{id}": { tag: "north", summary: "Fetch one metric", permission: "north:metrics:read", public: false },

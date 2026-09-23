@@ -48,6 +48,7 @@ export const ar: Messages = {
   "nav.journey/scout": "الرحلة: السوق",
   "nav.journey/signal": "الرحلة: التسويق",
   "nav.axis/claims/new": "مطالبة جديدة",
+  "nav.north/journeys": "الرحلات",
   "nav.inbox": "صندوق الوارد",
   "nav.home": "الرئيسية",
   "nav.center": "مركز القيادة",

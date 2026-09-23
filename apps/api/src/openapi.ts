@@ -462,6 +462,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/ledger/fx-revaluation", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", tag: "ledger" },
   { method: "post", path: "/v1/north/snapshots/{id}/verify", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", tag: "north", requestBody: true },
   { method: "post", path: "/v1/north/explore", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", tag: "north", requestBody: true },
+  { method: "get", path: "/v1/north/journeys", summary: "Journey health: each documented journey's funnel from the audit log, ?days= window", permission: "north:metrics:read", tag: "north" },
   { method: "get", path: "/v1/north/data-health", summary: "Staleness per metric, computed live from the snapshot table", permission: "north:metrics:read", tag: "north" },
   // docs/27 F50. Reads closed snapshots only and answers with a band per
   // period plus the fit that produced it; no model is in this path.

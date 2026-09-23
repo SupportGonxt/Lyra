@@ -1453,6 +1453,19 @@ describe("J-E4 alert rules, explorer and data health", () => {
     expect(Array.isArray(result.rows)).toBe(true);
   });
 
+  // docs/06 §3: journey health surfaces in NORTH. Every earlier journey in this
+  // file wrote audit rows; the funnel reads them back.
+  it("reports every journey's funnel from the audit log", async () => {
+    const journeys = ok(await call("north.exec", "GET", "/v1/north/journeys?days=30"));
+    expect(journeys.data.length).toBeGreaterThan(10);
+    const p2 = journeys.data.find((j: { id: string }) => j.id === "J-P2");
+    expect(p2.steps.map((s: { key: string }) => s.key)).toEqual(["benched", "pack", "rate"]);
+    expect(["flowing", "stalled", "quiet"]).toContain(p2.status);
+    // A reader without NORTH's metrics may not see the business's funnels.
+    const refused = await call("axis.agent", "GET", "/v1/north/journeys");
+    expect(refused.status).toBe(403);
+  });
+
   it("data health reports staleness per metric", async () => {
     const health = ok(await call("north.exec", "GET", "/v1/north/data-health"));
     expect(Array.isArray(health.metrics)).toBe(true);

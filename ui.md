@@ -284,7 +284,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 117 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 118 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -401,6 +401,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/north/brief` | [north-brief.tsx](apps/web/app/routes/north-brief.tsx) |
 | `/north/explorer` | [north-explorer.tsx](apps/web/app/routes/north-explorer.tsx) |
 | `/north/anomalies` | [north-anomalies.tsx](apps/web/app/routes/north-anomalies.tsx) |
+| `/north/journeys` | [north-journeys.tsx](apps/web/app/routes/north-journeys.tsx) |
 | `/north/alerts` | [north-alerts.tsx](apps/web/app/routes/north-alerts.tsx) |
 | `/north/whatif` | [north-whatif.tsx](apps/web/app/routes/north-whatif.tsx) |
 | `/north/board` | [north-board.tsx](apps/web/app/routes/north-board.tsx) |
