@@ -86,6 +86,7 @@ const HAND_WRITTEN: Op[] = [
   // The escape hatch out of the approval gate, so the write path validates what
   // the seed never had to: an unknown policy key is a 400 rather than an inert
   // entry, and a `neverAutoApprove` policy is refused outright (docs/19 §7).
+  { method: "get", path: "/v1/core/settings/auto-approve", summary: "The tenant's auto-approve allowlist and every approval policy, marking which the floor lets a tenant automate", permission: "core:settings:read", tag: "core" },
   { method: "patch", path: "/v1/core/settings/auto-approve", summary: "Add or remove approval policy keys from the tenant's auto-approve allowlist; never-auto-approve policies are refused", permission: "core:settings:update", tag: "core", requestBody: true },
 
   // SQL aggregate for the 360 screen's Position card — never a paged read.

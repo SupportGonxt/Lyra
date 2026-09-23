@@ -2690,6 +2690,7 @@ export interface Operations {
   "GET /v1/core/rulepacks/{id}": Op<{ id: string }, never, never, CoreRulepacks>;
   "PATCH /v1/core/rulepacks/{id}": Op<{ id: string }, never, CoreRulepacks, CoreRulepacks>;
   "GET /v1/core/security-posture": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/core/settings/auto-approve": Op<never, never, never, Record<string, unknown>>;
   "PATCH /v1/core/settings/auto-approve": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/core/teams": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreTeams>>;
   "POST /v1/core/teams": Op<never, never, CoreTeams, CoreTeams>;
@@ -3459,6 +3460,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/rulepacks/{id}": { tag: "core", summary: "Fetch one rulepack", permission: "compliance:rulepacks:read", public: false },
   "PATCH /v1/core/rulepacks/{id}": { tag: "core", summary: "Update a rulepack", permission: "compliance:rulepacks:apply", public: false },
   "GET /v1/core/security-posture": { tag: "core", summary: "MFA enrolment and session posture for the tenant's people, against the estate-wide floor", permission: "core:settings:read", public: false },
+  "GET /v1/core/settings/auto-approve": { tag: "core", summary: "The tenant's auto-approve allowlist and every approval policy, marking which the floor lets a tenant automate", permission: "core:settings:read", public: false },
   "PATCH /v1/core/settings/auto-approve": { tag: "core", summary: "Add or remove approval policy keys from the tenant's auto-approve allowlist; never-auto-approve policies are refused", permission: "core:settings:update", public: false },
   "GET /v1/core/teams": { tag: "core", summary: "List teams", permission: "core:teams:read", public: false },
   "POST /v1/core/teams": { tag: "core", summary: "Create a team", permission: "core:teams:write", public: false },

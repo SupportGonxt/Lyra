@@ -186,3 +186,18 @@ describe("PATCH /v1/core/settings/auto-approve", () => {
     expect(res.status).toBe(403);
   });
 });
+
+// The read an admin screen needs to offer the list at all: what is on it now,
+// and which policies may go on it. Without the second half a screen has to
+// hard-code docs/19 §7's floor and drift from APPROVAL_POLICIES.
+describe("GET /v1/core/settings/auto-approve", () => {
+  it("returns the allowlist and every policy, marking the ones the floor forbids", async () => {
+    await call("tenant.admin", "PATCH", "/v1/core/settings/auto-approve", { add: ["axis.price_match"] });
+    const res = await call("tenant.admin", "GET", "/v1/core/settings/auto-approve");
+    expect(res.status).toBe(200);
+    expect(res.body.autoApprove).toEqual(await allowlist());
+    const byKey = new Map(res.body.policies.map((p: { key: string }) => [p.key, p]));
+    expect(byKey.get("axis.price_match")).toMatchObject({ module: "axis", automatable: true });
+    expect(byKey.get("ledger.payout")).toMatchObject({ module: "ledger", automatable: false });
+  });
+});

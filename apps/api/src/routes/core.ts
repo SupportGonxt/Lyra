@@ -5,6 +5,7 @@ import { id as newId, schema, PolicyJson, toJson, parseJson, AutonomyLevel } fro
 import {
   actorRef,
   audit,
+  APPROVAL_POLICIES,
   autoApproveProblem,
   badRequest,
   base32Encode,
@@ -533,6 +534,17 @@ const AutoApproveBody = z
     remove: z.array(z.string().max(128)).max(64).optional()
   })
   .strict();
+
+coreRoutes.get("/settings/auto-approve", (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "core:settings:read", { tenantId: ctx.tenantId, module: "core" });
+  const policies = Object.values(APPROVAL_POLICIES).map((p) => ({
+    key: p.key,
+    module: p.module,
+    automatable: !p.neverAutoApprove
+  }));
+  return c.json({ autoApprove: ctx.policy.autoApprove, policies });
+});
 
 coreRoutes.patch("/settings/auto-approve", async (c) => {
   const ctx = ctxOf(c);
