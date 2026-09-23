@@ -145,6 +145,10 @@ consented data sharing and product APIs.
   versioned assumptions (NORTH) so the business "digital twin" can improve
   over time; model-gateway routing policies accept quality/cost/latency
   objectives (auto-routing later, static maps now).
+  Beside it, the human half (ADR-0089): `core_notes` — one markdown note per
+  record, `[[wikilinks]]` derived into `core_links` for backlinks and a graph,
+  exportable as an Obsidian vault — gated by `core:notes:*` *and* the record's
+  own read, and erased with `core_memories` when an erasure DSAR is fulfilled.
 - **LATER:** per-tenant small-model distillation for high-volume tasks
   (extraction, classification) trained on tenant-approved data; on-device
   extraction in mobile (privacy + speed); cross-module "next best action"

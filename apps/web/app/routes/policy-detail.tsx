@@ -47,6 +47,7 @@ import {
 } from "./detail-kit";
 import { Gate } from "./staff";
 import { useAxisSessionData } from "./axis-shell";
+import { MemoryPanel } from "../components/memory-panel";
 
 // One agreement: what it covers, what it costs, what has been claimed against
 // it, the paper behind it, and its own version history. Endorse, cancel and
@@ -1046,6 +1047,15 @@ export default function PolicyDetail() {
           empty={<EmptyState title={l("none")} body={l("noneDocuments")} />}
         />
       </Card>
+
+      {/* The record's memory (ADR-0089), last: below everything the record
+          itself shows, loaded after it, so it never pushes the record down. */}
+      <MemoryPanel
+        subject={policy.id}
+        t={t}
+        locale={locale}
+        permissions={shell?.permissions ?? []}
+      />
     </div>
   );
 }

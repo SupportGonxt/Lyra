@@ -151,11 +151,9 @@ export async function remember(ctx: Ctx, input: RememberInput): Promise<string> 
  * Erasure link (docs/12 §3). Deletes every memory held about a subject and
  * answers how many, which is what an erasure-log row records.
  *
- * There is no erasure *job* to call this yet — `compliance_erasure_log` is
- * written by the seed and by nothing else — so this is the seam a DSAR runner
- * will use, not a claim that erasure reaches memories today. Named and tested
- * so that when the runner arrives it has one function to call rather than a
- * table it has to learn about.
+ * Called by the erasure consumer (apps/api/src/engines/compliance-erasure.ts)
+ * when an erasure DSAR is fulfilled, beside `forgetNotes` (notes.ts), which is
+ * the same link for what staff wrote about the subject (ADR-0089).
  */
 export async function forgetMemories(ctx: Ctx, subjectRef: string): Promise<number> {
   const rows = await ctx.db

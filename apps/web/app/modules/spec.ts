@@ -213,6 +213,12 @@ export interface LinkSpec {
    * workspace; the route is still the authority either way.
    */
   permission?: string;
+  /**
+   * The target is a file (a resource route answering bytes), not a screen: it
+   * must be fetched as a document, because a client-side navigation to a
+   * route with no component has nothing to render.
+   */
+  download?: boolean;
 }
 
 /** Reads a workspace's own catalogue, falling back to English, then the key. */

@@ -39,6 +39,7 @@ import { humanise } from "../modules/spec";
 import { Entry, Facts, Header, Payload, labelsFrom, rowsOf, safe, tag, type Label, type Page } from "./detail-kit";
 import { Gate } from "./staff";
 import { useAxisSessionData } from "./axis-shell";
+import { MemoryPanel } from "../components/memory-panel";
 
 // One claim: what was reported, what cover answered for it, what it is reserved
 // at, what has left through the ledger, and what is being chased back.
@@ -1515,6 +1516,15 @@ export default function ClaimDetail() {
           empty={<EmptyState title={l("none")} body={l("noneHistory")} />}
         />
       </Card>
+
+      {/* The record's memory (ADR-0089), last: below everything the record
+          itself shows, loaded after it, so it never pushes the record down. */}
+      <MemoryPanel
+        subject={claim.id}
+        t={t}
+        locale={locale}
+        permissions={shell?.permissions ?? []}
+      />
     </div>
   );
 }

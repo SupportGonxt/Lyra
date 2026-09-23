@@ -73,8 +73,8 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 5. Reinsurance treaties and cessions (missing).
 
 ### ORBIT · Conversations
-1. Seeded journeys fire — emit `orbit.renewal.raised`; implement the `wait_for` node.
-2. Save-desk outcomes emit `orbit.renewal.accepted`/`lost`.
+1. ~~Seeded journeys fire~~ — **fixed** 2026-09-23: seeded trigger names are renamed to emitted events on resync (`syncSeedEventNames`), guarded by `event-seams.test.ts`. The `wait_for` node is still open.
+2. ~~Save-desk outcomes emit `orbit.renewal.accepted`/`lost`.~~ **Fixed** 2026-09-23 (renewal outcome events: offered/accepted/lost).
 3. Real-time AI replies on inbound, sent within the agent's autonomy.
 4. Web chat channel (a `ChannelAdapter` plus a portal route).
 5. Module-aware tools: hide AXIS tools when AXIS is off; replace direct `axis_cases` writes with an event AXIS consumes; route `bindPartner`.
@@ -95,36 +95,36 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 
 ### NORTH · Insight
 1. Schedule the brief with the nightly snapshot; emit `north.briefing.published`.
-2. Deliver `north.alert.triggered` (notification consumer reading `notifyChannelRef`).
+2. ~~Deliver `north.alert.triggered`.~~ **Fixed** 2026-09-23: `engines/north-alert-notify.ts`, consumed in `dispatch.ts`.
 3. Metric push API — makes NORTH usable standalone on imported data.
 4. Scenario engine (the what-if screen stores a question and nothing computes it).
 5. Board-pack approval and distribution log.
 
 ### Ledger
-1. Remove the duplicate settlement emits.
+1. ~~Remove the duplicate settlement emits.~~ **Fixed** 2026-09-23: each settlement transition emits once.
 2. Cash-flow statement (indirect method).
 3. Emit `ledger.recon.completed` and `ledger.period.closed`.
 4. Budgets and budget-vs-actual.
 5. Inbound bordereaux reconciliation.
 
 ### Distribution
-1. Accrue commission on `axis.policy.issued` (idempotent consumer).
-2. Fix the dead seeded triggers and webhook subscriptions.
+1. ~~Accrue commission on `axis.policy.issued`.~~ **Fixed** 2026-09-23: `engines/commission-accrual.ts` raises the `dist.commission_accrue` approval on bind; the decision books it.
+2. ~~Fix the dead seeded triggers and webhook subscriptions.~~ **Fixed** 2026-09-23 (`syncSeedEventNames`, `event-seams.test.ts`).
 3. ~~Expose commission tiers (`structureJson`) in the rates form.~~ **Fixed** 2026-09-23: the field is on the rates form, and the API validates it strictly (`CommissionStructureJson`, `packages/core/src/commission.ts`) before the rate-change approval — the engine reads a malformed structure as flat, so it must be refused on write (`dist.test.ts` "commission-rate structures are validated on write").
 4. Referral qualify/settle desk (API exists, no screen).
 5. Select → bind handoff.
 
 ### Compliance
-1. Admin consent writes go through `recordConsent` so suppression fires.
+1. ~~Admin consent writes go through `recordConsent` so suppression fires.~~ **Fixed** 2026-09-23: `announceConsent` is the single emitter.
 2. ~~Audit export in the UI (F59).~~ **Fixed** 2026-09-23 (see Admin 2).
-3. DSAR runner that erases (`forgetMemories`, notes, `erasureLog`) — part of the per-record memory build.
+3. ~~DSAR runner that erases.~~ **Fixed** 2026-09-23 (ADR-0089): a fulfilled erasure reaches AI memories and record notes, logged (`engines/compliance-erasure.ts`).
 4. Screening hits block binding; a real screening provider behind the seam.
 5. Scheduled retention with more record classes.
 
 ### Analytics
-1. Dashboard schedules refused at creation until delivery supports them (today: accepted, then fail every run).
+1. ~~Dashboard schedules refused at creation until delivery supports them.~~ **Fixed** 2026-09-23 (`assertDeliverableSchedule`).
 2. Schedule create screen.
-3. Report builder and natural-language questions — **in progress** (AI analytics build).
+3. ~~Report builder and natural-language questions.~~ **Fixed** 2026-09-23 (ADR-0088): `/analytics/builder`, `POST /v1/analytics/ask` (eval-first), AI datasets and `/admin/ai/analytics`.
 4. Readable dimension labels.
 5. Dashboard tile editor with filters.
 
@@ -137,14 +137,14 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 
 ## 3. Order of work
 
-1. **Wiring defects** (in progress): duplicate emits, consent bypass, save-desk
+1. **Wiring defects** (done 2026-09-23): duplicate emits, consent bypass, save-desk
    events, dead seeded triggers with a guard, dashboard-schedule refusal, a
    path-literal guard, commission accrual on bind, NORTH alert delivery.
-2. **Module switch** (needs an ADR): `enabled: false` makes a module's API answer
+2. **Module switch** (ADR-0087, API refusal and nav done; sweeps and consumers still run): `enabled: false` makes a module's API answer
    a refusal, stops its sweeps and consumers, and removes it from the nav and the
    module switcher; cross-module features degrade explicitly (ORBIT hides AXIS
    tools).
 3. **Per-module top gaps**, one module at a time, test-first, each checked by the
    layout sweep and the e2e journeys.
-4. AI analytics and reports, and per-record memory — built in parallel
-   (2026-09-23), merged when green.
+4. AI analytics and reports (ADR-0088) and per-record memory (ADR-0089) —
+   merged 2026-09-23.

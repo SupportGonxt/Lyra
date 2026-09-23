@@ -10,6 +10,8 @@ export * from "./audit.js";
 export * from "./events.js";
 export * from "./consent.js";
 export * from "./memory.js";
+export * from "./wikilinks.js";
+export * from "./notes.js";
 export * from "./approvals.js";
 export * from "./journey-health.js";
 export * from "./onboarding-templates.js";

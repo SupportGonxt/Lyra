@@ -244,7 +244,8 @@ with its golden set authored first under `packages/model-gateway/evals`
   with no `purposesJson` is read by nothing, an unrecognised sensitivity ranks
   above the scale, and `maxSensitivity` has no default. Read and written by the
   ORBIT run, so it is not a seam waiting for a caller. `forgetMemories` is the
-  erasure link and is honestly labelled: no DSAR runner calls it yet.
+  erasure link, called since ADR-0089 by `onDsarUpdated` (a fulfilled erasure
+  DSAR), beside `forgetNotes` for the notes staff wrote about the subject.
 - **F35** *Closed.* `Gateway.stream` + `POST /v1/ai/runs/stream` (SSE).
   `guardChunk` (`src/stream-guard.ts`, `evals/streaming`) runs the real output
   rule over the accumulated text behind a holdback sized against the rules —

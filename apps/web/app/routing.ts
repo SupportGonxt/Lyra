@@ -49,6 +49,8 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/approvals": "reached from the decisions-waiting panel on the home dashboard",
   "/search": "no UI of its own: the loader that feeds the command palette in the header",
   "/companion": "no UI of its own: the loader that feeds the agent-activity rail in the shell",
+  "/memory": "no UI of its own: the loader and action behind the memory panel on record screens",
+  "/memory/export": "streams the notes vault as a zip, opened from the admin workspace tools list",
   "/design": "the design doctrine, reached from the link parked at the end of the status strip",
   "/admin/ai/console": "a screen inside the admin workspace, reached from its AI tabs",
   "/admin/ai/budget": "the AI spending ceilings, reached from the admin workspace tools list",

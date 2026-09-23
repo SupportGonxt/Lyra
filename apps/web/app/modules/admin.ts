@@ -47,6 +47,7 @@ export const admin: WorkspaceSpec = {
       aiBudget: "Spending ceilings",
       aiAnalytics: "AI operations",
       costExplorer: "Cost explorer",
+      notesVault: "Download notes vault",
       staff: "Staff",
       runDetail: "Open this run",
       "message-templates": "Message templates",
@@ -361,6 +362,7 @@ export const admin: WorkspaceSpec = {
       aiBudget: "حدود الإنفاق",
       aiAnalytics: "عمليات الذكاء الاصطناعي",
       costExplorer: "مستكشف التكلفة",
+      notesVault: "تنزيل خزنة الملاحظات",
       staff: "الموظفون",
       runDetail: "فتح هذا التشغيل",
       "message-templates": "قوالب الرسائل",
@@ -1659,6 +1661,9 @@ export const admin: WorkspaceSpec = {
     { href: "/admin/ai/budget", labelKey: "aiBudget", permission: "ai:budgets:read" },
     { href: "/admin/ai/analytics", labelKey: "aiAnalytics", permission: "analytics:reports:run" },
     { href: "/admin/cost-explorer", labelKey: "costExplorer", permission: "analytics:reports:read" },
+    // ADR-0089: every record note the reader may open, as an Obsidian vault.
+    // A file, not a screen — so the strip opens it as a document download.
+    { href: "/memory/export", labelKey: "notesVault", permission: "core:notes:read", download: true },
     { href: "/admin/staff", labelKey: "staff", permission: "core:users:read" },
     { href: "/admin/permissions", labelKey: "permissionMatrix", permission: "core:roles:read" },
     { href: "/admin/developer", labelKey: "developer", permission: "core:api_keys:read" },

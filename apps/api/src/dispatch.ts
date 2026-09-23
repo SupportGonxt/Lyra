@@ -16,6 +16,7 @@ import { onBindIssued } from "./engines/signal-attribution.js";
 import { onLeadConverted } from "./engines/signal-outreach.js";
 import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
+import { onDsarUpdated } from "./engines/compliance-erasure.js";
 import { onJourneyEvent } from "./engines/orbit-journeys.js";
 import { onAlertTriggered } from "./engines/north-alert-notify.js";
 import { onAccrualDecided, onPolicyIssuedAccrue } from "./engines/commission-accrual.js";
@@ -101,6 +102,11 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // A breached NORTH threshold reaches whoever the rule names, in-app.
       if (event.type === "north.alert.triggered") {
         await consume(ctx.db, event, "north.alert.notify", (e) => onAlertTriggered(ctx, e), ctx.now);
+      }
+      // docs/12 §3, ADR-0089: a fulfilled erasure reaches per-record memory —
+      // the AI's memories and the notes staff wrote — and logs what it erased.
+      if (event.type === "compliance.dsar-requests.updated") {
+        await consume(ctx.db, event, "compliance.erasure", (e) => onDsarUpdated(ctx, e), ctx.now);
       }
       // The retention loop (docs/17 SIG-007): a decided renewal folds in the
       // campaign-window conversations and their QA scores, and announces the
