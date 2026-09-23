@@ -48,7 +48,7 @@ export function ScreenState({ state, title, body, children }: ScreenStateProps) 
     case "offline":
       return (
         <div role="status" className="rounded-md border border-dashed border-line3 p-4">
-          <p className="font-ui text-14 font-medium text-fg">{title ?? "Working offline"}</p>
+          <p className="font-ui text-14 font-medium text-text">{title ?? "Working offline"}</p>
           <p className="mt-1 font-ui text-13 text-subtle">
             {body ?? "Showing the last data this device saved."}
           </p>

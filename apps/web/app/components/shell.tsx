@@ -383,7 +383,7 @@ export function Shell({
                   <span className="hidden max-w-40 truncate font-mono text-12 text-muted sm:inline">
                     {roleKey ?? actorName ?? t("header.account")}
                   </span>
-                  <span aria-hidden="true" className="text-11 text-subtle">
+                  <span aria-hidden="true" className="text-12 text-subtle">
                     &#9662;
                   </span>
                 </button>

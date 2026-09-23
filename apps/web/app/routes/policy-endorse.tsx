@@ -453,7 +453,7 @@ function Shell({
       ) : (
         <header className="flex flex-col gap-2">
           <h1 className="text-xl font-semibold">{l("title")}</h1>
-          <p className="text-sm text-[var(--color-fg-muted)]">{l("intro")}</p>
+          <p className="text-sm text-muted">{l("intro")}</p>
         </header>
       )}
       {children}

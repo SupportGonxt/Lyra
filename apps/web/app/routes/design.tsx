@@ -70,7 +70,7 @@ export const PALETTE = [
  *  labels, not sentences, so they read the same in both languages. */
 const VOICES = [
   { key: "serif", cls: "font-serif text-28 leading-display" },
-  { key: "display", cls: "font-display text-18 font-600 tracking-[.02em]" },
+  { key: "display", cls: "font-display text-18 font-semibold tracking-[.02em]" },
   { key: "mono", cls: "font-mono text-22" }
 ] as const;
 
@@ -413,7 +413,7 @@ function SliderSpecimen({ l, locale }: { l: (key: string) => string; locale: str
   const money = new Intl.NumberFormat(locale, { style: "currency", currency: "AED", maximumFractionDigits: 0 });
 
   return (
-    <div className="flex flex-col gap-4 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
+    <div className="flex flex-col gap-4 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
       <Field label={l("slider.age")} id="specimen-age">
         <Slider
           min={18}
@@ -468,9 +468,9 @@ export function Doctrine({
 
       <div className="lyra-stagger grid gap-3 sm:grid-cols-2">
         {RULES.map((rule) => (
-          <article key={rule.n} className="rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
+          <article key={rule.n} className="rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
             <p className={`font-mono text-12 ${rule.hue}`}>{rule.n}</p>
-            <h2 className="mt-2 font-display text-16 font-600 text-tx">{l(`rule.${rule.n}.title`)}</h2>
+            <h2 className="mt-2 font-display text-16 font-semibold text-tx">{l(`rule.${rule.n}.title`)}</h2>
             <p className="mt-2 text-13 leading-body text-tx4">{l(`rule.${rule.n}.body`)}</p>
             <p className="mt-3 font-mono text-12 text-tx5">{l(`rule.${rule.n}.why`)}</p>
           </article>
@@ -479,14 +479,14 @@ export function Doctrine({
 
       <div className="grid gap-7 lg:grid-cols-2">
         <section className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("palette.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("palette.heading")}</h2>
           <p className="text-13 leading-body text-tx4">{l("palette.note")}</p>
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2">
             {PALETTE.map((swatch) => (
               <li key={swatch.token} className="flex flex-col gap-1">
                 {/* The swatch is the token, not a copy of it. */}
                 <span
-                  className="block h-[42px] rounded-2 border border-line2"
+                  className="block h-[42px] rounded-sm border border-line2"
                   style={{ background: `var(${swatch.token})` }}
                 />
                 <span className="text-12 text-tx4">{l(`palette.${swatch.key}`)}</span>
@@ -501,7 +501,7 @@ export function Doctrine({
         </section>
 
         <section className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("type.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("type.heading")}</h2>
           <ul className="flex flex-col gap-4">
             {VOICES.map((voice) => (
               <li key={voice.key} className="border-t border-line2 pt-3">
@@ -522,7 +522,7 @@ export function Doctrine({
           the 328px frame below, where they are the rows of the shift list. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("hero.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("hero.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("hero.note")}</p>
         </div>
         <HeroWall focus="open" allLabel={l("heroAll")}>
@@ -550,12 +550,12 @@ export function Doctrine({
           page asserting a broken ledger reads as one. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("flow.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("flow.heading")}</h2>
           <p className="max-w-[78ch] text-13 leading-body text-tx4">{l("flow.note")}</p>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("flow.state.title")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("flow.state.title")}</h3>
             <StateFlow
               machine={SPECIMEN_MACHINE}
               visits={SPECIMEN_VISITS}
@@ -565,8 +565,8 @@ export function Doctrine({
               locale={locale}
             />
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("flow.post.title")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("flow.post.title")}</h3>
             <PostingFlow
               legs={SPECIMEN_LEGS}
               currency="ZAR"
@@ -585,7 +585,7 @@ export function Doctrine({
           rail. They are reference, so they are listed here. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("pull.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("pull.heading")}</h2>
           <p className="max-w-[78ch] text-13 leading-body text-tx4">{l("pull.note")}</p>
         </div>
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -615,12 +615,12 @@ export function Doctrine({
           come back waiting for approval, and that is not a failure state. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("ai.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("ai.heading")}</h2>
           <p className="max-w-[78ch] text-13 leading-body text-tx4">{l("ai.note")}</p>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.ghost")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.ghost")}</h3>
             <p className="text-13 leading-body text-tx4">{l("ai.ghostNote")}</p>
             {/* The `group` and the height are the dot's job on the real chart
                 (routes/scout-radar.tsx); the ghost only positions itself. */}
@@ -635,14 +635,14 @@ export function Doctrine({
               <CommentaryGhost id="wc-specimen" commentary={SPECIMEN_COMMENTARY} l={wl} locale={locale} />
             </div>
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.chip")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.chip")}</h3>
             <CommentaryChip commentary={SPECIMEN_COMMENTARY} l={wl} locale={locale} />
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.chipHidden")}</h3>
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.chipHidden")}</h3>
             <CommentaryChip commentary={SPECIMEN_SUPPRESSED} l={wl} locale={locale} />
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.tray")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.tray")}</h3>
             <DraftTray
               promoted={{ state: "pending_approval", campaignId: null, drafts: 0 }}
               mayOpen={false}
@@ -650,8 +650,8 @@ export function Doctrine({
               locale={locale}
             />
           </div>
-          <div className="flex flex-col gap-3 rounded-3 border border-line2 bg-s2 px-[18px] py-[17px]">
-            <h3 className="font-display text-14 font-600 text-tx">{l("ai.trayDone")}</h3>
+          <div className="flex flex-col gap-3 rounded-md border border-line2 bg-s2 px-[18px] py-[17px]">
+            <h3 className="font-display text-14 font-semibold text-tx">{l("ai.trayDone")}</h3>
             <DraftTray
               promoted={{ state: "committed", campaignId: "cmp_specimen", drafts: 3 }}
               mayOpen={true}
@@ -664,7 +664,7 @@ export function Doctrine({
 
       <section className="flex flex-col gap-4 border-t border-line2 pt-7 lg:flex-row lg:items-start lg:gap-8">
         <div className="flex flex-1 flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("slider.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("slider.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("slider.note")}</p>
         </div>
         <div className="w-full lg:max-w-[420px]">
@@ -677,7 +677,7 @@ export function Doctrine({
           frame is inert, and the phone itself is apps/mobile. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7 lg:flex-row lg:items-start lg:gap-8">
         <div className="flex flex-1 flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("hand.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("hand.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("hand.note")}</p>
         </div>
 
@@ -730,7 +730,7 @@ export function Doctrine({
                 <p className="mt-3 flex gap-2">
                   {/* WCAG 2.2 AA target size, drawn at the phone's own scale:
                       44px is the floor the real app is built to. */}
-                  <span className="flex h-11 flex-1 items-center justify-center rounded-md bg-accent text-13 font-600 text-accent-contrast">
+                  <span className="flex h-11 flex-1 items-center justify-center rounded-md bg-accent text-13 font-semibold text-accent-contrast">
                     {l("hand.card.primary")}
                   </span>
                   <span className="flex h-11 w-[88px] flex-none items-center justify-center rounded-md border border-line4 text-13 text-tx3">
@@ -760,7 +760,7 @@ export function Doctrine({
           download make. Locale drives the face and the direction. */}
       <section className="flex flex-col gap-4 border-t border-line2 pt-7">
         <div className="flex flex-col gap-3">
-          <h2 className="font-display text-16 font-600 text-tx">{l("post.heading")}</h2>
+          <h2 className="font-display text-16 font-semibold text-tx">{l("post.heading")}</h2>
           <p className="max-w-[60ch] text-13 leading-body text-tx4">{l("post.note")}</p>
         </div>
         <ul className="flex flex-wrap items-start gap-5">

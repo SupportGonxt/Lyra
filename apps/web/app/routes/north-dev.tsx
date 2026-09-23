@@ -352,7 +352,7 @@ export default function NorthDev() {
                       />
                       <span className="flex flex-col">
                         <span>{metricName(metric, locale)}</span>
-                        <span className="font-mono text-11 text-subtle">{metric.key}</span>
+                        <span className="font-mono text-12 text-subtle">{metric.key}</span>
                       </span>
                     </label>
                   ))}
@@ -392,7 +392,7 @@ export default function NorthDev() {
                 />
                 <details>
                   <summary className="cursor-pointer font-ui text-13 text-accent">{l("query.raw")}</summary>
-                  <pre className="mt-2 overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+                  <pre className="mt-2 overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
                     {JSON.stringify({ rows: result.rows }, null, 2)}
                   </pre>
                 </details>
@@ -402,7 +402,7 @@ export default function NorthDev() {
 
           <Panel module="north" eyebrow={l("curl.eyebrow")} lede={l("curl.lede")}>
             <div className="flex flex-col gap-3">
-              <pre className="overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+              <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
                 {curlFor(origin, {
                   metricKeys: sample.length > 0 ? sample : ["your_metric_key"],
                   grain: "day",

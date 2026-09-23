@@ -393,7 +393,7 @@ export default function NorthAdmin() {
       render: (row) => (
         <span className="flex flex-col">
           <span className="text-text">{metricName(row, locale)}</span>
-          <span className="font-mono text-11 text-subtle">{row.key}</span>
+          <span className="font-mono text-12 text-subtle">{row.key}</span>
         </span>
       )
     },

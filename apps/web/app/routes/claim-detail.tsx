@@ -1281,7 +1281,7 @@ export default function ClaimDetail() {
           <Entry term={l("siu")}>{claim.siuState ? tag(l, "siu", claim.siuState) : "—"}</Entry>
         </Facts>
         {loaded.may.siu ? (
-          <div className="mt-4 flex flex-col gap-3 border-t border-hairline pt-4">
+          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
             <Form method="post" className="flex items-center gap-3">
               <input type="hidden" name="intent" value="fraud-score" />
               <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />
@@ -1328,7 +1328,7 @@ export default function ClaimDetail() {
                 {l("reserveSubmit")}
               </Button>
             </Form>
-            <Form method="post" className="mt-3 flex items-center gap-3 border-t border-hairline pt-3">
+            <Form method="post" className="mt-3 flex items-center gap-3 border-t border-border pt-3">
               <input type="hidden" name="intent" value="reserve-recommendation" />
               <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />
               <Button type="submit" variant="secondary" loading={busy}>
@@ -1446,7 +1446,7 @@ export default function ClaimDetail() {
           empty={<EmptyState title={l("none")} body={l("noneRecoveries")} />}
         />
         {loaded.may.recover ? (
-          <div className="border-t border-hairline px-6 py-4">
+          <div className="border-t border-border px-6 py-4">
             <p className="mb-3 font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("recoveryOpenTitle")}</p>
             <Form method="post" className="flex flex-wrap items-end gap-4">
               <input type="hidden" name="intent" value="recovery-open" />

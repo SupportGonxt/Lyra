@@ -436,7 +436,7 @@ export default function FnolIntake() {
           <h2 className="font-medium">{l("coverage.title")}</h2>
           <Badge tone={COVERAGE_TONE[coverage.coverageState]}>{l(`coverageState.${coverage.coverageState}`)}</Badge>
           {coverage.warnings.map((warning) => (
-            <p key={warning} className="text-sm text-[var(--color-fg-muted)]">
+            <p key={warning} className="text-sm text-muted">
               {warning}
             </p>
           ))}

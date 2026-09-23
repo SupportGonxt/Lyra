@@ -441,7 +441,7 @@ function AnomalyCard({
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="font-ui text-13 text-text">
                         {driver.key}
-                        <span className="ms-2 font-mono text-11 uppercase tracking-[0.12em] text-subtle">
+                        <span className="ms-2 font-mono text-12 uppercase tracking-[0.12em] text-subtle">
                           {driver.dimension}
                         </span>
                       </span>
@@ -469,7 +469,7 @@ function AnomalyCard({
               decomposition and still has a named baseline, and "no breakdown
               was recorded" must not read as "nothing was compared". */}
           {analysis.method || analysis.baseline ? (
-            <p className="font-mono text-11 uppercase tracking-[0.12em] text-subtle">
+            <p className="font-mono text-12 uppercase tracking-[0.12em] text-subtle">
               {[
                 analysis.method ? `${l("drivers.method")}: ${words(analysis.method)}` : null,
                 analysis.baseline ? `${l("drivers.baseline")}: ${words(analysis.baseline)}` : null

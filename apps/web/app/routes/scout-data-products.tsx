@@ -353,7 +353,7 @@ export default function ScoutDataProducts() {
                   }}
                   aria-current={row.id === product.id ? "true" : undefined}
                   className={`flex w-full flex-col gap-1 rounded-lg border p-3 text-start ${
-                    row.id === product.id ? "border-accent bg-raised" : "border-line hover:bg-raised"
+                    row.id === product.id ? "border-accent bg-surface-2" : "border-line hover:bg-surface-2"
                   }`}
                 >
                   <span className="font-ui text-13 text-text">{row.name}</span>
@@ -516,7 +516,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
       <dt className="font-ui text-12 text-subtle">{label}</dt>
-      <dd className="font-serif text-20 text-text">{value}</dd>
+      <dd className="font-serif text-22 text-text">{value}</dd>
     </div>
   );
 }

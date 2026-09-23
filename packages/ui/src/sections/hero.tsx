@@ -165,7 +165,7 @@ function Trend({ items }: { items: SparkItem[] }) {
       {active ? (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-sm border border-line2 bg-surface-3 px-2 py-1 font-mono text-12 text-fg shadow-elev"
+          className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-sm border border-line2 bg-surface-3 px-2 py-1 font-mono text-12 text-text shadow-elev"
           style={{ insetInlineStart: `${(hoverIndex! / Math.max(1, items.length - 1)) * 100}%` }}
         >
           {active.label}

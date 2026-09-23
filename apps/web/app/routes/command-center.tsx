@@ -287,7 +287,7 @@ function Why({ proposal, t }: { proposal: Proposal; t: Label }) {
         <span aria-hidden="true">{AGENT_MARK}</span> {t("feed.why")}
       </button>
       {open ? (
-        <p className="mt-1 max-w-prose border-inline-start-2 border-current/20 ps-2 text-13 opacity-80">{reason}</p>
+        <p className="mt-1 max-w-prose border-s-2 border-current/20 ps-2 text-13 opacity-80">{reason}</p>
       ) : null}
     </div>
   );
@@ -410,7 +410,7 @@ export default function CommandCenter() {
               <p className="text-13 font-medium opacity-70">
                 <span aria-hidden="true">{AGENT_MARK}</span> {t("answer.title")}
               </p>
-              <p className="mt-1 max-w-prose whitespace-pre-wrap text-15 leading-relaxed">{action.answer.text}</p>
+              <p className="mt-1 max-w-prose whitespace-pre-wrap text-16 leading-relaxed">{action.answer.text}</p>
               <p className="mt-2 text-12 opacity-60">
                 {action.answer.rounds} {t("runs.rounds")} ·{" "}
                 {action.answer.proposalCount > 0

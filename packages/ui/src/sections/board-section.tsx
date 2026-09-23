@@ -26,7 +26,7 @@ export function BoardSection({ section, mod }: { section: BoardSectionData; mod:
                   style={{ borderColor: card.line }}
                 >
                   <div className="mb-1.5 flex items-baseline justify-between gap-2">
-                    <span className="text-12 leading-snug text-fg">{card.title}</span>
+                    <span className="text-12 leading-snug text-text">{card.title}</span>
                     <span className="shrink-0 font-mono text-12 tabular-nums" style={{ color: col.hue }}>
                       {card.clock}
                     </span>

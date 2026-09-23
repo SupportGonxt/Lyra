@@ -37,7 +37,7 @@ export function RadarSection({ section, mod }: { section: RadarSectionData; mod:
                 className="relative rounded-full opacity-[0.92] shadow-elev transition-transform duration-150 ease-out group-hover:scale-125 group-focus-visible:scale-125 group-focus-visible:ring-2 group-focus-visible:ring-accent"
                 style={{ width: item.size, height: item.size, background: item.hue }}
               />
-              <div className="mt-0.5 whitespace-nowrap ps-4 text-12 text-muted transition-colors duration-150 ease-out group-hover:text-fg group-focus-visible:text-fg">
+              <div className="mt-0.5 whitespace-nowrap ps-4 text-12 text-muted transition-colors duration-150 ease-out group-hover:text-text group-focus-visible:text-text">
                 {item.label}
               </div>
             </div>

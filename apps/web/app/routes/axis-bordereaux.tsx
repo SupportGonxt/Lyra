@@ -579,7 +579,7 @@ export default function AxisBordereaux() {
             </Facts>
             {kv ? <div className="mt-4">{renderSection(kv, "axis")}</div> : null}
             {loaded.may.reconcile ? (
-              <Form method="post" className="mt-4 flex items-center gap-3 border-t border-hairline pt-4">
+              <Form method="post" className="mt-4 flex items-center gap-3 border-t border-border pt-4">
                 <input type="hidden" name="intent" value="reconcile" />
                 <input type="hidden" name="bordereauId" value={selected.id} />
                 <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />
@@ -669,9 +669,9 @@ function GenerateForm({ idempotencyKey, l, busy }: { idempotencyKey: string; l: 
           name="lines"
           rows={3}
           placeholder='[{"externalRef":"POL-1","grossPremiumMinor":100000}]'
-          className="w-full rounded-md border border-border bg-surface p-2 font-mono text-12"
+          className="w-full rounded-md border border-border bg-surface-1 p-2 font-mono text-12"
         />
-        <span className="text-11 text-subtle">{l("linesHint")}</span>
+        <span className="text-12 text-subtle">{l("linesHint")}</span>
       </label>
       <Button type="submit" loading={busy}>
         {l("generateSubmit")}

@@ -572,7 +572,7 @@ export default function AxisBoard() {
                           );
                           return (
                             <span
-                              className="font-mono text-11 text-subtle"
+                              className="font-mono text-12 text-subtle"
                               title={l("rank.title")}
                             >
                               {l("rank.why", {

@@ -117,12 +117,12 @@ export function Meridian({
     >
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-2.5">
-          <span className="text-[9.5px] uppercase tracking-[0.16em] text-subtle">{t("meridian.title")}</span>
-          <span className="font-mono text-[11.5px] text-text">
+          <span className="text-12 uppercase tracking-[0.16em] text-subtle">{t("meridian.title")}</span>
+          <span className="font-mono text-12 text-text">
             {now === null ? null : <DateTime value={atMs} precision="time" />}
           </span>
           <span
-            className="text-[10.5px]"
+            className="text-12"
             style={{ color: state === "live" ? accent : state === "projection" ? "var(--module-north)" : undefined }}
           >
             {now === null ? null : t(`meridian.${state}`)}
@@ -131,13 +131,13 @@ export function Meridian({
             <button
               type="button"
               onClick={release}
-              className="rounded-md px-1 text-[10.5px] text-muted underline underline-offset-2 transition-colors duration-150 hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="rounded-md px-1 text-12 text-muted underline underline-offset-2 transition-colors duration-150 hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {t("meridian.now")}
             </button>
           )}
         </div>
-        <span className="text-[10px] text-subtle">
+        <span className="text-12 text-subtle">
           {now === null ? null : cursor === null ? t("meridian.hint") : t("meridian.landed", { count: String(events.filter((e) => dayFraction(e.at) <= at).length) })}
         </span>
       </div>
@@ -203,7 +203,7 @@ export function Meridian({
           {events.map((event) => (
             <li
               key={event.id}
-              className="pointer-events-none absolute top-0 -translate-x-1/2 transition-opacity duration-150"
+              className="pointer-events-none absolute top-0 -translate-x-1/2 transition-opacity duration-150 rtl:translate-x-1/2"
               style={{
                 insetInlineStart: `${dayFraction(event.at) * 100}%`,
                 // Replay dims what had not landed yet at the moment being read.
@@ -212,7 +212,7 @@ export function Meridian({
             >
               <div className="mx-auto size-[5px] rounded-full" style={{ background: hueFor(event.module, accent) }} />
               <div className="mx-auto h-[17px] w-px bg-border-strong" />
-              <div className="mt-0.5 -translate-x-1/2 whitespace-nowrap font-mono text-[8.5px] text-subtle">
+              <div className="mt-0.5 whitespace-nowrap font-mono text-12 text-subtle">
                 {event.labelled ? <DateTime value={event.at} precision="time" /> : null}
               </div>
             </li>

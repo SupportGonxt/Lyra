@@ -261,7 +261,7 @@ export default function ScoutDev() {
             />
             <details>
               <summary className="cursor-pointer font-ui text-13 text-accent">{l("dev.raw")}</summary>
-              <pre className="mt-2 overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+              <pre className="mt-2 overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
                 {JSON.stringify({ matches: result.matches }, null, 2)}
               </pre>
             </details>
@@ -309,14 +309,14 @@ export default function ScoutDev() {
 
       <Panel module="scout" eyebrow={l("dev.curl")} lede={l("dev.curlWhy")}>
         <div className="flex flex-col gap-3">
-          <pre className="overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+          <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
             {curlFor(loaded.origin, "/v1/scout/signals/similar", {
               text: loaded.sample || "EV cover withdrawn",
               topK: DEFAULT_TOP_K
             })}
           </pre>
           <p className="max-w-prose font-ui text-13 text-muted">{l("dev.ingestWhy")}</p>
-          <pre className="overflow-x-auto rounded-lg bg-raised p-3 font-mono text-11 text-text">
+          <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-12 text-text">
             {curlFor(loaded.origin, "/v1/scout/signals", {
               source: "news",
               sourceRef: "https://example.com/article",

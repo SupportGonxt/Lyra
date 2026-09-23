@@ -89,7 +89,7 @@ export function Companion({ t }: { t: Translate }) {
             >
               <span className="flex items-center gap-2">
                 {/* docs/15: one ✦ on anything a model produced. */}
-                <span aria-hidden="true" className="text-11 text-accent">
+                <span aria-hidden="true" className="text-12 text-accent">
                   &#10022;
                 </span>
                 <span className="min-w-0 flex-1 truncate font-mono text-12 text-text">{run.agentKey}</span>

@@ -7,7 +7,7 @@ export function TextSection({ section, mod }: { section: TextSectionData; mod: S
     <SectionShell title={section.title} mod={mod}>
       <div className="rounded-md bg-surface-2 p-7 shadow-elev">
         {section.lede ? (
-          <p className="mb-5 max-w-[60ch] text-pretty font-serif text-28 leading-snug text-fg">{section.lede}</p>
+          <p className="mb-5 max-w-[60ch] text-pretty font-serif text-28 leading-snug text-text">{section.lede}</p>
         ) : null}
         <div className="flex max-w-[68ch] flex-col gap-4">
           {section.items.map((item, i) => (

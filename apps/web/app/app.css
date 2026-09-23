@@ -163,6 +163,31 @@
     animation: nav-sweep 1.1s var(--ease-out) infinite;
   }
 
+  /* The sweep starts off the inline-start edge, so in RTL it has to travel
+     the other way; translateX is physical. */
+  [dir="rtl"] .lyra-nav-progress::after {
+    animation-name: nav-sweep-rtl;
+  }
+
+  /* Reduced motion: the global reset runs the sweep once for 0.01ms and
+     leaves the bar parked off-screen — no signal at all. A still, full bar
+     says "loading" without moving. */
+  @media (prefers-reduced-motion: reduce) {
+    .lyra-nav-progress::after {
+      inset-inline-start: 0;
+      width: 100%;
+      animation: none !important;
+      opacity: 0.6;
+    }
+  }
+
+  /* Arabic is cursive: letter-spacing pulls joined letters apart. Every
+     tracked eyebrow, label and lockup drops it for an Arabic reader. */
+  :lang(ar) [class*="tracking-"],
+  :lang(ar)[class*="tracking-"] {
+    letter-spacing: 0 !important;
+  }
+
   /* The cold open (ADR-0055): a veil over an already-rendered workspace, once
      per sitting. It cannot be clicked, cannot be read, and cannot be waited
      on — the shell beneath is interactive from the first frame, including
@@ -282,6 +307,15 @@
   }
   to {
     transform: translateX(400%);
+  }
+}
+
+@keyframes nav-sweep-rtl {
+  from {
+    transform: translateX(0%);
+  }
+  to {
+    transform: translateX(-400%);
   }
 }
 

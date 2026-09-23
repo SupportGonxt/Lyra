@@ -481,7 +481,7 @@ function Detail({
       ) : null}
 
       {mayDecide && moves.length > 0 ? (
-        <Form method="post" className="mt-6 flex flex-col gap-4 border-t border-hairline pt-4">
+        <Form method="post" className="mt-6 flex flex-col gap-4 border-t border-border pt-4">
           <input type="hidden" name="intent" value="decide" />
           <input type="hidden" name="key" value={formKey} />
           <input type="hidden" name="experimentId" value={row.id} />
@@ -609,7 +609,7 @@ function SequentialRead({ reading, l }: { reading: ExperimentResult; l: Label })
         {/* The boundary itself, drawn where 95% falls across the same track. */}
         <span
           aria-hidden="true"
-          className="absolute inset-block-0 w-px bg-text/60"
+          className="absolute inset-y-0 w-px bg-text/60"
           style={{ insetInlineStart: `${DECISION_BOUNDARY_BPS / 100}%` }}
         />
       </div>

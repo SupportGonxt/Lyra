@@ -14,7 +14,7 @@ export function TimelineSection({ section, mod }: { section: TimelineSectionData
             <div className="w-20 shrink-0 pt-0.5 font-mono text-12 tabular-nums text-subtle">{item.when}</div>
             <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full" style={{ background: item.hue }} />
             <div className="min-w-0 flex-1">
-              <p className="mb-1 text-14 leading-snug text-fg">{item.title}</p>
+              <p className="mb-1 text-14 leading-snug text-text">{item.title}</p>
               <p className="text-13 leading-relaxed text-subtle">{item.note}</p>
             </div>
             <div className="shrink-0 font-mono text-12 tabular-nums" style={{ color: item.hue }}>

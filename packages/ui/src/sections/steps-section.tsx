@@ -15,7 +15,7 @@ export function StepsSection({ section, mod }: { section: StepsSectionData; mod:
               <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ background: item.dot }} />
               <span className="truncate font-mono text-12 tracking-wide text-subtle">{item.code}</span>
             </div>
-            <p className="font-ui text-13 leading-snug text-fg">{item.title}</p>
+            <p className="font-ui text-13 leading-snug text-text">{item.title}</p>
             <p className="font-mono text-13 tabular-nums" style={{ color: item.hue }}>
               {item.money}
             </p>

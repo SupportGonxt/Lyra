@@ -219,7 +219,9 @@
      each stack so a failed/blocked file still renders readable text. */
   --font-display: "Archivo", "IBM Plex Sans Arabic", system-ui, sans-serif;
   --font-ui: "Instrument Sans", "IBM Plex Sans Arabic", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* Arabic words set in a mono slot (eyebrows, status strip) fall to the
+     Arabic face rather than whatever the system picks. */
+  --font-mono: "IBM Plex Mono", "IBM Plex Sans Arabic", ui-monospace, monospace;
   --font-arabic: "IBM Plex Sans Arabic", "Instrument Sans", system-ui, sans-serif;
   /* The Horizon lede, the login hero and the answer headline. Not part of the
      tenant font contract (docs/01 §6) — see the @font-face comment above.
@@ -770,6 +772,8 @@
 
   --spacing: var(--space-base);
 
+  --leading-body: var(--leading-body);
+  --leading-display: var(--leading-display);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);

@@ -840,7 +840,7 @@ export default function LedgerRecon() {
                 type="file"
                 name="statementFile"
                 accept=".xml,.txt,.sta,.940,.ofx,.qfx,text/xml,application/xml,text/plain"
-                className="block w-full rounded-sm border border-line bg-surface px-3 py-2 font-ui text-13 text-text file:me-3 file:rounded-sm file:border-0 file:bg-accent/10 file:px-3 file:py-1 file:font-ui file:text-13 file:text-accent"
+                className="block w-full rounded-sm border border-line bg-surface-1 px-3 py-2 font-ui text-13 text-text file:me-3 file:rounded-sm file:border-0 file:bg-accent/10 file:px-3 file:py-1 file:font-ui file:text-13 file:text-accent"
               />
             </Field>
 

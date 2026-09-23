@@ -405,7 +405,7 @@ export default function NorthExplorer() {
                     {l(forecast.fit.intervalSource === "empirical" ? "forecast.band.empirical" : "forecast.band.default")}
                   </p>
                   {forecast.fit.lastObserved ? (
-                    <p className="mt-1 font-mono text-11 uppercase tracking-[0.14em] text-subtle">
+                    <p className="mt-1 font-mono text-12 uppercase tracking-[0.14em] text-subtle">
                       {l("forecast.basis", { count: String(forecast.fit.observations), last: forecast.fit.lastObserved })}
                     </p>
                   ) : null}
@@ -429,7 +429,7 @@ export default function NorthExplorer() {
                   }
                 />
               </dl>
-              <p className="mt-3 font-mono text-11 uppercase tracking-[0.14em] text-subtle">{metric.key}</p>
+              <p className="mt-3 font-mono text-12 uppercase tracking-[0.14em] text-subtle">{metric.key}</p>
             </Card>
           ) : null}
         </>

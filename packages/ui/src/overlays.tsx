@@ -110,9 +110,9 @@ export interface DrawerProps extends Omit<DialogProps, "size"> {
 }
 
 const drawerSides = {
-  "inline-start": "inset-block-0 start-0 h-full border-e",
-  "inline-end": "inset-block-0 end-0 h-full border-s",
-  "block-end": "inset-inline-0 bottom-0 w-full border-t rounded-t-lg"
+  "inline-start": "inset-y-0 start-0 h-full border-e",
+  "inline-end": "inset-y-0 end-0 h-full border-s",
+  "block-end": "inset-x-0 bottom-0 w-full border-t rounded-t-lg"
 } as const;
 
 export function Drawer({

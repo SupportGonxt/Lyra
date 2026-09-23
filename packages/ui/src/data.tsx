@@ -172,7 +172,7 @@ export function Table<T>({
                     state === "sealed"
                       ? "bg-surface-1 border-s-[3px] border-s-success"
                       : state === "draft"
-                        ? "bg-surface-2 border-s-[3px] border-s-dashed border-s-subtle"
+                        ? "bg-surface-2 border-s-[3px] border-dashed border-s-subtle"
                         : onRowActivate
                           ? "hover:bg-surface-2"
                           : undefined,
