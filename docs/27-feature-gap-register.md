@@ -1275,6 +1275,79 @@ them took.
   populations now. A miss is logged as loudly as a hit, because containment %
   (§7) is a ratio and a log that kept only the wins would report 100% forever.
 
+### Cross-module wiring — events and seams, 2026-09-23
+
+A module review reported eight wiring defects. Each was checked at its cited
+lines before it was touched; seven were real as stated, one was half-stale.
+
+- **Settlement events emitted twice — closed** (`c74f526`). `approveSettlement`
+  / `paySettlement` passed `event` to `runTxn` *and* emitted the same type by
+  hand, so every subscriber got `ledger.settlement.approved|paid` twice. The
+  hand-written, settlement-shaped emit stays; `runTxn`'s goes.
+- **Admin-entered consents bypassed suppression — closed** (`736822d`). Generic
+  CRUD emitted `core.consents.created`; suppression listens for
+  `core.consent.updated`. `announceConsent` (`packages/core/src/consent.ts`) is
+  now the one emitter, called by `recordConsent` and by the consents resource's
+  `afterWrite`; `beforeWrite` holds the two maps to their zod shapes.
+- **Save-desk outcomes skipped their events — closed** (`2b943c9`). The renewals
+  resource's `afterWrite` emits `orbit.renewal.{offered,accepted,lost}` on the
+  state change only; CRUD's `afterWrite` now receives the `before` row.
+- **Dashboard schedules — half-stale, closed** (`0f39126`). `POST /schedules`
+  already refused a dashboard-*only* schedule. Still open were a `dashboardId`
+  beside a `reportId` (stored, never delivered), the generic PATCH, and
+  `/schedules/:id/resume` on the seeded paused dashboard schedule.
+  `assertDeliverableSchedule` is the one rule at all three doors.
+- **`"v1/signal/outreach/run"` — closed** (`4456ea9`). Latent rather than live:
+  `new URL(path, API_ORIGIN)` resolves a relative path correctly while the
+  origin has no path. `app/api-paths.test.ts` partitions every `api`/`apiFetch`/
+  `proxyFile` first argument and requires the leftover bucket to be empty.
+- **NORTH alerts went nowhere — closed** (`d235ea1`).
+  `engines/north-alert-notify.ts` consumes `north.alert.triggered` and writes
+  the in-app inbox. `notifyChannelRef` is read as `user:<id>` or
+  `role:<key>`; empty or unresolvable (`slack:#ops`) falls back to
+  `north.analyst`, and the audit row names the unresolved ref. No email or chat
+  service was added (CLAUDE.md §13). One notice per rule per period per person,
+  because the snapshotter re-fires open periods every night.
+- **Commission did not accrue on bind — closed** (`6ac22c0`, `cde2679`). The
+  route's body is `engines/commission-accrual.ts#accrueCommission`.
+  `axis.policy.issued` raises the `dist.commission_accrue` approval (it is
+  never auto-approved). The approver's `core.approval.decided` then books it,
+  but only for approvals a *system* actor requested: an approval a controller
+  raised by hand stays theirs to retry. No journal is posted at accrual on
+  either door. RSHARE-ACCR/SETL post at settlement approve/pay, as they always
+  did.
+- **Dead event names in seeds — closed** (`75cc60a`). Nine, not eight: the
+  review missed that the partner webhook's `orbit.renewal.due` (the docs/04 §7
+  name) was never emitted either. The renewal sweep now emits
+  `orbit.renewal.due`, and a recon run reaching `closed` emits
+  `ledger.recon.completed`. The rest were renamed to what is emitted:
+  `dist.policy.issued` and `dist.quote.bound` became `axis.policy.issued`,
+  `dist.quote.ready` became `dist.quote_request.fanned_out`,
+  `ledger.settlement.posted` became `ledger.settlement.approved`,
+  `orbit.document.missing` became `orbit.conversation.document`, and
+  `dist.partner.approved` became `orbit.partner.stage_changed`. Deployed
+  tenants get the change through `SEED_EVENT_RENAMES` + `syncSeedEventNames`,
+  the sixth reconciler behind `/v1/auth/demo/resync-roles`. It rewrites only
+  those names and does it idempotently. **Needs a call to that route on
+  staging after the next deploy.** The guard is `apps/api/src/event-seams.test.ts`.
+
+Skipped, with reasons (findings, not fixed):
+
+- **`ledger.period.closed`** was offered as an example emit, but nothing seeded
+  or shipped subscribes to it. Adding an event with no reader is the dead seam
+  in reverse, so it is left for whoever needs it.
+- **Partner journeys still cannot enrol.** `onJourneyEvent` enrols
+  `data.customerId`, and partner events carry none. So `broker_activation` now
+  names a real event and still never starts. Journeys enrol customers only.
+  Enrolling a partner needs a spec decision, not a rename.
+- **Seeded journey node types the executor does not know.** `message`, `agent`,
+  `survey` and `wait_for` (including `wait_for: orbit.partner.quote`, which
+  nothing emits) are outside the vocabulary in `orbit-journeys.ts:185-194`. The
+  guard checks triggers and subscriptions only.
+- **Seeded DLQ history** (`seed/platform.ts`) still carries a
+  `ledger.settlement.posted` envelope. It is a record of a past failure, not a
+  subscription, so it was left as written.
+
 ---
 
 ## Suggested order

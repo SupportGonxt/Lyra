@@ -513,8 +513,10 @@ export async function approveSettlement(ctx: Ctx, settlementId: string): Promise
       // The gate above already took the `dist.settlement_run` signature against
       // the settlement. Letting runTxn gate again on `txn:{id}` would ask a
       // second person for the same decision.
-      preApproved: true,
-      event: { name: "ledger.settlement.approved" }
+      // No `event` here: the settlement-shaped `ledger.settlement.approved`
+      // below is the one event this fact gets. Passing it to runTxn too made
+      // every subscriber receive it twice.
+      preApproved: true
     }
   );
 
@@ -599,8 +601,8 @@ export async function paySettlement(
       },
       // Gated above on the payout policy. RSHARE-SETL's declared policy is
       // `dist.settlement_run`, which approve already took for this settlement.
-      preApproved: true,
-      event: { name: "ledger.settlement.paid" }
+      // No `event` here either — `ledger.settlement.paid` is emitted once, below.
+      preApproved: true
     }
   );
 

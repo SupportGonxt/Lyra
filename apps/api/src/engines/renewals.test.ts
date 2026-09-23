@@ -196,6 +196,24 @@ describe("sweepRenewals term dedupe", () => {
 
     expect(await sweepRenewals(ctx)).toBe(0);
   });
+
+  // Regression: the sweep raised the renewal row and announced nothing, so the
+  // seeded renewal journey (which triggered on a never-emitted
+  // `orbit.renewal.raised`) and the partner webhook subscribed to the
+  // catalogue's `orbit.renewal.due` (docs/04 §7) could never hear of one.
+  it("announces each renewal it raises as orbit.renewal.due, once", async () => {
+    await seedPolicy();
+    expect(await sweepRenewals(ctx)).toBe(1);
+    expect(await sweepRenewals(ctx)).toBe(0);
+
+    const due = (await ctx.db.select().from(schema.eventOutbox)).filter((e) => e.type === "orbit.renewal.due");
+    expect(due).toHaveLength(1);
+    const [row] = await ctx.db.select().from(schema.orbitRenewals).where(eq(schema.orbitRenewals.policyRef, "pol_1"));
+    const envelope = JSON.parse(due[0]!.envelopeJson);
+    expect(envelope.subject).toBe(row!.id);
+    // customerId is what a journey trigger enrols (orbit-journeys.ts onJourneyEvent).
+    expect(envelope.data).toMatchObject({ policyRef: "pol_1", customerId: "cu_1", expiryAt: ctx.now + 20 * DAY });
+  });
 });
 
 describe("sweepRenewals cohort wiring", () => {

@@ -1,6 +1,6 @@
 import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, badRequest, conflict, notFound, type Ctx } from "@lyra/core";
+import { actorRef, audit, badRequest, conflict, emit, notFound, type Ctx } from "@lyra/core";
 import { buildRecipe } from "./recipes.js";
 import { runTxn } from "./txn.js";
 
@@ -273,6 +273,7 @@ export async function reconcile(ctx: Ctx, input: ReconInput): Promise<ReconResul
       ...(state === "closed" ? { closedBy: "system:recon" } : {})
     })
     .where(eq(schema.ledgerReconRuns.id, runId));
+  if (state === "closed") await announceCompleted(ctx, await reconSummary(ctx, runId));
 
   await audit(ctx, {
     action: "ledger.recon.run",
@@ -513,4 +514,29 @@ export async function closeRun(ctx: Ctx, runId: string): Promise<void> {
     .set({ state: "closed", closedBy: actorRef(ctx), updatedAt: ctx.now })
     .where(eq(schema.ledgerReconRuns.id, runId));
   await audit(ctx, { action: "ledger.recon.close", subjectRef: `recon:${runId}`, after: { ...s, state: "closed" } });
+  // Re-closing a closed run books nothing new (settleRun is idempotent) and is
+  // not a second completion.
+  if (s.state !== "closed") await announceCompleted(ctx, { ...s, state: "closed" });
+}
+
+/**
+ * A run reaching `closed` — on either path: the deterministic pass closing a
+ * clean statement itself, or closeRun after review. The seeded ops webhook
+ * subscribes to this; before it existed nothing said a reconciliation ended.
+ */
+async function announceCompleted(ctx: Ctx, s: ReconSummary): Promise<void> {
+  await emit(ctx, {
+    module: "ledger",
+    type: "ledger.recon.completed",
+    subject: `recon:${s.runId}`,
+    data: {
+      runId: s.runId,
+      process: s.process,
+      period: s.period,
+      currency: s.currency,
+      matchedCount: s.matchedCount,
+      varianceCount: s.varianceCount,
+      varianceMinor: s.varianceMinor
+    }
+  });
 }

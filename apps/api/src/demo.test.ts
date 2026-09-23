@@ -2,9 +2,10 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
+import { eq, like } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { seed } from "@lyra/core";
-import type { Db } from "@lyra/db";
+import { schema, type Db } from "@lyra/db";
 import { app } from "./index.js";
 import type { Env } from "./env.js";
 
@@ -109,6 +110,27 @@ describe("demo sign-in", () => {
       email: "attacker@example.com"
     });
     expect(login.status).toBe(404);
+  });
+});
+
+// The seeded dead event names (docs/27, 2026-09-23) reach a deployed tenant
+// only through the resync seam — seed() never runs twice (CLAUDE.md sighting 9).
+describe("POST /v1/auth/demo/resync-roles", () => {
+  it("rewrites a stale seeded webhook subscription, and a second call rewrites nothing", async () => {
+    const [hook] = await database.select().from(schema.webhooks).where(like(schema.webhooks.url, "%cedarinsurance%"));
+    await database
+      .update(schema.webhooks)
+      .set({ eventTypesJson: JSON.stringify(["dist.quote.bound", "axis.policy.endorsed"]) })
+      .where(eq(schema.webhooks.id, hook!.id));
+
+    const first = await call("staging", "POST", "/v1/auth/demo/resync-roles");
+    expect(first.status).toBe(200);
+    expect(first.body.events.webhooks).toEqual([hook!.id]);
+    const [after] = await database.select().from(schema.webhooks).where(eq(schema.webhooks.id, hook!.id));
+    expect(JSON.parse(after!.eventTypesJson)).toEqual(["axis.policy.issued", "axis.policy.endorsed"]);
+
+    const second = await call("staging", "POST", "/v1/auth/demo/resync-roles");
+    expect(second.body.events).toEqual({ journeys: [], webhooks: [] });
   });
 });
 

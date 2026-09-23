@@ -104,6 +104,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "A scheduled report could not be produced",
     "notice.compliance.dsar.created":
       "A data-subject request arrived and needs verification",
+    "notice.north.alert.triggered": "A metric crossed an alert threshold",
 
     "activity.title": "Your recent activity",
     "activity.label": "Your recent activity",
@@ -181,6 +182,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "وصل تقرير مجدول إلى بعض المستلمين فقط",
     "notice.analytics.schedule.failed": "تعذّر إنتاج تقرير مجدول",
     "notice.compliance.dsar.created": "وصل طلب من صاحب بيانات ويحتاج إلى تحقق",
+    "notice.north.alert.triggered": "تجاوز مؤشر حدّ التنبيه",
 
     "activity.title": "نشاطك الأخير",
     "activity.label": "نشاطك الأخير",

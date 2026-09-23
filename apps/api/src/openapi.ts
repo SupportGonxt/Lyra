@@ -35,7 +35,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/auth/demo/login", summary: "Sign in as a seeded demo persona without a password (non-production only)", tag: "auth", requestBody: true, public: true },
   { method: "post", path: "/v1/auth/demo/clock", summary: "Advance the simulated clock used by non-production timestamps (non-production only)", tag: "auth", requestBody: true, public: true },
   { method: "post", path: "/v1/auth/demo/seed", summary: "Seed one demo tenant with its personas and starting data (non-production only)", tag: "auth", public: true },
-  { method: "post", path: "/v1/auth/demo/resync-roles", summary: "Refresh the demo tenant's system role permissions, chart of accounts and seeded personas to match the compiled tables (non-production only)", tag: "auth", public: true },
+  { method: "post", path: "/v1/auth/demo/resync-roles", summary: "Refresh the demo tenant's system role permissions, chart of accounts, seeded personas, tax rules and seeded event names to match the compiled tables (non-production only)", tag: "auth", public: true },
   // Enterprise sign-in. Public because a browser walks these before any session exists.
   { method: "get", path: "/v1/auth/sso/discover", summary: "Which identity provider, if any, owns an email domain", tag: "auth", public: true },
   { method: "get", path: "/v1/auth/sso/{id}/start", summary: "Redirect to the provider's authorization endpoint (OIDC + PKCE)", tag: "auth", public: true },

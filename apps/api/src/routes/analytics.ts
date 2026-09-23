@@ -492,6 +492,22 @@ const ScheduleBody = z.object({
   status: z.enum(["active", "paused"]).default("active")
 });
 
+/**
+ * deliverSchedule renders reports only. A schedule naming a dashboard — alone,
+ * or beside a report it would silently deliver instead — is refused where it
+ * is written, not on every fire forever after. Both write doors route here:
+ * this router's POST and the generic PATCH (resources.ts `schedules`).
+ */
+export function assertDeliverableSchedule(s: { reportId?: unknown; dashboardId?: unknown }): string {
+  if (s.dashboardId != null && s.dashboardId !== "") {
+    throw badRequest("dashboard schedules are not supported yet: a schedule delivers a report, not a dashboardId");
+  }
+  if (typeof s.reportId !== "string" || !s.reportId) {
+    throw badRequest("dashboard schedules are not supported yet: a schedule needs a reportId");
+  }
+  return s.reportId;
+}
+
 analyticsRoutes.get("/schedules", async (c) => {
   const ctx = c.get("ctx");
   require_(ctx.actor, "analytics:schedules:read", { tenantId: ctx.tenantId });
@@ -508,10 +524,8 @@ analyticsRoutes.post("/schedules", async (c) => {
   const ctx = c.get("ctx");
   require_(ctx.actor, "analytics:schedules:write", { tenantId: ctx.tenantId });
   const input = await body(c, ScheduleBody);
-  // deliverSchedule renders reports only — a dashboard-only schedule would be
-  // accepted here and then fail + alert its owner on every fire, forever.
-  if (!input.reportId) throw badRequest("dashboard schedules are not supported yet: a schedule needs a reportId");
-  await readableReport(ctx, input.reportId);
+  const reportId = assertDeliverableSchedule(input);
+  await readableReport(ctx, reportId);
   // What this tenant's business day runs on — the same field the screens
   // render timestamps in (apps/web/app/session.server.ts), so the scheduler
   // and the screen agree about which day a cutoff falls on.
@@ -521,8 +535,8 @@ analyticsRoutes.post("/schedules", async (c) => {
   const row = {
     id: id("sch", ctx.now),
     tenantId: ctx.tenantId,
-    reportId: input.reportId ?? null,
-    dashboardId: input.dashboardId ?? null,
+    reportId,
+    dashboardId: null,
     nameJson: JSON.stringify(input.name),
     cron: input.cron,
     timezone,
@@ -561,6 +575,7 @@ analyticsRoutes.post("/schedules/:id/resume", async (c) => {
   const ctx = c.get("ctx");
   require_(ctx.actor, "analytics:schedules:write", { tenantId: ctx.tenantId });
   const row = await must(ctx, schema.analyticsSchedules, c.req.param("id"), "schedule");
+  assertDeliverableSchedule(row);
   await ctx.db
     .update(schema.analyticsSchedules)
     .set({ status: "active", nextRunAt: nextRun(row.cron, ctx.now, row.timezone), updatedAt: ctx.now })
