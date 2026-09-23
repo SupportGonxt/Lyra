@@ -44,7 +44,7 @@ export const LABELS: Record<string, Record<string, string>> = {
   },
   ar: {
     "csat.title": "كيف كان أداؤنا؟",
-    "csat.intro": "ضغطة واحدة وتنتهي. ١ ضعيف، ٥ ممتاز.",
+    "csat.intro": "ضغطة واحدة وتنتهي. 1 ضعيف، 5 ممتاز.",
     "csat.rating": "تقييمك",
     "csat.rate": "قيّم {n} من {max}",
     "csat.sending": "جارٍ الحفظ…",

@@ -584,7 +584,7 @@ export default function LedgerTransaction() {
                 header: l("txn.approvals"),
                 // The gate's own name for itself ("ledger.txn_authorize") is not
                 // a sentence. Same helper the approvals inbox reads it with.
-                render: (row) => policyTitle(row.policyKey, "ledger")
+                render: (row) => policyTitle(row.policyKey, "ledger", locale)
               },
               {
                 key: "decision",

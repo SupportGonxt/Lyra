@@ -76,7 +76,7 @@ const LABELS: Labels = {
     "headline.quiet": "No journey has moved in this window",
     intro:
       "Each journey the platform is built around, as a funnel read from the audit log: how many times each step happened in the window. Counts, not cohorts — a step is what was done, by anyone.",
-    denied: "Journey health needs NORTH's metrics.",
+    denied: "Journey health needs Insight's metrics.",
     "window.7": "7 days",
     "window.30": "30 days",
     "window.90": "90 days",

@@ -47,13 +47,13 @@ export type Grain = (typeof GRAINS)[number];
 
 const LABELS: Labels = {
   en: {
-    kicker: "NORTH / Alert rules",
+    kicker: "Insight / Alert rules",
     title: "Alert rules",
     intro:
       "A threshold a metric is watched against. When a snapshot crosses one, NORTH raises an alert. Switch a rule off to stop it firing without deleting it.",
-    denied: "You cannot read NORTH alert rules.",
+    denied: "You cannot read Insight alert rules.",
     empty: "No alert rules yet.",
-    "empty.body": "Add one from the NORTH admin screen to start watching a metric.",
+    "empty.body": "Add one from the Insight admin screen to start watching a metric.",
     "col.metric": "Metric",
     "col.operator": "Fires when",
     "col.threshold": "Threshold",
@@ -78,13 +78,13 @@ const LABELS: Labels = {
     "problem.unknown": "The change could not be saved."
   },
   ar: {
-    kicker: "نورث / قواعد التنبيه",
+    kicker: "التحليلات التنفيذية / قواعد التنبيه",
     title: "قواعد التنبيه",
     intro:
       "عتبة يُراقَب مقياس مقابلها. عندما يتجاوزها لقطة، يرفع نورث تنبيهاً. أوقف قاعدة دون حذفها لتتوقف عن الإطلاق.",
-    denied: "لا يمكنك قراءة قواعد تنبيه نورث.",
+    denied: "لا يمكنك قراءة قواعد تنبيه التحليلات التنفيذية.",
     empty: "لا توجد قواعد تنبيه بعد.",
-    "empty.body": "أضف واحدة من شاشة إدارة نورث لبدء مراقبة مقياس.",
+    "empty.body": "أضف واحدة من شاشة إدارة التحليلات التنفيذية لبدء مراقبة مقياس.",
     "col.metric": "المقياس",
     "col.operator": "يُطلق عندما",
     "col.threshold": "العتبة",

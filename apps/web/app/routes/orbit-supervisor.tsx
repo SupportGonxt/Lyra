@@ -230,7 +230,7 @@ export const LABELS: Labels = {
     refresh: "تحديث",
     asOf: "حتى",
     headlineBreach: "{n} محادثة فاتها موعد",
-    headlineWaiting: "{n} محادثة تنتظر أكثر من ١٥ دقيقة",
+    headlineWaiting: "{n} محادثة تنتظر أكثر من 15 دقيقة",
     headlineOpen: "{n} محادثة مفتوحة، لا شيء متأخر",
     headlineClear: "لا شيء مفتوح الآن",
 
@@ -239,7 +239,7 @@ export const LABELS: Labels = {
     heldByAgent: "بيد الوكيل الذكي",
     contained: "اكتفاء الوكيل الذاتي",
     containedHint: "نسبة المفتوح الذي لم يضطر أي موظف للتدخل فيه",
-    waitingLong: "انتظار أكثر من ١٥ دقيقة",
+    waitingLong: "انتظار أكثر من 15 دقيقة",
     breached: "تجاوز اتفاقية الخدمة",
 
     alerts: "يحتاج تدخّل مشرف",

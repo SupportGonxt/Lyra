@@ -131,3 +131,11 @@ describe("Input adornments", () => {
     expect(html).toContain("padding-inline-start:calc(3ch + 1.25rem)");
   });
 });
+
+describe("direction isolation", () => {
+  // An email in an Arabic form sat right-aligned with its "@" moved.
+  it("sets an email, url or phone input left to right", () => {
+    expect(renderToStaticMarkup(<Input type="email" aria-label="Email" />)).toContain('dir="ltr"');
+    expect(renderToStaticMarkup(<Input type="text" aria-label="Name" />)).not.toContain('dir="ltr"');
+  });
+});

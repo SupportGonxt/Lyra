@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Button, cn, focusRing, PageHeader } from "@lyra/ui";
 import { ApiError } from "../api-error";
-import { pseudoText, translator } from "../i18n";
+import { plural, pseudoText, translator } from "../i18n";
 import { optionLabel } from "../modules/spec";
 import { vocabulary } from "../modules/vocabulary";
 
@@ -333,7 +333,7 @@ export function labelsFrom(labels: Record<string, Record<string, string>>) {
       // the catalogue has no such word — which is the signal to fall through.
       const common = mine === undefined ? t(`common.${key}`) : pseudoText(locale, mine);
       const raw = common === `common.${key}` ? key : common;
-      return vars ? raw.replace(/\{(\w+)\}/g, (match, name: string) => vars[name] ?? match) : raw;
+      return vars ? plural(raw, vars, locale).replace(/\{(\w+)\}/g, (match, name: string) => vars[name] ?? match) : raw;
     };
   };
 }

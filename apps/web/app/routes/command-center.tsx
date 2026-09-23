@@ -20,11 +20,13 @@ import {
   Stat,
   Textarea
 } from "@lyra/ui";
-import { Eyebrow, Figure, Hairline, Lede, Panel } from "@lyra/ui";
+import { Eyebrow, Figure, Hairline, Lede, Panel, Ref } from "@lyra/ui";
 import type { LyraModule } from "@lyra/ui";
 import { ApiError, api } from "../api.server";
 import { cloudflare } from "../context";
-import { translator } from "../i18n";
+import { moduleName, translator } from "../i18n";
+import { policyTitle } from "../policy";
+import { ConfirmButton } from "../components/confirm";
 import { labelsFrom, type Label } from "./detail-kit";
 import { Problem } from "./module";
 import { useShellData } from "./workspace";
@@ -52,6 +54,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "feed.empty": "Nothing is waiting on you.",
     "feed.empty.body": "Proposals appear here when a run wants to change something.",
     "feed.act": "Act",
+    "feed.actConfirm": "{what} needs an approval before it takes effect. Raise it now?",
     "feed.dismiss": "Dismiss",
     "feed.done.title": "Recently decided",
     "runs.title": "Recent runs",
@@ -71,7 +74,7 @@ const LABELS: Record<string, Record<string, string>> = {
     title: "مركز القيادة",
     intro: "حلقة واحدة عبر كل الوحدات. يقرأ الذكاء الاصطناعي ويستنتج ويقترح — والإنسان يقرر.",
     "ask.title": "شغّل الحلقة",
-    "ask.placeholder": "اسأل عبر الوحدات — مثال: «أي وثائق المحرك جدّدت الشهر الماضي وكان لها مطالبة خلال ٣٠ يوماً؟»",
+    "ask.placeholder": "اسأل عبر الوحدات — مثال: «أي وثائق المحرك جدّدت الشهر الماضي وكان لها مطالبة خلال 30 يوماً؟»",
     "ask.run": "تشغيل",
     "ask.running": "جارٍ التشغيل…",
     "ask.agent": "الوكيل",
@@ -80,6 +83,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "feed.empty": "لا شيء بانتظارك.",
     "feed.empty.body": "تظهر المقترحات هنا عندما يريد تشغيل ما تغيير شيء.",
     "feed.act": "تنفيذ",
+    "feed.actConfirm": "يحتاج {what} إلى موافقة قبل أن يسري. هل ترفع الطلب الآن؟",
     "feed.dismiss": "تجاهل",
     "feed.done.title": "قرارات حديثة",
     "runs.title": "التشغيلات الأخيرة",
@@ -89,7 +93,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "runs.proposals": "مقترحات",
     "answer.title": "إجابة الحلقة",
     "hero.waiting": "بانتظار قرارك",
-    "hero.runs24h": "تشغيلات · ٢٤س",
+    "hero.runs24h": "تشغيلات · 24س",
     "hero.modules": "وحدات متصلة",
     "hero.autonomy": "الاستقلالية",
     "constellation.title": "مدى الحلقة",
@@ -259,8 +263,9 @@ const CONSTELLATION: { id: LyraModule; label: string; labelAr: string }[] = [
   { id: "axis", label: "Operations", labelAr: "العمليات" },
   { id: "orbit", label: "Conversations", labelAr: "المحادثات" },
   { id: "signal", label: "Marketing", labelAr: "التسويق" },
-  { id: "scout", label: "Intelligence", labelAr: "المعلومات" },
-  { id: "north", label: "Insight", labelAr: "الرؤى" }
+  // The rail's own names (nav.scout, nav.north): one module, one name.
+  { id: "scout", label: "Market", labelAr: "السوق" },
+  { id: "north", label: "Insight", labelAr: "التحليلات التنفيذية" }
 ];
 
 function humaniseTool(name: string): string {
@@ -275,7 +280,7 @@ function Why({ proposal, t }: { proposal: Proposal; t: Label }) {
   } catch {
     // unparseable why renders as nothing rather than raw JSON
   }
-  if (!reason) return <span className="text-13 opacity-60">—</span>;
+  if (!reason) return <span className="text-13 text-subtle">—</span>;
   return (
     <div>
       <button
@@ -287,7 +292,7 @@ function Why({ proposal, t }: { proposal: Proposal; t: Label }) {
         <span aria-hidden="true">{AGENT_MARK}</span> {t("feed.why")}
       </button>
       {open ? (
-        <p className="mt-1 max-w-prose border-s-2 border-current/20 ps-2 text-13 opacity-80">{reason}</p>
+        <p className="mt-1 max-w-prose border-s-2 border-current/20 ps-2 text-13 text-muted">{reason}</p>
       ) : null}
     </div>
   );
@@ -361,7 +366,7 @@ export default function CommandCenter() {
             );
           })}
         </ul>
-        <p className="mt-2 text-12 opacity-60">{t("constellation.hint")}</p>
+        <p className="mt-2 text-12 text-subtle">{t("constellation.hint")}</p>
       </section>
 
       {action?.problem ? (
@@ -386,7 +391,7 @@ export default function CommandCenter() {
                 name="agentKey"
                 defaultValue="copilot"
                 aria-label={t("ask.agent")}
-                options={agents.map((a) => ({ value: a.key, label: `${a.key} · ${a.module}` }))}
+                options={agents.map((a) => ({ value: a.key, label: `${humaniseTool(a.key)} · ${moduleName(shared, a.module)}` }))}
               />
             </div>
             <Textarea
@@ -406,11 +411,11 @@ export default function CommandCenter() {
 
           {action?.answer ? (
             <div className="mt-4 border-t border-current/10 pt-4">
-              <p className="text-13 font-medium opacity-70">
+              <p className="text-13 font-medium text-muted">
                 <span aria-hidden="true">{AGENT_MARK}</span> {t("answer.title")}
               </p>
               <p className="mt-1 max-w-prose whitespace-pre-wrap text-16 leading-relaxed">{action.answer.text}</p>
-              <p className="mt-2 text-12 opacity-60">
+              <p className="mt-2 text-12 text-subtle">
                 {action.answer.rounds} {t("runs.rounds")} ·{" "}
                 {action.answer.proposalCount > 0
                   ? `${action.answer.proposalCount} ${t("runs.proposals")} ↓`
@@ -447,18 +452,19 @@ export default function CommandCenter() {
               <li key={p.id}>
                 <Panel module={hueModule(p.module)} className="p-4">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    <Badge tone={MODULE_TONE[p.module] ?? "neutral"}>{p.module}</Badge>
+                    <Badge tone={MODULE_TONE[p.module] ?? "neutral"}>{moduleName(shared, p.module)}</Badge>
                     <span className="text-14 font-medium">{humaniseTool(p.toolName)}</span>
-                    {p.subjectRef ? <code className="text-12 opacity-70">{p.subjectRef}</code> : null}
+                    {p.subjectRef ? <Ref value={p.subjectRef} className="text-12 text-subtle" /> : null}
+                    {/* Which approval acting would raise, named as the queue names it. */}
                     {p.policyKey ? (
-                      <Badge tone="neutral" size="sm">{p.policyKey}</Badge>
+                      <Badge tone="warning" size="sm">{policyTitle(p.policyKey, p.module, locale)}</Badge>
                     ) : null}
-                    <span className="ms-auto text-12 opacity-60">
+                    <span className="ms-auto text-12 text-subtle">
                       <DateTime value={p.createdAt} relative />
                     </span>
                   </div>
                   {argSummary ? (
-                    <p className="mt-1.5 truncate font-mono text-12 opacity-70" dir="ltr">{argSummary}</p>
+                    <p className="mt-1.5 truncate font-mono text-12 text-subtle" dir="ltr">{argSummary}</p>
                   ) : null}
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                     <Why proposal={p} t={t} />
@@ -473,9 +479,17 @@ export default function CommandCenter() {
                       <Form method="post">
                         <input type="hidden" name="intent" value="act" />
                         <input type="hidden" name="proposalId" value={p.id} />
-                        <Button type="submit" disabled={running}>
-                          {t("feed.act")}
-                        </Button>
+                        {/* A proposal that names an approval policy is
+                            consequential (CLAUDE.md §4): ask once first. */}
+                        {p.policyKey ? (
+                          <ConfirmButton type="submit" disabled={running} message={t("feed.actConfirm", { what: humaniseTool(p.toolName) })}>
+                            {t("feed.act")}
+                          </ConfirmButton>
+                        ) : (
+                          <Button type="submit" disabled={running}>
+                            {t("feed.act")}
+                          </Button>
+                        )}
                       </Form>
                     </div>
                   </div>
@@ -510,9 +524,9 @@ export default function CommandCenter() {
                     {r.state}
                   </Badge>
                   <span className="text-13 font-medium">{r.agentKey}</span>
-                  <span className="text-12 opacity-60">{r.module}</span>
+                  <span className="text-12 text-subtle">{moduleName(shared, r.module)}</span>
                   <Figure size="sm" value={`${rounds}`} unit={t("runs.rounds")} />
-                  <span className="ms-auto text-12 opacity-60">
+                  <span className="ms-auto text-12 text-subtle">
                     <DateTime value={r.startedAt} relative />
                   </span>
                 </li>
@@ -534,7 +548,7 @@ export default function CommandCenter() {
               <li key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
                 <Badge tone={p.state === "actioned" ? "success" : "neutral"}>{p.state}</Badge>
                 <span className="text-13">{humaniseTool(p.toolName)}</span>
-                <span className="ms-auto text-12 opacity-60">
+                <span className="ms-auto text-12 text-subtle">
                   {p.decidedAt ? <DateTime value={p.decidedAt} relative /> : null}
                 </span>
               </li>

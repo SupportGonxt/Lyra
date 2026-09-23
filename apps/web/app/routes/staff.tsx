@@ -250,7 +250,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "module.ledger": "السجل المالي",
     "module.axis": "أكسِس",
     "module.core": "الأساس",
-    "module.signal": "سيجنال",
+    "module.signal": "التسويق",
     "module.ai": "الذكاء الاصطناعي",
     maxAmount: "سقف الموافقة",
     maxAmountHint: "اختياري. اتركه فارغًا لعدم وجود سقف.",

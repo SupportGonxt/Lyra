@@ -32,7 +32,7 @@ describe("staffLede", () => {
   it("counts people and only the active delegations", () => {
     const users = [{}, {}] as StaffUser[];
     const delegations = [{ status: "active" }, { status: "revoked" }] as Delegation[];
-    expect(staffLede(users, delegations, l)).toBe("2 people, 1 active delegation(s) in place.");
+    expect(staffLede(users, delegations, l)).toBe("2 people, 1 active delegation in place.");
   });
 });
 

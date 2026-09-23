@@ -613,7 +613,7 @@ export const ledger: WorkspaceSpec = {
       "type.PARAM-TRIGGER": "تفعيل شرط بارامتري",
 
       "type.CLAIM-RESERVE": "تكوين مخصص المطالبة",
-      "type.CLAIM-APPROVE": "اعتماد المطالبة",
+      "type.CLAIM-APPROVE": "الموافقة على المطالبة",
       "type.CLAIM-DECLINE": "رفض المطالبة",
       "type.CLAIM-CLOSE": "إغلاق المطالبة",
       "type.CLAIM-REOPEN": "إعادة فتح المطالبة",
@@ -692,7 +692,7 @@ export const ledger: WorkspaceSpec = {
       "type.KYC-VERIFY": "التحقق من الهوية",
       "type.SANCTIONS-SCREEN": "فحص قوائم العقوبات",
       "type.DISCLOSURE-PRESENT": "عرض الإفصاح",
-      "type.APPROVAL-DECISION": "قرار اعتماد",
+      "type.APPROVAL-DECISION": "قرار موافقة",
       "type.DSAR-FULFIL": "تنفيذ طلب بيانات",
       "type.AUDIT-EXPORT": "تصدير سجل التدقيق",
 

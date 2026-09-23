@@ -9,7 +9,7 @@ describe("memberLede", () => {
   const l = memberLabelsIn("en");
 
   it("names the role count alone when there is no onboarding checklist to read", () => {
-    expect(memberLede(["role_a", "role_b"], [], l)).toBe("2 role(s) held.");
+    expect(memberLede(["role_a", "role_b"], [], l)).toBe("2 roles held.");
   });
 
   it("adds onboarding progress once steps are visible, counting only required ones", () => {
@@ -20,7 +20,7 @@ describe("memberLede", () => {
       { required: false, state: "pending" }
     ] as never[];
     expect(memberLede(["role_a"], steps, l)).toBe(
-      "1 role(s) held. 2 of 3 required onboarding steps cleared."
+      "1 role held. 2 of 3 required onboarding steps cleared."
     );
   });
 

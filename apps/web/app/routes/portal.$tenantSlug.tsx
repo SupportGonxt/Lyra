@@ -85,7 +85,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "portal.slow": "اترك بياناتك وسيقوم مختص بتسعير هذا المنتج لك.",
     "portal.form.age": "عمرك",
     "portal.form.sumInsured": "القيمة المراد تأمينها",
-    "portal.form.priorClaims": "قدمت مطالبة خلال آخر ٣ سنوات.",
+    "portal.form.priorClaims": "قدمت مطالبة خلال آخر 3 سنوات.",
     "portal.form.tripDays": "مدة الرحلة (أيام)",
     "portal.form.winterSports": "تضمين الرياضات الشتوية.",
     "line.motor": "السيارات",

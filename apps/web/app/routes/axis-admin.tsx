@@ -104,9 +104,9 @@ export function headlineFor(
 
 export const LABELS: Record<string, Record<string, string>> = {
   en: {
-    title: "AXIS admin",
+    title: "Operations admin",
     intro: "Publish procedures, read connector health, and reach operating policy.",
-    deniedTitle: "You cannot read AXIS admin settings",
+    deniedTitle: "You cannot read Operations admin settings",
     sopsTitle: "Procedures",
     sopsIntro: "The version marked active is the one cases follow. Publishing one retires whichever version it replaces.",
     sopsCaption: "Procedure versions",
@@ -139,9 +139,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "headline.open": "Manage webhooks in the developer console"
   },
   ar: {
-    title: "إدارة AXIS",
+    title: "إدارة Operations",
     intro: "انشر الإجراءات، اطّلع على سلامة الموصلات، وادخل إلى سياسات التشغيل.",
-    deniedTitle: "لا يمكنك قراءة إعدادات إدارة AXIS",
+    deniedTitle: "لا يمكنك قراءة إعدادات إدارة Operations",
     sopsTitle: "الإجراءات",
     sopsIntro: "النسخة المفعّلة هي التي تتبعها الحالات. نشر نسخة يسحب النسخة التي تحل محلها.",
     sopsCaption: "نسخ الإجراءات",

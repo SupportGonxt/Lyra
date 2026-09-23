@@ -46,3 +46,12 @@ describe("approvalsHeadline", () => {
     }
   });
 });
+
+describe("contextTerm", () => {
+  it("says a context key as words, not as camelCase", async () => {
+    const { contextTerm } = await import("./approvals");
+    const l = (key: string) => key;
+    expect(contextTerm("requestedAmountMinor", l)).toBe("Requested amount");
+    expect(contextTerm("reason", (key) => (key === "why.reason" ? "Reason given" : key))).toBe("Reason given");
+  });
+});

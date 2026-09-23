@@ -242,8 +242,12 @@ export function Input({ size = "md", prefix, suffix, className, ...props }: Inpu
   // top of the value. Reserve its width in ch plus the inset either side.
   const reserve = (adornment: React.ReactNode) =>
     typeof adornment === "string" && adornment.length > 1 ? `calc(${adornment.length}ch + 1.25rem)` : undefined;
+  // An address, a link or a number is written left to right in every
+  // language; in an Arabic form it was right-aligned and its punctuation moved.
+  const ltr = props.type === "email" || props.type === "url" || props.type === "tel" ? { dir: "ltr" as const } : {};
   const control = (
     <input
+      {...ltr}
       {...field}
       {...props}
       style={{

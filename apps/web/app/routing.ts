@@ -106,7 +106,7 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/orbit/journeys/:id/builder": "opens one journey's steps from the journeys list",
   "/surface/:module/:screen":
     "one screen from the Constellation design pull, opened from the link that names it — there is no single rail slot for a whole design catalogue (routes/surface.tsx)",
-  "/journey/axis": "the flagship AXIS->NORTH->SCOUT->SIGNAL demo journey, reached from the home dashboard's journey card, not the module rail",
+  "/journey/axis": "the flagship Operations->Insight->Market->Marketing demo journey, reached from the home dashboard's journey card, not the module rail",
   "/journey/north": "next hop of the flagship demo journey, reached via JourneyContinue from /journey/axis",
   "/journey/scout": "next hop of the flagship demo journey, reached via JourneyContinue from /journey/north",
   "/journey/signal": "final hop of the flagship demo journey, reached via JourneyContinue from /journey/scout",

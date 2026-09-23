@@ -177,7 +177,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     back: "العودة إلى السجل",
     deniedTitle: "غير مرئي لك",
     registerTitle: "السجل",
-    registerCaption: "كل قائمة تسوية أُنشئت لهذا المستأجر، الأحدث فترة أولًا.",
+    registerCaption: "كل قائمة تسوية أُنشئت لهذه المؤسسة، الأحدث فترة أولًا.",
     noLines: "لا توجد بنود في قائمة التسوية هذه.",
     "noLines.body": "لا تبلّغ هذه القائمة عن أي مخاطر — أُنشئت لفترة لا شيء فيها للإبلاغ.",
     noneYet: "لم تُنشأ أي قائمة تسوية بعد.",

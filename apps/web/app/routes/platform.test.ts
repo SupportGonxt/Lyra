@@ -56,17 +56,17 @@ describe("platformLede", () => {
 
   it("leads with dead letters when any exist, over anything else waiting", () => {
     const tenants = [tenant({ dlqDepth: 3 }), tenant({ outboxPending: 5 })];
-    expect(platformLede(tenants, l)).toBe("3 dead letter(s) across 2 tenant(s) — that queue needs a look now.");
+    expect(platformLede(tenants, l)).toBe("3 dead letters across 2 tenants — that queue needs a look now.");
   });
 
   it("reports what is waiting once there are no dead letters", () => {
     const tenants = [tenant({ outboxPending: 4, pendingApprovals: 2 })];
-    expect(platformLede(tenants, l)).toBe("4 event(s) and 2 decision(s) waiting across 1 tenant(s).");
+    expect(platformLede(tenants, l)).toBe("4 events and 2 decisions waiting across 1 tenant.");
   });
 
   it("reads all clear when nothing is outstanding", () => {
     const tenants = [tenant({}), tenant({})];
-    expect(platformLede(tenants, l)).toBe("All 2 tenant(s) are clear — nothing waiting, no dead letters.");
+    expect(platformLede(tenants, l)).toBe("All 2 tenants are clear — nothing waiting, no dead letters.");
   });
 });
 

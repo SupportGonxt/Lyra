@@ -57,7 +57,7 @@ describe("securityLede", () => {
 
   it("falls to the SSO gap once the second-factor floor is met", () => {
     const posture = { mfa: { required: 3, enrolled: 3, gaps: [], gapsWithheld: false }, sso: { gaps: [{}] } } as never;
-    expect(securityLede(posture, l)).toBe("1 sign-in provider(s) let people in without asserting a second factor.");
+    expect(securityLede(posture, l)).toBe("1 sign-in provider let people in without asserting a second factor.");
   });
 
   it("reads all-clear when nothing is outstanding", () => {

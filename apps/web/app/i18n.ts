@@ -196,7 +196,7 @@ export function translator(locale: string, overrides?: Record<string, string>): 
     // string should look wrong in review, not invisible in production.
     const template = overrides?.[key] ?? catalogue[key as MessageKey] ?? key;
     if (!vars) return template;
-    return template.replace(/\{(\w+)\}/g, (whole, name: string) =>
+    return plural(template, vars, locale).replace(/\{(\w+)\}/g, (whole, name: string) =>
       name in vars ? String(vars[name]) : whole
     );
   };
@@ -245,3 +245,26 @@ export function baseLocale(tag: string): string {
 }
 
 const baseOf = baseLocale;
+
+/**
+ * Plural agreement for a template that carries a count. Catalogue strings were
+ * written "{n} time(s)" — and their Arabic copies "مرة (مرات)", both forms at
+ * once. Each marked word agrees with the nearest `{var}` before it:
+ * English drops or keeps the suffix; Arabic keeps the singular for one, two and
+ * eleven-plus (the counted noun is singular there) and the parenthesised plural
+ * for three to ten, per `Intl.PluralRules`. A template with no count before the
+ * word is left as written — there is nothing to agree with.
+ */
+export function plural(template: string, vars: Record<string, string | number>, locale: string): string {
+  const arabic = baseLocale(locale) === "ar";
+  const pattern = arabic
+    ? /\{(\w+)\}([^{}]*?)(\S+) \((\S+)\)/g
+    : /\{(\w+)\}([^{}]*?)([A-Za-z]+)\((e?s)\)/g;
+  return template.replace(pattern, (whole, name: string, between: string, word: string, alt: string) => {
+    const count = Number(vars[name]);
+    if (!Number.isFinite(count)) return whole;
+    const head = `{${name}}${between}`;
+    if (!arabic) return head + (count === 1 ? word : word + alt);
+    return head + (new Intl.PluralRules("ar").select(count) === "few" ? alt : word);
+  });
+}

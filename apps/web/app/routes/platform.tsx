@@ -214,7 +214,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     title: "فريق المنصة",
     intro: "حال كل مستأجر، وأي القدرات مفعّلة، ومن ينوب عن عميل الآن.",
     deniedTitle: "لا يمكنك قراءة تشخيصات المنصة",
-    introDlq: "{dlq} رسالة فاشلة عبر {tenants} مستأجر — هذه الطابور تحتاج نظرة الآن.",
+    introDlq: "{dlq} رسالة فاشلة عبر {tenants} مستأجر — قائمة الانتظار هذه تحتاج نظرة الآن.",
     introWaiting: "{outbox} حدث و{approvals} قرار في الانتظار عبر {tenants} مستأجر.",
     introClear: "كل {tenants} مستأجر بلا انتظار وبلا رسائل فاشلة.",
 
@@ -305,7 +305,7 @@ export const LABELS: Record<string, Record<string, string>> = {
 
     errKeyRequired: "أعطِ المفتاح اسمًا",
     errDescriptionRequired: "اذكر ما يفعله المفتاح",
-    errRolloutRange: "نسبة الإطلاق بين ٠ و١٠٠",
+    errRolloutRange: "نسبة الإطلاق بين 0 و100",
     errTargetRequired: "حدد المستخدم المنوب عنه",
     errReasonRequired: "اذكر السبب",
     errConfirmRequired: "علّم الخيار للمتابعة",

@@ -744,7 +744,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     actor: "المنفّذ",
     idempotencyNote: "يحمل هذا النموذج مفتاحًا لمرة واحدة، فالضغط مرتين يُرسل مرة واحدة.",
     approvalTitle: "بانتظار موافقة",
-    approvalBody: "يتطلب هذا اعتمادًا بموجب {policy} قبل أن يُنفَّذ.",
+    approvalBody: "يتطلب هذا موافقة بموجب {policy} قبل أن يُنفَّذ.",
     approvalLink: "افتح قائمة الموافقات",
 
     "txn.title": "المعاملة",

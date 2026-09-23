@@ -92,6 +92,16 @@ function display(value: unknown): string {
  * of a spec's `api` — so the record route can be rebuilt from it. Anything that
  * does not resolve stays plain text: a link that 404s is worse than none.
  */
+/**
+ * A context key as the approver reads it: this screen's own word when it has
+ * one (`why.<key>`), else the key said as words — never `requestedAmountMinor`
+ * uppercased by the term style.
+ */
+export function contextTerm(key: string, l: (key: string) => string): string {
+  const own = l(`why.${key}`);
+  return own === `why.${key}` ? humanise(key.replace(/Minor$/, "")) : own;
+}
+
 export function subjectOf(subjectRef: string): { text: string; href: string | null; unborn: boolean } {
   const first = subjectRef.indexOf(":");
   if (first < 0) return { text: subjectRef, href: null, unborn: false };
@@ -480,7 +490,7 @@ export default function Approvals() {
             {loaded.ready.map((row) => (
               <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="font-ui text-14 text-text">{policyTitle(row.policyKey, row.module)}</span>
+                  <span className="font-ui text-14 text-text">{policyTitle(row.policyKey, row.module, locale)}</span>
                   <span className="font-ui text-12 text-subtle">
                     {row.subject.text}
                     {row.decidedBy ? ` · ${l("readyBy").replace("{who}", who(row.decidedBy, loaded.resolved) ?? row.decidedBy)}` : ""}
@@ -643,7 +653,7 @@ function ApprovalCard({
   return (
     <Card
       elevation="flat"
-      title={policyTitle(item.policyKey, item.module)}
+      title={policyTitle(item.policyKey, item.module, locale)}
       description={item.subject.text}
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -727,7 +737,7 @@ function ApprovalCard({
             <h3 className="font-ui text-12 text-subtle">{l("why")}</h3>
             <dl className="mt-2 grid gap-x-8 gap-y-2 sm:grid-cols-2">
               {item.why.map((entry) => (
-                <Entry key={entry.key} term={entry.key}>
+                <Entry key={entry.key} term={contextTerm(entry.key, l)}>
                   {entry.minor !== null && item.currency ? (
                     <Money amountMinor={entry.minor} currency={item.currency} locale={locale} />
                   ) : (

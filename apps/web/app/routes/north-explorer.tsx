@@ -109,15 +109,15 @@ const LABELS: Labels = {
     "definition.direction": "Better when",
     "definition.target": "Target",
     "definition.unset": "Not recorded",
-    "definition.edit": "Edit this definition in NORTH admin",
+    "definition.edit": "Edit this definition in Insight admin",
     up: "Rising",
     down: "Falling",
     public: "Public",
     internal: "Internal",
     restricted: "Restricted",
     "metrics.none.title": "No metrics are registered",
-    "metrics.none.body": "A tenant administrator registers metrics in NORTH admin before anything can be explored.",
-    denied: "You do not have permission to read snapshots. Ask a tenant administrator for NORTH metric access."
+    "metrics.none.body": "A tenant administrator registers metrics in Insight admin before anything can be explored.",
+    denied: "You do not have permission to read snapshots. Ask a tenant administrator for Insight metric access."
   },
   ar: {
     title: "مستكشف المؤشرات",
@@ -136,7 +136,7 @@ const LABELS: Labels = {
     "series.change": "التغير",
     "series.taken": "وقت اللقطة",
     "series.none.title": "لا توجد لقطات لهذا المؤشر بعد",
-    "series.none.body": "يكتب المُلقِط صفاً عند إغلاق الفترة. شغّله من قسم تطوير نورث إذا احتجت لقطة قبل النافذة الليلية.",
+    "series.none.body": "يكتب المُلقِط صفاً عند إغلاق الفترة. شغّله من قسم تطوير التحليلات التنفيذية إذا احتجت لقطة قبل النافذة الليلية.",
     "forecast.title": "كيف تبدو الفترات القادمة",
     "forecast.caption": "القيمة المتوقعة لكل فترة، مع المدى الذي يضعه النموذج حولها",
     "forecast.period": "الفترة",
@@ -159,15 +159,15 @@ const LABELS: Labels = {
     "definition.direction": "الأفضل عندما",
     "definition.target": "المستهدف",
     "definition.unset": "غير مسجل",
-    "definition.edit": "عدّل هذا التعريف في إدارة نورث",
+    "definition.edit": "عدّل هذا التعريف في إدارة التحليلات التنفيذية",
     up: "يرتفع",
     down: "ينخفض",
     public: "عام",
     internal: "داخلي",
     restricted: "مقيد",
     "metrics.none.title": "لا توجد مؤشرات مسجلة",
-    "metrics.none.body": "يسجّل مدير المستأجر المؤشرات في إدارة نورث قبل أن يكون هناك ما يُستكشف.",
-    denied: "لا تملك صلاحية قراءة اللقطات. اطلب من مدير المستأجر صلاحية مؤشرات نورث."
+    "metrics.none.body": "يسجّل مدير المؤسسة المؤشرات في إدارة التحليلات التنفيذية قبل أن يكون هناك ما يُستكشف.",
+    denied: "لا تملك صلاحية قراءة اللقطات. اطلب من مدير المؤسسة صلاحية مؤشرات التحليلات التنفيذية."
   }
 };
 

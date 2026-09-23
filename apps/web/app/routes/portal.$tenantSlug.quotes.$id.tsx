@@ -110,7 +110,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "quote.accepted.title": "الخطوة التالية: أرسل مستنداتك",
     "quote.accepted.body":
       "لم يتم إصدار الوثيقة بعد. حمّل هويتك ورخصتك وسيتحقق أحد موظفينا من التغطية ويؤكدها معك.",
-    "quote.upload": "مستند (JPEG أو PNG أو HEIC أو PDF، حتى ١٠ ميغابايت)",
+    "quote.upload": "مستند (JPEG أو PNG أو HEIC أو PDF، حتى 10 ميغابايت)",
     "quote.upload.submit": "رفع المستند",
     "quote.upload.working": "جارٍ الرفع…",
     "quote.upload.done": "تم الاستلام. ارفع مستندًا آخر إن وجد.",
@@ -132,7 +132,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "quote.chooseColumn": "اختيارك",
     "criterion.age": "عمر السائق",
     "criterion.sumInsuredMinor": "القيمة المراد تأمينها",
-    "criterion.priorClaims": "قدمت مطالبة خلال آخر ٣ سنوات",
+    "criterion.priorClaims": "قدمت مطالبة خلال آخر 3 سنوات",
     "criterion.tripDays": "مدة الرحلة (أيام)",
     "criterion.winterSports": "تضمين الرياضات الشتوية"
   }

@@ -198,7 +198,7 @@ export const LABELS: Labels = {
   ar: {
     title: "لوحة المتابعة الحية",
     lede: "لمحة عن كل محادثة مفتوحة. حدّث الصفحة لجلب الحالة الحالية.",
-    headlineOverdue: "{n} ينتظرون منذ أكثر من ١٥ دقيقة.",
+    headlineOverdue: "{n} ينتظرون منذ أكثر من 15 دقيقة.",
     headlineAgent: "الوكيل الذكي يحمل {n} محادثة.",
     headlineHuman: "فريقك يحمل {n} محادثة.",
     headlineClear: "لا شيء مفتوح الآن.",
@@ -207,7 +207,7 @@ export const LABELS: Labels = {
     active: "المحادثات المفتوحة",
     handledByAgent: "بيد الوكيل الذكي",
     handledByHuman: "بيد موظف",
-    waitingLong: "انتظار أكثر من ١٥ دقيقة",
+    waitingLong: "انتظار أكثر من 15 دقيقة",
     heroAll: "إظهار الكل",
     agentQueue: "الوكيل الذكي يجيب",
     agentQueueBody: "الوكيل الذكي يحمل هذه المحادثات. تولَّ واحدة فتنتقل إلى اسمك.",
@@ -254,7 +254,7 @@ export const LABELS: Labels = {
     missingConversation: "اختر محادثة أولًا.",
     approvalLink: "افتح الموافقات",
     portalsTitle: "البوابات العامة",
-    portalsBody: "وجّه العميل مباشرة إلى إحدى صفحات الخدمة الذاتية الخاصة بالمستأجر.",
+    portalsBody: "وجّه العميل مباشرة إلى إحدى صفحات الخدمة الذاتية الخاصة بالمؤسسة.",
     portalStorefront: "واجهة المتجر",
     portalRegister: "التسجيل الذاتي",
     portalPartners: "تسجيل الشركاء"

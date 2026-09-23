@@ -176,7 +176,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "رفع حد إنفاق الذكاء الاصطناعي يمر بموافقة. سُجِّل الطلب ويسري بعد موافقة شخص آخر.",
     "approval.link": "فتح الموافقات",
     "acceptance.title": "ماذا اشترى الإنفاق",
-    "acceptance.window": "الاقتراحات المعروضة في آخر ٣٠ يومًا، وكم مرة أبقاها الناس.",
+    "acceptance.window": "الاقتراحات المعروضة في آخر 30 يومًا، وكم مرة أبقاها الناس.",
     "acceptance.surface": "السطح",
     "acceptance.module": "الطالب",
     "acceptance.shown": "معروضة",

@@ -112,7 +112,7 @@ describe("devLede", () => {
       { mode: "test", revokedAt: null }
     ] as never[];
     const hooks = [{ status: "active" }, { status: "disabled" }] as never[];
-    expect(devLede(keys, hooks, l)).toBe("1 live key(s) and 1 active webhook(s) are calling this API right now.");
+    expect(devLede(keys, hooks, l)).toBe("1 live key and 1 active webhook are calling this API right now.");
   });
 });
 

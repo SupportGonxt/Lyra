@@ -90,17 +90,17 @@ describe("reportsHeadline", () => {
 
   it("counts aged rows", () => {
     const report = { key: "aged" as const, data: { data: [agedRow, agedRow, agedRow] } };
-    expect(reportsHeadline(report, l, "en")).toBe("Aged analysis: 3 row(s).");
+    expect(reportsHeadline(report, l, "en")).toBe("Aged analysis: 3 rows.");
   });
 
   it("counts commission rows", () => {
     const report = { key: "commission" as const, data: { dimension: "provider", data: [commissionRow] } };
-    expect(reportsHeadline(report, l, "en")).toBe("Commission statement: 1 row(s).");
+    expect(reportsHeadline(report, l, "en")).toBe("Commission statement: 1 row.");
   });
 
   it("flags client-money breaches by currency", () => {
     const report = { key: "client-money" as const, data: { data: [cmRow(true), cmRow(false)] } };
-    expect(reportsHeadline(report, l, "en")).toBe("Client money check: 1 currency breach(es).");
+    expect(reportsHeadline(report, l, "en")).toBe("Client money check: 1 currency breach.");
   });
 
   it("says client money is clear when nothing breaches", () => {

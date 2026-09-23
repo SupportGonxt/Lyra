@@ -110,7 +110,7 @@ describe("rolesLede", () => {
 
   it("counts roles and only the custom ones", () => {
     const roles = [{ system: true }, { system: false }, { system: false }];
-    expect(rolesLede(roles, l)).toBe("3 role(s), 2 of them custom.");
+    expect(rolesLede(roles, l)).toBe("3 roles, 2 of them custom.");
   });
 });
 

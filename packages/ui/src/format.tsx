@@ -211,10 +211,13 @@ export interface RefProps extends Omit<React.ComponentPropsWithRef<"span">, "chi
 export function Ref({ value, fallback = "—", className, title, ...props }: RefProps) {
   const short = value ? shortRef(value) : fallback;
   return (
+    // An id is Latin and directionless; inside Arabic text its hyphens and
+    // colons reorder ("portal/gonxt/"). Isolated as LTR, it reads as typed.
     <span
+      dir="ltr"
       {...props}
       title={title ?? (value && short !== value ? value : undefined)}
-      className={cn("font-mono", className)}
+      className={cn("font-mono [unicode-bidi:isolate]", className)}
     >
       {short}
     </span>
