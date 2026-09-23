@@ -2848,7 +2848,9 @@ export interface Operations {
   "POST /v1/ledger/year-end/{year}": Op<{ year: string }, never, never, Record<string, unknown>>;
   "GET /v1/me": Op<never, never, never, Record<string, unknown>>;
   "PATCH /v1/me": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/me/approvals/ready": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/me/approvals/{id}/decide": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/me/approvals/{id}/finish": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/me/inbox": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/me/lens": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/me/lens/reset": Op<never, never, never, Record<string, unknown>>;
@@ -3614,7 +3616,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ledger/year-end/{year}": { tag: "ledger", summary: "Post the year-end close (dual control)", permission: "ledger:periods:year_end", public: false },
   "GET /v1/me": { tag: "me", summary: "Bootstrap: actor, tenant, roles, permissions, entitlements, policy and navigation", permission: null, public: false },
   "PATCH /v1/me": { tag: "me", summary: "Update the caller's own profile", permission: null, public: false },
+  "GET /v1/me/approvals/ready": { tag: "me", summary: "The caller's requests that are approved and waiting for them to finish", permission: null, public: false },
   "POST /v1/me/approvals/{id}/decide": { tag: "me", summary: "Approve or reject a pending approval (permission comes from the approval policy)", permission: null, public: false },
+  "POST /v1/me/approvals/{id}/finish": { tag: "me", summary: "Finish an approved request: replay what the gate stopped, in the requester's own session", permission: null, public: false },
   "GET /v1/me/inbox": { tag: "me", summary: "Notifications and approvals waiting on the caller", permission: null, public: false },
   "GET /v1/me/lens": { tag: "me", summary: "The caller's lens: role default workspace or their own learned adaptation", permission: null, public: false },
   "POST /v1/me/lens/reset": { tag: "me", summary: "Discard learned adaptation and revert to the role default lens", permission: null, public: false },

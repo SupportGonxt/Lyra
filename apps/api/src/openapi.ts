@@ -53,6 +53,11 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/me/lens", summary: "The caller's lens: role default workspace or their own learned adaptation", tag: "me" },
   { method: "post", path: "/v1/me/lens/usage", summary: "Record an interaction with a view/filter/pin, nudging its lens weight", tag: "me", requestBody: true },
   { method: "post", path: "/v1/me/lens/reset", summary: "Discard learned adaptation and revert to the role default lens", tag: "me" },
+  // The gate keeps the request it stopped; once approved, the person who asked
+  // finishes it with one call, replayed in their own session (the gate and
+  // every permission check run again). Once, and only by the requester.
+  { method: "get", path: "/v1/me/approvals/ready", summary: "The caller's requests that are approved and waiting for them to finish", tag: "me" },
+  { method: "post", path: "/v1/me/approvals/{id}/finish", summary: "Finish an approved request: replay what the gate stopped, in the requester's own session", tag: "me" },
   { method: "post", path: "/v1/me/approvals/{id}/decide", summary: "Approve or reject a pending approval (permission comes from the approval policy)", tag: "me", requestBody: true },
   { method: "post", path: "/v1/me/notifications/{id}/read", summary: "Mark one of the caller's notifications read", tag: "me" },
 

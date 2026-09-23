@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { AppError, rememberRequest } from "@lyra/core";
 import { Gateway } from "@lyra/model-gateway";
 import { authenticate, ctxFor } from "./auth.js";
 import { problem } from "./http.js";
@@ -144,3 +145,28 @@ export function onError(err: unknown, c: Parameters<typeof problem>[0]): Respons
   }
   return res;
 }
+
+const WRITES = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+
+/**
+ * When a gate stops a write (403 approval_required), keep the request on the
+ * approval so the requester can finish it once approved instead of re-entering
+ * the form (packages/core/src/approvals.ts `rememberRequest`). JSON and empty
+ * bodies only: an upload is re-sent by the person, not replayed from a row.
+ * Best effort — failing to remember never changes the refusal the caller gets.
+ */
+export const rememberStopped: MiddlewareHandler<App> = async (c, next) => {
+  const ctx = c.get("ctx");
+  const type = c.req.header("content-type") ?? "";
+  if (!ctx || !WRITES.has(c.req.method) || (type && !type.includes("json"))) return next();
+  const body = await c.req.raw.clone().text();
+  await next();
+  const err = c.error;
+  if (!(err instanceof AppError) || err.code !== "approval_required") return;
+  const approvalId = err.extras.approval_id;
+  if (typeof approvalId !== "string") return;
+  const url = new URL(c.req.url);
+  await rememberRequest(ctx, approvalId, { method: c.req.method, path: url.pathname + url.search, body: body || null }).catch(
+    () => undefined
+  );
+};

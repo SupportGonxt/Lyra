@@ -11,8 +11,12 @@ import {
   gate,
   grantsFor,
   heldDelegation,
+  markCompleted,
   pendingApprovals,
-  resolveDelegates
+  readyToFinish,
+  rememberRequest,
+  resolveDelegates,
+  resumeFor
 } from "./approvals.js";
 import { permissionsForRole, type Actor } from "./rbac.js";
 import type { Ctx } from "./context.js";
@@ -694,5 +698,69 @@ describe("pendingApprovals", () => {
     const capped = await pendingApprovals(analyst, undefined, 1);
     expect(capped).toHaveLength(1);
     expect(capped[0]!.subjectRef).toBe("txn:a");
+  });
+});
+
+// J-M1/J-M2/J-X2/J-P1/J-P2/J-E2: approving a gated action did not do it — the
+// requester had to find the screen again and re-enter the whole form. The gate
+// now remembers the request it stopped, and the requester finishes it with one
+// press once someone has approved it.
+describe("finishing an approved request", () => {
+  const resume = { method: "POST", path: "/v1/ledger/payouts", body: '{"amountMinor":1000}' };
+
+  async function raised(subjectRef = "txn:resume"): Promise<string> {
+    try {
+      await gate(makeCtx(actor("finance.analyst", "u_ops")), { policyKey: "ledger.payout", subjectRef, amountMinor: 1000 });
+      throw new Error("expected gate to throw");
+    } catch (err) {
+      return approvalId(err);
+    }
+  }
+
+  it("remembers the stopped request on the requester's own pending row", async () => {
+    const id = await raised();
+    await rememberRequest(makeCtx(actor("finance.analyst", "u_ops")), id, resume);
+    await decide(makeCtx(actor("finance.controller", "u_fin")), id, "approved", "ok");
+    expect(await resumeFor(makeCtx(actor("finance.analyst", "u_ops")), id)).toEqual(resume);
+  });
+
+  it("will not remember a request for someone else's approval", async () => {
+    const id = await raised();
+    await rememberRequest(makeCtx(actor("finance.analyst", "u_other")), id, resume);
+    await decide(makeCtx(actor("finance.controller", "u_fin")), id, "approved", "ok");
+    await expect(resumeFor(makeCtx(actor("finance.analyst", "u_ops")), id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("finishes only once it is approved", async () => {
+    const id = await raised();
+    await rememberRequest(makeCtx(actor("finance.analyst", "u_ops")), id, resume);
+    await expect(resumeFor(makeCtx(actor("finance.analyst", "u_ops")), id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("finishes only for the person who asked", async () => {
+    const id = await raised();
+    await rememberRequest(makeCtx(actor("finance.analyst", "u_ops")), id, resume);
+    await decide(makeCtx(actor("finance.controller", "u_fin")), id, "approved", "ok");
+    await expect(resumeFor(makeCtx(actor("finance.analyst", "u_else")), id)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("finishes once", async () => {
+    const id = await raised();
+    const me = makeCtx(actor("finance.analyst", "u_ops"));
+    await rememberRequest(me, id, resume);
+    await decide(makeCtx(actor("finance.controller", "u_fin")), id, "approved", "ok");
+    await markCompleted(me, id);
+    await expect(resumeFor(me, id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("lists what is approved and waiting for the requester to finish", async () => {
+    const id = await raised("txn:ready");
+    const me = makeCtx(actor("finance.analyst", "u_ops"));
+    await rememberRequest(me, id, resume);
+    expect(await readyToFinish(me)).toEqual([]);
+    await decide(makeCtx(actor("finance.controller", "u_fin")), id, "approved", "ok");
+    expect((await readyToFinish(me)).map((row) => row.id)).toEqual([id]);
+    await markCompleted(me, id);
+    expect(await readyToFinish(me)).toEqual([]);
   });
 });

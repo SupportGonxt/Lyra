@@ -1285,6 +1285,21 @@ describe("J-P2 panel negotiation", () => {
         decision: "approved"
       })
     );
+
+    // Approving it did not do it: the rate was still unwritten, and the asker
+    // had to find the form and fill it in again. The gate kept the request, so
+    // the asker now finishes it with one call, in their own session.
+    const ready = ok(await call("tenant.admin", "GET", "/v1/me/approvals/ready"));
+    expect(ready.data.map((row: { id: string }) => row.id)).toContain(attempt.body.approval_id);
+    const finished = await call("tenant.admin", "POST", `/v1/me/approvals/${attempt.body.approval_id}/finish`);
+    expect(finished.status).toBe(201);
+    expect(finished.body.baseCommissionPpm).toBe(150_000);
+    // Once.
+    const again = await call("tenant.admin", "POST", `/v1/me/approvals/${attempt.body.approval_id}/finish`);
+    expect(again.status).toBe(409);
+    // And only by whoever asked.
+    const other = await call("finance.controller", "POST", `/v1/me/approvals/${attempt.body.approval_id}/finish`);
+    expect(other.status).toBe(403);
   });
 
   it("panel benchmarks are readable by the people who negotiate", async () => {
