@@ -126,7 +126,9 @@ export async function loginAsOrbitRetention(page: Page): Promise<void> {
  * these clicks are ordinary DOM clicks, not `page.on("dialog")` acceptances.
  */
 export async function confirmAction(page: Page): Promise<void> {
-  await page.getByRole("dialog").getByRole("button", { name: "Continue", exact: true }).click();
+  // The confirm button repeats the act it confirms ("Delete", "Revoke"), so
+  // it is found by its role in the dialog rather than by a word.
+  await page.getByRole("dialog").locator("[data-confirm]").click();
 }
 
 /**

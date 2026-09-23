@@ -56,6 +56,7 @@ export function ConfirmButton({ message, guard, children, ...props }: ConfirmBut
               {t("common.cancel")}
             </Button>
             <Button
+              data-confirm=""
               variant={props.variant === "danger" ? "danger" : "primary"}
               onClick={() => {
                 setAsking(false);
