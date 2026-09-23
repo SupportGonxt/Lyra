@@ -98,6 +98,11 @@ export const PURPOSES: Record<string, PurposeDef> = {
   "output.review": { module: "core", customerFacing: false },
   "knowledge.embed": { module: "core", customerFacing: false },
 
+  // analytics — docs/05 "ask a question in words" (src/analytics-ask.ts,
+  // ADR-0087). Staff-facing: the reply is a report definition the reader
+  // inspects, edits and runs themselves; the model never sees a data row.
+  "analytics.ask": { module: "analytics", customerFacing: false },
+
   // ADR-0073 — the command center loop. Staff-facing by construction: the
   // surface sits behind the session, and every consequential action it touches
   // becomes a proposal for a human, never an execution. The loop is
