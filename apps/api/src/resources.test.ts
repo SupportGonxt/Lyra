@@ -1623,3 +1623,62 @@ describe("core/consents: an admin-entered consent is the same fact as recordCons
     expect(res.status).toBe(400);
   });
 });
+
+/* ------------------------------------------ save-desk outcomes are domain events */
+
+describe("orbit/renewals: a decision taken on the save desk announces itself", () => {
+  // Regression: the save desk (orbit-save.tsx) decides a renewal through the
+  // generic PATCH, which emitted only `orbit.renewals.updated`. The retention
+  // attribution consumer (dispatch.ts) listens for `orbit.renewal.accepted` /
+  // `orbit.renewal.lost` — what the portal and the renewal workflow emit — so
+  // every desk-decided save was invisible to it.
+  const renewals = () => {
+    const r = BY_MODULE.orbit?.find((x) => x.path === "renewals");
+    if (!r) throw new Error("no orbit/renewals resource");
+    return router(r);
+  };
+  const seedRenewal = async (rowId: string, state = "offered") => {
+    await ctx.db.insert(schema.orbitRenewals).values({
+      id: rowId,
+      tenantId: ctx.tenantId,
+      policyRef: `pol_${rowId}`,
+      customerId: `cu_${rowId}`,
+      expiryAt: NOW + 30 * 86_400_000,
+      state,
+      createdAt: NOW,
+      updatedAt: NOW
+    });
+  };
+  const outboxOf = async (type: string, subject: string) =>
+    (await ctx.db.select().from(schema.eventOutbox)).filter(
+      (e) => e.type === type && JSON.parse(e.envelopeJson).subject === subject
+    );
+
+  it("emits orbit.renewal.accepted once, carrying what the attribution consumer reads", async () => {
+    await seedRenewal("rnw_desk_1");
+    const res = await send(renewals(), "PATCH", "/rnw_desk_1", { state: "accepted", decidedAt: NOW });
+    expect(res.status).toBe(200);
+    // A second PATCH that leaves the state where it is is not a second decision.
+    expect((await send(renewals(), "PATCH", "/rnw_desk_1", { outcomeReason: "price_match" })).status).toBe(200);
+
+    const events = await outboxOf("orbit.renewal.accepted", "rnw_desk_1");
+    expect(events).toHaveLength(1);
+    const data = JSON.parse(events[0]!.envelopeJson).data;
+    expect(data.customerId).toBe("cu_rnw_desk_1");
+    expect(data.policyRef).toBe("pol_rnw_desk_1");
+  });
+
+  it("emits orbit.renewal.lost for a desk-recorded loss", async () => {
+    await seedRenewal("rnw_desk_2", "scheduled");
+    expect((await send(renewals(), "PATCH", "/rnw_desk_2", { state: "lost", outcomeReason: "price" })).status).toBe(200);
+    expect(await outboxOf("orbit.renewal.lost", "rnw_desk_2")).toHaveLength(1);
+    expect(await outboxOf("orbit.renewal.accepted", "rnw_desk_2")).toHaveLength(0);
+  });
+
+  it("a strategy change is not a decision", async () => {
+    await seedRenewal("rnw_desk_3", "scheduled");
+    expect((await send(renewals(), "PATCH", "/rnw_desk_3", { strategy: "auto_requote" })).status).toBe(200);
+    expect(await outboxOf("orbit.renewal.lost", "rnw_desk_3")).toHaveLength(0);
+    expect(await outboxOf("orbit.renewal.accepted", "rnw_desk_3")).toHaveLength(0);
+  });
+});

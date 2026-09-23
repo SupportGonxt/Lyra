@@ -122,10 +122,17 @@ export interface Resource {
     existing: Record<string, unknown> | null,
     env: Env
   ) => Promise<Record<string, unknown>> | Record<string, unknown>;
+  /**
+   * Runs after the row is written, audited and its generic event emitted.
+   * `before` is the row as it stood before an update (null on create): a
+   * domain event that fires on a *state change* — a renewal decided, not
+   * merely edited — needs both sides to fire exactly once.
+   */
   afterWrite?: (
     ctx: Ctx,
     row: Record<string, unknown>,
-    action: "create" | "update" | "delete"
+    action: "create" | "update" | "delete",
+    before: Record<string, unknown> | null
   ) => Promise<void>;
   /**
    * Read-only columns joined onto a page of rows before it goes out, for a row
@@ -481,7 +488,7 @@ export function crudRouter(r: Resource): Hono<App> {
         const persisted = await load(ctx, rowId);
         await audit(ctx, { action: `${auditName}.create`, subjectRef: rowId, after: strip(values) });
         await emit(ctx, { module: r.module, type: `${auditName}.created`, subject: rowId, data: { id: rowId } });
-        await r.afterWrite?.(ctx, persisted, "create");
+        await r.afterWrite?.(ctx, persisted, "create", null);
         return created(c, { ...view(ctx, persisted), id: rowId });
       });
     });
@@ -539,7 +546,7 @@ export function crudRouter(r: Resource): Hono<App> {
           after: strip(hydrate(after))
         });
         await emit(ctx, { module: r.module, type: `${auditName}.updated`, subject: rowId, data: { id: rowId } });
-        await r.afterWrite?.(ctx, after, "update");
+        await r.afterWrite?.(ctx, after, "update", before);
         return after;
       });
       return c.json(view(ctx, after));
@@ -573,7 +580,7 @@ export function crudRouter(r: Resource): Hono<App> {
 
       await audit(ctx, { action: `${auditName}.delete`, subjectRef: rowId, before: strip(hydrate(before)) });
       await emit(ctx, { module: r.module, type: `${auditName}.deleted`, subject: rowId, data: { id: rowId } });
-      await r.afterWrite?.(ctx, before, "delete");
+      await r.afterWrite?.(ctx, before, "delete", before);
       return c.body(null, 204);
     });
 

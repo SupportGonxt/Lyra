@@ -604,6 +604,13 @@ const RENEWAL_TRANSITIONS: Record<string, string[]> = {
   lost: []
 };
 
+/** The domain event a renewal entering each state announces (docs/04 §7). */
+const RENEWAL_EVENTS: Record<string, string> = {
+  offered: "orbit.renewal.offered",
+  accepted: "orbit.renewal.accepted",
+  lost: "orbit.renewal.lost"
+};
+
 export const ORBIT = register(
   r("conversations", schema.orbitConversations, "cnv", "orbit", {
     read: "orbit:conversations:read",
@@ -644,6 +651,27 @@ export const ORBIT = register(
         throw badRequest(`a renewal cannot move ${from} -> ${to}`);
       }
       return values;
+    },
+    // The save desk (orbit-save.tsx) decides renewals through this PATCH. The
+    // generic `orbit.renewals.updated` is not what anything downstream reads:
+    // retention attribution (dispatch.ts) and journeys listen for the same
+    // domain events the portal and RenewalWorkflow emit. Fired on the state
+    // *change* only, so a later edit to a decided row announces nothing twice.
+    afterWrite: async (ctx, row, action, before) => {
+      if (action !== "update" || !before || before.state === row.state) return;
+      const type = RENEWAL_EVENTS[row.state as string];
+      if (!type) return;
+      await emit(ctx, {
+        module: "orbit",
+        type,
+        subject: row.id as string,
+        data: {
+          policyRef: row.policyRef,
+          customerId: row.customerId,
+          via: "desk",
+          ...(row.outcomeReason ? { reason: row.outcomeReason } : {})
+        }
+      });
     }
   }),
   r("journeys", schema.orbitJourneys, "jrn", "orbit", rw("orbit:journeys"), { actorColumns: ["createdBy"] }),
