@@ -53,6 +53,18 @@ spec. If the *shape of the answer* is the point, it is a route.
 | SCOUT | [scout-shell.tsx](apps/web/app/routes/scout-shell.tsx) | `/scout/*` bespoke screens |
 | NORTH | [north-shell.tsx](apps/web/app/routes/north-shell.tsx) | `/north/*` bespoke screens |
 
+**One frame (ADR-0085).** The five module layouts are routes (they gate a
+module and let a build ship one alone), but they all render the one
+[`Shell`](apps/web/app/components/shell.tsx) through
+[`ModuleShell`](apps/web/app/components/module-shell.tsx). The rail reads, top
+to bottom: **Home and Inbox** (approvals waiting on the reader, with a count) →
+inside a module, **that module's own screens** under its heading, filtered by the
+permission each loader needs ([modules/screens.ts](apps/web/app/modules/screens.ts)) →
+every workspace the API's nav offers. The Meridian day strip is NORTH's only. A
+paused module (the AI kill switch, J-A3) shows a degraded-mode banner on every
+screen of it. ⌘K indexes every tab the reader may open. Every screen's
+`<title>` is "Screen · Workspace · Product" ([title.ts](apps/web/app/title.ts)).
+
 All of them call `bootstrapSession()` ([session.server.ts](apps/web/app/session.server.ts)),
 which is the single source of shell data: **actor, tenant brand, permissions,
 and the nav the API has already filtered for that actor**. A route reads it with
@@ -99,9 +111,9 @@ screen composes them instead of re-deriving inline styles:
 | Mark | Component | What it is |
 | --- | --- | --- |
 | eyebrow | `Eyebrow` | small tracked-out label saying what a block *is* |
-| lede | `Lede` | one serif sentence saying what it *means* |
+| lede | `Lede` | one serif sentence saying what it *means* (the serif's only role besides the login hero and home headline, docs/01 §4) |
 | figure | `Figure` | every number in mono, tabular, unit set quietly (`tone`: neutral/ok/bad; `size`: sm/md/lg) |
-| hue bar | `HueBar` | 2px of module colour — the only place a module signs itself; `aria-hidden`, because the module is always named in text nearby |
+| hue bar | `HueBar` | 2px of module colour, drawn once per page by the shell; a `Panel` signs its module with the eyebrow's dot instead, so bars never stack |
 | hairline | `Hairline` | a rule instead of a shadow |
 | answer | `AnswerBanner` | ✦, who it was answered for, how long it took |
 | provenance | `Provenance` | the "why" behind an AI artifact, inspectable in place |
@@ -117,7 +129,12 @@ per-module figures is already colour-consistent with the rail.
 ### 2.4 Type and motion
 
 Display `Archivo`, UI `Instrument Sans`, mono `IBM Plex Mono`, serif
-`Instrument Serif`, Arabic `IBM Plex Sans Arabic` in every stack. Nine sizes
+`Instrument Serif`, Arabic `IBM Plex Sans Arabic` in every stack. Three type
+roles are utilities in tokens.css — `page-title` (Archivo 600, 28/1.15),
+`section-title` (Archivo 600, 18), `eyebrow` (12, tracked, drops tracking in
+Arabic) — and a guard fails on a copied recipe or a stray serif. KPI figures are
+Archivo 700 tabular. Every Tailwind class must compile to CSS
+([classes.resolve.test.ts](apps/web/app/classes.resolve.test.ts)). Nine sizes
 `--text-12` … `--text-48`; `--leading-body` 1.5, `--leading-display` 1.15.
 Radii are small on purpose (2/3/6px) with `--radius-orbit: 999px` for pills.
 Motion: `--duration-fast|medium|slow` 120/180/240ms on `--ease-observatory`
@@ -217,10 +234,14 @@ These are not style advice. Each one has a test, a lint rule, or a CI gate.
 3. **Approval is a step, not a dialog.** Anything `consequential: true` (pricing,
    claims guidance, regulated advice, outbound send, payment) renders an
    `ApprovalStrip` and goes to `/approvals`. It never auto-commits outside the
-   tenant's `auto_approve` allowlist (CLAUDE.md §4, docs/19).
+   tenant's `auto_approve` allowlist (CLAUDE.md §4, docs/19). The gate keeps the
+   request it stopped; once approved, the requester finishes it with one press
+   on `/approvals` ("ready for you to finish"), replayed in their own session
+   (ADR-0086).
 4. **Brand tokens, not brand strings.** Name, logo and colours come from tenant
    config. A hard-coded "LYRA" in a user-facing surface is a bug (CLAUDE.md §5).
-   `workspace.tsx`'s `meta` reads `brand.name ?? tenantName ?? ""` — never a literal.
+   Every session layout's `meta` is `sessionMeta` ([title.ts](apps/web/app/title.ts)):
+   "Screen · Workspace · (brand.name ?? tenantName)" — never a literal.
 5. **Domain-pack vocabulary.** No industry noun is hard-coded. Every label goes
    through `labeller()` / `labelsIn(locale, pack)` and resolves pack → route table
    → shared table → `common.<key>` → raw key ([vocabulary.ts](apps/web/app/modules/vocabulary.ts),

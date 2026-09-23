@@ -102,3 +102,12 @@ Every journey has: an ID (above), an analytics funnel (Analytics Engine),
 an owner, and a target. The J-IDs appear in code as event `journey` tags —
 Claude Code: tag emitted events accordingly so funnels assemble without extra
 work. Journey health surfaces in NORTH's platform section automatically.
+
+**As built (2026-09-23).** Journey health is read from the audit log rather
+than from new event tags: `packages/core/src/journey-health.ts` maps each
+measurable journey's steps to audit actions that live code already writes,
+`GET /v1/north/journeys` serves the funnels, and `/north/journeys` shows them
+(stalled first, weekly finishes, a link to where the work happens). J-E1 (push
+and brief reads are not audited), J-A1 (tenant creation is seed-only) and J-M3
+(citation share is not recorded) are not measured yet; each needs the missing
+step recorded before it can be.
