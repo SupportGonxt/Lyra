@@ -239,6 +239,10 @@ export const en = {
   "common.approvalLink": "Open the approval queue",
   // Unit help under an input whose type says something the label cannot
   // (components/fields.tsx `hintFor`). A field's own `hintKey` overrides these.
+  "common.field.hint.list": "Separate with commas.",
+  "common.field.pick": "Type a name to pick",
+  "common.lang.en": "English",
+  "common.lang.ar": "Arabic",
   "common.field.hint.json": "JSON — an object or a list, exactly as it is stored.",
   "common.field.hint.rate": "A percentage. 2.5 means two and a half percent.",
   "common.field.hint.ratio": "A multiplier, not a percentage. 18.5 means 18.5 times.",

@@ -224,6 +224,10 @@ export const ar: Messages = {
   "common.approvalBody": "يحتاج هذا إلى موافقة بموجب {policy} قبل أن يمضي.",
   "common.approvalLink": "افتح قائمة الموافقات",
   // Same three type hints as en.ts; digits stay Western because the input is.
+  "common.field.hint.list": "افصل بين العناصر بفواصل.",
+  "common.field.pick": "اكتب اسمًا للاختيار",
+  "common.lang.en": "الإنجليزية",
+  "common.lang.ar": "العربية",
   "common.field.hint.json": "JSON — كائن أو قائمة، بالصيغة المخزَّنة نفسها.",
   "common.field.hint.rate": "نسبة مئوية. القيمة 2.5 تعني اثنين ونصف بالمئة.",
   "common.field.hint.ratio": "معامل ضرب لا نسبة مئوية. القيمة 18.5 تعني 18.5 ضعفًا.",

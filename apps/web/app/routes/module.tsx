@@ -19,7 +19,9 @@ import { rejectedBy } from "../api-error";
 import { Cell, FieldInput } from "../components/fields";
 import { usePending } from "../components/pending";
 import { cloudflare } from "../context";
-import { translator } from "../i18n";
+import { localeFrom, translator } from "../i18n";
+import { refOptions } from "../record.server";
+import type { RefOption } from "../components/ref-picker";
 import { workspaceFor } from "../modules";
 import {
   bodyFrom,
@@ -203,6 +205,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const pageSize = pageSizeIn(incoming);
   if (pageSize) query.set("limit", String(pageSize));
 
+  // Choices for the create form's id fields load beside the list, not after it.
+  const choices = refOptions(tab.fields ?? [], localeFrom(request), { env, request });
   const page = await api<Page>(`${tab.api}?${query.toString()}`, { env, request }).catch(
     async (error: unknown) => {
       // `/admin` with no resource lands on the first declared tab, which is not
@@ -233,7 +237,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     deleted,
     query: Object.fromEntries(query),
     savedViews: savedViews.map((view): SavedViewOption => ({ id: view.id, name: view.name, isDefault: view.isDefault })),
-    activeView: chosen?.id ?? null
+    activeView: chosen?.id ?? null,
+    refOptions: await choices
   };
 }
 
@@ -562,6 +567,7 @@ export default function ModuleList() {
           defaultOpen={Boolean(problem)}
           rejected={rejected}
           outcome={result}
+          options={loaded.refOptions}
           recordHref={(id) => `${spec.path}/${tab.key}/${encodeURIComponent(id)}`}
         />
       ) : null}
@@ -731,6 +737,7 @@ function CreatePanel({
   defaultOpen,
   rejected,
   outcome,
+  options,
   recordHref
 }: {
   tab: ResourceSpec;
@@ -743,6 +750,7 @@ function CreatePanel({
   rejected: (name: string) => string | undefined;
   /** The last action result; a new object per submission. */
   outcome: { created?: string | null } | undefined;
+  options: Readonly<Record<string, readonly RefOption[]>>;
   recordHref: (id: string) => string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -789,7 +797,7 @@ function CreatePanel({
           <input type="hidden" name="intent" value="create" />
           <div className="grid gap-4 sm:grid-cols-2">
             {(tab.fields ?? []).map((field) => (
-              <FieldInput key={field.name} field={field} label={label} invalid={rejected} />
+              <FieldInput key={field.name} field={field} label={label} invalid={rejected} options={options} />
             ))}
           </div>
           <div>

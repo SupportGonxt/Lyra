@@ -13,7 +13,8 @@ import {
 } from "@lyra/ui";
 import type { ColumnSpec, FieldSpec, Row } from "../modules/spec";
 import { who, type Names } from "../names";
-import { humanise, inputValue, optionLabel, optionWords } from "../modules/spec";
+import { FIELD_LOCALES, formKind, humanise, inputValue, localizedValue, optionLabel, optionWords } from "../modules/spec";
+import { RefPicker, type RefOption } from "./ref-picker";
 
 // One place that knows how a typed value renders and how it is edited. Both
 // route files (module.tsx, record.tsx) and every bespoke screen share it, so a
@@ -168,15 +169,19 @@ export function FieldInput({
   row,
   label,
   disabled,
-  invalid
+  invalid,
+  options
 }: {
   field: FieldSpec;
   row?: Row;
   label: (key: string) => string;
   disabled?: boolean;
   invalid?: (name: string) => string | undefined;
+  /** Choices for id-shaped fields (REF_SOURCES), keyed by field name. */
+  options?: Readonly<Record<string, readonly RefOption[]>>;
 }) {
   const error = invalid?.(field.name);
+  const kind = formKind(field);
   const hint = hintFor(field, label);
   const value = inputValue(field, row);
   // Spread conditionally: exactOptionalPropertyTypes rejects an explicit
@@ -209,7 +214,35 @@ export function FieldInput({
       {...(hint ? { hint } : {})}
       {...(error ? { error } : {})}
     >
-      {field.type === "select" ? (
+      {kind === "localized" ? (
+        // One box per language, each set in its own direction, instead of a
+        // JSON object typed by hand.
+        <div className="grid gap-2 sm:grid-cols-2">
+          {FIELD_LOCALES.map((locale) => (
+            <Input
+              key={locale}
+              name={`${field.name}.${locale}`}
+              lang={locale}
+              dir={locale === "ar" ? "rtl" : "ltr"}
+              prefix={locale.toUpperCase()}
+              aria-label={`${label(field.name)} — ${label(`lang.${locale}`)}`}
+              defaultValue={localizedValue(row, field.name, locale)}
+              {...(field.required && locale === "en" ? { required: true } : {})}
+              {...(disabled ? { disabled: true } : {})}
+            />
+          ))}
+        </div>
+      ) : kind === "ref" ? (
+        <RefPicker
+          name={field.name}
+          options={options?.[field.name] ?? []}
+          defaultValue={value}
+          placeholder={label("field.pick")}
+          {...(field.required ? { required: true } : {})}
+        />
+      ) : kind === "list" ? (
+        <Input {...common} defaultValue={value} />
+      ) : field.type === "select" ? (
         <Select
           name={field.name}
           {...(value ? { defaultValue: value } : {})}
@@ -286,6 +319,9 @@ export function measure(value: number, unit: string, currency: string, locale: s
  */
 function hintFor(field: FieldSpec, label: (key: string) => string): string | undefined {
   if (field.hintKey) return label(field.hintKey);
+  const kind = formKind(field);
+  if (kind === "list") return label("field.hint.list");
+  if (kind === "localized" || kind === "ref") return undefined;
   if (field.type === "json" || field.type === "rate" || field.type === "ratio") {
     return label(`field.hint.${field.type}`);
   }

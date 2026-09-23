@@ -17,7 +17,7 @@ import { rejectedBy } from "../api-error";
 import { Cell, FieldInput } from "../components/fields";
 import { usePending } from "../components/pending";
 import { cloudflare } from "../context";
-import { translator } from "../i18n";
+import { localeFrom, translator } from "../i18n";
 import { ConfirmButton } from "../components/confirm";
 import { workspaceFor } from "../modules";
 import {
@@ -31,7 +31,7 @@ import {
   type Row,
   type WorkspaceSpec
 } from "../modules/spec";
-import { runAction } from "../record.server";
+import { refOptions, runAction } from "../record.server";
 import { Gate } from "./module";
 import { useShellData } from "./workspace";
 
@@ -53,6 +53,7 @@ function resolve(params: { module?: string; resource?: string }): {
 export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const { spec, tab } = resolve(params);
   const env = context.get(cloudflare).env;
+  const choices = refOptions(tab.editable ?? tab.fields ?? [], localeFrom(request), { env, request });
   const row = await api<Row>(`${tab.api}/${params.id}`, { env, request }).catch(asRouteError);
   // Same reason as the list (module.tsx): a record's fields hold refs and no
   // names for them.
@@ -60,7 +61,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     Object.values(row).filter((value): value is string => typeof value === "string" && isOpaqueRef(value)),
     { env, request }
   );
-  return { modulePath: spec.path, resource: tab.key, row, resolved };
+  return { modulePath: spec.path, resource: tab.key, row, resolved, refOptions: await choices };
 }
 
 export async function action({ request, params, context }: ActionFunctionArgs) {
@@ -226,7 +227,14 @@ export default function Record() {
           <input type="hidden" name="intent" value="update" />
           <div className="grid gap-4 sm:grid-cols-2">
             {editable.map((field) => (
-              <FieldInput key={field.name} field={field} row={row} label={label} invalid={rejected} />
+              <FieldInput
+                key={field.name}
+                field={field}
+                row={row}
+                label={label}
+                invalid={rejected}
+                options={loaded.refOptions}
+              />
             ))}
           </div>
           <div>
