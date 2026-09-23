@@ -18,11 +18,11 @@ import { useShellData } from "./workspace";
 interface CaseRow {
   id: string;
   ref: string;
-  productLine: string;
+  productLine: string | null;
   status: string;
   priority: string;
-  valueMinor: number;
-  currency: string;
+  valueMinor: number | null;
+  currency: string | null;
 }
 
 interface ProductLineTotal {
@@ -83,6 +83,8 @@ export const labelsIn = journeyLabels(LABELS);
 export function groupByProductLine(cases: CaseRow[]): ProductLineTotal[] {
   const byLine = new Map<string, ProductLineTotal>();
   for (const c of cases) {
+    // A case opened without a value has no place in a book of values.
+    if (c.valueMinor === null || !c.currency) continue;
     const line = c.productLine || "unassigned";
     const existing = byLine.get(line);
     if (existing) {

@@ -25,6 +25,13 @@ describe("groupByProductLine", () => {
       ["unassigned", 10, 1]
     ]);
   });
+
+  it("leaves an unpriced case out of the book instead of formatting a null currency", () => {
+    const unpriced = { ...row("", 0), productLine: null, valueMinor: null, currency: null };
+    const lines = groupByProductLine([row("motor", 500), unpriced as never]);
+    expect(lines.map((l) => [l.productLine, l.currency])).toEqual([["motor", "AED"]]);
+    expect(() => formatMoney(lines[0]!.total, lines[0]!.currency, "en")).not.toThrow();
+  });
 });
 
 describe("bookValue", () => {
