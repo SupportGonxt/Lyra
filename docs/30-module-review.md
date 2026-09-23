@@ -110,7 +110,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### Distribution
 1. Accrue commission on `axis.policy.issued` (idempotent consumer).
 2. Fix the dead seeded triggers and webhook subscriptions.
-3. Expose commission tiers (`structureJson`) in the rates form.
+3. ~~Expose commission tiers (`structureJson`) in the rates form.~~ **Fixed** 2026-09-23: the field is on the rates form, and the API validates it strictly (`CommissionStructureJson`, `packages/core/src/commission.ts`) before the rate-change approval — the engine reads a malformed structure as flat, so it must be refused on write (`dist.test.ts` "commission-rate structures are validated on write").
 4. Referral qualify/settle desk (API exists, no screen).
 5. Select → bind handoff.
 

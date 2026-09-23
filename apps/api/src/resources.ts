@@ -4,6 +4,7 @@ import { AGENT_AUTONOMY, PaymentPlanWrite, schema } from "@lyra/db";
 import {
   autoApproveProblem,
   badRequest,
+  CommissionStructureJson,
   can,
   canClaimTransition,
   canPolicyTransition,
@@ -290,7 +291,28 @@ export const DIST = register(
   r("commission-rates", schema.distCommissionRates, "cr", "dist", {
     read: "dist:rates:read",
     create: "dist:rates:write"
-  }, { immutable: true, actorColumns: ["createdBy"], approval: { create: "dist.rate_change" } }),
+  }, {
+    immutable: true,
+    actorColumns: ["createdBy"],
+    approval: { create: "dist.rate_change" },
+    // ADR-0084: validated before the approval is asked for, so an approver is
+    // never asked to wave through a structure the engine would read as flat.
+    beforeWrite: (_ctx, values) => {
+      const raw = values.structureJson;
+      if (raw === undefined || raw === null || raw === "") return values;
+      let parsed: unknown = raw;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw badRequest("structureJson is not valid JSON");
+        }
+      }
+      const checked = CommissionStructureJson.safeParse(parsed);
+      if (!checked.success) throw badRequest(`structureJson: ${checked.error.issues[0]?.message ?? "invalid"}`);
+      return { ...values, structureJson: JSON.stringify(checked.data) };
+    }
+  }),
   r("quote-requests", schema.distQuoteRequests, "qr", "dist", {
     read: "dist:quote_requests:read",
     create: "dist:quote_requests:create",
