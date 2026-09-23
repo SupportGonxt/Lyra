@@ -157,6 +157,11 @@ export const axis: WorkspaceSpec = {
       "source.orbit": "Conversation",
       "source.partner": "Partner",
       "source.import": "Import",
+      "bulk.assign": "Assign to",
+      "bulk.reprioritise": "Set priority",
+      "bulk.tag": "Add a tag",
+      "bulk.close": "Close",
+      tag: "Tag",
       "source.api": "API",
       "source.agent": "Agent",
       "source.manual": "Entered by hand",
@@ -408,6 +413,11 @@ export const axis: WorkspaceSpec = {
       "source.orbit": "محادثة",
       "source.partner": "شريك",
       "source.import": "استيراد",
+      "bulk.assign": "إسناد إلى",
+      "bulk.reprioritise": "تحديد الأولوية",
+      "bulk.tag": "إضافة وسم",
+      "bulk.close": "إغلاق",
+      tag: "وسم",
       "source.api": "واجهة برمجية",
       "source.agent": "وكيل",
       "source.manual": "إدخال يدوي",
@@ -643,7 +653,23 @@ export const axis: WorkspaceSpec = {
         { name: "valueMinor", type: "money" },
         { name: "riskScore", type: "number" },
         { name: "metaJson", type: "json" }
-      ]
+      ],
+      bulk: {
+        api: "/v1/axis/cases/bulk",
+        idsKey: "caseIds",
+        actions: [
+          { value: "assign", labelKey: "bulk.assign", permission: "axis:cases:assign", field: { name: "ownerRef", type: "text", required: true } },
+          {
+            value: "reprioritise",
+            labelKey: "bulk.reprioritise",
+            permission: "axis:cases:update",
+            field: { name: "priority", type: "select", required: true, options: ["low", "normal", "high", "urgent"] }
+          },
+          { value: "tag", labelKey: "bulk.tag", permission: "axis:cases:update", field: { name: "tag", type: "text", required: true } },
+          { value: "close", labelKey: "bulk.close", permission: "axis:cases:update" }
+        ]
+      },
+      import: { api: "/v1/axis/cases/import", permission: "axis:cases:create", required: ["ref", "kind", "customerRef"] }
     },
     {
       // docs/27 F13: history. Quotes are written to `dist_quote_responses` now —

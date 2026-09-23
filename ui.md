@@ -452,6 +452,10 @@ Two route files render all of these:
   workspace's bespoke screens, a search box where the API registered the resource
   searchable, filters, sortable columns, pagination, and create when the spec
   names `create` and the actor holds it.
+  A tab may also declare **`bulk`** (a checkbox column plus a bar that applies
+  one action to the selection, answered per row) and **`import`** (a CSV file
+  posted as `{ csv }`, answered with every refused line). Cases declare both
+  (AXIS-001, AXIS-007); each action and the import carry their own permission.
 - **Record** — `/:module/:resource/:id` ([record.tsx](apps/web/app/routes/record.tsx)).
   The record's fields, an edit form from `editable ?? fields`, delete when
   `remove` is held, the `recordLink` out to a deeper bespoke screen, and the

@@ -110,6 +110,33 @@ export interface ActionSpec {
   confirm?: boolean;
 }
 
+/**
+ * One operation over a selection of rows (AXIS-007). The endpoint answers per
+ * row, so a partial success is reported, never rolled back.
+ */
+export interface BulkSpec {
+  api: string;
+  /** The body key the selected ids travel under: `caseIds`. */
+  idsKey: string;
+  actions: readonly {
+    value: string;
+    /** Key in the workspace's own label table. */
+    labelKey: string;
+    permission: string;
+    /** The one parameter this action takes, if any; its name is the body key. */
+    field?: FieldSpec;
+  }[];
+}
+
+/** A CSV import into this list (AXIS-001). The file is read as text and posted
+ *  as `{ csv }`; the answer names every line it refused. */
+export interface ImportSpec {
+  api: string;
+  permission: string;
+  /** The header the file must carry, shown beside the file input. */
+  required: readonly string[];
+}
+
 export interface ResourceSpec {
   /** URL segment inside the workspace: `/axis/cases`. */
   key: string;
@@ -146,6 +173,8 @@ export interface ResourceSpec {
   recordLink?: { href: string; labelKey: string };
   /** State changes the API owns, offered on the record. See ActionSpec. */
   actions?: readonly ActionSpec[];
+  bulk?: BulkSpec;
+  import?: ImportSpec;
 }
 
 export interface WorkspaceSpec {

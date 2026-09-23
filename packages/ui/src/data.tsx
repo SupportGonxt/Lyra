@@ -21,7 +21,8 @@ export interface SortState {
 
 export interface Column<T> {
   key: string;
-  header: string;
+  /** Text almost always; a control only where the column is one (select all). */
+  header: React.ReactNode;
   /** Renders the cell. Keep money in <Money> and dates in <DateTime>. */
   render: (row: T) => React.ReactNode;
   sortable?: boolean;

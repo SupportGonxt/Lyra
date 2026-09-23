@@ -15,7 +15,7 @@ import { ApiError, api, asRouteError, fetchMe, names } from "../api.server";
 // rejectedBy runs in the component, not the loader: importing it from the
 // .server module pulls that module into the client bundle (api-error.ts exists
 // for exactly this, see its header).
-import { rejectedBy } from "../api-error";
+import { rejectedBy, type Problem as ProblemBody } from "../api-error";
 import { Cell, FieldInput } from "../components/fields";
 import { usePending } from "../components/pending";
 import { cloudflare } from "../context";
@@ -241,7 +241,31 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request, params, context }: ActionFunctionArgs) {
+/** What the cases bulk endpoint answers: per row, never all-or-nothing. */
+interface BulkOutcome {
+  applied: number;
+  failed: number;
+  outcomes: Array<{ caseId: string; ok: boolean; error?: string }>;
+}
+
+/** What an import answers: what it made, and every line it refused. */
+interface ImportOutcome {
+  created: number;
+  skippedDuplicate: number;
+  errors: Array<{ line: number; ref: string | null; error: string }>;
+}
+
+interface ActionResult {
+  problem: ProblemBody | null;
+  revealed: string | null;
+  created: string | null;
+  bulk: BulkOutcome | null;
+  imported: ImportOutcome | null;
+}
+
+const NOTHING: ActionResult = { problem: null, revealed: null, created: null, bulk: null, imported: null };
+
+export async function action({ request, params, context }: ActionFunctionArgs): Promise<ActionResult> {
   const { tab } = resolve(params);
   const env = context.get(cloudflare).env;
   const form = await request.formData();
@@ -264,10 +288,28 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       // and clear the form — a silent success invited a duplicate second press.
       const createdId = typeof created.id === "string" ? created.id : "";
       return {
-        problem: null,
+        ...NOTHING,
         revealed: typeof revealed === "string" && revealed ? revealed : null,
         created: createdId
       };
+    } else if (intent === "bulk" && tab.bulk) {
+      const chosen = tab.bulk.actions.find((entry) => entry.value === String(form.get("bulkAction") ?? ""));
+      const ids = form.getAll("ids").map(String).filter(Boolean);
+      if (!chosen || !ids.length) return { ...NOTHING, problem: { title: "common.bulk.none", status: 400 } };
+      const param = chosen.field ? String(form.get(chosen.field.name) ?? "").trim() : "";
+      const bulk = await api<BulkOutcome>(tab.bulk.api, {
+        env,
+        request,
+        method: "POST",
+        body: { action: chosen.value, [tab.bulk.idsKey]: ids, ...(chosen.field && param ? { [chosen.field.name]: param } : {}) }
+      });
+      return { ...NOTHING, bulk };
+    } else if (intent === "import" && tab.import) {
+      const file = form.get("file");
+      const csv = file instanceof File ? await file.text() : "";
+      if (!csv.trim()) return { ...NOTHING, problem: { title: "common.import.empty", status: 400 } };
+      const imported = await api<ImportOutcome>(tab.import.api, { env, request, method: "POST", body: { csv } });
+      return { ...NOTHING, imported };
     } else if (intent === "delete" && id) {
       await api(`${tab.api}/${id}`, { env, request, method: "DELETE" });
     } else if (intent === "restore" && id) {
@@ -276,15 +318,15 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       // `DELETE /:id` and `POST /:id/restore`).
       await api(`${tab.api}/${id}/restore`, { env, request, method: "POST" });
     } else {
-      return { problem: { title: "unknown intent", status: 400 }, revealed: null, created: null };
+      return { ...NOTHING, problem: { title: "unknown intent", status: 400 } };
     }
   } catch (error) {
     // A rejected write is information, not a crash: keep the actor on the page
     // with their input intact and show what the API objected to.
-    if (error instanceof ApiError) return { problem: error.problem, revealed: null, created: null };
+    if (error instanceof ApiError) return { ...NOTHING, problem: error.problem };
     throw error;
   }
-  return { problem: null, revealed: null, created: null };
+  return NOTHING;
 }
 
 export default function ModuleList() {
@@ -349,6 +391,38 @@ export default function ModuleList() {
         <Cell column={column} row={row} locale={locale} label={label} resolved={loaded.resolved} />
       )
   }));
+
+  // Bulk (AXIS-007): a checkbox per row, owned by the bulk bar's form through
+  // the `form` attribute, so the table stays one table and not a form.
+  const bulkActions = !deletedView ? (tab.bulk?.actions ?? []).filter((entry) => held.has(entry.permission)) : [];
+  if (bulkActions.length) {
+    columns.unshift({
+      key: "__select",
+      header: (
+        <input
+          type="checkbox"
+          aria-label={t("common.bulk.selectAll")}
+          className="size-4 accent-[var(--accent)]"
+          onChange={(event) => {
+            const on = event.currentTarget.checked;
+            document
+              .querySelectorAll<HTMLInputElement>(`input[form="${BULK_FORM_ID}"][name="ids"]`)
+              .forEach((box) => (box.checked = on));
+          }}
+        />
+      ),
+      render: (row: Row) => (
+        <input
+          type="checkbox"
+          name="ids"
+          value={String(row.id)}
+          form={BULK_FORM_ID}
+          aria-label={t("common.bulk.select", { name: String(row[tab.columns[0]?.name ?? "id"] ?? row.id) })}
+          className="size-4 accent-[var(--accent)]"
+        />
+      )
+    });
+  }
 
   if (deletedView && canRestore) {
     columns.push({
@@ -555,6 +629,21 @@ export default function ModuleList() {
             {revealed}
           </code>
         </div>
+      ) : null}
+
+      {tab.import && held.has(tab.import.permission) && !deletedView ? (
+        <ImportPanel spec={tab.import} t={t} busy={pending("import")} outcome={result?.imported ?? null} />
+      ) : null}
+
+      {bulkActions.length ? (
+        <BulkBar
+          actions={bulkActions}
+          label={label}
+          t={t}
+          busy={pending("bulk")}
+          outcome={result?.bulk ?? null}
+          options={loaded.refOptions}
+        />
       ) : null}
 
       {canCreate ? (
@@ -828,9 +917,11 @@ function CreatePanel({
  * single place every route renders a refusal — instead of in each of the
  * twenty-odd `action`s that can produce one.
  */
-const LOCAL_PROBLEM_TITLES: Record<string, "error.unknownIntent"> = {
+const LOCAL_PROBLEM_TITLES: Record<string, "error.unknownIntent" | "common.bulk.none" | "common.import.empty"> = {
   "unknown intent": "error.unknownIntent",
-  unknown_intent: "error.unknownIntent"
+  unknown_intent: "error.unknownIntent",
+  "common.bulk.none": "common.bulk.none",
+  "common.import.empty": "common.import.empty"
 };
 
 /**
@@ -891,4 +982,137 @@ export function Gate({
     );
   }
   return <Problem problem={problem} />;
+}
+
+const BULK_FORM_ID = "bulk-form";
+
+/** The action bar over a selection: pick what to do, give its one value, apply. */
+function BulkBar({
+  actions,
+  label,
+  t,
+  busy,
+  outcome,
+  options
+}: {
+  actions: NonNullable<ResourceSpec["bulk"]>["actions"];
+  label: (key: string) => string;
+  t: (key: string, vars?: Record<string, string>) => string;
+  busy: boolean;
+  outcome: BulkOutcome | null;
+  options: Readonly<Record<string, readonly RefOption[]>>;
+}) {
+  const [chosen, setChosen] = useState(actions[0]?.value ?? "");
+  const action = actions.find((entry) => entry.value === chosen);
+  const failures = outcome?.outcomes.filter((row) => !row.ok) ?? [];
+  return (
+    <div className="flex flex-col gap-2">
+      <Form id={BULK_FORM_ID} method="post" className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface-1 p-3">
+        <label className="flex flex-col gap-1 font-ui text-12 text-muted">
+          {t("common.bulk.action")}
+          <Select
+            name="bulkAction"
+            value={chosen}
+            onValueChange={setChosen}
+            options={actions.map((entry) => ({ value: entry.value, label: label(entry.labelKey) }))}
+          />
+        </label>
+        {action?.field ? (
+          <div className="min-w-56">
+            <FieldInput key={action.field.name} field={action.field} label={label} options={options} />
+          </div>
+        ) : null}
+        <Button type="submit" name="intent" value="bulk" variant="secondary" loading={busy}>
+          {t("common.bulk.apply")}
+        </Button>
+      </Form>
+      {outcome ? (
+        <div role="status" className="font-ui text-13 text-muted">
+          <p>
+            {t("common.bulk.done", { applied: String(outcome.applied), failed: String(outcome.failed) })}
+          </p>
+          {failures.length ? (
+            <ul className="mt-1 list-disc ps-5 text-12 text-subtle">
+              {failures.map((row) => (
+                <li key={row.caseId}>
+                  <bdi className="font-mono">{row.caseId}</bdi>: {row.error ?? ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A CSV into this list. What was made, and every refused line, stay on screen. */
+function ImportPanel({
+  spec,
+  t,
+  busy,
+  outcome
+}: {
+  spec: NonNullable<ResourceSpec["import"]>;
+  t: (key: string, vars?: Record<string, string>) => string;
+  busy: boolean;
+  outcome: ImportOutcome | null;
+}) {
+  return (
+    <details className="group rounded-lg border border-border bg-surface-1" open={Boolean(outcome?.errors.length)}>
+      <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 font-ui text-13 text-text marker:content-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+        <span aria-hidden="true" className="text-subtle">
+          &#8613;
+        </span>
+        {t("common.import.title")}
+      </summary>
+      <Form method="post" encType="multipart/form-data" className="flex flex-col gap-3 border-t border-border p-4">
+        <label className="flex flex-col gap-1 font-ui text-13 text-text">
+          {t("common.import.file")}
+          <input
+            type="file"
+            name="file"
+            accept=".csv,text/csv"
+            required
+            className="font-ui text-13 text-muted file:me-3 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-3 file:py-1.5 file:text-text"
+          />
+        </label>
+        <p className="font-ui text-12 text-subtle">
+          {t("common.import.hint", { columns: spec.required.join(", ") })}
+        </p>
+        <div>
+          <Button type="submit" name="intent" value="import" loading={busy}>
+            {t("common.import.submit")}
+          </Button>
+        </div>
+        {outcome ? (
+          <div role="status" className="font-ui text-13 text-muted">
+            <p>
+              {t("common.import.done", {
+                created: String(outcome.created),
+                skipped: String(outcome.skippedDuplicate),
+                refused: String(outcome.errors.length)
+              })}
+            </p>
+            {outcome.errors.length ? (
+              <ul className="mt-1 list-disc ps-5 text-12 text-subtle">
+                {outcome.errors.map((row) => (
+                  <li key={`${row.line}-${row.ref ?? ""}`}>
+                    {t("common.import.line", { line: String(row.line) })}
+                    {row.ref ? (
+                      <>
+                        {" "}
+                        (<bdi className="font-mono">{row.ref}</bdi>)
+                      </>
+                    ) : null}
+                    : {row.error}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+      </Form>
+    </details>
+  );
 }
