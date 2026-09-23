@@ -28,6 +28,8 @@ export {
   mandates,
   identityVerifications,
   memories,
+  notes,
+  links,
   lenses,
   rulepacks,
   idempotencyKeys,
