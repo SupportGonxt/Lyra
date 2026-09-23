@@ -273,7 +273,7 @@ export default function OrbitDev() {
         </Form>
 
         <section className="flex flex-col gap-2">
-          <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("scriptTitle")}</h2>
+          <h2 className="eyebrow">{l("scriptTitle")}</h2>
           <ul className="flex flex-col gap-2">
             {PERSONAS.map((persona) => (
               <li key={persona.key} className="flex flex-col gap-1">
@@ -297,7 +297,7 @@ export default function OrbitDev() {
       {ran && ran.rows.length > 0 && outcome ? (
         <Card className="flex flex-col gap-3 p-4">
           <header className="flex flex-wrap items-center gap-3">
-            <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("resultTitle")}</h2>
+            <h2 className="eyebrow">{l("resultTitle")}</h2>
             <span className="font-ui text-12 text-subtle">
               {l("turns", { customer: String(outcome.customer), agent: String(outcome.agent) })}
             </span>
@@ -331,7 +331,7 @@ export default function OrbitDev() {
       ) : null}
 
       <Card className="flex flex-col gap-2 p-4">
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("linksTitle")}</h2>
+        <h2 className="eyebrow">{l("linksTitle")}</h2>
         <Link to="/admin/developer" className="font-ui text-13 text-accent underline underline-offset-2">
           {l("devLink")}
         </Link>

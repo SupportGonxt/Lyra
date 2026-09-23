@@ -384,7 +384,7 @@ export default function NorthBrief() {
       {/* A reading column, capped where prose stops being readable (docs/07). */}
       <div className="mx-auto flex w-full max-w-[var(--measure-prose)] flex-col gap-5">
         <header className="flex flex-wrap items-baseline justify-between gap-3">
-          <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">
+          <span className="eyebrow">
             {l("title")}
             {brief ? ` · ${brief.date} · ${l(brief.audience)}` : null}
           </span>
@@ -412,7 +412,7 @@ export default function NorthBrief() {
               repeating the eyebrow's "The Brief" label — the sentence is
               the model's own text (paragraphs() splits on its own blank-line
               breaks), so it carries the same ✦ the kicker below already does. */}
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {firstSentence(paragraphs(brief?.narrativeRef).at(0)) ?? l("title")}
           </h1>
           {/* docs/15: one ✦ per AI artifact, and the "why" one interaction away. */}

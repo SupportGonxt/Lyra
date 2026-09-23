@@ -203,8 +203,8 @@ export default function GrowthCockpit() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("cockpit.title")}</span>
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+          <span className="eyebrow">{l("cockpit.title")}</span>
+          <h1 className="page-title">{headline}</h1>
           <p className="max-w-prose font-ui text-13 text-muted">{l("cockpit.lede")}</p>
         </div>
         <nav aria-label={l("growth.window")} className="flex items-center gap-2">
@@ -246,7 +246,7 @@ export default function GrowthCockpit() {
       </KPIWall>
 
       <div className="flex flex-col gap-1">
-        <span className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("cockpit.againstPlan")}</span>
+        <span className="eyebrow">{l("cockpit.againstPlan")}</span>
         <ProgressBar
           value={Math.min(planPct, 100)}
           tone={planPct > 100 ? "danger" : planPct > 80 ? "warning" : "accent"}

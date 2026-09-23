@@ -20,7 +20,7 @@ import {
   Stat,
   Textarea
 } from "@lyra/ui";
-import { Eyebrow, Figure, Hairline, HueBar, Lede, Panel } from "@lyra/ui";
+import { Eyebrow, Figure, Hairline, Lede, Panel } from "@lyra/ui";
 import type { LyraModule } from "@lyra/ui";
 import { ApiError, api } from "../api.server";
 import { cloudflare } from "../context";
@@ -319,11 +319,10 @@ export default function CommandCenter() {
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 py-10">
-      <HueBar module={hueModule("axis")} />
       <Eyebrow>
         <span aria-hidden="true">{AGENT_MARK}</span> {shared("nav.ai")}
       </Eyebrow>
-      <h1 className="font-serif text-3xl font-medium tracking-tight">{t("title")}</h1>
+      <h1 className="page-title">{t("title")}</h1>
       <Lede className="mt-2 max-w-prose">{t("intro")}</Lede>
 
       {/* ------------------------------------------------------- hero wall */}
@@ -332,14 +331,14 @@ export default function CommandCenter() {
         <Stat label={t("hero.runs24h")} value={runs24h} hint={`${runs.length} ${t("runs.title").toLowerCase()}`} />
         <Stat label={t("hero.modules")} value={`${connectedCount}/${CONSTELLATION.length}`} />
         <div className="flex flex-col gap-1">
-          <span className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{t("hero.autonomy")}</span>
+          <span className="eyebrow">{t("hero.autonomy")}</span>
           <Sparkline values={roundsByRun.length ? roundsByRun : [0]} label={t("runs.rounds")} tone="info" className="max-w-32" />
         </div>
       </KPIWall>
 
       {/* --------------------------------------------------- constellation */}
       <section className="mt-10" aria-labelledby="cc-map">
-        <h2 id="cc-map" className="font-serif text-xl font-medium">{t("constellation.title")}</h2>
+        <h2 id="cc-map" className="section-title">{t("constellation.title")}</h2>
         <Hairline className="my-3" />
         <ul className="flex flex-wrap items-center gap-x-8 gap-y-4">
           {CONSTELLATION.map((m) => {
@@ -424,7 +423,7 @@ export default function CommandCenter() {
 
       {/* ------------------------------------------------ proposal feed */}
       <section className="mt-10" aria-labelledby="cc-feed">
-        <h2 id="cc-feed" className="font-serif text-xl font-medium">
+        <h2 id="cc-feed" className="section-title">
           {t("feed.title")}
         </h2>
         <Hairline className="my-3" />
@@ -490,7 +489,7 @@ export default function CommandCenter() {
 
       {/* --------------------------------------------------------- runs */}
       <section className="mt-10" aria-labelledby="cc-runs">
-        <h2 id="cc-runs" className="font-serif text-xl font-medium">
+        <h2 id="cc-runs" className="section-title">
           {t("runs.title")}
         </h2>
         <Hairline className="my-3" />
@@ -526,7 +525,7 @@ export default function CommandCenter() {
       {/* ------------------------------------------------------- decided */}
       {decided.length > 0 ? (
         <section className="mt-10" aria-labelledby="cc-decided">
-          <h2 id="cc-decided" className="font-serif text-xl font-medium">
+          <h2 id="cc-decided" className="section-title">
             {t("feed.done.title")}
           </h2>
           <Hairline className="my-3" />

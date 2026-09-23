@@ -91,7 +91,7 @@ export function NavSection({ label, children, className }: NavSectionProps) {
   const id = React.useId();
   return (
     <div className={cn("flex flex-col gap-1", className)} role="group" aria-labelledby={id}>
-      <h2 id={id} className="px-3 py-2 font-ui text-12 uppercase tracking-[0.14em] text-subtle">
+      <h2 id={id} className="eyebrow px-3 py-2">
         {label}
       </h2>
       {children}

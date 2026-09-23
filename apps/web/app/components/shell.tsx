@@ -500,7 +500,7 @@ export function Shell({
                 reader came here for (ADR-0085). */}
             {section && sectionItems.length ? (
               <div className="mb-1">
-                <h2 className="mb-1 mt-4 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+                <h2 className="eyebrow mb-1 mt-4 px-3">
                   {section.label}
                 </h2>
                 <ul className="flex flex-col gap-0.5">
@@ -520,7 +520,7 @@ export function Shell({
               // render, so index is stable for as long as the list is.
               <div key={i} className="mb-1">
                 {group.heading ? (
-                  <h2 className="mb-1 mt-4 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+                  <h2 className="eyebrow mb-1 mt-4 px-3">
                     {t(group.heading.labelKey)}
                   </h2>
                 ) : null}

@@ -109,3 +109,33 @@ describe("every Tailwind class compiles", () => {
     expect(missing).toEqual([]);
   });
 });
+
+// docs/01 §4: the serif is the login hero and the home headline — "not a
+// general role". Ninety headings had drifted onto it. Headings are the
+// `page-title`/`section-title` roles (tokens.css); these files are the heroes.
+const SERIF_HEROES: Record<string, string> = {
+  "routes/login.tsx": "the login hero",
+  "routes/home.tsx": "the home headline",
+  "routes/design.tsx": "the playground specimens the serif role",
+  "routes/portal.$tenantSlug.tsx": "the public portal hero",
+  "routes/portal.$tenantSlug.register.tsx": "the public portal hero",
+  "components/shift-clear.tsx": "the shift-cleared hero",
+  "ui/src/horizon.tsx": "Lede, the Horizon lede voice",
+  "ui/src/sections/text-section.tsx": "the design pull's lede"
+};
+
+describe("type roles", () => {
+  const all = [...files(APP), ...files(UI)];
+  it("keeps the serif to its heroes", () => {
+    const stray = all.filter(
+      (path) => readFileSync(path, "utf8").includes("font-serif") && !Object.keys(SERIF_HEROES).some((hero) => path.endsWith(hero))
+    );
+    expect(stray.map((path) => path.slice(APP.length - 3))).toEqual([]);
+  });
+
+  it("writes an eyebrow as the eyebrow role, not a copied recipe", () => {
+    const recipe = /"[^"\n]*\buppercase\b[^"\n]*\btracking-\[0\.1\d*em\][^"\n]*"/;
+    const copied = all.filter((path) => recipe.test(readFileSync(path, "utf8"))).map((path) => path.slice(APP.length - 3));
+    expect(copied).toEqual([]);
+  });
+});

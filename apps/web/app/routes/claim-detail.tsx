@@ -1193,7 +1193,7 @@ export default function ClaimDetail() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{`${l("claimNo")} ${claim.claimNo}`}</h1>
+          <h1 className="page-title">{`${l("claimNo")} ${claim.claimNo}`}</h1>
           <p className="font-ui text-13 text-muted">{claimLede(claim, incurredMinor, claim.currency, l, locale)}</p>
           <Link to="/axis/claims" className="w-fit font-ui text-13 text-accent underline">
             {l("back")}
@@ -1447,7 +1447,7 @@ export default function ClaimDetail() {
         />
         {loaded.may.recover ? (
           <div className="border-t border-border px-6 py-4">
-            <p className="mb-3 font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("recoveryOpenTitle")}</p>
+            <p className="eyebrow mb-3">{l("recoveryOpenTitle")}</p>
             <Form method="post" className="flex flex-wrap items-end gap-4">
               <input type="hidden" name="intent" value="recovery-open" />
               <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />

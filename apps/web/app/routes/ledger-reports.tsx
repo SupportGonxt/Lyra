@@ -568,7 +568,7 @@ export default function LedgerReports() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {reportsHeadline(loaded.denied ? null : loaded.report, l, locale)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("title")}</p>
@@ -708,7 +708,7 @@ function Discrepancy({
 }) {
   return (
     <div role="alert" className="flex flex-col gap-2 rounded-lg border border-danger/40 bg-danger/10 p-5">
-      <p className="font-serif text-18 leading-[1.3] text-text">{title}</p>
+      <p className="section-title">{title}</p>
       <Money
         amountMinor={amountMinor}
         currency={currency}
@@ -839,7 +839,7 @@ function SectionTable({
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{title}</h2>
+      <h2 className="eyebrow">{title}</h2>
       <Table
         columns={columns}
         rows={section.rows}

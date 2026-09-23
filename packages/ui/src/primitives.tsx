@@ -69,7 +69,7 @@ export function Button({
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-ui font-medium",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md font-ui font-medium",
         "transition-colors duration-150 ease-out",
         "disabled:pointer-events-none disabled:opacity-50",
         focusRing,
@@ -172,7 +172,7 @@ export function Field({
   );
 
   return (
-    <div {...props} className={cn("flex flex-col gap-1.5 text-start", className)}>
+    <div {...props} data-field="" className={cn("flex flex-col gap-1.5 text-start", className)}>
       <RLabel.Root
         htmlFor={fieldId}
         className={cn(
@@ -189,12 +189,12 @@ export function Field({
       </RLabel.Root>
       <FieldContext.Provider value={ctx}>{children}</FieldContext.Provider>
       {hint ? (
-        <p id={hintId} className="font-ui text-12 text-subtle">
+        <p id={hintId} data-field-note="" className="font-ui text-12 text-subtle">
           {hint}
         </p>
       ) : null}
       {error ? (
-        <p id={errorId} role="alert" className="font-ui text-12 text-danger">
+        <p id={errorId} role="alert" data-field-note="" className="font-ui text-12 text-danger">
           {error}
         </p>
       ) : null}
@@ -738,9 +738,9 @@ export function PageHeader({ eyebrow, title, description, back, meta, className 
     <header className={cn("flex flex-col", back ? "gap-2" : "gap-1", className)}>
       {back}
       {eyebrow ? (
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{eyebrow}</span>
+        <span className="eyebrow">{eyebrow}</span>
       ) : null}
-      <h1 className="font-serif text-22 leading-[1.2] text-text">{title}</h1>
+      <h1 className="page-title">{title}</h1>
       {description ? <p className="max-w-prose font-ui text-13 text-muted">{description}</p> : null}
       {meta}
     </header>

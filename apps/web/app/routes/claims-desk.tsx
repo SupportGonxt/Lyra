@@ -576,7 +576,7 @@ export default function ClaimsDesk() {
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-prose font-ui text-13 text-subtle">{l("intro")}</p>
         {rows[0] ? (
           <Link to={`/axis/claims/${rows[0].id}/detail`} className="w-fit font-ui text-13 text-accent underline">

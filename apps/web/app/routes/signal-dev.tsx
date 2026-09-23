@@ -232,8 +232,8 @@ export default function SignalDev() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("dev.kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">
+        <span className="eyebrow">{l("dev.kicker")}</span>
+        <h1 className="page-title">
           {devHeadline(l, { readable: loaded.readable.length, hooks: loaded.hooks.length })}
         </h1>
         <p className="max-w-prose font-ui text-13 text-muted">{l("dev.lede")}</p>

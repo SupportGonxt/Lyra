@@ -138,7 +138,7 @@ export function EvidenceLink({ children, source, sourceLabel, className, ...prop
       }
     >
       <div className="flex flex-col gap-2">
-        <span className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{name}</span>
+        <span className="eyebrow">{name}</span>
         {source}
       </div>
     </Popover>
@@ -230,7 +230,7 @@ export function BudgetMeter({
   return (
     <div className={cn("flex flex-col gap-1.5 text-start", className)}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{name}</span>
+        <span className="eyebrow">{name}</span>
         <span className="font-ui text-12 tabular-nums text-muted">
           {amount(used)} / {amount(limit)} {units}
         </span>

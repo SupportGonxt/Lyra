@@ -396,7 +396,7 @@ export default function PortalQuotes() {
       <div className="mx-auto max-w-4xl p-6">
         <header className="lyra-enter mb-8 flex flex-wrap items-end justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h1 className="font-serif text-22 leading-[1.2] text-text">{l("quote.title")}</h1>
+            <h1 className="page-title">{l("quote.title")}</h1>
             <p className="font-ui text-13 text-muted">{l("quote.intro")}</p>
             {/* Declared criteria, visible — J-C1's own wording. */}
             {rankingLede ? <p className="font-ui text-13 text-muted">{rankingLede}</p> : null}
@@ -516,7 +516,7 @@ export default function PortalQuotes() {
                 <Row label={l("quote.total")}>
                   {offers.map((offer) => (
                     <td key={offer.offeringId} className="py-3 pe-4">
-                      <span className="font-serif text-22 leading-[1.2]">
+                      <span className="page-title">
                         <Money amountMinor={offer.totalMinor} currency={offer.currency} locale={locale} />
                       </span>
                     </td>

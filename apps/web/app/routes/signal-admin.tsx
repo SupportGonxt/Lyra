@@ -150,7 +150,7 @@ export default function SignalAdmin() {
     return (
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{l("admin.title")}</h1>
+          <h1 className="page-title">{l("admin.title")}</h1>
           <p className="max-w-prose font-ui text-13 text-muted">{l("admin.lede")}</p>
         </header>
         <EmptyState title={l("admin.denied")} body={t("error.forbidden")} />
@@ -332,7 +332,7 @@ export default function SignalAdmin() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{adminHeadline(l, loaded.faults.length)}</h1>
+          <h1 className="page-title">{adminHeadline(l, loaded.faults.length)}</h1>
           <p className="max-w-prose font-ui text-13 text-muted">{l("admin.lede")}</p>
         </div>
         <Badge tone={loaded.autopilotPaused ? "warning" : "success"} dot>

@@ -84,7 +84,7 @@ export function Dialog({
             dialogSizes[size]
           )}
         >
-          <RDialog.Title className="font-serif text-22 leading-[1.25] text-text">
+          <RDialog.Title className="font-display text-22 font-semibold leading-[1.25] text-text">
             {title}
           </RDialog.Title>
           {description ? (
@@ -160,7 +160,7 @@ export function Drawer({
         >
           <header className="flex items-start justify-between gap-4 border-b border-border p-5">
             <div>
-              <RDialog.Title className="font-serif text-18 leading-[1.3] text-text">
+              <RDialog.Title className="section-title">
                 {title}
               </RDialog.Title>
               {description ? (
@@ -588,7 +588,7 @@ export function CommandBar({
                     record" are told apart without either row having to explain
                     itself. */}
                 {block.name ? (
-                  <span className="block px-3 pb-1 pt-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+                  <span className="eyebrow block px-3 pb-1 pt-3">
                     {block.name}
                   </span>
                 ) : null}

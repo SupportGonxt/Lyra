@@ -384,11 +384,11 @@ export default function ModuleList() {
             about which list this was. */}
         {tabs.length > 1 ? (
           <div className="flex flex-col gap-1">
-            <p className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{t(labelKeyFor(spec.path))}</p>
-            <h1 className="font-serif text-22 leading-[1.2] text-text">{label(tab.key)}</h1>
+            <p className="eyebrow">{t(labelKeyFor(spec.path))}</p>
+            <h1 className="page-title">{label(tab.key)}</h1>
           </div>
         ) : (
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{t(labelKeyFor(spec.path))}</h1>
+          <h1 className="page-title">{t(labelKeyFor(spec.path))}</h1>
         )}
 
         {tabs.length > 1 ? (

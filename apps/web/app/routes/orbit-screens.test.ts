@@ -245,7 +245,7 @@ describe("who is waiting", () => {
   it("buckets sentiment into three moods with matching tones", () => {
     expect([moodKey(null), moodTone(null)]).toEqual(["moodUnknown", "neutral"]);
     expect([moodKey(-40), moodTone(-40)]).toEqual(["moodNegative", "danger"]);
-    expect([moodKey(0), moodTone(0)]).toEqual(["moodNeutral", "warning"]);
+    expect([moodKey(0), moodTone(0)]).toEqual(["moodNeutral", "neutral"]);
     expect([moodKey(60), moodTone(60)]).toEqual(["moodPositive", "success"]);
   });
 

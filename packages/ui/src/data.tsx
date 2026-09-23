@@ -119,7 +119,7 @@ export function Table<T>({
                       // rows and shoved the header band taller than the data.
                       // The wrapper scrolls (line 87), so a long header widens
                       // the table rather than folding.
-                      "whitespace-nowrap border-b border-border bg-surface-1 font-medium uppercase tracking-[0.14em] text-12 text-subtle",
+                      "eyebrow whitespace-nowrap border-b border-border bg-surface-1",
                       cellPad,
                       col.numeric ? "text-end" : "text-start"
                     )}
@@ -348,7 +348,7 @@ export function EmptyState({ title, body, action, className }: EmptyStateProps) 
       )}
     >
       <ConstellationArt />
-      <h3 className="font-serif text-18 leading-[1.3] text-text">{title}</h3>
+      <h3 className="section-title">{title}</h3>
       {body ? <p className="max-w-prose font-ui text-13 text-subtle">{body}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
@@ -389,12 +389,12 @@ export function Stat({
     // min-w-0: a grid item defaults to min-width:auto, so a figure wider than
     // its track ran into the next stat ("AED 244,900.001") instead of wrapping.
     <div className={cn("flex min-w-0 flex-col gap-1 text-start", className)}>
-      <span className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{label}</span>
-      {/* Mono, like every other number in Horizon: a KPI wall of these lines
-          up on the decimal without anyone laying out a grid for it. */}
+      <span className="eyebrow">{label}</span>
+      {/* docs/01 §4: KPI numbers are Archivo 700, tabular — a wall of these
+          still lines up on the decimal without a grid laid out for it. */}
       <span
         className={cn(
-          "font-mono text-28 font-medium tabular-nums text-text",
+          "font-display text-28 font-bold tabular-nums leading-[1.15] text-text [overflow-wrap:anywhere]",
           live && "motion-safe:animate-twinkle"
         )}
       >
@@ -680,8 +680,11 @@ export function KPIWall({ children, className }: { children: React.ReactNode; cl
       // auto-fill, not auto-fit: a home with two stats and no economics panel
       // stretched them to half a screen each, which reads as an empty band
       // rather than two numbers. Empty tracks keep the stats at their own
-      // width; a full wall still fills the row. 10rem keeps a phone two-up.
-      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(10rem, 100%), 1fr))" }}
+      // width; a full wall still fills the row. The track is the larger of
+      // 10rem (a phone stays two-up) and 22% of the wall (a desktop holds four,
+      // wide enough for "AED 244,900.00" — money formats with a no-break space,
+      // so a narrow track overflowed into the next figure).
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(max(10rem, 22%), 100%), 1fr))" }}
     >
       {children}
     </div>

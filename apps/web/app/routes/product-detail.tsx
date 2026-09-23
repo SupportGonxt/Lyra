@@ -395,7 +395,7 @@ export default function ProductDetail() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{nameOf(product.nameJson, locale, product.id)}</h1>
+          <h1 className="page-title">{nameOf(product.nameJson, locale, product.id)}</h1>
           <p className="font-ui text-13 text-muted">{productLede(product, loaded.offerings.length, l)}</p>
           <Link to="/admin/products" className="w-fit font-ui text-13 text-accent underline">
             {l("back")}

@@ -453,8 +453,8 @@ export default function NorthAdmin() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline(metrics, health, now, l)}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline(metrics, health, now, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
       </header>
 
@@ -535,7 +535,7 @@ export default function NorthAdmin() {
           ) : null}
 
           <section className="flex flex-col gap-3">
-            <h2 className="font-serif text-18 leading-[1.3] text-text">{l("registry.title")}</h2>
+            <h2 className="section-title">{l("registry.title")}</h2>
             <Table
               columns={columns}
               rows={rows}
@@ -555,11 +555,11 @@ export default function NorthAdmin() {
               ) : (
                 <dl className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-baseline gap-2">
-                    <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("schedule.locales")}</dt>
+                    <dt className="eyebrow">{l("schedule.locales")}</dt>
                     <dd className="font-mono text-13 text-text">{locales.join(", ")}</dd>
                   </div>
                   <div className="flex flex-wrap items-baseline gap-2">
-                    <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("schedule.audiences")}</dt>
+                    <dt className="eyebrow">{l("schedule.audiences")}</dt>
                     <dd className="font-mono text-13 text-text">{audiences.join(", ")}</dd>
                   </div>
                 </dl>

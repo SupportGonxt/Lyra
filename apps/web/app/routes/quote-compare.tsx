@@ -512,7 +512,7 @@ export default function QuoteCompare() {
           <Link to={listPath} className="w-fit font-ui text-12 text-subtle underline-offset-2 hover:underline">
             {t("common.back")}
           </Link>
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{L("title")}</h1>
+          <h1 className="page-title">{L("title")}</h1>
           <p className="flex flex-wrap items-center gap-2 font-ui text-12 text-subtle">
             <Ref value={request.id} />
             <Badge tone={toneFor(request.state)} size="sm" dot>
@@ -748,7 +748,7 @@ export default function QuoteCompare() {
 
       {loaded.offers.length ? (
         <section aria-labelledby="offers-heading" className="flex flex-col gap-3">
-          <h2 id="offers-heading" className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+          <h2 id="offers-heading" className="eyebrow">
             {L("offersTitle")}
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -796,7 +796,7 @@ function PanelSection({
   return (
     <section aria-labelledby={id} className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <h2 id={id} className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+        <h2 id={id} className="eyebrow">
           {title}
         </h2>
         <p className="max-w-prose font-ui text-12 text-subtle">{body}</p>

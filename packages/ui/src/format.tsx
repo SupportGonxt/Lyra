@@ -397,7 +397,9 @@ export function DateTime({
       suppressHydrationWarning={relative}
       dateTime={date.toISOString()}
       title={relative && hijri ? `${absolute} · ${hijri}` : title}
-      className={cn("tabular-nums", className)}
+      // A timestamp is one unit: "Sep 25, 2026, 07:09 / PM" broke across two
+      // lines in every narrow table column.
+      className={cn("whitespace-nowrap tabular-nums", className)}
     >
       {relative ? relativeText(date, locale) : absolute}
     </time>

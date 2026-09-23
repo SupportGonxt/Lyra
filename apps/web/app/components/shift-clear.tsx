@@ -31,7 +31,7 @@ export function ShiftClear({
       <p className="flex items-center gap-2">
         {/* Alive, not urgent: the one thing on a cleared screen still moving. */}
         <span aria-hidden="true" className="animate-pulse size-1.5 rounded-full bg-accent" />
-        <span className="font-ui text-12 uppercase tracking-[0.18em] text-muted">{eyebrow}</span>
+        <span className="eyebrow text-muted">{eyebrow}</span>
       </p>
 
       <h2 className="max-w-[20ch] font-serif text-36 leading-[1.22] text-text">{head}</h2>
@@ -43,7 +43,7 @@ export function ShiftClear({
         <dl className="flex w-full max-w-[62ch] flex-wrap gap-px border border-border bg-border">
           {figures.map((figure) => (
             <div key={figure.label} className="flex-1 basis-32 bg-surface-2 px-[17px] py-[15px]">
-              <dt className="font-ui text-12 uppercase tracking-[0.1em] text-muted">{figure.label}</dt>
+              <dt className="eyebrow text-muted">{figure.label}</dt>
               <dd className="mt-1.5 font-mono text-22 leading-none text-text">{figure.value}</dd>
             </div>
           ))}

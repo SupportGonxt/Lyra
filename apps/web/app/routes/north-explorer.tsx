@@ -290,8 +290,8 @@ export default function NorthExplorer() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {metric ? (
           <Link
@@ -377,7 +377,7 @@ export default function NorthExplorer() {
               below are the inspectable "why" instead. */}
           {forecast ? (
             <Card>
-              <h2 className="mb-3 font-serif text-16 text-text">{l("forecast.title")}</h2>
+              <h2 className="mb-3 section-title">{l("forecast.title")}</h2>
               {forecast.points.length === 0 ? (
                 <p className="font-ui text-13 text-subtle">{l("forecast.none")}</p>
               ) : (
@@ -405,7 +405,7 @@ export default function NorthExplorer() {
                     {l(forecast.fit.intervalSource === "empirical" ? "forecast.band.empirical" : "forecast.band.default")}
                   </p>
                   {forecast.fit.lastObserved ? (
-                    <p className="mt-1 font-mono text-12 uppercase tracking-[0.14em] text-subtle">
+                    <p className="eyebrow mt-1">
                       {l("forecast.basis", { count: String(forecast.fit.observations), last: forecast.fit.lastObserved })}
                     </p>
                   ) : null}
@@ -416,7 +416,7 @@ export default function NorthExplorer() {
 
           {metric ? (
             <Card>
-              <h2 className="mb-3 font-serif text-16 text-text">{l("definition.title")}</h2>
+              <h2 className="mb-3 section-title">{l("definition.title")}</h2>
               <dl className="grid gap-3 sm:grid-cols-2">
                 <Definition term={l("definition.sql")} value={metric.definitionSqlRef ?? l("definition.unset")} mono />
                 <Definition term={l("definition.owner")} value={metric.owner ?? l("definition.unset")} />
@@ -429,7 +429,7 @@ export default function NorthExplorer() {
                   }
                 />
               </dl>
-              <p className="mt-3 font-mono text-12 uppercase tracking-[0.14em] text-subtle">{metric.key}</p>
+              <p className="eyebrow mt-3">{metric.key}</p>
             </Card>
           ) : null}
         </>
@@ -444,7 +444,7 @@ export const ppm = (value: number): string => (value / 1_000_000).toFixed(2);
 function Definition({ term, value, mono = false }: { term: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-1">
-      <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{term}</dt>
+      <dt className="eyebrow">{term}</dt>
       <dd className={mono ? "font-mono text-12 text-text" : "font-ui text-13 text-text"}>{value}</dd>
     </div>
   );

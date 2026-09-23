@@ -197,7 +197,7 @@ export default function LedgerOpenTxn() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{openHeadline(loaded.types, l)}</h1>
+          <h1 className="page-title">{openHeadline(loaded.types, l)}</h1>
           <p className="font-ui text-13 text-muted">{l("open.intro")}</p>
         </div>
       </header>
@@ -208,7 +208,7 @@ export default function LedgerOpenTxn() {
           aria-live="polite"
           className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-5"
         >
-          <p className="font-serif text-18 leading-[1.3] text-text">{l("txn.approvalRaised")}</p>
+          <p className="section-title">{l("txn.approvalRaised")}</p>
           <p className="max-w-prose font-ui text-13 text-muted">{l("txn.approvalRaisedBody")}</p>
           <div>
             <Button asChild variant="secondary">
@@ -274,7 +274,7 @@ export default function LedgerOpenTxn() {
           </Field>
 
           <fieldset className="flex flex-col gap-3 border-0 p-0">
-            <legend className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+            <legend className="eyebrow">
               {l("open.args")}
             </legend>
             <p className="max-w-prose font-ui text-12 text-subtle">{l("open.argsHint")}</p>
@@ -312,7 +312,7 @@ export default function LedgerOpenTxn() {
       </Card>
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("open.catalogue")}</h2>
+        <h2 className="eyebrow">{l("open.catalogue")}</h2>
         <Table<TxnType>
           caption={l("open.catalogueCaption")}
           captionHidden

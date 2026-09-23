@@ -405,7 +405,7 @@ export function Facts({ children }: { children: ReactNode }) {
 export function Entry({ term, children }: { term: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <dt className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{term}</dt>
+      <dt className="eyebrow">{term}</dt>
       <dd className="font-ui text-13 text-text">{children}</dd>
     </div>
   );

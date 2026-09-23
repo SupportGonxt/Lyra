@@ -775,7 +775,7 @@ export default function Home() {
       ) : null}
       {/* Eyebrow's classes rather than <Eyebrow>: the block still needs a
             real heading in the outline, and the component is a <p>. */}
-      <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+      <h2 className="eyebrow">
         {label("approvals.title")}
       </h2>
       {loaded.approvals.state === "error" ? (
@@ -939,7 +939,7 @@ export default function Home() {
         aria-label={label("journey.title")}
         className="flex flex-col gap-3"
       >
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+        <h2 className="eyebrow">
           {label("journey.title")}
         </h2>
         <div>{renderSection(journeySteps, "hub")}</div>

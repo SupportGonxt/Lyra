@@ -138,7 +138,7 @@ export default function PortalFeedback() {
     <main style={brandStyle(tenant.brand)} className="lyra-field min-h-screen bg-bg text-text">
       <div className="mx-auto max-w-xl p-6">
         <header className="lyra-enter mb-8 flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{l("csat.title")}</h1>
+          <h1 className="page-title">{l("csat.title")}</h1>
           {feedback.ratable ? <p className="font-ui text-13 text-muted">{l("csat.intro")}</p> : null}
         </header>
 

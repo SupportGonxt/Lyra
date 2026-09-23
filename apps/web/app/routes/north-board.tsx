@@ -281,12 +281,12 @@ export default function NorthBoard() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
+        <span className="eyebrow">{l("kicker")}</span>
         {/* The headline narrates the open pack's own assembly state rather
             than repeating the eyebrow's "Board packs" label — see headline()
             above. Lede's classes rather than <Lede>: the page needs a real h1
             in the outline, and the component is a <p>. */}
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline(open, l)}</h1>
+        <h1 className="page-title">{headline(open, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {/* routing.ts documents /north/brief as reached from the workspace
             tools list; The Brief itself links back to /north/board, so this
@@ -406,7 +406,7 @@ function PackDetail({
     <Panel module="north" eyebrow={pack.period} lede={pack.title}>
       <div className="flex flex-col gap-5">
         <section className="flex flex-col gap-2">
-          <h2 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("detail.sections")}</h2>
+          <h2 className="eyebrow">{l("detail.sections")}</h2>
           <Provenance
             rows={[
               ...lines.map((line) => {
@@ -423,7 +423,7 @@ function PackDetail({
         </section>
 
         <section className="flex flex-col gap-2">
-          <h2 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("detail.distribution")}</h2>
+          <h2 className="eyebrow">{l("detail.distribution")}</h2>
           {log.length === 0 ? (
             <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("detail.distribution.none")}</p>
           ) : (

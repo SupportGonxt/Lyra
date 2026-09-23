@@ -117,7 +117,7 @@ export function Meridian({
     >
       <div className="mb-1 flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-2.5">
-          <span className="text-12 uppercase tracking-[0.16em] text-subtle">{t("meridian.title")}</span>
+          <span className="eyebrow">{t("meridian.title")}</span>
           <span className="font-mono text-12 text-text">
             {now === null ? null : <DateTime value={atMs} precision="time" />}
           </span>

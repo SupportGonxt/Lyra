@@ -397,7 +397,7 @@ export default function SaveDesk() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">
+        <h1 className="page-title">
           {saveHeadline(risky.length, loaded.queue.total ?? loaded.queue.data.length, l)}
         </h1>
         <p className="font-ui text-13 text-muted">{l("lede")}</p>

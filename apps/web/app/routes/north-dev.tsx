@@ -309,8 +309,8 @@ export default function NorthDev() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline(metrics, l)}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline(metrics, l)}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {metrics !== null && metrics.length === 0 ? (
           <Link to="/north/admin" className="w-fit font-ui text-13 text-accent underline">
@@ -336,7 +336,7 @@ export default function NorthDev() {
             <Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="query" />
               <fieldset className="flex flex-col gap-2">
-                <legend className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">
+                <legend className="eyebrow">
                   {l("query.metrics")}
                 </legend>
                 <p className="font-ui text-12 text-subtle">{l("query.metrics.hint", { max: String(MAX_KEYS) })}</p>

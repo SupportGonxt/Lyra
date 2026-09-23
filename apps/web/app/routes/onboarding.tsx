@@ -571,7 +571,7 @@ export default function Onboarding() {
       {partner ? <Subject l={l} locale={locale} people={loaded.people} partner={partner} /> : null}
 
       <section aria-labelledby="checklist-heading" className="flex flex-col gap-3">
-        <h2 id="checklist-heading" className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+        <h2 id="checklist-heading" className="eyebrow">
           {l("onb.checklist")}
         </h2>
         {target ? (
@@ -937,7 +937,7 @@ function Lifecycle({
 
   return (
     <section aria-labelledby="lifecycle-heading" className="flex flex-col gap-4">
-      <h2 id="lifecycle-heading" className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+      <h2 id="lifecycle-heading" className="eyebrow">
         {l("onb.lifecycle")}
       </h2>
 
@@ -1022,7 +1022,7 @@ function Agreements({
   const mayWrite = loaded.may.agreementsWrite;
   return (
     <section aria-labelledby="agreements-heading" className="flex flex-col gap-3">
-      <h2 id="agreements-heading" className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+      <h2 id="agreements-heading" className="eyebrow">
         {l("onb.agreements")}
       </h2>
 

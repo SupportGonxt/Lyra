@@ -488,7 +488,7 @@ export default function LedgerRecon() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {reconHeadline(summary, loaded.runs.length, l)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("recon.intro")}</p>
@@ -536,7 +536,7 @@ export default function LedgerRecon() {
           role="status"
           className="flex flex-col gap-2 rounded-lg border border-accent/40 bg-accent/10 p-5"
         >
-          <p className="font-serif text-18 leading-[1.3] text-text">{l("recon.writeOffApproval")}</p>
+          <p className="section-title">{l("recon.writeOffApproval")}</p>
           <p className="max-w-prose font-ui text-13 text-muted">{l("recon.writeOffApprovalBody")}</p>
           <div>
             <Button asChild variant="secondary">
@@ -641,7 +641,7 @@ export default function LedgerRecon() {
 
       {loaded.runId ? (
         <section className="flex flex-col gap-3">
-          <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("recon.matches")}</h2>
+          <h2 className="eyebrow">{l("recon.matches")}</h2>
           <Table<ReconMatch>
             caption={l("recon.matchesCaption")}
             captionHidden
@@ -657,7 +657,7 @@ export default function LedgerRecon() {
       )}
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("recon.runs")}</h2>
+        <h2 className="eyebrow">{l("recon.runs")}</h2>
         <Table<ReconRun>
           caption={l("recon.runsCaption")}
           captionHidden

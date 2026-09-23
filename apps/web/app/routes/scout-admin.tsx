@@ -240,7 +240,7 @@ export default function ScoutAdmin() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {adminHeadline(loaded.pending, loaded.sources, l)}
           </h1>
           <p className="font-ui text-13 text-muted">{l("adm.lede")}</p>
@@ -318,7 +318,7 @@ export default function ScoutAdmin() {
         <Card title={l("adm.floors")} description={l("adm.floorsHint")}>
           <dl className="mt-3 flex flex-col gap-1">
             <dt className="font-ui text-12 text-subtle">{l("adm.defaultFloor")}</dt>
-            <dd className="font-serif text-22 text-text">{loaded.kFloor}</dd>
+            <dd className="page-title">{loaded.kFloor}</dd>
           </dl>
           <p className="mt-2 max-w-prose font-ui text-12 text-subtle">{l("adm.defaultFloorWhy")}</p>
           <h3 className="mt-4 font-ui text-13 font-medium text-text">{l("adm.overrides")}</h3>

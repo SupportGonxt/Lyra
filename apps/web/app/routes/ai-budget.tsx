@@ -478,7 +478,7 @@ export default function AiBudget() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{L("title")}</h1>
+        <h1 className="page-title">{L("title")}</h1>
         <p className="max-w-prose font-ui text-13 text-muted">{budgetHeadline(ceilings, L)}</p>
         {ceilings.some((row) => row.stoppedAt !== null) ? (
           <Link

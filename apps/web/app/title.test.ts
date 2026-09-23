@@ -37,3 +37,18 @@ describe("documentTitle", () => {
     expect(documentTitle("/ledger", translator("ar"), "GONXT", "ar")).not.toContain("Ledger");
   });
 });
+
+// A screen with no catalogue name titled its tab by its workspace alone and
+// printed its crumb in English; 23 bespoke screens had none.
+describe("every static screen has a name", () => {
+  it("in both languages", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { en } = await import("./i18n/en");
+    const source = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");
+    const screens = [...source.matchAll(/route\("([^"]+)"/g)]
+      .map((m) => m[1]!)
+      .filter((path) => path.includes("/") && !path.includes(":"));
+    expect(screens.length).toBeGreaterThan(0);
+    expect(screens.filter((path) => !(`nav.${path}` in en))).toEqual([]);
+  });
+});

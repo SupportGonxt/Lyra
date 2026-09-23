@@ -117,7 +117,8 @@ export function moodTone(sentiment: number | null): BadgeTone {
   if (sentiment === null) return "neutral";
   if (sentiment <= -25) return "danger";
   if (sentiment >= 25) return "success";
-  return "warning";
+  // A neutral customer is not a warning: amber means "needs attention".
+  return "neutral";
 }
 
 export function moodKey(sentiment: number | null): string {
@@ -391,7 +392,7 @@ export default function OrbitConsole() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">
+          <h1 className="page-title">
             {consoleHeadline(
               loaded.bot.total ?? loaded.bot.data.length,
               loaded.human.total ?? loaded.human.data.length,

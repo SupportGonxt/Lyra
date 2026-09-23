@@ -461,8 +461,8 @@ export default function NorthDecisions() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <span className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{l("kicker")}</span>
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{headline}</h1>
+        <span className="eyebrow">{l("kicker")}</span>
+        <h1 className="page-title">{headline}</h1>
         <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("intro")}</p>
         {open.length > 0 ? (
           <Link to="/approvals" className="w-fit font-ui text-13 text-accent underline">
@@ -517,7 +517,7 @@ export default function NorthDecisions() {
 
           {open.length > 0 ? (
             <section className="flex flex-col gap-3">
-              <h2 className="font-serif text-18 leading-[1.3] text-text">{l("queue.title")}</h2>
+              <h2 className="section-title">{l("queue.title")}</h2>
               <p className="font-ui text-13 text-subtle">{l("queue.body")}</p>
               <AutoGrid min="24rem">
                 {open.map((decision) => (
@@ -537,7 +537,7 @@ export default function NorthDecisions() {
           ) : null}
 
           <section className="flex flex-col gap-3">
-            <h2 className="font-serif text-18 leading-[1.3] text-text">{l("log.title")}</h2>
+            <h2 className="section-title">{l("log.title")}</h2>
             {rows.length === 0 ? (
               <EmptyState title={l("none.title")} body={l("none.body")} />
             ) : (
@@ -597,7 +597,7 @@ function DecisionCard({
         />
 
         <section className="flex flex-col gap-2">
-          <h3 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("card.options")}</h3>
+          <h3 className="eyebrow">{l("card.options")}</h3>
           {options.length === 0 ? (
             <p className="font-ui text-13 text-subtle">{l("card.options.none")}</p>
           ) : (
@@ -613,7 +613,7 @@ function DecisionCard({
 
         {outcome?.note ? (
           <section className="flex flex-col gap-1">
-            <h3 className="font-ui text-12 uppercase tracking-[0.14em] text-subtle">{l("outcome.title")}</h3>
+            <h3 className="eyebrow">{l("outcome.title")}</h3>
             <p className="font-ui text-13 text-text">{outcome.note}</p>
           </section>
         ) : null}

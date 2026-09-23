@@ -1056,7 +1056,7 @@ export default function Settings() {
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-1">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{label("settings.title")}</h1>
+        <h1 className="page-title">{label("settings.title")}</h1>
         <p className="font-ui text-13 text-muted">{settingsLede(loaded.notifications.length, label)}</p>
       </header>
 
@@ -1477,7 +1477,7 @@ function Section({
   return (
     <section aria-labelledby={id} className="flex flex-col gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-col gap-1">
-        <h2 id={id} className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+        <h2 id={id} className="eyebrow">
           {title}
         </h2>
         {lead ? <p className="max-w-prose font-ui text-13 text-subtle">{lead}</p> : null}

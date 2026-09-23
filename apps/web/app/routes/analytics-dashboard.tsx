@@ -207,7 +207,7 @@ export default function AnalyticsDashboard() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="font-serif text-22 leading-[1.2] text-text">{loaded.name}</h1>
+          <h1 className="page-title">{loaded.name}</h1>
           {health ? (
             <p className="font-ui text-13 text-muted">
               {health.failed > 0
@@ -246,7 +246,7 @@ export default function AnalyticsDashboard() {
                 aria-label={l(spec.key)}
                 className={`flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-surface-1 p-4 ${span}`}
               >
-                <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l(spec.key)}</h2>
+                <h2 className="eyebrow">{l(spec.key)}</h2>
                 <Tile spec={spec} result={result} locale={locale} l={l} t={t} />
               </section>
             );
