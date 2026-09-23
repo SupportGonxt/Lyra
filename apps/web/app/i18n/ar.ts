@@ -25,6 +25,7 @@ export const ar: Messages = {
 
   "nav.breadcrumb": "أنت هنا",
   "nav.doctrine": "العقيدة التصميمية",
+  "nav.inbox": "صندوق الوارد",
   "nav.home": "الرئيسية",
   "nav.center": "مركز القيادة",
   "nav.ai": "حلقة الوكيل",

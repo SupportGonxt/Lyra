@@ -197,11 +197,17 @@ export interface Crumb {
 export function Breadcrumbs({
   items,
   label,
-  className
+  className,
+  renderLink
 }: {
   items: Crumb[];
   label?: string;
   className?: string;
+  /**
+   * The app's router link. A bare `<a>` reloads the whole document, losing the
+   * view transition and every piece of client state on the way up a level.
+   */
+  renderLink?: (props: { href: string; className: string; children: React.ReactNode }) => React.ReactNode;
 }) {
   const t = useUiText();
   return (
@@ -212,9 +218,13 @@ export function Breadcrumbs({
           return (
             <li key={`${c.label}-${i}`} className="flex items-center gap-2">
               {c.href && !last ? (
-                <a href={c.href} className={cn("rounded-sm hover:text-text", focusRing)}>
-                  {c.label}
-                </a>
+                renderLink ? (
+                  renderLink({ href: c.href, className: cn("rounded-sm hover:text-text", focusRing), children: c.label })
+                ) : (
+                  <a href={c.href} className={cn("rounded-sm hover:text-text", focusRing)}>
+                    {c.label}
+                  </a>
+                )
               ) : (
                 <span {...(last ? { "aria-current": "page" as const, className: "text-muted" } : {})}>
                   {c.label}

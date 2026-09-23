@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { goto, loginAsAxisAgent, loginAsNorthExec } from "./fixtures.js";
+import { goto, loginAsAxisAgent, loginAsNorthExec, expectModuleRail } from "./fixtures.js";
+import { NORTH_SCREENS } from "../apps/web/app/modules/screens.js";
 
 // @journey:J-E1 — where J-E1's 7am read is opened, Meridian included
 // (docs/06-roles-and-journeys.md:79, docs/superpowers/specs/2026-08-15-north-shell-fork-design.md):
@@ -11,33 +12,14 @@ import { goto, loginAsAxisAgent, loginAsNorthExec } from "./fixtures.js";
 // just not entitled to this shell: north-shell.tsx's loader), and Meridian's
 // ?asOf= deep link actually moves the scrubber, not just the URL.
 
-test("north.exec lands in NorthShell and sees only NORTH's own rail", async ({ page }) => {
+test("north.exec lands in the one frame, led by NORTH's own screens (ADR-0085)", async ({ page }) => {
   await loginAsNorthExec(page);
   await goto(page, "/north/brief");
-
-  // north-shell.tsx renders two <nav aria-label="Primary"> landmarks (one
-  // md:hidden for mobile, one hidden md:flex for desktop); Playwright's
-  // default chromium viewport is desktop-sized, so the mobile one is
-  // display:none and getByRole already excludes it from the a11y tree —
-  // .first() is defensive, matching horizon-shell.spec.ts's convention.
-  const rail = page.getByRole("navigation", { name: /primary/i }).first();
-
-  // The spec gives NorthShell the north/* destinations directly
-  // (…-north-shell-fork-design.md §"Owns": "its own nav rail (the nine
-  // north/* destinations only, no other module's items)"), so the rail lists
-  // them itself rather than filtering /v1/me's nav — which is
-  // WORKSPACE_PATHS-shaped and can only ever carry "/north".
-  await expect(rail.getByRole("link", { name: /brief/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /explorer/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /anomalies/i })).toBeVisible();
-
-  // No other module's destinations leak into this rail.
-  await expect(rail.getByRole("link", { name: /axis/i })).toHaveCount(0);
-  await expect(rail.getByRole("link", { name: /orbit/i })).toHaveCount(0);
-
-  // Meridian defaults to live: no ?asOf= in the URL, no replay banner shown.
-  expect(new URL(page.url()).searchParams.has("asOf")).toBe(false);
+  // Every NORTH screen this role may use, none it may not, and no other
+  // module's screens: those are reached through the workspace list below.
+  await expectModuleRail(page, "north.exec", NORTH_SCREENS, ["/axis/board", "/orbit/console"]);
 });
+
 
 test("an actor with no north.*-resolving role gets 403, not 401, on /north/*", async ({ page }) => {
   await loginAsAxisAgent(page);

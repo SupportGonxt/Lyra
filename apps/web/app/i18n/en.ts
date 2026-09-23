@@ -26,6 +26,7 @@ export const en = {
 
   "nav.breadcrumb": "You are here",
   "nav.doctrine": "Design doctrine",
+  "nav.inbox": "Inbox",
   "nav.home": "Home",
   "nav.center": "Command center",
   // The ✦ eyebrow over the command center: what the agents on this page are.

@@ -4,13 +4,6 @@ import { describe, expect, it } from "vitest";
 import { NorthShell } from "./north-shell";
 import type { SessionBootstrap } from "../session.server";
 
-// shell.test.ts's no-hard-coded-English guard scans every source file
-// (this test included) for literal label/aria-label/etc text, so the
-// switcher's presence is asserted on its @lyra/ui nav.tsx class
-// ("flex flex-col gap-1", ModuleSwitcher's own wrapper — unused elsewhere in
-// NorthShell's markup) instead of its translated aria-label text.
-const MODULE_SWITCHER_CLASS = "flex flex-col gap-1";
-
 // apps/web's vitest suite is deliberately DOM-free (vitest.config.ts:
 // "Rendering tests arrive with the module screens, in Playwright") — no
 // jsdom, no @testing-library/react (reverted at Task 8, see
@@ -57,12 +50,18 @@ function markupFor(session: SessionBootstrap): string {
 }
 
 describe("NorthShell", () => {
-  it("renders all nine of NORTH's own nav destinations, not other modules'", () => {
-    const html = markupFor(sessionWith());
-    // The spec (docs/superpowers/specs/2026-08-15-north-shell-fork-design.md
-    // §"Owns") gives this shell the north/* destinations directly. These are
-    // real catalogue keys, so assert on the rendered label too — a raw
-    // "nav.north/brief" in the markup would mean a missing translation.
+  const every = [
+    "north:briefings:read",
+    "north:metrics:read",
+    "north:anomalies:read",
+    "north:alerts:read",
+    "north:scenarios:read",
+    "north:boardpacks:read",
+    "north:decisions:read"
+  ];
+
+  it("leads the rail with NORTH's own screens, labelled", () => {
+    const html = markupFor(sessionWith({ permissions: every }));
     for (const [href, label] of [
       ["/north/brief", "Brief"],
       ["/north/explorer", "Explorer"],
@@ -79,16 +78,23 @@ describe("NorthShell", () => {
     }
     // The board pack's file stream is a detail route, not a rail destination.
     expect(html).not.toContain("/north/board/");
-    expect(html).not.toContain('href="/axis"');
   });
 
-  it("hides the multi-role switcher for a single-shell actor", () => {
-    const html = markupFor(sessionWith({ availableShells: ["north"] }));
-    expect(html).not.toContain(MODULE_SWITCHER_CLASS);
+  // ADR-0085: one frame. Inside a module the reader still has every
+  // workspace their nav offers, instead of a rail fenced to one module.
+  it("keeps every workspace the reader's nav offers", () => {
+    const html = markupFor(sessionWith({ permissions: every }));
+    expect(html).toContain('href="/axis"');
   });
 
-  it("shows the multi-role switcher for a multi-shell actor", () => {
-    const html = markupFor(sessionWith({ availableShells: ["north", "axis"] }));
-    expect(html).toContain(MODULE_SWITCHER_CLASS);
+  it("offers only the screens this reader can use", () => {
+    const html = markupFor(sessionWith({ permissions: ["north:briefings:read"] }));
+    expect(html).toContain('href="/north/brief"');
+    expect(html).not.toContain('href="/north/whatif"');
+  });
+
+  it("draws the Meridian, which is NORTH's", () => {
+    const html = markupFor(sessionWith({ permissions: every }));
+    expect(html).toMatch(/meridian/i);
   });
 });

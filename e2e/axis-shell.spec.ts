@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { goto, loginAsAxisAgent, loginAsNorthExec } from "./fixtures.js";
+import { goto, loginAsAxisAgent, loginAsNorthExec, expectModuleRail } from "./fixtures.js";
+import { AXIS_SCREENS } from "../apps/web/app/modules/screens.js";
 
 // @journey:J-O1 — the "login" step of J-O1 exception clearing
 // (docs/06-roles-and-journeys.md:47, docs/superpowers/specs/2026-08-16-axis-shell-fork-design.md):
@@ -11,28 +12,14 @@ import { goto, loginAsAxisAgent, loginAsNorthExec } from "./fixtures.js";
 // just not entitled to this shell: axis-shell.tsx's loader). No Meridian —
 // ADR-0061 is explicit that Meridian is NORTH-only.
 
-test("axis.agent lands in AxisShell and sees only AXIS's own rail", async ({ page }) => {
+test("axis.agent lands in the one frame, led by AXIS's own screens (ADR-0085)", async ({ page }) => {
   await loginAsAxisAgent(page);
   await goto(page, "/axis/board");
-
-  // axis-shell.tsx renders two <nav aria-label="Primary"> landmarks (one
-  // md:hidden for mobile, one hidden md:flex for desktop); Playwright's
-  // default chromium viewport is desktop-sized, so the mobile one is
-  // display:none and getByRole already excludes it from the a11y tree —
-  // .first() is defensive, matching north-shell.spec.ts's convention.
-  const rail = page.getByRole("navigation", { name: /primary/i }).first();
-
-  await expect(rail.getByRole("link", { name: /exceptions/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /board/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /quote desk/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /renewals/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /referrals/i })).toBeVisible();
-  await expect(rail.getByRole("link", { name: /claims desk/i })).toBeVisible();
-
-  // No other module's destinations leak into this rail.
-  await expect(rail.getByRole("link", { name: /^brief$/i })).toHaveCount(0);
-  await expect(rail.getByRole("link", { name: /explorer/i })).toHaveCount(0);
+  // Every AXIS screen this role may use, none it may not, and no other
+  // module's screens: those are reached through the workspace list below.
+  await expectModuleRail(page, "axis.agent", AXIS_SCREENS, ["/north/brief", "/orbit/console"]);
 });
+
 
 test("an actor with no axis.*-resolving role gets 403, not 401, on /axis/*", async ({ page }) => {
   await loginAsNorthExec(page);

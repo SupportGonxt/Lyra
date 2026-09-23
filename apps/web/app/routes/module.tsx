@@ -379,11 +379,23 @@ export default function ModuleList() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-4">
-        <h1 className="font-serif text-22 leading-[1.2] text-text">{t(labelKeyFor(spec.path))}</h1>
+        {/* The heading names what is on screen — the tab — with the workspace
+            above it; "Operations" over every one of its 16 lists said nothing
+            about which list this was. */}
+        {tabs.length > 1 ? (
+          <div className="flex flex-col gap-1">
+            <p className="font-mono text-12 uppercase tracking-[0.14em] text-subtle">{t(labelKeyFor(spec.path))}</p>
+            <h1 className="font-serif text-22 leading-[1.2] text-text">{label(tab.key)}</h1>
+          </div>
+        ) : (
+          <h1 className="font-serif text-22 leading-[1.2] text-text">{t(labelKeyFor(spec.path))}</h1>
+        )}
 
         {tabs.length > 1 ? (
-          <nav aria-label={t("common.tabs")}>
-            <ul className="flex flex-wrap gap-1">
+          // One row that scrolls sideways, the current tab kept in view: admin's
+          // 35 tabs used to wrap into three rows above the table.
+          <nav aria-label={t("common.tabs")} className="-mx-1 overflow-x-auto px-1 pb-1">
+            <ul className="flex w-max gap-1">
               {tabs.map((entry) => {
                 const current = entry.key === tab.key;
                 return (
@@ -391,8 +403,9 @@ export default function ModuleList() {
                     <Link
                       to={`${spec.path}/${entry.key}`}
                       aria-current={current ? "page" : undefined}
+                      ref={current ? (link) => link?.scrollIntoView?.({ block: "nearest", inline: "nearest" }) : undefined}
                       className={[
-                        "inline-flex h-8 items-center rounded-md px-3 font-ui text-13 transition-colors duration-150",
+                        "inline-flex h-8 items-center whitespace-nowrap rounded-md px-3 font-ui text-13 transition-colors duration-150",
                         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                         current
                           ? "bg-surface-2 font-medium text-text"

@@ -12,6 +12,8 @@ import type { SearchItem } from "../routes/search";
 export interface Destination {
   href: string;
   label: string;
+  /** A tab inside a workspace: found by typing, not listed before a query. */
+  deep?: boolean;
 }
 
 /**
@@ -26,8 +28,8 @@ export function matchingDestinations(
   query: string
 ): Destination[] {
   const q = query.trim().toLowerCase();
-  if (!q) return [...destinations];
-  return destinations.filter((d) => d.label.toLowerCase().includes(q));
+  if (!q) return destinations.filter((d) => !d.deep);
+  return destinations.filter((d) => d.label.toLowerCase().includes(q)).slice(0, 12);
 }
 
 export function SearchPalette({ t, destinations }: { t: Translate; destinations: readonly Destination[] }) {
@@ -35,6 +37,10 @@ export function SearchPalette({ t, destinations }: { t: Translate; destinations:
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<SearchItem[]>([]);
+  // The key cap says what this keyboard has: ⌘ on a Mac, Ctrl elsewhere. The
+  // server cannot know, so it renders ⌘ and the client corrects it.
+  const [mac, setMac] = useState(true);
+  useEffect(() => setMac(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)), []);
 
   useEffect(() => {
     const term = query.trim();
@@ -73,11 +79,9 @@ export function SearchPalette({ t, destinations }: { t: Translate; destinations:
         onClick={() => setOpen(true)}
         className="group hidden h-[31px] min-w-0 max-w-[680px] flex-1 items-center gap-2.5 rounded-[4px] border border-border bg-surface-2/50 px-3 text-start font-ui text-13 text-subtle transition-colors duration-150 hover:border-border-strong hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:flex"
       >
-        <span
-          aria-hidden="true"
-          className="size-1.5 shrink-0 rounded-orbit bg-accent"
-          style={{ animation: "var(--animate-pulse)" }}
-        />
+        {/* Still, not pulsing: docs/15 §4.5 keeps the pulse for "an agent
+            found something material", and this dot found nothing. */}
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-orbit bg-accent" />
         <span className="truncate">{t("search.open")}</span>
         {/* The scope chip. Not its own button — everything here opens the same
             palette, and a button inside a button is invalid anyway. */}
@@ -90,8 +94,22 @@ export function SearchPalette({ t, destinations }: { t: Translate; destinations:
           </svg>
           {t("search.allSurfaces")}
           {/* A key cap, not a word: the same two glyphs in every locale. */}
-          <kbd className="font-mono text-12 text-muted">⌘K</kbd>
+          <kbd className="font-mono text-12 text-muted">{mac ? "⌘K" : "Ctrl K"}</kbd>
         </span>
+      </button>
+      {/* Phones: the ask bar is hidden below sm, and touch has no ⌘K, so
+          search had no way in at all. */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={t("search.open")}
+        title={t("search.open")}
+        className="grid size-8 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:hidden"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
       </button>
       <CommandBar
         open={open}

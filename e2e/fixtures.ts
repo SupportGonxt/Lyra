@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { PERSONAS } from "./env.js";
+import { expand, permissionsForRole } from "@lyra/core";
 
 /**
  * `page.goto` that comes back once React has hydrated, not merely once the
@@ -139,7 +140,7 @@ export async function confirmAction(page: Page): Promise<void> {
  */
 /**
  * The screen itself, without the shell around it. The rail's shift block
- * (components/shift-rail.tsx) repeats the titles of whatever is waiting on this
+ * (the Inbox row and the home queue) repeats the titles of whatever is waiting on this
  * actor, so an unscoped by-name lookup can resolve to chrome instead of the
  * screen — "Endorse" matched both the endorsement link and a queued endorsement
  * approval. Scope any by-name lookup whose name is an ordinary verb through
@@ -187,4 +188,26 @@ export async function chooseOption(scope: Page | Locator, label: string, optionT
     await page.keyboard.press("Enter");
   }
   await expect(trigger).toContainText(optionText);
+}
+
+/**
+ * The rail inside a module (ADR-0085): the module's own screens this role may
+ * use are there, the ones it may not are absent, and the named foreign paths
+ * (another module's screens) never appear. Checked by href, because a label
+ * like "Analytics" is both a module screen and a workspace.
+ */
+export async function expectModuleRail(
+  page: Page,
+  role: string,
+  screens: readonly { href: string; permission?: string }[],
+  foreign: readonly string[]
+): Promise<void> {
+  const held = new Set(expand(permissionsForRole(role)));
+  const rail = page.getByRole("navigation", { name: /primary/i }).first();
+  for (const screen of screens) {
+    const link = rail.locator(`a[href="${screen.href}"]`);
+    if (!screen.permission || held.has(screen.permission)) await expect(link).toBeVisible();
+    else await expect(link).toHaveCount(0);
+  }
+  for (const href of foreign) await expect(rail.locator(`a[href="${href}"]`)).toHaveCount(0);
 }

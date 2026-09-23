@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, useLocation, useNavigate, useNavigation, useSubmit } from "react-router";
+import { NavLink, useLocation, useNavigate, useNavigation, useSearchParams, useSubmit } from "react-router";
 import {
   Breadcrumbs,
   Menu,
@@ -12,17 +12,16 @@ import {
 } from "@lyra/ui";
 import type { Brand, NavItem } from "../api.server";
 import type { Translate } from "../i18n";
-import { humanise } from "../modules/spec";
-import { isRouted, landingFor } from "../routing";
+import { workspaceFor } from "../modules";
+import { humanise, labelsFor, visibleTabs } from "../modules/spec";
+import { isRouted, labelKeyFor, landingFor } from "../routing";
 import { ColdOpen } from "./cold-open";
 import { Companion } from "./companion";
 import { ConstellationMark } from "./mark";
 import { Meridian } from "./meridian";
 import { SearchPalette } from "./search";
-import type { Names } from "../names";
 import { PostureChips } from "./posture";
-import { inboxAsOf, shiftFrom, type Inbox } from "./shift";
-import { ShiftRail } from "./shift-rail";
+import type { Inbox } from "./shift";
 import { ThemeToggle } from "./theme-toggle";
 
 // The frame every workspace renders inside: a 50px top bar carrying the tenant
@@ -115,13 +114,24 @@ export interface ShellProps {
    * surfaces then render nothing rather than an invented zero.
    */
   inbox?: Inbox | null;
-  /** Display names for the approval subjects the rail lists. */
-  names?: Names;
   /** Every role key this actor holds, for the role pill (docs/07 §3 personas). */
   roles?: readonly string[];
   /** Expanded permission keys, for the chrome that is absent without them. */
   permissions?: readonly string[];
+  /** Inside a module: its own screens, which lead the rail (ADR-0085). */
+  section?: ShellSection;
+  /** The day strip. NORTH's alone (ADR-0061, ADR-0085). */
+  meridian?: boolean;
+  /** For the words `t` cannot reach: a workspace's own tab names in a crumb. */
+  locale?: string;
   children: React.ReactNode;
+}
+
+export interface ShellSection {
+  label: string;
+  /** The module's `--module-*` hue. */
+  accent: string;
+  items: Pick<NavItem, "href" | "labelKey">[];
 }
 
 /** One switchable view in the role pill: the role key, where that role lands,
@@ -190,7 +200,7 @@ export function routedLeaves(item: NavItem): NavItem[] {
  * other id on screen is, and a trailing screen name (`compare`, `audit-trail`)
  * said as words.
  */
-export function crumbsFor(pathname: string, nav: NavItem[], t: Translate): Crumb[] {
+export function crumbsFor(pathname: string, nav: NavItem[], t: Translate, locale = "en"): Crumb[] {
   const leaves = nav.flatMap(routedLeaves).filter((item) => item.href !== "/");
   const ancestors = leaves
     .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
@@ -199,11 +209,24 @@ export function crumbsFor(pathname: string, nav: NavItem[], t: Translate): Crumb
   if (!deepest) return [];
   const rest = pathname.slice(deepest.href.length).split("/").filter(Boolean);
   if (!rest.length) return [];
+  const spec = workspaceFor(deepest.href);
+  // A workspace's list tab says where it is in its own eyebrow and heading
+  // (module.tsx); a trail repeating both, one line above them, is noise.
+  if (rest.length === 1 && spec?.tabs.some((entry) => entry.key === rest[0])) return [];
   return [
     ...ancestors.map((item) => ({ label: t(item.labelKey), href: item.href })),
-    ...rest.map((segment) => ({
-      label: isOpaqueRef(segment) ? shortRef(segment) : humanise(segment)
-    }))
+    ...rest.map((segment, index) => {
+      const href = `${deepest.href}/${rest.slice(0, index + 1).join("/")}`;
+      // The rail's own catalogue first (`nav.axis/quote-desk`), then the
+      // workspace's tab name — both translated and both the words the rail
+      // uses. `humanise` was English in every locale.
+      const key = labelKeyFor(href);
+      const named = t(key) !== key ? t(key) : null;
+      const tab = index === 0 && spec?.tabs.some((entry) => entry.key === segment) ? segment : null;
+      if (named) return { label: named, href };
+      if (tab && spec) return { label: labelsFor(spec, locale)(tab), href };
+      return { label: isOpaqueRef(segment) ? shortRef(segment) : humanise(segment) };
+    })
   ];
 }
 
@@ -214,9 +237,11 @@ export function Shell({
   tenantName,
   actorName,
   inbox = null,
-  names = {},
   roles = [],
   permissions = [],
+  section,
+  meridian = false,
+  locale = "en",
   children
 }: ShellProps) {
   const { product: productName, tenant: servedName } = lockupNames(brand, tenantName);
@@ -233,7 +258,35 @@ export function Shell({
       groups.push({ heading: null, items: [item] });
     }
   }
-  const items = groups.flatMap((g) => g.items);
+  const home = groups.find((group) => !group.heading && group.items[0]?.href === "/")?.items[0] ?? null;
+  const workspaces = groups.filter((group) => group.items[0]?.href !== "/");
+  // The inbox is where a decision waiting on this reader lives (approvals).
+  // It is pinned beside Home in every frame, with its count, instead of being
+  // reachable only from a panel on the home screen.
+  const mayInbox = permissions.includes("core:approvals:read");
+  const inboxItem: NavItem | null = mayInbox ? { labelKey: "nav.inbox", href: "/approvals", icon: "inbox" } : null;
+  const inboxCount = inbox?.counts?.approvals ?? inbox?.approvals.length ?? 0;
+  const pinned = [home, inboxItem].filter((item): item is NavItem => item !== null);
+  const sectionItems: NavItem[] = (section?.items ?? []).map((item) => ({ ...item, icon: "" }));
+  const items = [...pinned, ...sectionItems, ...workspaces.flatMap((g) => g.items)];
+  // Everything ⌘K can go to: the rail, and every tab of every workspace this
+  // reader may read — "Trial balance", "Period close" — named "Tab · Workspace"
+  // so two tabs called "Settings" are told apart. It knew only the rail's ~11.
+  const destinations = [
+    ...items.map((item) => ({ href: item.href, label: t(item.labelKey) })),
+    ...workspaces
+      .flatMap((group) => group.items)
+      .flatMap((item) => {
+        const spec = workspaceFor(item.href);
+        if (!spec) return [];
+        const label = labelsFor(spec, locale);
+        return visibleTabs(spec, permissions).map((tab) => ({
+          href: `${spec.path}/${tab.key}`,
+          label: `${label(tab.key)} · ${t(item.labelKey)}`,
+          deep: true
+        }));
+      })
+  ];
   const logo = brand?.logo?.dark ?? brand?.logo?.light ?? brand?.logo?.mark;
   // The arrival is keyed on the path: React throws the old main away on every
   // navigation, so the entrance plays again instead of only on first paint.
@@ -243,11 +296,8 @@ export function Shell({
   const currentItem = items
     .filter((item) => (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)))
     .sort((a, b) => b.href.length - a.href.length)[0];
-  const crumbs = crumbsFor(pathname, nav, t);
-  // The pill names the role whose workspace is on screen, falling back to the
-  // first one held — an actor sitting on /settings is still someone's agent.
+  const crumbs = crumbsFor(pathname, nav, t, locale);
   const profiles = profilesFor(roles, nav, pathname);
-  const roleKey = profiles.find((profile) => profile.active)?.role ?? roles[0] ?? null;
   const navigate = useNavigate();
   const submit = useSubmit();
   // The rail is absent, not disabled, for an actor who cannot read agent runs —
@@ -256,7 +306,17 @@ export function Shell({
   const [companion, setCompanion] = useState(false);
   // Where the Meridian's playhead is parked. null while it follows now, which
   // is the only state in which the rail shows the live queue.
-  const [asOf, setAsOf] = useState<number | null>(null);
+  // The replay position lives in the URL (?asOf=) so a NORTH screen read "as
+  // of 10:09" is a link someone else can open at the same moment.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const asOfParam = searchParams.get("asOf")?.trim();
+  const initialAsOf = asOfParam && Number.isFinite(Number(asOfParam)) ? Number(asOfParam) : null;
+  const scrub = (value: number | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === null) next.delete("asOf");
+    else next.set("asOf", String(value));
+    setSearchParams(next, { replace: true });
+  };
   const mayCompanion = permissions.includes("ai:runs:read");
   // docs/07 latency doctrine: a wait under 400ms is answered by holding still —
   // a skeleton that flashes reads as a fault. Past it the screen the actor asked
@@ -326,10 +386,7 @@ export function Shell({
           {/* ⌘K answers both halves of the design's two overlays: what is this,
               and where do I go. The destinations are the nav's own, so a place
               the rail cannot open is not offered here either (ADR-0031). */}
-          <SearchPalette
-            t={t}
-            destinations={items.map((item) => ({ href: item.href, label: t(item.labelKey) }))}
-          />
+          <SearchPalette t={t} destinations={destinations} />
 
           <div className="ms-auto flex shrink-0 items-center gap-1">
             <PostureChips posture={inbox?.posture} t={t} />
@@ -380,8 +437,11 @@ export function Shell({
                       already says who, and which hat they are wearing is the
                       thing that changes what the next screen shows. The name
                       stays on the tooltip and in the menu's own label. */}
-                  <span className="hidden max-w-40 truncate font-mono text-12 text-muted sm:inline">
-                    {roleKey ?? actorName ?? t("header.account")}
+                  {/* The person, in words. A role key (`axis.admin`) is a
+                      permission bundle's id, not something a reader calls
+                      themselves; which view they are in is the rail's job. */}
+                  <span className="hidden max-w-40 truncate font-ui text-12 text-muted sm:inline">
+                    {actorName ?? t("header.account")}
                   </span>
                   <span aria-hidden="true" className="text-12 text-subtle">
                     &#9662;
@@ -397,7 +457,9 @@ export function Shell({
             (horizon-1-shell.md §5.1 stacks it above the body split). Nothing
             here is sticky — the root does not scroll, so the bands hold still
             for free and only the canvas moves. */}
-        <Meridian t={t} inbox={inbox} accent={accentFor(pathname)} onScrub={setAsOf} />
+        {meridian ? (
+          <Meridian t={t} inbox={inbox} accent={accentFor(pathname)} initialAsOf={initialAsOf} onScrub={scrub} />
+        ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           <nav
@@ -409,7 +471,12 @@ export function Shell({
             ].join(" ")}
           >
             {items.map((item) => (
-              <NavItemLink key={item.href} item={item} t={t} />
+              <NavItemLink
+                key={item.href}
+                item={item}
+                t={t}
+                badge={item === inboxItem && inboxCount > 0 ? inboxCount : undefined}
+              />
             ))}
           </nav>
 
@@ -417,45 +484,35 @@ export function Shell({
             aria-label={t("nav.primary")}
             className="lyra-vt-rail hidden md:flex md:w-[var(--rail-width)] md:shrink-0 md:flex-col md:gap-0.5 md:overflow-y-auto md:border-e md:border-border md:p-[var(--gutter-rail)]"
           >
-            {/* Flagship demo entry point, pinned above everything else in the
-                rail: the AXIS→NORTH→SCOUT→SIGNAL click-through story that
-                /journey/axis opens. Not part of the API-driven `nav` contract,
-                but still t()-routed like everything else this shell renders. */}
-            <div className="mb-1">
-              <h2 className="mb-1 mt-0 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
-                {t("journey.demo")}
-              </h2>
-              <ul className="flex flex-col gap-0.5">
-                <li>
-                  <NavLink
-                    to="/journey/axis"
-                    viewTransition
-                    className={({ isActive }) =>
-                      [
-                        "group flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-start font-ui text-13 transition-colors duration-150",
-                        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                        isActive
-                          ? "bg-surface-2 font-medium text-text"
-                          : "text-muted hover:bg-surface-2 hover:text-text"
-                      ].join(" ")
-                    }
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="h-4 w-0.5 shrink-0 rounded-orbit"
-                      style={{ background: MODULE_ACCENT["/axis"] }}
-                    />
-                    <span className="truncate">{t("journey.demoLabel")}</span>
-                  </NavLink>
+            {/* Pinned: where every reader starts and what is waiting on them. */}
+            <ul className="mb-1 flex flex-col gap-0.5">
+              {pinned.map((item) => (
+                <li key={item.href}>
+                  <NavItemLink
+                    item={item}
+                    t={t}
+                    badge={item === inboxItem && inboxCount > 0 ? inboxCount : undefined}
+                  />
                 </li>
-              </ul>
-            </div>
-            {/* The shift sits above the destinations, not instead of them: the
-                comp has no nav menu at all (its search overlay is the
-                navigation), but every screen still has to be reachable without
-                knowing its name. */}
-            <ShiftRail t={t} shift={shiftFrom(asOf === null ? inbox : inboxAsOf(inbox, asOf), names)} />
-            {groups.map((group, i) => (
+              ))}
+            </ul>
+            {/* Inside a module, its own screens come first — they are what the
+                reader came here for (ADR-0085). */}
+            {section && sectionItems.length ? (
+              <div className="mb-1">
+                <h2 className="mb-1 mt-4 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
+                  {section.label}
+                </h2>
+                <ul className="flex flex-col gap-0.5">
+                  {sectionItems.map((item) => (
+                    <li key={item.href}>
+                      <NavItemLink item={item} t={t} nested accent={section.accent} exact />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {workspaces.map((group, i) => (
               // Keyed by position: a heading's own `href` is "" (apps/api/src
               // /routes/me.ts) and `??` does not fall back on "", so every
               // heading group used to share the key "" — React then reused the
@@ -463,7 +520,7 @@ export function Shell({
               // render, so index is stable for as long as the list is.
               <div key={i} className="mb-1">
                 {group.heading ? (
-                  <h2 className="mb-1 mt-4 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle first:mt-0">
+                  <h2 className="mb-1 mt-4 px-3 font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">
                     {t(group.heading.labelKey)}
                   </h2>
                 ) : null}
@@ -496,7 +553,17 @@ export function Shell({
             {/* Only below module level, and only when the path says more than the
                 rail can: a record opened from a queue, or a screen hanging off
                 one. At module level this renders nothing at all. */}
-            {crumbs.length ? <Breadcrumbs items={crumbs} label={t("nav.breadcrumb")} /> : null}
+            {crumbs.length ? (
+              <Breadcrumbs
+                items={crumbs}
+                label={t("nav.breadcrumb")}
+                renderLink={({ href, className, children: text }) => (
+                  <NavLink to={href} end className={className} viewTransition>
+                    {text}
+                  </NavLink>
+                )}
+              />
+            ) : null}
             {slow ? <PageSkeleton label={t("common.loading")} /> : children}
           </main>
 
@@ -552,7 +619,9 @@ export function accountMenuItems(
     // inventing a prose name per role would be a second vocabulary to keep true.
     ...profiles.map((profile) => ({
       id: `profile:${profile.role}`,
-      label: profile.role,
+      // Named by the workspace it opens ("Operations"), which is what
+      // switching a view means to the reader.
+      label: t(labelKeyFor(profile.href)),
       shortcut: t(profile.active ? "header.viewing" : "header.viewAs"),
       disabled: profile.active,
       onSelect: () => open(profile.href)
@@ -583,17 +652,37 @@ function accentFor(href: string): string {
   return "var(--accent)";
 }
 
-function NavItemLink({ item, t, nested }: { item: NavItem; t: Translate; nested?: boolean }) {
-  const accent = accentFor(item.href);
+function NavItemLink({
+  item,
+  t,
+  nested,
+  accent: hue,
+  exact,
+  badge
+}: {
+  item: NavItem;
+  t: Translate;
+  nested?: boolean;
+  accent?: string;
+  exact?: boolean;
+  /** A count beside the label — what is waiting there. */
+  badge?: number | undefined;
+}) {
+  const accent = hue ?? accentFor(item.href);
   return (
     <NavLink
       to={item.href}
-      end={item.href === "/"}
+      end={exact || item.href === "/"}
       // docs/15 §3: navigation runs through a view transition, so the frame
       // holds still and only the workspace changes. Browsers without the API
       // ignore this and navigate normally.
       viewTransition
       data-icon={item.icon}
+      // The mobile strip scrolls sideways; the current item is scrolled into
+      // it so the reader can see where they are without swiping to look.
+      ref={(link) => {
+        if (link?.getAttribute("aria-current") === "page") link.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      }}
       className={({ isActive }) =>
         [
           "group flex shrink-0 items-center gap-2 rounded-md px-3 text-start font-ui transition-colors duration-150",
@@ -619,6 +708,11 @@ function NavItemLink({ item, t, nested }: { item: NavItem; t: Translate; nested?
             style={{ background: accent }}
           />
           <span className="truncate">{t(item.labelKey)}</span>
+          {badge ? (
+            <span className="ms-auto rounded-orbit bg-accent px-1.5 font-mono text-12 tabular-nums text-accent-contrast">
+              {badge}
+            </span>
+          ) : null}
         </>
       )}
     </NavLink>

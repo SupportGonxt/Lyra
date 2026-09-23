@@ -24,7 +24,7 @@ test("⌘K offers the same destinations as the rail, and opens one", async ({ pa
   await expect(destinations.getByRole("option", { name: "Operations", exact: true })).toBeVisible();
 
   // Typing filters them; the workspace the query names survives, the others go.
-  await palette.getByRole("textbox").fill("ledger");
+  await palette.getByRole("combobox").fill("ledger");
   await expect(destinations.getByRole("option", { name: "Ledger", exact: true })).toBeVisible();
   await expect(destinations.getByRole("option", { name: "Operations", exact: true })).toHaveCount(0);
 

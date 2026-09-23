@@ -62,9 +62,9 @@ export function ErrorBoundary() {
         tenantName={shell.tenantName}
         actorName={shell.actorName}
         inbox={shell.inbox}
-        names={shell.names}
         roles={shell.roles}
         permissions={shell.permissions}
+        locale={shell.locale}
       >
         {panel}
       </Shell>
@@ -88,9 +88,9 @@ export default function Workspace() {
         tenantName={shell.tenantName}
         actorName={shell.actorName}
         inbox={shell.inbox}
-        names={shell.names}
         roles={shell.roles}
         permissions={shell.permissions}
+        locale={shell.locale}
       >
         <Outlet />
       </Shell>

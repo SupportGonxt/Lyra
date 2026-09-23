@@ -22,16 +22,13 @@ describe("crumbsFor", () => {
     expect(crumbsFor("/ledger", nav, t)).toEqual([]);
   });
 
-  it("names the list a record sits in", () => {
-    expect(crumbsFor("/ledger/journal-lines", nav, t)).toEqual([
-      { label: "nav.ledger", href: "/ledger" },
-      { label: "Journal lines" }
-    ]);
+  it("leaves a list tab to its own eyebrow and heading", () => {
+    expect(crumbsFor("/ledger/journal-lines", nav, t)).toEqual([]);
   });
 
-  it("walks down to the record and shortens its id", () => {
+  it("walks down to the record, linking back to its list, and shortens its id", () => {
     const crumbs = crumbsFor("/ledger/journal-lines/jl_01KE953T02K8D0NXM37R35MW1H", nav, t);
-    expect(crumbs.map((c) => c.href)).toEqual(["/ledger", undefined, undefined]);
+    expect(crumbs.map((c) => c.href)).toEqual(["/ledger", "/ledger/journal-lines", undefined]);
     expect(crumbs.map((c) => c.label)).toEqual(["nav.ledger", "Journal lines", "jl_01KE…MW1H"]);
   });
 
@@ -44,6 +41,14 @@ describe("crumbsFor", () => {
       t
     );
     expect(crumbs.at(-1)?.label).toBe("Audit trail");
+  });
+
+  // A crumb printed `humanise(segment)` — English in an Arabic session — for
+  // every screen the catalogue already names.
+  it("names a screen from the catalogue, in the reader's language", () => {
+    const ar = (key: string) => (key === "nav.axis/quote-desk" ? "مكتب التسعير" : key);
+    const crumbs = crumbsFor("/axis/quote-desk", [{ href: "/axis", labelKey: "nav.axis" }] as NavItem[], ar, "ar");
+    expect(crumbs.at(-1)).toEqual({ label: "مكتب التسعير", href: "/axis/quote-desk" });
   });
 
   it("stays quiet under a workspace this actor's nav does not carry", () => {
