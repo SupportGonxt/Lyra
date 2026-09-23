@@ -11,7 +11,6 @@ import {
   emit,
   gate,
   notFound,
-  quoteCommission,
   require_,
   sha256Hex,
   unearnedShareMinor,
@@ -19,7 +18,6 @@ import {
   type Ctx
 } from "@lyra/core";
 import { body, created, listParams, InstantMs } from "../http.js";
-import { isUniqueViolation } from "../crud.js";
 import { one } from "../rows.js";
 import type { QuoteOutcome } from "../engines/rating.js";
 import { quoterFor } from "../engines/dist-quoter.js";
