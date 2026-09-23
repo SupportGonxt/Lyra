@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chartFor, reportKey, scheduleBody, type RunResult } from "./analytics-builder";
+import { askProblem, chartFor, describeDef, reportKey, scheduleBody, type RunResult } from "./analytics-builder";
 
 // POST /v1/analytics/run answers RunResult (apps/api/src/engines/report.ts) plus
 // `runId` and `totals`; the fixtures are that shape, period column first when
@@ -121,6 +121,58 @@ describe("scheduleBody", () => {
 
   it("refuses a cadence it does not know rather than inventing a cron", () => {
     expect(scheduleBody(form({ cadence: "hourly", recipients: "a@x.test" }), "rep_1", { en: "x" }, "en")).toBeNull();
+  });
+});
+
+describe("describeDef", () => {
+  const l = (key: string) => ({ "dataset.aiSpend": "AI calls and spend", day: "Day", by: "by", since: "since" })[key] ?? key;
+  const names = { metric: (k: string) => k.toUpperCase(), dimension: (k: string) => `<${k}>` };
+
+  it("reads a compiled question back as one line a reader can check", () => {
+    expect(
+      describeDef(
+        {
+          dataset: "aiSpend",
+          metrics: ["calls", "costMicro"],
+          dimensions: ["purpose"],
+          grain: "day",
+          from: Date.UTC(2026, 4, 16),
+          filters: [
+            { field: "module", op: "eq", value: "orbit" },
+            { field: "purpose", op: "in", value: ["a", "b"] },
+            { field: "model", op: "is_null" }
+          ],
+          sort: { field: "costMicro", dir: "desc" },
+          limit: 10
+        },
+        l,
+        names
+      )
+    ).toEqual([
+      "AI calls and spend",
+      "CALLS, COSTMICRO",
+      "by <purpose>",
+      "Day",
+      "since 2026-05-16",
+      "<module> op.eq orbit",
+      "<purpose> op.in a, b",
+      "<model> op.is_null",
+      "sort COSTMICRO, desc",
+      "limit 10"
+    ]);
+  });
+});
+
+describe("askProblem", () => {
+  it("reads the API's refusal as a refusal the screen words, with the reason code", () => {
+    expect(askProblem({ title: "x", status: 422, code: "ask_refused", reason: "unknown_dataset" })).toBe("outside");
+    expect(askProblem({ title: "x", status: 422, code: "ask_refused", reason: "refused" })).toBe("outside");
+    expect(askProblem({ title: "x", status: 422, code: "ask_refused", reason: "bad_filter" })).toBe("unclear");
+  });
+
+  it("is not a refusal for any other problem — those stay problems", () => {
+    expect(askProblem({ title: "x", status: 400, code: "bad_request" })).toBeNull();
+    expect(askProblem({ title: "x", status: 403, code: "forbidden" })).toBeNull();
   });
 });
 

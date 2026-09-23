@@ -11,6 +11,7 @@ import {
   type LoaderFunctionArgs
 } from "react-router";
 import {
+  AgentBadge,
   Button,
   Checkbox,
   DonutChart,
@@ -158,6 +159,15 @@ const LABELS: Record<string, Record<string, string>> = {
     scheduled: "Scheduled.",
     openReport: "Open the report",
     noRun: "You may read reports but not build them.",
+    ask: "Ask in words",
+    askPlaceholder: "e.g. AI spend by purpose over the last 30 days",
+    askButton: "Compile",
+    askLoad: "Load into the builder",
+    "ask.outside": "The data you can report on does not cover that question. Nothing was guessed.",
+    "ask.unclear": "That did not compile into a report. Try naming what to count and how to split it.",
+    by: "by",
+    since: "since",
+    until: "until",
     xlsx: "Excel (.xlsx)",
     pdf: "PDF",
     csv: "CSV",
@@ -245,6 +255,15 @@ const LABELS: Record<string, Record<string, string>> = {
     scheduled: "تمت الجدولة.",
     openReport: "فتح التقرير",
     noRun: "يمكنك قراءة التقارير لكن ليس إنشاءها.",
+    ask: "اسأل بالكلمات",
+    askPlaceholder: "مثال: إنفاق الذكاء الاصطناعي حسب الغرض خلال آخر 30 يومًا",
+    askButton: "تحويل",
+    askLoad: "تحميل في المنشئ",
+    "ask.outside": "البيانات التي يمكنك إعداد تقارير عنها لا تغطي هذا السؤال. لم يُخمَّن شيء.",
+    "ask.unclear": "لم يتحول السؤال إلى تقرير. جرّب تسمية ما تريد عدّه وكيف تقسّمه.",
+    by: "حسب",
+    since: "منذ",
+    until: "حتى",
     xlsx: "إكسل (.xlsx)",
     pdf: "PDF",
     csv: "CSV",
@@ -333,6 +352,47 @@ export function scheduleBody(form: FormData, reportId: string, name: Record<stri
   };
 }
 
+/**
+ * A definition read back as short phrases — what the ask bar shows under its ✦
+ * so the reader checks the compilation before loading it (docs/15 §4.6: "the
+ * compilation shown, so trust builds").
+ */
+export function describeDef(
+  def: ReportDefinition,
+  l: (key: string) => string,
+  names: { metric: (key: string) => string; dimension: (key: string) => string }
+): string[] {
+  const parts = [l(`dataset.${def.dataset}`), def.metrics.map(names.metric).join(", ")];
+  if (def.dimensions?.length) parts.push(`${l("by")} ${def.dimensions.map(names.dimension).join(", ")}`);
+  if (def.grain && def.grain !== "none") parts.push(l(def.grain));
+  if (def.from !== undefined) parts.push(`${l("since")} ${dayOf(def.from)}`);
+  if (def.to !== undefined) parts.push(`${l("until")} ${dayOf(def.to)}`);
+  for (const f of def.filters ?? []) {
+    const value = f.value === undefined ? "" : ` ${Array.isArray(f.value) ? f.value.join(", ") : String(f.value)}`;
+    parts.push(`${names.dimension(f.field)} ${l(`op.${f.op}`)}${value}`);
+  }
+  if (def.sort) {
+    const field = def.sort.field === "period" ? l("period") : names.metric(def.sort.field);
+    parts.push(`${l("sort")} ${field}, ${l(def.sort.dir)}`);
+  }
+  if (def.limit !== undefined) parts.push(`${l("limit")} ${def.limit}`);
+  return parts;
+}
+
+/** Reason codes, packages/model-gateway/src/analytics-ask.ts `AskRefusal`. */
+const OUTSIDE = new Set(["refused", "unknown_dataset", "unknown_metric", "unknown_dimension"]);
+
+/**
+ * A refused ask, as the screen words it: "outside" what the reader's data
+ * covers, or "unclear" as a question. The model's own prose never reaches the
+ * page — it is one language and unverified. Any other problem is not a
+ * refusal and stays a Problem.
+ */
+export function askProblem(problem: { status: number; code?: string; reason?: unknown; title: string }): "outside" | "unclear" | null {
+  if (problem.status !== 422 || problem.code !== "ask_refused") return null;
+  return OUTSIDE.has(String(problem.reason)) ? "outside" : "unclear";
+}
+
 /** Everything but a signed-out reader's 401 is information for this screen. */
 function refusalOf(error: unknown): Refusal {
   if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 401) {
@@ -400,19 +460,55 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
 /* ---------------------------------------------------------------- action */
 
-export async function action({ request, context }: ActionFunctionArgs) {
+/** What the ask bar received: a compiled definition and its why. */
+export interface Asked {
+  definition: ReportDefinition;
+  why: string;
+  auditId: string;
+}
+
+export interface ActionResult {
+  intent: "save" | "ask" | null;
+  problem: Refusal | null;
+  saved: { id: string } | null;
+  scheduled: boolean;
+  asked: Asked | null;
+  refused: "outside" | "unclear" | null;
+}
+
+const NONE: ActionResult = { intent: null, problem: null, saved: null, scheduled: false, asked: null, refused: null };
+
+export async function action({ request, context }: ActionFunctionArgs): Promise<ActionResult> {
   const env = context.get(cloudflare).env;
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const locale = String(form.get("locale") ?? "en");
 
+  if (intent === "ask") {
+    const question = String(form.get("question") ?? "").trim();
+    const asking = { ...NONE, intent: "ask" as const };
+    if (question.length < 3) return { ...asking, refused: "unclear" };
+    try {
+      const asked = await api<Asked>("/v1/analytics/ask", { env, request, method: "POST", body: { question } });
+      return { ...asking, asked };
+    } catch (error) {
+      if (error instanceof ApiError) {
+        const refused = askProblem(error.problem as Parameters<typeof askProblem>[0]);
+        if (refused) return { ...asking, refused };
+      }
+      return { ...asking, problem: refusalOf(error) };
+    }
+  }
+
   if (intent === "save") {
+    const saving = { ...NONE, intent: "save" as const };
     const def = decodeDef(String(form.get("def") ?? ""));
     const title = String(form.get("name") ?? "").trim();
-    if (!def || !title) return { problem: { title: "name_required", status: 400 }, saved: null, scheduled: false };
+    if (!def || !title) return { ...saving, problem: { title: "name_required", status: 400 } };
     const name = { [locale === "ar" ? "ar" : "en"]: title };
+    let saved: { id: string };
     try {
-      const saved = await api<{ id: string }>("/v1/analytics/reports", {
+      saved = await api<{ id: string }>("/v1/analytics/reports", {
         env,
         request,
         method: "POST",
@@ -424,21 +520,21 @@ export async function action({ request, context }: ActionFunctionArgs) {
           scope: String(form.get("scope") ?? "") === "personal" ? "personal" : "tenant"
         }
       });
-      const schedule = scheduleBody(form, saved.id, name, locale);
-      if (schedule) {
-        try {
-          await api("/v1/analytics/schedules", { env, request, method: "POST", body: schedule });
-        } catch (error) {
-          // The report exists; say the schedule did not, and keep the link.
-          return { problem: refusalOf(error), saved, scheduled: false };
-        }
-      }
-      return { problem: null, saved, scheduled: Boolean(schedule) };
     } catch (error) {
-      return { problem: refusalOf(error), saved: null, scheduled: false };
+      return { ...saving, problem: refusalOf(error) };
     }
+    const schedule = scheduleBody(form, saved.id, name, locale);
+    if (schedule) {
+      try {
+        await api("/v1/analytics/schedules", { env, request, method: "POST", body: schedule });
+      } catch (error) {
+        // The report exists; say the schedule did not, and keep the link.
+        return { ...saving, saved, problem: refusalOf(error) };
+      }
+    }
+    return { ...saving, saved, scheduled: Boolean(schedule) };
   }
-  return { problem: { title: "unknown intent", status: 400 }, saved: null, scheduled: false };
+  return { ...NONE, problem: { title: "unknown intent", status: 400 } };
 }
 
 /* ---------------------------------------------------------------- screen */
@@ -507,6 +603,8 @@ export default function AnalyticsBuilder() {
           {l("unavailable")}
         </p>
       ) : null}
+      <AskBar locale={locale} datasets={loaded.datasets} l={l} named={named} acted={acted ?? null} busy={busy} />
+
       {loaded.problem ? <Problem problem={loaded.problem} /> : null}
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -689,20 +787,21 @@ function SaveForm({
   may: { schedule: boolean };
   l: (key: string) => string;
   busy: boolean;
-  acted: { problem: Refusal | null; saved: { id: string } | null; scheduled: boolean } | null;
+  acted: ActionResult | null;
 }) {
   const [cadence, setCadence] = React.useState("");
+  const result = acted?.intent === "save" ? acted : null;
   return (
     <Form method="post" className="flex flex-col gap-3 rounded-md border border-border p-4">
       <h2 className="font-ui text-12 font-medium uppercase tracking-[0.14em] text-subtle">{l("save")}</h2>
       <input type="hidden" name="intent" value="save" />
       <input type="hidden" name="def" value={token} />
       <input type="hidden" name="locale" value={locale} />
-      {acted?.problem ? <Problem problem={acted.problem} /> : null}
-      {acted?.saved ? (
+      {result?.problem ? <Problem problem={result.problem} /> : null}
+      {result?.saved ? (
         <p role="status" className="font-ui text-13 text-text">
-          {l("saved")} {acted.scheduled ? l("scheduled") : ""}{" "}
-          <Link to={`/analytics/report/${acted.saved.id}`} className="text-accent underline-offset-2 hover:underline">
+          {l("saved")} {result.scheduled ? l("scheduled") : ""}{" "}
+          <Link to={`/analytics/report/${result.saved.id}`} className="text-accent underline-offset-2 hover:underline">
             {l("openReport")}
           </Link>
         </p>
@@ -753,5 +852,67 @@ function SaveForm({
         </Button>
       </div>
     </Form>
+  );
+}
+
+/**
+ * Ask in words (docs/05, ADR-0087). docs/15 §4.6 "semantic everything": the
+ * question is compiled to a visible, editable definition — shown here as quiet
+ * ghost text under the one ✦, its why a hover away — and loaded into the
+ * builder only when the reader chooses to. Loading does not run it; the reader
+ * presses Preview. Never a modal, never an auto-run.
+ */
+function AskBar({
+  locale,
+  datasets,
+  l,
+  named,
+  acted,
+  busy
+}: {
+  locale: string;
+  datasets: DatasetInfo[];
+  l: (key: string) => string;
+  named: (key: string, fallback: string) => string;
+  acted: ActionResult | null;
+  busy: boolean;
+}) {
+  const result = acted?.intent === "ask" ? acted : null;
+  const asked = result?.asked ?? null;
+  const ds = asked ? datasets.find((d) => d.key === asked.definition.dataset) : undefined;
+  const phrases = asked
+    ? describeDef(asked.definition, (key) => (key.startsWith("dataset.") ? named(key, key.slice(8)) : l(key)), {
+        metric: (key) => named(key, ds?.metrics.find((m) => m.key === key)?.label ?? key),
+        dimension: (key) => named(key, ds?.dimensions.find((d) => d.key === key)?.label ?? key)
+      })
+    : [];
+  return (
+    <section aria-label={l("ask")} className="flex flex-col gap-2">
+      <Form method="post" className="flex flex-wrap items-end gap-2">
+        <input type="hidden" name="intent" value="ask" />
+        <input type="hidden" name="locale" value={locale} />
+        <Field label={l("ask")} className="min-w-0 flex-1">
+          <Input name="question" required minLength={3} maxLength={500} placeholder={l("askPlaceholder")} />
+        </Field>
+        <Button type="submit" variant="secondary" loading={busy}>
+          {l("askButton")}
+        </Button>
+      </Form>
+      {result?.problem ? <Problem problem={result.problem} /> : null}
+      {result?.refused ? (
+        <p role="status" className="font-ui text-13 text-muted">
+          {l(`ask.${result.refused}`)}
+        </p>
+      ) : null}
+      {asked ? (
+        <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-border p-3">
+          <AgentBadge why={<p className="max-w-prose font-ui text-13">{asked.why}</p>} />
+          <span className="min-w-0 flex-1 font-ui text-13 text-subtle">{phrases.join(" · ")}</span>
+          <Link to={builderHref(asked.definition)} className="font-ui text-13 text-accent underline-offset-2 hover:underline">
+            {l("askLoad")}
+          </Link>
+        </div>
+      ) : null}
+    </section>
   );
 }
