@@ -812,7 +812,7 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
       version: 1,
       nameJson: JSON.stringify({ en: "Renewal — 45 days", ar: "التجديد — ٤٥ يومًا" }),
       graphJson: graph([
-        { key: "start", type: "trigger", on: "orbit.renewal.raised" },
+        { key: "start", type: "trigger", on: "orbit.renewal.due" },
         { key: "email_offer", type: "message", channel: "email" },
         { key: "wait_7d", type: "wait", days: 7 },
         { key: "call", type: "task", team: "retention" },
@@ -829,7 +829,7 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
       version: 2,
       nameJson: JSON.stringify({ en: "Renewal — 45 days", ar: "التجديد — ٤٥ يومًا" }),
       graphJson: graph([
-        { key: "start", type: "trigger", on: "orbit.renewal.raised" },
+        { key: "start", type: "trigger", on: "orbit.renewal.due" },
         { key: "score_churn", type: "agent", agent: "renewal" },
         { key: "draft_offer", type: "agent", agent: "renewal", approval: "orbit.outbound_send" },
         { key: "wait_5d", type: "wait", days: 5 },
@@ -847,7 +847,7 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
       version: 1,
       nameJson: JSON.stringify({ en: "New policy welcome", ar: "الترحيب بالوثيقة الجديدة" }),
       graphJson: graph([
-        { key: "start", type: "trigger", on: "dist.policy.issued" },
+        { key: "start", type: "trigger", on: "axis.policy.issued" },
         { key: "send_documents", type: "message", channel: "email" },
         { key: "wait_2d", type: "wait", days: 2 },
         { key: "csat", type: "survey" },
@@ -866,7 +866,7 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
       version: 1,
       nameJson: JSON.stringify({ en: "Missing document chase", ar: "متابعة المستندات الناقصة" }),
       graphJson: graph([
-        { key: "start", type: "trigger", on: "orbit.document.missing" },
+        { key: "start", type: "trigger", on: "orbit.conversation.document" },
         { key: "remind_1", type: "message", channel: "email" },
         { key: "wait_3d", type: "wait", days: 3 },
         { key: "remind_2", type: "message", channel: "whatsapp" },
@@ -900,7 +900,7 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
       version: 1,
       nameJson: JSON.stringify({ en: "Partner activation", ar: "تفعيل الشريك" }),
       graphJson: graph([
-        { key: "start", type: "trigger", on: "dist.partner.approved" },
+        { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
         { key: "sandbox_keys", type: "task", team: "partners" },
         { key: "first_quote", type: "wait_for", event: "orbit.partner.quote" },
         { key: "go_live", type: "task", team: "partners" },

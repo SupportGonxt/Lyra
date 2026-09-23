@@ -441,6 +441,9 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
   ]);
 
   /* --------------------------------------------------------- webhooks */
+  // Every subscribed type is one the code emits — apps/api event-seams.test.ts
+  // holds that, and SEED_EVENT_RENAMES (seed.ts) rewrites the older names a
+  // tenant provisioned before 2026-09-23 still carries.
   // Outbound integration. The signing secrets here are obvious demo strings —
   // a real one is generated server-side and shown once, never seeded.
   const whkPartner = id("whk", now + 40);
@@ -462,7 +465,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       id: whkCedar,
       tenantId,
       url: "https://api.cedarinsurance.ae/partners/gonxt/events",
-      eventTypesJson: JSON.stringify(["dist.quote.bound", "axis.policy.endorsed"]),
+      eventTypesJson: JSON.stringify(["axis.policy.issued", "axis.policy.endorsed"]),
       secret: "whsec_seed_cedar_not_a_real_secret",
       status: "active",
       createdAt: now - 88 * DAY
@@ -471,7 +474,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       id: whkBank,
       tenantId,
       url: "https://embed.meridianbank.ae/lyra/callbacks",
-      eventTypesJson: JSON.stringify(["dist.quote.ready", "dist.quote.bound"]),
+      eventTypesJson: JSON.stringify(["dist.quote_request.fanned_out", "axis.policy.issued"]),
       secret: "whsec_seed_meridian_not_a_real_secret",
       status: "active",
       createdAt: now - 70 * DAY
@@ -480,7 +483,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       id: whkFinance,
       tenantId,
       url: "https://ops.gonxt.ae/webhooks/ledger",
-      eventTypesJson: JSON.stringify(["ledger.settlement.posted", "ledger.recon.completed"]),
+      eventTypesJson: JSON.stringify(["ledger.settlement.approved", "ledger.recon.completed"]),
       secret: "whsec_seed_ops_not_a_real_secret",
       status: "active",
       createdAt: now - 45 * DAY
@@ -489,7 +492,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       id: whkLegacy,
       tenantId,
       url: "https://legacy.alphabrokers.ae/hooks/quotes",
-      eventTypesJson: JSON.stringify(["dist.quote.ready"]),
+      eventTypesJson: JSON.stringify(["dist.quote_request.fanned_out"]),
       secret: "whsec_seed_legacy_not_a_real_secret",
       // Paused after the endpoint went dark: the deliveries below are why.
       status: "paused",

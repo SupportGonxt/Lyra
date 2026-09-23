@@ -80,6 +80,7 @@ scout.whitespace.promoted                 scout.bench.updated
 north.anomaly.detected                    north.briefing.published
 ai.budget.threshold                       platform.key.rotated
 dist.referral.qualified                   dist.referral.settled
+ledger.recon.completed                    ledger.settlement.approved|paid
 compliance.disclosure.presented
 ```
 Envelope: `{id, ts, tenant_id, module, type, actor, subject, data, v:1}`.

@@ -484,7 +484,7 @@ describe("seedAdmin: webhooks + webhookDeliveries", () => {
 
     const cedar = rows.find((r) => r.url === "https://api.cedarinsurance.ae/partners/gonxt/events")!;
     expect(cedar).toMatchObject({ secret: "whsec_seed_cedar_not_a_real_secret", status: "active" });
-    expect(JSON.parse(cedar.eventTypesJson!)).toEqual(["dist.quote.bound", "axis.policy.endorsed"]);
+    expect(JSON.parse(cedar.eventTypesJson!)).toEqual(["axis.policy.issued", "axis.policy.endorsed"]);
 
     const bank = rows.find((r) => r.url === "https://embed.meridianbank.ae/lyra/callbacks")!;
     expect(bank).toMatchObject({ secret: "whsec_seed_meridian_not_a_real_secret", status: "active" });
@@ -498,7 +498,7 @@ describe("seedAdmin: webhooks + webhookDeliveries", () => {
       status: "paused",
       createdAt: NOW - 260 * DAY
     });
-    expect(JSON.parse(legacy.eventTypesJson!)).toEqual(["dist.quote.ready"]);
+    expect(JSON.parse(legacy.eventTypesJson!)).toEqual(["dist.quote_request.fanned_out"]);
   });
 
   it("writes the 8-row delivery attempt log with correctly derived event ids", async () => {

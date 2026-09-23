@@ -9,6 +9,7 @@ import {
   emit,
   ensureDemoAdmin,
   ensureSeedPeople,
+  syncSeedEventNames,
   entitledGrants,
   forbidden,
   grantsFor,
@@ -597,7 +598,11 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // whose absence is loudest — taxTreatment() refuses a supply it has no rule
   // for, so a tenant seeded before the rulepack existed cannot bind at all.
   const taxRules = await syncTaxRules(database as unknown as CoreDb, tenantId);
-  return c.json({ tenantId, updated, accounts, demo, people, taxRules });
+  // Sixth: seeded journey triggers and webhook subscriptions that named events
+  // no code emits (docs/27, 2026-09-23). The seed is fixed; this is how a
+  // tenant provisioned before the fix gets the live names.
+  const events = await syncSeedEventNames(database as unknown as CoreDb, tenantId);
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events });
 });
 
 /**
