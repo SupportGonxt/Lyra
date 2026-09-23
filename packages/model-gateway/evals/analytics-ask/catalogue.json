@@ -1,0 +1,590 @@
+[
+  {
+    "key": "policies",
+    "module": "axis",
+    "dimensions": [
+      {
+        "key": "status",
+        "label": "Status",
+        "kind": "text"
+      },
+      {
+        "key": "providerId",
+        "label": "Provider",
+        "kind": "text"
+      },
+      {
+        "key": "productId",
+        "label": "Product",
+        "kind": "text"
+      },
+      {
+        "key": "offeringId",
+        "label": "Offering",
+        "kind": "text"
+      },
+      {
+        "key": "channelId",
+        "label": "Channel",
+        "kind": "text"
+      },
+      {
+        "key": "currency",
+        "label": "Currency",
+        "kind": "text"
+      },
+      {
+        "key": "customerId",
+        "label": "Customer",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "policies",
+        "label": "Policies",
+        "kind": "number"
+      },
+      {
+        "key": "gwp",
+        "label": "Gross written premium",
+        "kind": "money"
+      },
+      {
+        "key": "commission",
+        "label": "Commission",
+        "kind": "money"
+      },
+      {
+        "key": "avgPremium",
+        "label": "Average premium",
+        "kind": "money"
+      },
+      {
+        "key": "customers",
+        "label": "Customers",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "quotes",
+    "module": "dist",
+    "dimensions": [
+      {
+        "key": "state",
+        "label": "State",
+        "kind": "text"
+      },
+      {
+        "key": "channelId",
+        "label": "Channel",
+        "kind": "text"
+      },
+      {
+        "key": "productId",
+        "label": "Product",
+        "kind": "text"
+      },
+      {
+        "key": "currency",
+        "label": "Currency",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "requests",
+        "label": "Quote requests",
+        "kind": "number"
+      },
+      {
+        "key": "fanout",
+        "label": "Panel size",
+        "kind": "number"
+      },
+      {
+        "key": "responded",
+        "label": "Responses",
+        "kind": "number"
+      },
+      {
+        "key": "bestPremium",
+        "label": "Best premium",
+        "kind": "money"
+      }
+    ]
+  },
+  {
+    "key": "cases",
+    "module": "axis",
+    "dimensions": [
+      {
+        "key": "status",
+        "label": "Status",
+        "kind": "text"
+      },
+      {
+        "key": "kind",
+        "label": "Kind",
+        "kind": "text"
+      },
+      {
+        "key": "priority",
+        "label": "Priority",
+        "kind": "text"
+      },
+      {
+        "key": "source",
+        "label": "Source",
+        "kind": "text"
+      },
+      {
+        "key": "ownerRef",
+        "label": "Owner",
+        "kind": "text"
+      },
+      {
+        "key": "productLine",
+        "label": "Product line",
+        "kind": "text"
+      },
+      {
+        "key": "channelId",
+        "label": "Channel",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "cases",
+        "label": "Cases",
+        "kind": "number"
+      },
+      {
+        "key": "value",
+        "label": "Value",
+        "kind": "money"
+      },
+      {
+        "key": "avgRisk",
+        "label": "Average risk score",
+        "kind": "number"
+      },
+      {
+        "key": "customers",
+        "label": "Customers",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "commissions",
+    "module": "dist",
+    "dimensions": [
+      {
+        "key": "kind",
+        "label": "Kind",
+        "kind": "text"
+      },
+      {
+        "key": "state",
+        "label": "State",
+        "kind": "text"
+      },
+      {
+        "key": "providerId",
+        "label": "Provider",
+        "kind": "text"
+      },
+      {
+        "key": "channelId",
+        "label": "Channel",
+        "kind": "text"
+      },
+      {
+        "key": "currency",
+        "label": "Currency",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "entries",
+        "label": "Entries",
+        "kind": "number"
+      },
+      {
+        "key": "premium",
+        "label": "Premium",
+        "kind": "money"
+      },
+      {
+        "key": "gross",
+        "label": "Gross commission",
+        "kind": "money"
+      },
+      {
+        "key": "channel",
+        "label": "Channel share",
+        "kind": "money"
+      },
+      {
+        "key": "net",
+        "label": "Net commission",
+        "kind": "money"
+      },
+      {
+        "key": "tax",
+        "label": "Tax",
+        "kind": "money"
+      }
+    ]
+  },
+  {
+    "key": "conversations",
+    "module": "orbit",
+    "dimensions": [
+      {
+        "key": "channel",
+        "label": "Channel",
+        "kind": "text"
+      },
+      {
+        "key": "state",
+        "label": "State",
+        "kind": "text"
+      },
+      {
+        "key": "assigneeRef",
+        "label": "Assignee",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "conversations",
+        "label": "Conversations",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "spend",
+    "module": "signal",
+    "dimensions": [
+      {
+        "key": "campaignId",
+        "label": "Campaign",
+        "kind": "text"
+      },
+      {
+        "key": "channel",
+        "label": "Channel",
+        "kind": "text"
+      },
+      {
+        "key": "currency",
+        "label": "Currency",
+        "kind": "text"
+      },
+      {
+        "key": "source",
+        "label": "Source",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "spend",
+        "label": "Spend",
+        "kind": "money"
+      },
+      {
+        "key": "impressions",
+        "label": "Impressions",
+        "kind": "number"
+      },
+      {
+        "key": "clicks",
+        "label": "Clicks",
+        "kind": "number"
+      },
+      {
+        "key": "conversions",
+        "label": "Conversions",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "aiRuns",
+    "module": "ai",
+    "dimensions": [
+      {
+        "key": "module",
+        "label": "Module",
+        "kind": "text"
+      },
+      {
+        "key": "purpose",
+        "label": "Purpose",
+        "kind": "text"
+      },
+      {
+        "key": "agentKey",
+        "label": "Agent",
+        "kind": "text"
+      },
+      {
+        "key": "state",
+        "label": "State",
+        "kind": "text"
+      },
+      {
+        "key": "trigger",
+        "label": "Trigger",
+        "kind": "text"
+      },
+      {
+        "key": "autonomyLevel",
+        "label": "Autonomy",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "runs",
+        "label": "Runs",
+        "kind": "number"
+      },
+      {
+        "key": "tokensIn",
+        "label": "Tokens in",
+        "kind": "number"
+      },
+      {
+        "key": "tokensOut",
+        "label": "Tokens out",
+        "kind": "number"
+      },
+      {
+        "key": "costMicro",
+        "label": "Cost (micro)",
+        "kind": "number"
+      },
+      {
+        "key": "latency",
+        "label": "Latency ms",
+        "kind": "number"
+      },
+      {
+        "key": "avgConfidence",
+        "label": "Average confidence",
+        "kind": "number"
+      },
+      {
+        "key": "failureRate",
+        "label": "Failure rate %",
+        "kind": "number"
+      },
+      {
+        "key": "refusalRate",
+        "label": "Refusal rate %",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "aiSpend",
+    "module": "ai",
+    "dimensions": [
+      {
+        "key": "module",
+        "label": "Module",
+        "kind": "text"
+      },
+      {
+        "key": "purpose",
+        "label": "Purpose",
+        "kind": "text"
+      },
+      {
+        "key": "model",
+        "label": "Model",
+        "kind": "text"
+      },
+      {
+        "key": "provider",
+        "label": "Provider",
+        "kind": "text"
+      },
+      {
+        "key": "tier",
+        "label": "Tier",
+        "kind": "text"
+      },
+      {
+        "key": "outcome",
+        "label": "Outcome",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "calls",
+        "label": "Calls",
+        "kind": "number"
+      },
+      {
+        "key": "tokensIn",
+        "label": "Tokens in",
+        "kind": "number"
+      },
+      {
+        "key": "tokensOut",
+        "label": "Tokens out",
+        "kind": "number"
+      },
+      {
+        "key": "costMicro",
+        "label": "Cost (micro)",
+        "kind": "number"
+      },
+      {
+        "key": "latency",
+        "label": "Latency ms",
+        "kind": "number"
+      },
+      {
+        "key": "refusalRate",
+        "label": "Refusal rate %",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "aiSuggestions",
+    "module": "ai",
+    "dimensions": [
+      {
+        "key": "module",
+        "label": "Module",
+        "kind": "text"
+      },
+      {
+        "key": "surface",
+        "label": "Surface",
+        "kind": "text"
+      },
+      {
+        "key": "outcome",
+        "label": "Outcome",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "shown",
+        "label": "Shown",
+        "kind": "number"
+      },
+      {
+        "key": "accepted",
+        "label": "Accepted",
+        "kind": "number"
+      },
+      {
+        "key": "edited",
+        "label": "Edited",
+        "kind": "number"
+      },
+      {
+        "key": "dismissed",
+        "label": "Dismissed",
+        "kind": "number"
+      },
+      {
+        "key": "acceptanceRate",
+        "label": "Acceptance rate %",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "aiGuardrails",
+    "module": "ai",
+    "dimensions": [
+      {
+        "key": "rule",
+        "label": "Rule",
+        "kind": "text"
+      },
+      {
+        "key": "severity",
+        "label": "Severity",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "events",
+        "label": "Events",
+        "kind": "number"
+      },
+      {
+        "key": "blocks",
+        "label": "Blocks",
+        "kind": "number"
+      }
+    ]
+  },
+  {
+    "key": "aiEvals",
+    "module": "ai",
+    "dimensions": [
+      {
+        "key": "suite",
+        "label": "Suite",
+        "kind": "text"
+      },
+      {
+        "key": "agentKey",
+        "label": "Agent",
+        "kind": "text"
+      },
+      {
+        "key": "model",
+        "label": "Model",
+        "kind": "text"
+      },
+      {
+        "key": "gitSha",
+        "label": "Build",
+        "kind": "text"
+      }
+    ],
+    "metrics": [
+      {
+        "key": "cases",
+        "label": "Cases",
+        "kind": "number"
+      },
+      {
+        "key": "avgScore",
+        "label": "Average score",
+        "kind": "number"
+      },
+      {
+        "key": "minScore",
+        "label": "Lowest score",
+        "kind": "number"
+      },
+      {
+        "key": "passRate",
+        "label": "Pass rate %",
+        "kind": "number"
+      }
+    ]
+  }
+]

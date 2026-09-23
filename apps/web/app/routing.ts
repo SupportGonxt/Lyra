@@ -52,6 +52,8 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/design": "the design doctrine, reached from the link parked at the end of the status strip",
   "/admin/ai/console": "a screen inside the admin workspace, reached from its AI tabs",
   "/admin/ai/budget": "the AI spending ceilings, reached from the admin workspace tools list",
+  "/admin/ai/analytics":
+    "the AI operations dashboard — quality, cost, volume, latency and evals over the AI datasets — reached from the admin workspace tools list",
   "/admin/cost-explorer": "unit-cost drift report, reached from the admin workspace tools list",
   "/admin/ai/runs/:id": "opens one agent run from the AI runs list or the console",
   "/ledger/reports/:report": "a report inside the ledger workspace, reached from its tabs",
@@ -68,6 +70,8 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/ledger/settlements/:id": "opens one settlement from the settlement runs list",
   "/admin/staff": "a screen inside the admin workspace, reached from its staff tab",
   "/admin/staff/:id": "opens one staff member from the staff directory",
+  "/analytics/builder":
+    "builds, previews and saves a report, linked from the analytics workspace tools list and from every figure on the AI operations dashboard",
   "/analytics/report/:id": "opens one saved report from the analytics report list",
   "/analytics/dashboard/:id": "opens one dashboard from the analytics dashboard list",
   "/distribution/quote-requests/:id/compare": "opens from a single quote request record",

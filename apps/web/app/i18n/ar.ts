@@ -44,6 +44,8 @@ export const ar: Messages = {
   "nav.admin/security": "الأمان والوصول",
   "nav.admin/automation": "الموافقات التلقائية",
   "nav.admin/audit-export": "تصدير سجل التدقيق",
+  "nav.admin/ai/analytics": "تحليلات الذكاء الاصطناعي",
+  "nav.analytics/builder": "منشئ التقارير",
   "nav.admin/staff": "الموظفون",
   "nav.search/results": "نتائج البحث",
   "nav.journey/axis": "الرحلة: العمليات",

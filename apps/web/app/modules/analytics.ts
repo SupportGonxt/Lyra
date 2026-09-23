@@ -24,6 +24,7 @@ export const analytics: WorkspaceSpec = {
       "unit-economics": "Unit economics",
       "journey-events": "Journey events",
       reportBuilder: "Report builder",
+      buildReport: "Build a report",
       openDashboard: "Open dashboard",
 
       // Record actions the API owns (apps/api/src/routes/analytics.ts).
@@ -138,6 +139,7 @@ export const analytics: WorkspaceSpec = {
       "unit-economics": "اقتصاديات الوحدة",
       "journey-events": "أحداث الرحلة",
       reportBuilder: "منشئ التقارير",
+      buildReport: "إنشاء تقرير",
       openDashboard: "فتح اللوحة",
 
       "schedules.pause": "إيقاف هذا الجدول مؤقتًا",
@@ -493,5 +495,8 @@ export const analytics: WorkspaceSpec = {
         { name: "ts", type: "datetime", sortable: true }
       ]
     }
-  ]
+  ],
+  // Authoring a definition is the builder's job (see the header above); the
+  // tools list is where the workspace hands the reader to it.
+  links: [{ href: "/analytics/builder", labelKey: "buildReport", permission: "analytics:reports:run" }]
 };

@@ -336,7 +336,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 121 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 123 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -359,6 +359,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/admin/ai/console` | [ai-console.tsx](apps/web/app/routes/ai-console.tsx) |
 | `/center` | [command-center.tsx](apps/web/app/routes/command-center.tsx) |
 | `/admin/ai/budget` | [ai-budget.tsx](apps/web/app/routes/ai-budget.tsx) |
+| `/admin/ai/analytics` | [ai-analytics.tsx](apps/web/app/routes/ai-analytics.tsx) |
 | `/admin/ai/runs/:id` | [ai-run.tsx](apps/web/app/routes/ai-run.tsx) |
 | `/admin/cost-explorer` | [cost-explorer.tsx](apps/web/app/routes/cost-explorer.tsx) |
 | `/ledger/reports/:report` | [ledger-reports.tsx](apps/web/app/routes/ledger-reports.tsx) |
@@ -371,6 +372,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/ledger/journal` | [ledger-journal.tsx](apps/web/app/routes/ledger-journal.tsx) |
 | `/ledger/statement` | [ledger-account.tsx](apps/web/app/routes/ledger-account.tsx) |
 | `/ledger/recon` | [ledger-recon.tsx](apps/web/app/routes/ledger-recon.tsx) |
+| `/analytics/builder` | [analytics-builder.tsx](apps/web/app/routes/analytics-builder.tsx) |
 | `/analytics/report/:id` | [analytics-report.tsx](apps/web/app/routes/analytics-report.tsx) |
 | `/analytics/dashboard/:id` | [analytics-dashboard.tsx](apps/web/app/routes/analytics-dashboard.tsx) |
 | `/distribution/quote-requests/:id/compare` | [quote-compare.tsx](apps/web/app/routes/quote-compare.tsx) |
@@ -596,6 +598,19 @@ counts in one `value`), `money` is minor units.
 | `guardrail-events` | `/v1/ai/guardrail-events` | `ai:audit:read` |  |  |  |  |  |
 | `ai-audit-log` | `/v1/ai/ai-audit-log` | `ai:audit:read` |  |  |  |  |  |
 
+**AI operations** → `/admin/ai/analytics` ([ai-analytics.tsx](apps/web/app/routes/ai-analytics.tsx),
+tools list, `analytics:reports:run`; its own screen rather than an AI-console
+tab, ADR-0088). Eleven definitions over the five AI datasets (`aiRuns`,
+`aiSpend`, `aiSuggestions`, `aiGuardrails`, `aiEvals`), each run through
+`POST /v1/analytics/run` — no bespoke endpoint. Top half: six `Stat`s
+(suggestions kept, refused calls, guardrail blocks, eval pass rate, AI cost,
+average latency); then cost / runs / latency / eval score per day as
+`LineChart`s; then cost by module, top purposes by cost, runs by module and eval
+suites weakest-first as compact tables. Every figure and panel links to
+`/analytics/builder?def=…&run=1` with the exact definition it was drawn from.
+7/30/90-day window links. A panel whose dataset the reader may not read says
+so (any 4xx but 401 blanks that panel only); a missing figure is `—`, never 0.
+
 #### `/analytics` — 8 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
@@ -608,6 +623,32 @@ counts in one `value`), `money` is minor units.
 | `saved-views` | `/v1/analytics/saved-views` | `analytics:saved_views:read` | ✓ |  | ✓ |  |  |
 | `unit-economics` | `/v1/analytics/unit-economics` | `analytics:reports:read` |  |  |  |  |  |
 | `journey-events` | `/v1/analytics/journey-events` | `analytics:reports:read` |  |  |  |  |  |
+
+Tools list: **Build a report** → `/analytics/builder` (`analytics:reports:run`).
+
+**Report builder** ([analytics-builder.tsx](apps/web/app/routes/analytics-builder.tsx),
+ADR-0088). The first web reader of `GET /v1/analytics/datasets`: dataset →
+measures → splits → time bucket → from/to → up to four filter rows → sort →
+row limit, in a GET form beside the preview (data first, the form in a sticky
+aside on xl). The whole build is the URL, `?def=<base64url JSON>`
+([analytics-def.ts](apps/web/app/analytics-def.ts)), so any build is a link;
+the preview runs through `POST /v1/analytics/run` **only when the link says
+`run=1`** — a shared, suggested or dashboard-supplied definition is loaded for
+the reader to read, never run for them. Preview = table with totals, plus a
+`LineChart` when the run has a grain and nothing else to split by, or a
+`DonutChart` for exactly one split and no grain. Save (`analytics:reports:write`)
+posts `/v1/analytics/reports` and, with `analytics:schedules:write`, optionally a
+daily/weekly/monthly schedule to named recipients. Dataset names are this
+screen's own en/ar labels; measure and split names fall back to the registry's
+English label where no catalogue or pack word exists (ponytail).
+
+**Ask in words** (same screen, docs/15 §4.6 + §4.7, ADR-0088). One input posts
+`/v1/analytics/ask`; the answer renders as a dashed ghost line — the compiled
+definition read back as phrases (`describeDef`) under an `AgentBadge` whose
+`why=` is the model's one-sentence reason — and a **Load into the builder** link
+(no `run=1`). A 422 `ask_refused` is worded by the screen from its reason code
+("outside what your data covers" / "did not compile"); the model's prose never
+reaches the page. No modal, no auto-run, no toast.
 
 #### `/axis` — 13 tabs
 

@@ -1202,7 +1202,7 @@ export interface CoreWebhooks {
 }
 
 export interface Dataset {
-  key?: "policies" | "quotes" | "quoteResponses" | "commissions" | "cases" | "transactions" | "aiSpend" | "conversations" | "campaigns" | "spend" | "signals" | "whitespaces" | "clusters" | "experiments" | "dataProducts" | "boardpacks" | "decisions";
+  key?: "policies" | "quotes" | "quoteResponses" | "commissions" | "cases" | "transactions" | "aiSpend" | "conversations" | "campaigns" | "spend" | "signals" | "whitespaces" | "clusters" | "experiments" | "dataProducts" | "aiRuns" | "aiSuggestions" | "aiGuardrails" | "aiEvals" | "boardpacks" | "decisions";
   module?: string;
   dimensions?: Record<string, unknown>[];
   metrics?: Record<string, unknown>[];
@@ -2402,6 +2402,7 @@ export interface Operations {
   "POST /v1/ai/suggestions/{id}/outcome": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ai/tool-calls": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AiToolCalls>>;
   "GET /v1/ai/tool-calls/{id}": Op<{ id: string }, never, never, AiToolCalls>;
+  "POST /v1/analytics/ask": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/analytics/dashboards": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/analytics/dashboards": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/analytics/dashboards/{id}": Op<{ id: string }, never, never, AnalyticsDashboards>;
@@ -3173,6 +3174,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ai/suggestions/{id}/outcome": { tag: "ai", summary: "Record whether the current user accepted, edited or dismissed it", permission: "ai:suggestions:read", public: false },
   "GET /v1/ai/tool-calls": { tag: "ai", summary: "List tool-calls", permission: "ai:runs:read", public: false },
   "GET /v1/ai/tool-calls/{id}": { tag: "ai", summary: "Fetch one tool call", permission: "ai:runs:read", public: false },
+  "POST /v1/analytics/ask": { tag: "analytics", summary: "Compile a question in words into a report definition over the caller's own catalogue (gateway purpose analytics.ask, audited); runs nothing, 422 ask_refused rather than a guess", permission: "analytics:reports:run", public: false },
   "GET /v1/analytics/dashboards": { tag: "analytics", summary: "Dashboards the caller may open", permission: "analytics:dashboards:read", public: false },
   "POST /v1/analytics/dashboards": { tag: "analytics", summary: "Create a dashboard from a set of report tiles", permission: "analytics:dashboards:write", public: false },
   "GET /v1/analytics/dashboards/{id}": { tag: "analytics", summary: "Fetch one dashboard", permission: "analytics:dashboards:read", public: false },

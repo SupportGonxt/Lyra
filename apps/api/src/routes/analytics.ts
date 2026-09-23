@@ -4,6 +4,7 @@ import { z } from "zod";
 import { id, schema } from "@lyra/db";
 import {
   actorRef,
+  AppError,
   audit,
   badRequest,
   can,
@@ -13,6 +14,8 @@ import {
   mask,
   notFound,
   require_,
+  ReportDefinitionSchema,
+  ReportFilterSchema,
   scoped,
   sha256Hex,
   withIdempotency,
@@ -33,6 +36,8 @@ import {
 import { render, type BrowserBinding, type Rendered } from "../engines/export/render.js";
 import { meterEgress } from "../engines/egress.js";
 import { grantsFor } from "../auth.js";
+import { gatewayFor } from "../mw.js";
+import { analyticsAskMessages, analyticsAskSchema, parseAnalyticsAsk } from "@lyra/model-gateway";
 import { body, decodeCursor, encodeCursor, instantParam, InstantMsParam, listParams, parse, MAX_PAGE } from "../http.js";
 import { must } from "../rows.js";
 import type { App } from "../env.js";
@@ -47,9 +52,15 @@ export const analyticsRoutes = new Hono<App>();
 /* ------------------------------------------------------------- semantic layer */
 
 /** What a report builder can offer the user. Derived, never hand-maintained. */
-analyticsRoutes.get("/datasets", (c) => {
-  const ctx = c.get("ctx");
-  const data = Object.entries(DATASETS)
+analyticsRoutes.get("/datasets", (c) => c.json({ data: catalogueFor(c.get("ctx")) }));
+
+/**
+ * The datasets this caller may query, as the builder and the ask purpose both
+ * see them. One function, so the model is never shown a dataset the screen
+ * would not offer.
+ */
+function catalogueFor(ctx: Ctx) {
+  return Object.entries(DATASETS)
     .filter(([, ds]) => can(ctx.actor, ds.permission, { tenantId: ctx.tenantId, module: ds.module }))
     .map(([key, ds]) => ({
       key,
@@ -58,28 +69,56 @@ analyticsRoutes.get("/datasets", (c) => {
       dimensions: Object.entries(ds.dimensions).map(([k, d]) => ({ key: k, label: d.label, kind: d.kind, pii: Boolean(d.pii) })),
       metrics: Object.entries(ds.metrics).map(([k, m]) => ({ key: k, label: m.label, kind: m.kind, agg: m.agg }))
     }));
-  return c.json({ data });
+}
+
+/* --------------------------------------------------------------- ask in words */
+
+const AskBody = z.object({ question: z.string().trim().min(3).max(500) });
+
+/**
+ * docs/05 "ask a question in words → compiled to a visible, editable query".
+ * The model is shown the caller's catalogue and nothing else, and what comes
+ * back is a definition — not figures. Nothing runs here: the reader loads the
+ * definition into the builder, reads it, edits it, and runs it themselves
+ * (docs/15 §4, ADR-0088). A reply the parser cannot hold to the catalogue is a
+ * 422 with a reason code, never a best guess.
+ */
+analyticsRoutes.post("/ask", async (c) => {
+  const ctx = c.get("ctx");
+  require_(ctx.actor, "analytics:reports:run", { tenantId: ctx.tenantId });
+  const { question } = await body(c, AskBody);
+  const catalogue = catalogueFor(ctx);
+  if (!catalogue.length) throw forbidden("analytics:reports:run");
+
+  const res = await gatewayFor(c.env).complete(ctx, {
+    module: "analytics",
+    purpose: "analytics.ask",
+    tier: "standard",
+    subjectRef: "analytics:ask",
+    locale: ctx.locale,
+    temperature: 0,
+    responseSchema: analyticsAskSchema(),
+    messages: analyticsAskMessages(question, catalogue, {
+      locale: ctx.locale,
+      today: new Date(ctx.now).toISOString().slice(0, 10)
+    })
+  });
+  const parsed = parseAnalyticsAsk(res.text, catalogue, ctx.now);
+  if (!parsed.ok) {
+    throw new AppError(422, "ask_refused", "The question could not be compiled into a report", parsed.reason, {
+      reason: parsed.reason,
+      audit_id: res.auditId
+    });
+  }
+  return c.json({ definition: parsed.definition, why: parsed.why, auditId: res.auditId, model: res.model });
 });
 
 /* -------------------------------------------------------------------- reports */
 
-const Filter = z.object({
-  field: z.string().min(1).max(64),
-  op: z.enum(["eq", "neq", "in", "gt", "gte", "lt", "lte", "contains", "is_null", "not_null"]),
-  value: z.union([z.string().max(200), z.number(), z.array(z.union([z.string().max(200), z.number()])).max(200)]).optional()
-});
-
-const Definition = z.object({
-  dataset: z.string().min(1).max(64),
-  metrics: z.array(z.string().min(1).max(64)).min(1).max(12),
-  dimensions: z.array(z.string().min(1).max(64)).max(6).optional(),
-  filters: z.array(Filter).max(20).optional(),
-  grain: z.enum(["none", "day", "week", "month", "quarter", "year"]).optional(),
-  from: z.number().int().optional(),
-  to: z.number().int().optional(),
-  sort: z.object({ field: z.string().min(1).max(64), dir: z.enum(["asc", "desc"]) }).optional(),
-  limit: z.number().int().min(1).max(MAX_ROWS).optional()
-});
+// One schema for every reader of a definition, the ask purpose included
+// (packages/core/src/report-definition.ts).
+const Filter = ReportFilterSchema;
+const Definition = ReportDefinitionSchema;
 
 const ReportBody = z.object({
   key: z.string().min(1).max(64).regex(/^[a-z0-9_.-]+$/),

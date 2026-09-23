@@ -45,6 +45,8 @@ export const en = {
   "nav.admin/security": "Security and access",
   "nav.admin/automation": "Automatic approvals",
   "nav.admin/audit-export": "Audit log export",
+  "nav.admin/ai/analytics": "AI analytics",
+  "nav.analytics/builder": "Report builder",
   "nav.admin/staff": "Staff",
   "nav.search/results": "Search results",
   "nav.journey/axis": "Journey: Operations",
