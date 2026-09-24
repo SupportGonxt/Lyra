@@ -368,6 +368,25 @@ describe("seed", () => {
     expect(await syncChartOfAccounts(db, r.tenantId)).toEqual([]);
   });
 
+  // ADR-0090: a tenant provisioned before the chart carried an IAS 7 class has
+  // `cash_flow` null on every row; the resync gives the seeded codes theirs and
+  // leaves a class a tenant set by hand alone.
+  it("backfills the cash-flow class onto existing accounts without overriding one set by hand", async () => {
+    const r = await seed(db, { password: "gonxt-test-password" });
+    await db.update(schema.ledgerAccounts).set({ cashFlow: null });
+    await db
+      .update(schema.ledgerAccounts)
+      .set({ cashFlow: "financing" })
+      .where(eq(schema.ledgerAccounts.code, "1100"));
+
+    await syncChartOfAccounts(db, r.tenantId);
+
+    const byCode = new Map((await db.select().from(schema.ledgerAccounts)).map((a) => [a.code, a.cashFlow]));
+    expect(byCode.get("1000")).toBe("cash");
+    expect(byCode.get("1100")).toBe("financing");
+    expect(byCode.get("1010")).toBeNull();
+  });
+
   it("seeds the panel with GONXT's own paper plus five external providers", async () => {
     await seed(db, { password: "gonxt-test-password" });
     const providers = await db.select().from(schema.providers);

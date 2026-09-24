@@ -90,6 +90,29 @@ interface BalanceSheet {
   balanced: boolean;
 }
 
+/** Mirrors `CashFlowStatement` (packages/ledger/src/reports.ts), ADR-0090. */
+interface CashFlowSection {
+  rows: Array<{ accountCode: string; name: string; amountMinor: number }>;
+  totalMinor: number;
+}
+
+interface CashFlow {
+  from: number;
+  to: number;
+  currency: string;
+  profitMinor: number;
+  nonCashFxMinor: number;
+  operating: CashFlowSection;
+  investing: CashFlowSection;
+  financing: CashFlowSection;
+  netIncreaseMinor: number;
+  fxEffectMinor: number;
+  openingCashMinor: number;
+  closingCashMinor: number;
+  restrictedCashMinor: number;
+  reconciled: boolean;
+}
+
 interface AgedRow {
   counterparty: string;
   currency: string;
@@ -137,6 +160,7 @@ type Report =
   | { key: "trial-balance"; data: TrialBalance }
   | { key: "pnl"; data: Pnl }
   | { key: "balance-sheet"; data: BalanceSheet }
+  | { key: "cash-flow"; data: CashFlow }
   | { key: "aged"; data: { data: AgedRow[] } }
   | { key: "commission"; data: { dimension: string; data: CommissionRow[] } }
   | { key: "client-money"; data: { data: ClientMoneyRow[] } }
@@ -150,7 +174,8 @@ type ReportKey = Report["key"];
 const JOURNALS = "ledger:journals:read";
 const CLIENT_MONEY = "ledger:client_money:read";
 
-type ParamKind = "month" | "date" | "text";
+/** `date` reads as the end of that day; `from` as its start. */
+type ParamKind = "month" | "date" | "from" | "text";
 
 interface ReportSpec {
   permission: string;
@@ -169,6 +194,13 @@ const REPORTS: Record<ReportKey, ReportSpec> = {
   },
   pnl: { permission: JOURNALS, params: [{ name: "period", kind: "month" }] },
   "balance-sheet": { permission: JOURNALS, params: [{ name: "asOf", kind: "date" }] },
+  "cash-flow": {
+    permission: JOURNALS,
+    params: [
+      { name: "from", kind: "from" },
+      { name: "to", kind: "date" }
+    ]
+  },
   aged: {
     permission: JOURNALS,
     params: [
@@ -196,7 +228,7 @@ const REPORTS: Record<ReportKey, ReportSpec> = {
 const ORDER = Object.keys(REPORTS) as ReportKey[];
 
 /** The reports whose rows name an account, and so can drill into one. */
-const LINKED = new Set<ReportKey>(["trial-balance", "pnl", "balance-sheet"]);
+const LINKED = new Set<ReportKey>(["trial-balance", "pnl", "balance-sheet", "cash-flow"]);
 
 function isReport(key: string): key is ReportKey {
   return Object.hasOwn(REPORTS, key);
@@ -229,6 +261,26 @@ export const LABELS: Record<string, Record<string, string>> = {
     "report.commission": "Commission statement",
     "report.client-money": "Client money check",
     "report.bordereaux": "Bordereaux",
+    "report.cash-flow": "Cash flow",
+    "headline.cashRose": "{name}: cash rose by {amount}.",
+    "headline.cashFell": "{name}: cash fell by {amount}.",
+    "param.from": "From",
+    "param.to": "To",
+    "hint.from": "From the start of that day; blank is the first of this month",
+    "hint.to": "To the end of that day; blank is now",
+    "cf.profit": "Profit for the period",
+    "cf.nonCashFx": "Unrealised exchange differences on cash",
+    "cf.operating": "Operating activities",
+    "cf.investing": "Investing activities",
+    "cf.financing": "Financing activities",
+    "cf.opening": "Opening cash",
+    "cf.net": "Net increase in cash",
+    "cf.fx": "Effect of exchange rates on cash",
+    "cf.closing": "Closing cash",
+    "cf.restricted": "Client money held for others, not counted as cash:",
+    "cf.unreconciled.title": "Cash does not reconcile",
+    "cf.unreconciled.body":
+      "Opening cash plus the period's flows does not equal closing cash. Every posting balances, so the gap points at a line posted outside the ledger's recipes: check the batches in this window.",
     params: "Report parameters",
     "param.period": "Period",
     "param.asOf": "As at",
@@ -328,6 +380,26 @@ export const LABELS: Record<string, Record<string, string>> = {
     "report.aged": "أعمار الأرصدة",
     "report.commission": "كشف العمولات",
     "report.client-money": "فحص أموال العملاء",
+    "report.cash-flow": "التدفقات النقدية",
+    "headline.cashRose": "{name}: ارتفع النقد بمقدار {amount}.",
+    "headline.cashFell": "{name}: انخفض النقد بمقدار {amount}.",
+    "param.from": "من",
+    "param.to": "إلى",
+    "hint.from": "من بداية ذلك اليوم؛ الفراغ يعني أول هذا الشهر",
+    "hint.to": "حتى نهاية ذلك اليوم؛ الفراغ يعني الآن",
+    "cf.profit": "ربح الفترة",
+    "cf.nonCashFx": "فروق صرف غير محققة على النقد",
+    "cf.operating": "الأنشطة التشغيلية",
+    "cf.investing": "الأنشطة الاستثمارية",
+    "cf.financing": "الأنشطة التمويلية",
+    "cf.opening": "النقد في بداية الفترة",
+    "cf.net": "صافي الزيادة في النقد",
+    "cf.fx": "أثر تغيّر أسعار الصرف على النقد",
+    "cf.closing": "النقد في نهاية الفترة",
+    "cf.restricted": "أموال العملاء المحتفظ بها للغير، ولا تُحتسب نقدًا:",
+    "cf.unreconciled.title": "النقد غير متطابق",
+    "cf.unreconciled.body":
+      "النقد في بداية الفترة مضافًا إليه تدفقاتها لا يساوي النقد في نهايتها. كل قيد متوازن، لذا تشير الفجوة إلى سطر رُحّل خارج وصفات الدفتر: راجع دفعات هذه الفترة.",
     "report.bordereaux": "كشف تفصيلي (بوردرو)",
     params: "معايير التقرير",
     "param.period": "الفترة",
@@ -447,6 +519,18 @@ export function reportsHeadline(report: Report | null, l: Label, locale: string)
         ? l("headline.balanced", { name })
         : l("headline.outBy", { name, amount: formatMoney(Math.abs(difference), currency, locale) });
     }
+    case "cash-flow": {
+      const cf = report.data;
+      if (!cf.reconciled) {
+        const gap = cf.closingCashMinor - (cf.openingCashMinor + cf.netIncreaseMinor + cf.fxEffectMinor);
+        return l("headline.outBy", { name, amount: formatMoney(Math.abs(gap), cf.currency, locale) });
+      }
+      const change = cf.netIncreaseMinor + cf.fxEffectMinor;
+      return l(change < 0 ? "headline.cashFell" : "headline.cashRose", {
+        name,
+        amount: formatMoney(Math.abs(change), cf.currency, locale)
+      });
+    }
     case "aged":
       return l("headline.count", { name, count: String(report.data.data.length) });
     case "commission":
@@ -472,9 +556,9 @@ const DAY_END = "T23:59:59.999Z";
  * asOf`, so UTC midnight would silently drop everything posted on the day the
  * report is headed with.
  */
-function epochOf(raw: string): number | null {
+export function epochOf(raw: string, edge: "start" | "end" = "end"): number | null {
   if (/^\d+$/.test(raw)) return Number(raw);
-  const ms = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}${DAY_END}` : raw);
+  const ms = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}${edge === "start" ? "T00:00:00.000Z" : DAY_END}` : raw);
   return Number.isNaN(ms) ? null : ms;
 }
 
@@ -512,8 +596,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   for (const param of spec.params) {
     const raw = incoming.get(param.name)?.trim();
     if (!raw) continue;
-    if (param.kind === "date") {
-      const at = epochOf(raw);
+    if (param.kind === "date" || param.kind === "from") {
+      const at = epochOf(raw, param.kind === "from" ? "start" : "end");
       if (at !== null) query.set(param.name, String(at));
     } else {
       query.set(param.name, raw);
@@ -611,7 +695,7 @@ export default function LedgerReports() {
             hint={l(`hint.${param.name}`)}
             className="w-52"
           >
-            {param.kind === "date" ? (
+            {param.kind === "date" || param.kind === "from" ? (
               <DatePicker name={param.name} defaultValue={searchParams.get(param.name) ?? ""} />
             ) : (
               <Input
@@ -678,6 +762,8 @@ function ReportView({ report, ...rest }: ViewProps & { report: Report }) {
       return <PnlView pnl={report.data} {...rest} />;
     case "balance-sheet":
       return <BalanceSheetView bs={report.data} {...rest} />;
+    case "cash-flow":
+      return <CashFlowView cf={report.data} {...rest} />;
     case "aged":
       return <AgedView rows={report.data.data} {...rest} />;
     case "commission":
@@ -843,7 +929,8 @@ function SectionTable({
       <Table
         columns={columns}
         rows={section.rows}
-        rowKey={(row) => row.accountCode}
+        // A computed line (profit, on the cash-flow statement) has no account.
+        rowKey={(row) => row.accountCode || row.name}
         caption={title}
         density="compact"
         empty={<Empty t={t} />}
@@ -988,6 +1075,62 @@ function BalanceSheetView({ bs, accounts, locale, l, t }: ViewProps & { bs: Bala
           />
         )}
       </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------ 3b. cash flows (IAS 7) */
+
+function CashFlowView({ cf, accounts, locale, l, t }: ViewProps & { cf: CashFlow }) {
+  const currency = cf.currency;
+  const money = (amountMinor: number) => <Money amountMinor={amountMinor} currency={currency} locale={locale} signed />;
+  const gap = cf.closingCashMinor - (cf.openingCashMinor + cf.netIncreaseMinor + cf.fxEffectMinor);
+  // Profit and the non-cash adjustment open the operating section: the indirect
+  // method (IAS 7.18(b)) starts from profit and works down to cash.
+  const operating: CashFlowSection = {
+    rows: [
+      { accountCode: "", name: l("cf.profit"), amountMinor: cf.profitMinor },
+      ...(cf.nonCashFxMinor ? [{ accountCode: "", name: l("cf.nonCashFx"), amountMinor: cf.nonCashFxMinor }] : []),
+      ...cf.operating.rows
+    ],
+    totalMinor: cf.operating.totalMinor
+  };
+  const section = (key: string, body: CashFlowSection) => (
+    <SectionTable
+      section={{ label: l(key), rows: body.rows, totalMinor: body.totalMinor }}
+      title={l(key)}
+      currency={currency}
+      accounts={accounts}
+      locale={locale}
+      l={l}
+      t={t}
+    />
+  );
+  return (
+    <section className="flex flex-col gap-6">
+      <p className="font-ui text-13 text-subtle">
+        <DateTime value={cf.from} locale={locale} precision="day" /> – <DateTime value={cf.to} locale={locale} precision="day" />
+      </p>
+      <KPIWall>
+        <Stat label={l("cf.opening")} value={money(cf.openingCashMinor)} />
+        <Stat label={l("cf.net")} value={money(cf.netIncreaseMinor)} />
+        {cf.fxEffectMinor ? <Stat label={l("cf.fx")} value={money(cf.fxEffectMinor)} /> : null}
+        <Stat label={l("cf.closing")} value={money(cf.closingCashMinor)} />
+      </KPIWall>
+      {cf.reconciled ? null : (
+        <Discrepancy title={l("cf.unreconciled.title")} body={l("cf.unreconciled.body")} amountMinor={gap} currency={currency} locale={locale} />
+      )}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {section("cf.operating", operating)}
+        {section("cf.investing", cf.investing)}
+        {section("cf.financing", cf.financing)}
+      </div>
+      {/* IAS 7.48: held for others, so not cash — but a reader must see it. */}
+      {cf.restrictedCashMinor ? (
+        <p className="max-w-prose font-ui text-13 text-muted">
+          {l("cf.restricted")} {money(cf.restrictedCashMinor)}
+        </p>
+      ) : null}
     </section>
   );
 }

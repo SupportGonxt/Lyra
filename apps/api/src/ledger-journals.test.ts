@@ -268,3 +268,17 @@ describe("year-end close (docs/27 F3)", () => {
     expect(denied.status).toBe(403);
   });
 });
+
+describe("statement of cash flows (docs/19 §5.4, ADR-0090)", () => {
+  it("answers IAS 7's indirect statement over the seeded book, and it reconciles", async () => {
+    const cf = ok(await call("controller", "GET", `/v1/ledger/reports/cash-flow?from=0&to=${Date.now()}`));
+    expect(cf.reconciled).toBe(true);
+    expect(cf.openingCashMinor + cf.netIncreaseMinor + cf.fxEffectMinor).toBe(cf.closingCashMinor);
+    expect(cf.operating.totalMinor + cf.investing.totalMinor + cf.financing.totalMinor).toBe(cf.netIncreaseMinor);
+  });
+
+  it("refuses a window that ends before it starts", async () => {
+    const res = await call("controller", "GET", "/v1/ledger/reports/cash-flow?from=2000&to=1000");
+    expect(res.status).toBe(400);
+  });
+});

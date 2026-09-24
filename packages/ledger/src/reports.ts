@@ -413,6 +413,142 @@ export async function balanceSheet(ctx: Ctx, asOf?: number): Promise<BalanceShee
   };
 }
 
+/* ---------------------------------------------------- statement of cash flows */
+
+export type CashFlowBucket = "cash" | "operating" | "investing" | "financing" | "profit";
+
+/**
+ * ADR-0090. An account's IAS 7 class: its own `cash_flow` when set, otherwise
+ * derived from its type — working capital for assets and liabilities, financing
+ * for equity, and profit for income and expense.
+ */
+export function cashFlowClass(account: { type: string; cashFlow?: string | undefined } | undefined): CashFlowBucket {
+  if (account?.cashFlow) return account.cashFlow as CashFlowBucket;
+  if (account?.type === "income" || account?.type === "expense") return "profit";
+  if (account?.type === "equity") return "financing";
+  return "operating";
+}
+
+export interface CashFlowRow {
+  accountCode: string;
+  name: string;
+  /** Cash effect: positive is cash in. */
+  amountMinor: number;
+}
+
+export interface CashFlowSection {
+  rows: CashFlowRow[];
+  totalMinor: number;
+}
+
+export interface CashFlowStatement {
+  from: number;
+  to: number;
+  currency: string;
+  profitMinor: number;
+  /** Unrealised FX on cash, taken back out of profit (IAS 7.28). */
+  nonCashFxMinor: number;
+  /** Working-capital rows; the total includes profit and the adjustment above. */
+  operating: CashFlowSection;
+  investing: CashFlowSection;
+  financing: CashFlowSection;
+  netIncreaseMinor: number;
+  fxEffectMinor: number;
+  openingCashMinor: number;
+  closingCashMinor: number;
+  /** Client money at `to`: held for others, not cash and cash equivalents (IAS 7.48). */
+  restrictedCashMinor: number;
+  /** opening + net increase + FX effect = closing. */
+  reconciled: boolean;
+}
+
+/** A close moves profit into retained earnings; no cash moves (ADR-0090 §4). */
+const NON_CASH_TXN_TYPES = new Set(["YEAR-END-CLOSE"]);
+const FX_TXN_TYPE = "FX-REVAL";
+
+/**
+ * docs/19 §5.4, IAS 7 indirect method, base currency. Every batch balances, so
+ * cash moved by exactly the credit-less-debit movement of every other account;
+ * this is that identity, bucketed and proved against cash itself.
+ */
+export async function cashFlowStatement(ctx: Ctx, window: { from: number; to: number }): Promise<CashFlowStatement> {
+  const { from, to } = window;
+  if (to < from) throw badRequest("the window ends before it starts");
+  const l = schema.ledgerJournalLines;
+  const t = schema.ledgerTxns;
+  const chart = await tenantChartMap(ctx);
+  const isCash = (code: string) => cashFlowClass(chart.get(code)) === "cash";
+
+  // debit less credit, per account, up to an instant — every txn type counts.
+  const position = async (until: number, inclusive: boolean) =>
+    ctx.db
+      .select({ accountCode: l.accountCode, side: l.side, total: sql<number>`sum(${l.baseAmountMinor})` })
+      .from(l)
+      .where(and(eq(l.tenantId, ctx.tenantId), inclusive ? lte(l.postedAt, until) : lt(l.postedAt, until)))
+      .groupBy(l.accountCode, l.side);
+  const net = (rows: { accountCode: string; side: string; total: number }[], keep: (code: string) => boolean) =>
+    rows.filter((r) => keep(r.accountCode)).reduce((sum, r) => sum + (r.side === "debit" ? 1 : -1) * Number(r.total), 0);
+
+  const movement = await ctx.db
+    .select({ accountCode: l.accountCode, side: l.side, type: t.type, total: sql<number>`sum(${l.baseAmountMinor})` })
+    .from(l)
+    .innerJoin(t, and(eq(t.id, l.txnId), eq(t.tenantId, l.tenantId)))
+    .where(and(eq(l.tenantId, ctx.tenantId), gte(l.postedAt, from), lte(l.postedAt, to)))
+    .groupBy(l.accountCode, l.side, t.type);
+
+  let profitMinor = 0;
+  let fxEffectMinor = 0;
+  const buckets = { operating: new Map<string, number>(), investing: new Map<string, number>(), financing: new Map<string, number>() };
+  for (const r of movement) {
+    if (NON_CASH_TXN_TYPES.has(r.type)) continue;
+    const amount = Number(r.total);
+    if (isCash(r.accountCode)) {
+      if (r.type === FX_TXN_TYPE) fxEffectMinor += r.side === "debit" ? amount : -amount;
+      continue;
+    }
+    const effect = r.side === "credit" ? amount : -amount;
+    const bucket = cashFlowClass(chart.get(r.accountCode));
+    if (bucket === "profit") profitMinor += effect;
+    else if (bucket !== "cash") buckets[bucket].set(r.accountCode, (buckets[bucket].get(r.accountCode) ?? 0) + effect);
+  }
+
+  const section = (m: Map<string, number>, extra = 0): CashFlowSection => {
+    const rows = [...m]
+      .filter(([, amount]) => amount !== 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([code, amountMinor]) => ({ accountCode: code, name: chart.get(code)?.en ?? code, amountMinor }));
+    return { rows, totalMinor: extra + rows.reduce((sum, row) => sum + row.amountMinor, 0) };
+  };
+  const nonCashFxMinor = -fxEffectMinor;
+  const operating = section(buckets.operating, profitMinor + nonCashFxMinor);
+  const investing = section(buckets.investing);
+  const financing = section(buckets.financing);
+  const netIncreaseMinor = operating.totalMinor + investing.totalMinor + financing.totalMinor;
+
+  const [before, after] = await Promise.all([position(from, false), position(to, true)]);
+  const openingCashMinor = net(before, isCash);
+  const closingCashMinor = net(after, isCash);
+  // The asset side only: 2010 is the obligation the float is held against.
+  const restrictedCashMinor = net(after, (code) => chart.get(code)?.clientMoney === true && chart.get(code)?.type === "asset");
+
+  return {
+    from,
+    to,
+    currency: ctx.policy.currency,
+    profitMinor,
+    nonCashFxMinor,
+    operating,
+    investing,
+    financing,
+    netIncreaseMinor,
+    fxEffectMinor,
+    openingCashMinor,
+    closingCashMinor,
+    restrictedCashMinor,
+    reconciled: openingCashMinor + netIncreaseMinor + fxEffectMinor === closingCashMinor
+  };
+}
+
 export interface YearEndPreview {
   fiscalYear: number;
   currency: string;

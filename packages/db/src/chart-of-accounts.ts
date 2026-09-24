@@ -15,6 +15,10 @@
 
 export type AccountType = "asset" | "liability" | "income" | "expense" | "equity";
 
+/** IAS 7 classification (ADR-0090). Absent = derived from the account type. */
+export const CASH_FLOW_CLASSES = ["cash", "operating", "investing", "financing"] as const;
+export type CashFlowClass = (typeof CASH_FLOW_CLASSES)[number];
+
 export interface AccountDef {
   code: string;
   en: string;
@@ -26,11 +30,13 @@ export interface AccountDef {
   clientMoney?: true;
   /** A clearing/suspense account that must net to zero at period close (ADR-0083). */
   suspense?: true;
+  /** IAS 7 class (ADR-0090); absent = derived from `type`. */
+  cashFlow?: CashFlowClass;
 }
 
 export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   // assets
-  { code: "1000", en: "Cash – Operating", ar: "النقد – التشغيلي", type: "asset", normalSide: "debit" },
+  { code: "1000", en: "Cash – Operating", ar: "النقد – التشغيلي", type: "asset", normalSide: "debit", cashFlow: "cash" },
   { code: "1010", en: "Cash – Client Money", ar: "النقد – أموال العملاء", type: "asset", normalSide: "debit", clientMoney: true },
   { code: "1100", en: "Commission Receivable", ar: "عمولات مستحقة القبض", type: "asset", normalSide: "debit" },
   { code: "1150", en: "Financier Receivable", ar: "مستحقات من جهة التمويل", type: "asset", normalSide: "debit" },

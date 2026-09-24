@@ -339,6 +339,31 @@ These two feed cost-per-case / per-conversation / per-brief telemetry (NFR-013).
 - Periods: open → soft-close (adjustments allowed with reason) → hard-close
   (contra-only). Close checklist in §6.4.
 
+### 5.4 Statement of cash flows (IFRS, IAS 7 — ADR-0090)
+The fourth primary statement beside the trial balance, income statement and
+balance sheet, derived from `ledger_journal_lines` like every other report.
+- **Method:** indirect (IAS 7.18(b)). The statement starts from profit for the
+  period, then adjusts it for non-cash items and changes in working capital.
+- **Cash and cash equivalents** are the accounts whose `cash_flow` class is
+  `cash` (default chart: `1000`). Client money (`1010`) is **excluded**: it is
+  held for others, it is restricted, and it is offset by `2010` (IAS 7.48
+  disclosure). It is shown as a note beside the statement.
+- **Classification:** each account's `cash_flow` class (`cash`, `operating`,
+  `investing`, `financing`). An account with no class is derived from its type:
+  asset and liability → operating (working capital), equity → financing, and
+  income and expense make up profit. A tenant adding PP&E or borrowings sets
+  the class. Taxes on income are operating (IAS 7.35).
+- **Non-cash items:** `YEAR-END-CLOSE` lines are excluded, because they move
+  profit into retained earnings and no cash moves. Unrealised FX on
+  cash accounts (`FX-REVAL` lines on a `cash` account) is removed from
+  operating. It is shown on its own line, "effect of exchange rate changes on
+  cash" (IAS 7.28).
+- **Proof:** opening cash + net increase + FX effect = closing cash. The report
+  returns `reconciled`, and the property test holds it for any balanced
+  posting set.
+- **Window:** any `from`..`to`. It defaults to the current month to date, in
+  base currency.
+
 ## 6. Reconciliation, settlement & close
 
 | Process | Sources matched | Outputs |

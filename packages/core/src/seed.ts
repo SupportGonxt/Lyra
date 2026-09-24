@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   BrandJson,
   CHART_OF_ACCOUNTS,
@@ -290,6 +290,7 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
       suspense: acc.suspense ?? false,
+      cashFlow: acc.cashFlow ?? null,
       currency: "AED",
       status: "active",
       createdAt: now
@@ -2416,7 +2417,23 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
   const now = Date.now();
   const added: string[] = [];
   for (const acc of CHART_OF_ACCOUNTS) {
-    if (existing.has(acc.code)) continue;
+    if (existing.has(acc.code)) {
+      // ADR-0090: the IAS 7 class reaches a tenant seeded before it existed.
+      // Only where unset — a class the tenant chose is theirs.
+      if (acc.cashFlow) {
+        await db
+          .update(schema.ledgerAccounts)
+          .set({ cashFlow: acc.cashFlow })
+          .where(
+            and(
+              eq(schema.ledgerAccounts.tenantId, tenantId),
+              eq(schema.ledgerAccounts.code, acc.code),
+              isNull(schema.ledgerAccounts.cashFlow)
+            )
+          );
+      }
+      continue;
+    }
     await db.insert(schema.ledgerAccounts).values({
       id: id("acc", now + added.length),
       tenantId,
@@ -2426,6 +2443,7 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
       suspense: acc.suspense ?? false,
+      cashFlow: acc.cashFlow ?? null,
       currency: "AED",
       status: "active",
       createdAt: now

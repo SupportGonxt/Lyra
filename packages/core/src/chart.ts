@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { schema, type AccountDef, type AccountType } from "@lyra/db";
+import { schema, type AccountDef, type AccountType, type CashFlowClass } from "@lyra/db";
 import { scoped, type Ctx } from "./context.js";
 
 // ADR-0083. `CHART_OF_ACCOUNTS` (@lyra/db) is the default chart every tenant
@@ -30,6 +30,7 @@ function fromRow(row: typeof schema.ledgerAccounts.$inferSelect): TenantAccount 
     normalSide: row.normalSide as "debit" | "credit",
     ...(row.clientMoney ? { clientMoney: true as const } : {}),
     ...(row.suspense ? { suspense: true as const } : {}),
+    ...(row.cashFlow ? { cashFlow: row.cashFlow as CashFlowClass } : {}),
     status: row.status
   };
 }

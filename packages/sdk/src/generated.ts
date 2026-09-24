@@ -1417,6 +1417,7 @@ export interface LedgerAccounts {
   normalSide: string;
   clientMoney?: boolean;
   suspense?: boolean;
+  cashFlow?: string;
   currency?: string;
   parentCode?: string;
   status?: string;
@@ -2817,6 +2818,7 @@ export interface Operations {
   "GET /v1/ledger/reports/aged": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/balance-sheet": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/bordereaux": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/ledger/reports/cash-flow": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/chart-of-accounts": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/client-money": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/commission": Op<never, never, never, Record<string, unknown>>;
@@ -3594,6 +3596,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/reports/aged": { tag: "ledger", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/balance-sheet": { tag: "ledger", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/bordereaux": { tag: "ledger", summary: "Outbound bordereaux: per-policy premium and commission for a provider and period", permission: "ledger:journals:read", public: false },
+  "GET /v1/ledger/reports/cash-flow": { tag: "ledger", summary: "Statement of cash flows (IFRS, IAS 7 indirect) for a window", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/chart-of-accounts": { tag: "ledger", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/client-money": { tag: "ledger", summary: "Client money sufficiency: what is held against what is owed", permission: "ledger:client_money:read", public: false },
   "GET /v1/ledger/reports/commission": { tag: "ledger", summary: "Commission earned, clawed back and payable by channel", permission: "ledger:journals:read", public: false },

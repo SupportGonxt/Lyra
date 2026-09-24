@@ -231,6 +231,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/ledger/reports/trial-balance", summary: "Trial balance as at a moment", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/pnl", summary: "Profit and loss for a period", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/balance-sheet", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", tag: "ledger" },
+  { method: "get", path: "/v1/ledger/reports/cash-flow", summary: "Statement of cash flows (IFRS, IAS 7 indirect) for a window", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/aged", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/commission", summary: "Commission earned, clawed back and payable by channel", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/client-money", summary: "Client money sufficiency: what is held against what is owed", permission: "ledger:client_money:read", tag: "ledger" },

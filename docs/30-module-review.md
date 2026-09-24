@@ -102,7 +102,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 
 ### Ledger
 1. ~~Remove the duplicate settlement emits.~~ **Fixed** 2026-09-23: each settlement transition emits once.
-2. Cash-flow statement (indirect method).
+2. ~~Cash-flow statement (indirect method).~~ **Fixed** 2026-09-24 (ADR-0090, IFRS IAS 7 indirect): `cashFlowStatement` is proved against cash by a property test, served at `/v1/ledger/reports/cash-flow` and its export, and shown at `/ledger/reports/cash-flow`.
 3. Emit `ledger.recon.completed` and `ledger.period.closed`.
 4. Budgets and budget-vs-actual.
 5. Inbound bordereaux reconciliation.
