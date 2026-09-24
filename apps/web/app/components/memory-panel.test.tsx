@@ -151,6 +151,6 @@ describe("MemoryView", () => {
 
   it("says so when nothing links here", () => {
     const html = render(["core:notes:read"], "links", { ...DATA, links: [] });
-    expect(html).toContain(t("memory.links.empty").replace("'", "&#x27;"));
+    expect(html).toContain(t("memory.links.empty").replaceAll("'", "&#x27;"));
   });
 });
