@@ -30,6 +30,7 @@ export default [
     route("admin/ai/console", "routes/ai-console.tsx"),
     route("center", "routes/command-center.tsx"),
     route("admin/ai/budget", "routes/ai-budget.tsx"),
+    route("admin/ai/analytics", "routes/ai-analytics.tsx"),
     route("admin/ai/runs/:id", "routes/ai-run.tsx"),
     route("admin/cost-explorer", "routes/cost-explorer.tsx"),
     route("ledger/reports/:report", "routes/ledger-reports.tsx"),
@@ -42,6 +43,7 @@ export default [
     route("ledger/journal", "routes/ledger-journal.tsx"),
     route("ledger/statement", "routes/ledger-account.tsx"),
     route("ledger/recon", "routes/ledger-recon.tsx"),
+    route("analytics/builder", "routes/analytics-builder.tsx"),
     route("analytics/report/:id", "routes/analytics-report.tsx"),
     route("analytics/dashboard/:id", "routes/analytics-dashboard.tsx"),
     route("distribution/quote-requests/:id/compare", "routes/quote-compare.tsx"),
@@ -55,6 +57,7 @@ export default [
     route("admin/developer", "routes/admin-developer.tsx"),
     route("admin/security", "routes/admin-security.tsx"),
     route("admin/automation", "routes/admin-automation.tsx"),
+    route("admin/audit-export", "routes/admin-audit-export.tsx"),
     route("admin/staff", "routes/staff.tsx"),
     route("admin/staff/:id", "routes/staff-member.tsx"),
     route("platform", "routes/platform.tsx"),
@@ -65,6 +68,9 @@ export default [
     // Feeds the shell's companion rail; no screen of its own (routes/companion.ts).
     route("companion", "routes/companion.ts"),
     route("search/results", "routes/search-results.tsx"),
+    // Record memory (ADR-0089): the panel's loader/action, and the vault file.
+    route("memory", "routes/memory.ts"),
+    route("memory/export", "routes/memory-export.ts"),
     // The checklist is the same screen for every subject; the pair of segments
     // is what it is about (partners|channels|staff, then the subject's id).
     route("onboarding/:kind/:ref", "routes/onboarding.tsx"),

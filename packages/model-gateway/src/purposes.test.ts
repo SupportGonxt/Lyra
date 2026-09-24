@@ -37,7 +37,8 @@ const REGISTERED: [purpose: string, module: string, customerFacing: boolean][] =
   ["exec.briefing", "north", false],
   ["recon.match", "ledger", false],
   ["output.review", "core", false],
-  ["knowledge.embed", "core", false]
+  ["knowledge.embed", "core", false],
+  ["analytics.ask", "analytics", false]
 ];
 
 describe("resolvePurpose", () => {

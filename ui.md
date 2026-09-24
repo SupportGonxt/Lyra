@@ -320,6 +320,15 @@ is the screen. `CommandBar` + `groupCommandItems` is the keyboard path.
 **The companion rail.** `/companion` ([companion.ts](apps/web/app/routes/companion.ts))
 has no screen of its own — it feeds the shell's companion rail.
 
+**Record memory (ADR-0089).** `/memory` ([memory.ts](apps/web/app/routes/memory.ts))
+has no screen of its own — it is the loader and action behind `MemoryPanel`, and
+answers `{ available: false }` rather than an error when the reader may not see a
+record's notes, so a refusal thins the panel and never the record. `/memory/export`
+([memory-export.ts](apps/web/app/routes/memory-export.ts)) streams the notes vault as
+a zip through `proxyFile`; the admin tools list links it with `download: true`
+(`LinkSpec.download` renders `reloadDocument`, because a client-side navigation to
+a route with no component has nothing to render).
+
 **Drill-down.** Every hero figure is a link. `Figure` inside a `KPIWall` resolves to
 the list or record that produced it; a number that cannot be opened is a number
 nobody can check.
@@ -336,7 +345,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 120 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 125 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -359,6 +368,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/admin/ai/console` | [ai-console.tsx](apps/web/app/routes/ai-console.tsx) |
 | `/center` | [command-center.tsx](apps/web/app/routes/command-center.tsx) |
 | `/admin/ai/budget` | [ai-budget.tsx](apps/web/app/routes/ai-budget.tsx) |
+| `/admin/ai/analytics` | [ai-analytics.tsx](apps/web/app/routes/ai-analytics.tsx) |
 | `/admin/ai/runs/:id` | [ai-run.tsx](apps/web/app/routes/ai-run.tsx) |
 | `/admin/cost-explorer` | [cost-explorer.tsx](apps/web/app/routes/cost-explorer.tsx) |
 | `/ledger/reports/:report` | [ledger-reports.tsx](apps/web/app/routes/ledger-reports.tsx) |
@@ -371,6 +381,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/ledger/journal` | [ledger-journal.tsx](apps/web/app/routes/ledger-journal.tsx) |
 | `/ledger/statement` | [ledger-account.tsx](apps/web/app/routes/ledger-account.tsx) |
 | `/ledger/recon` | [ledger-recon.tsx](apps/web/app/routes/ledger-recon.tsx) |
+| `/analytics/builder` | [analytics-builder.tsx](apps/web/app/routes/analytics-builder.tsx) |
 | `/analytics/report/:id` | [analytics-report.tsx](apps/web/app/routes/analytics-report.tsx) |
 | `/analytics/dashboard/:id` | [analytics-dashboard.tsx](apps/web/app/routes/analytics-dashboard.tsx) |
 | `/distribution/quote-requests/:id/compare` | [quote-compare.tsx](apps/web/app/routes/quote-compare.tsx) |
@@ -384,6 +395,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/admin/developer` | [admin-developer.tsx](apps/web/app/routes/admin-developer.tsx) |
 | `/admin/security` | [admin-security.tsx](apps/web/app/routes/admin-security.tsx) |
 | `/admin/automation` | [admin-automation.tsx](apps/web/app/routes/admin-automation.tsx) |
+| `/admin/audit-export` | [admin-audit-export.tsx](apps/web/app/routes/admin-audit-export.tsx) |
 | `/admin/staff` | [staff.tsx](apps/web/app/routes/staff.tsx) |
 | `/admin/staff/:id` | [staff-member.tsx](apps/web/app/routes/staff-member.tsx) |
 | `/platform` | [platform.tsx](apps/web/app/routes/platform.tsx) |
@@ -391,6 +403,8 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/search` | [search.ts](apps/web/app/routes/search.ts) |
 | `/companion` | [companion.ts](apps/web/app/routes/companion.ts) |
 | `/search/results` | [search-results.tsx](apps/web/app/routes/search-results.tsx) |
+| `/memory` | [memory.ts](apps/web/app/routes/memory.ts) |
+| `/memory/export` | [memory-export.ts](apps/web/app/routes/memory-export.ts) |
 | `/onboarding/:kind/:ref` | [onboarding.tsx](apps/web/app/routes/onboarding.tsx) |
 | `/admin/customers/:id/360` | [customer-360.tsx](apps/web/app/routes/customer-360.tsx) |
 | `/admin/products/:id/detail` | [product-detail.tsx](apps/web/app/routes/product-detail.tsx) |
@@ -482,7 +496,11 @@ Two route files render all of these:
 - **Record** — `/:module/:resource/:id` ([record.tsx](apps/web/app/routes/record.tsx)).
   The record's fields, an edit form from `editable ?? fields`, delete when
   `remove` is held, the `recordLink` out to a deeper bespoke screen, and the
-  state-change `actions` the API owns.
+  state-change `actions` the API owns. Below the edit form and above delete sits
+  `MemoryPanel` (§8, ADR-0089) for the record's id — loaded after the record, so
+  the record's own fields never wait on it or move below the fold for it. The
+  bespoke detail screens carry the same panel last on the page: customer 360,
+  policy, claim, case, conversation thread, product and channel detail.
 
 ### 7.0 Saved views on the list screen
 
@@ -595,6 +613,19 @@ counts in one `value`), `money` is minor units.
 | `guardrail-events` | `/v1/ai/guardrail-events` | `ai:audit:read` |  |  |  |  |  |
 | `ai-audit-log` | `/v1/ai/ai-audit-log` | `ai:audit:read` |  |  |  |  |  |
 
+**AI operations** → `/admin/ai/analytics` ([ai-analytics.tsx](apps/web/app/routes/ai-analytics.tsx),
+tools list, `analytics:reports:run`; its own screen rather than an AI-console
+tab, ADR-0088). Eleven definitions over the five AI datasets (`aiRuns`,
+`aiSpend`, `aiSuggestions`, `aiGuardrails`, `aiEvals`), each run through
+`POST /v1/analytics/run` — no bespoke endpoint. Top half: six `Stat`s
+(suggestions kept, refused calls, guardrail blocks, eval pass rate, AI cost,
+average latency); then cost / runs / latency / eval score per day as
+`LineChart`s; then cost by module, top purposes by cost, runs by module and eval
+suites weakest-first as compact tables. Every figure and panel links to
+`/analytics/builder?def=…&run=1` with the exact definition it was drawn from.
+7/30/90-day window links. A panel whose dataset the reader may not read says
+so (any 4xx but 401 blanks that panel only); a missing figure is `—`, never 0.
+
 #### `/analytics` — 8 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
@@ -607,6 +638,32 @@ counts in one `value`), `money` is minor units.
 | `saved-views` | `/v1/analytics/saved-views` | `analytics:saved_views:read` | ✓ |  | ✓ |  |  |
 | `unit-economics` | `/v1/analytics/unit-economics` | `analytics:reports:read` |  |  |  |  |  |
 | `journey-events` | `/v1/analytics/journey-events` | `analytics:reports:read` |  |  |  |  |  |
+
+Tools list: **Build a report** → `/analytics/builder` (`analytics:reports:run`).
+
+**Report builder** ([analytics-builder.tsx](apps/web/app/routes/analytics-builder.tsx),
+ADR-0088). The first web reader of `GET /v1/analytics/datasets`: dataset →
+measures → splits → time bucket → from/to → up to four filter rows → sort →
+row limit, in a GET form beside the preview (data first, the form in a sticky
+aside on xl). The whole build is the URL, `?def=<base64url JSON>`
+([analytics-def.ts](apps/web/app/analytics-def.ts)), so any build is a link;
+the preview runs through `POST /v1/analytics/run` **only when the link says
+`run=1`** — a shared, suggested or dashboard-supplied definition is loaded for
+the reader to read, never run for them. Preview = table with totals, plus a
+`LineChart` when the run has a grain and nothing else to split by, or a
+`DonutChart` for exactly one split and no grain. Save (`analytics:reports:write`)
+posts `/v1/analytics/reports` and, with `analytics:schedules:write`, optionally a
+daily/weekly/monthly schedule to named recipients. Dataset names are this
+screen's own en/ar labels; measure and split names fall back to the registry's
+English label where no catalogue or pack word exists (ponytail).
+
+**Ask in words** (same screen, docs/15 §4.6 + §4.7, ADR-0088). One input posts
+`/v1/analytics/ask`; the answer renders as a dashed ghost line — the compiled
+definition read back as phrases (`describeDef`) under an `AgentBadge` whose
+`why=` is the model's one-sentence reason — and a **Load into the builder** link
+(no `run=1`). A 422 `ask_refused` is worded by the screen from its reason code
+("outside what your data covers" / "did not compile"); the model's prose never
+reaches the page. No modal, no auto-run, no toast.
 
 #### `/axis` — 13 tabs
 
@@ -767,6 +824,8 @@ left to whichever module chapter happened to mention them.
 | [mark.tsx](apps/web/app/components/mark.tsx) | `ConstellationMark` — the Lyra harp logotype, four charted stars with Vega set apart in the tenant accent. Decorative (`aria-hidden`); the wordmark beside it carries the name. |
 | [theme-toggle.tsx](apps/web/app/components/theme-toggle.tsx) | Flips `data-theme` on the document and the `lyra_theme` cookie together, so the first paint already carries the right palette. The only reader of theme state is CSS — no context, no provider, no store (ponytail). |
 | [turnstile.tsx](apps/web/app/components/turnstile.tsx) | The Cloudflare Turnstile challenge on the two forms a stranger can post without a session — portal lead capture and public DSAR intake (docs/10 §6). Writes a hidden `cf-turnstile-response` input the route's action forwards as `turnstileToken`. Renders nothing where no site key is bound (dev, on-prem, CI, or an un-applied `infra/cloudflare/turnstile.tf`), matching the API side, which requires no challenge where it holds no secret. |
+| [memory-panel.tsx](apps/web/app/components/memory-panel.tsx) | A record's memory, Obsidian-shaped (ADR-0089, docs/16 H11), in four tabs: **Note** — the record's markdown note rendered through `Markdown`, `[[links]]` resolved to names and screens; *Edit* (with `core:notes:write`) swaps in a textarea whose `[[` opens a record picker over `/search`, and saves with the version it loaded (a 409 says someone else saved, keeps the text, offers reload). **Linked from** — the notes that link here. **Graph** — an inline SVG of the records 1 or 2 hops away, every node a keyboard-reachable link, capped at 40. **AI memory** — the `core_memories` rows for the subject, each with ✦ `AgentBadge` whose why names provenance, purposes and sensitivity, with *Forget* for `core:settings:update`. Tabs are withheld, not emptied: the note tabs need `core:notes:read`, the AI tab needs the memories resource to answer. `MemoryView` is the pure half, tested without a router's data layer. |
+| [markdown.tsx](apps/web/app/components/markdown.tsx) | The minimal markdown a note needs — headings (shifted under the page's h1/h2), paragraphs, lists, quotes, code, emphasis, links, `[[wikilinks]]` — with no dependency. It builds React elements and never an HTML string, so a typed `<script>` is text; `safeHref` admits only http(s), mailto and same-site paths. |
 | [fields.tsx](apps/web/app/components/fields.tsx) | The generated-CRUD renderers for `ColumnSpec`/`FieldSpec` — money, rate, ratio, measure, ref, badge-toned enum — shared by `module.tsx` and `record.tsx` so a field type means the same thing everywhere it appears. |
 | [whitespace-commentary.tsx](apps/web/app/components/whitespace-commentary.tsx) + [whitespace-api.server.ts](apps/web/app/components/whitespace-api.server.ts) | SCOUT's hover commentary and the promote-to-signal handover. `whitespace-api.server.ts` is the two calls the feature needs in one file: `GET /v1/scout/whitespaces/commentary?limit=N` (a read of already-stored commentary, not a model call, so the radar can prefetch every dot in one round) and the promote call. See `docs/ui/scout.md` for the fuller history of this contract, including the shipped mismatch between the assumed and actual response shape. |
 | [signal-handover.tsx](apps/web/app/components/signal-handover.tsx) | The button that hands a SCOUT whitespace to the SIGNAL campaign studio. Marked consequential (CLAUDE.md §4): the label says exactly what pressing it does, the API may answer "queued for approval" rather than "done", and any drafts land in a tray to be read rather than sent (docs/15 §4 pattern 3). `may: false` renders the reason in place of the button rather than a disabled control, because a disabled control cannot have its explanation announced to a screen reader. |

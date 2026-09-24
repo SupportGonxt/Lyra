@@ -283,6 +283,16 @@ a measured load, not guessed at from inside an unrelated PR. Treat it as the
 known shape of this one flake — 711/711 (or the current total) passed is the
 tell — and do not spend more than the one standard re-run confirming it.
 
+**Found, 2026-09-24 (PR #46, which failed it twice).** The load was the tests'
+own fixtures. `guardrails.test.ts` built a freshly migrated libsql database
+(~500 DDL statements) in a top-level `beforeEach` for all 81 tests, and 77 of
+them are pure regex checks that never touch it. That file took 56s under the
+concurrent run and `gateway.test.ts` took 44s. The migrated database is now
+built only in the describes that use it (`guardrails.test.ts`, `kill.test.ts`).
+guardrails dropped from 14.9s to 0.8s on an idle machine, and no assertion
+changed. The shape to watch: a migrated-database fixture at file scope charges
+every test in the file, and each new migration makes that charge grow.
+
 ## The recurring defect: dead seams
 
 A dead seam is a declared contract nothing routes through: a web type assumed

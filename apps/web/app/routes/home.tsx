@@ -104,6 +104,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "A scheduled report could not be produced",
     "notice.compliance.dsar.created":
       "A data-subject request arrived and needs verification",
+    "notice.north.alert.triggered": "A metric crossed an alert threshold",
 
     "activity.title": "Your recent activity",
     "activity.label": "Your recent activity",
@@ -181,6 +182,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "وصل تقرير مجدول إلى بعض المستلمين فقط",
     "notice.analytics.schedule.failed": "تعذّر إنتاج تقرير مجدول",
     "notice.compliance.dsar.created": "وصل طلب من صاحب بيانات ويحتاج إلى تحقق",
+    "notice.north.alert.triggered": "تجاوز مؤشر حدّ التنبيه",
 
     "activity.title": "نشاطك الأخير",
     "activity.label": "نشاطك الأخير",
@@ -800,33 +802,39 @@ export default function Home() {
             : {})}
         />
       ) : loaded.approvals.state === "ok" && loaded.approvals.data.length ? (
-        loaded.approvals.data.map((approval) => (
-          <ApprovalStrip
-            key={approval.id}
-            // The policy key said as words, the same way /approvals says it:
-            // the module owns the noun, so `axis.claim_reserve` reads as
-            // "Claim reserve" without the shell knowing what a claim is.
-            summary={policyTitle(approval.policyKey, approval.module, locale)}
-            consequence={label("approvals.subject", {
-              ref: who(approval.subjectRef, loaded.names) ?? "",
-            })}
-            requestedBy={who(approval.requestedBy, loaded.names) ?? ""}
-            // Each strip is a region landmark. Sharing one name with the
-            // section around them makes a landmark list of identical entries
-            // (axe landmark-unique), so each carries what it is waiting on.
-            label={`${label("approvals.title")}: ${policyTitle(approval.policyKey, approval.module, locale)}`}
-            // A strip mid-decision explains why its buttons are gone rather
-            // than offering a second click that would race the first.
-            {...(busyId === approval.id
-              ? { blockedReason: label("approvals.deciding") }
-              : {
-                  onApprove: () =>
-                    submit({ id: approval.id, decision: "approved" }),
-                  onReject: () =>
-                    submit({ id: approval.id, decision: "rejected" }),
+        // A list because it is one: n decisions of one kind, read as "3 of 5"
+        // by a screen reader and counted as the screen's data by the layout
+        // sweep. Each strip keeps its own region name inside its item.
+        <ul className="flex flex-col gap-3">
+          {loaded.approvals.data.map((approval) => (
+            <li key={approval.id}>
+              <ApprovalStrip
+                // The policy key said as words, the same way /approvals says it:
+                // the module owns the noun, so `axis.claim_reserve` reads as
+                // "Claim reserve" without the shell knowing what a claim is.
+                summary={policyTitle(approval.policyKey, approval.module, locale)}
+                consequence={label("approvals.subject", {
+                  ref: who(approval.subjectRef, loaded.names) ?? "",
                 })}
-          />
-        ))
+                requestedBy={who(approval.requestedBy, loaded.names) ?? ""}
+                // Each strip is a region landmark. Sharing one name with the
+                // section around them makes a landmark list of identical entries
+                // (axe landmark-unique), so each carries what it is waiting on.
+                label={`${label("approvals.title")}: ${policyTitle(approval.policyKey, approval.module, locale)}`}
+                // A strip mid-decision explains why its buttons are gone rather
+                // than offering a second click that would race the first.
+                {...(busyId === approval.id
+                  ? { blockedReason: label("approvals.deciding") }
+                  : {
+                      onApprove: () =>
+                        submit({ id: approval.id, decision: "approved" }),
+                      onReject: () =>
+                        submit({ id: approval.id, decision: "rejected" }),
+                    })}
+              />
+            </li>
+          ))}
+        </ul>
       ) : (
         <p className="font-ui text-13 text-subtle">
           {label("approvals.empty")}

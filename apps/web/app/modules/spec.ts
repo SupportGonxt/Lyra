@@ -175,6 +175,10 @@ export interface ResourceSpec {
   actions?: readonly ActionSpec[];
   bulk?: BulkSpec;
   import?: ImportSpec;
+  /** A download of this list as a file: a web route (which proxies the API),
+   *  its label and the permission the API gates it on. The list's `q` rides
+   *  along so the file holds what the reader was looking at. */
+  download?: { href: string; labelKey: string; permission: string };
 }
 
 export interface WorkspaceSpec {
@@ -209,6 +213,12 @@ export interface LinkSpec {
    * workspace; the route is still the authority either way.
    */
   permission?: string;
+  /**
+   * The target is a file (a resource route answering bytes), not a screen: it
+   * must be fetched as a document, because a client-side navigation to a
+   * route with no component has nothing to render.
+   */
+  download?: boolean;
 }
 
 /** Reads a workspace's own catalogue, falling back to English, then the key. */

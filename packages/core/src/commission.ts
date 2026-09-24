@@ -1,4 +1,5 @@
 import { and, eq, isNull, or, lte, gt, desc } from "drizzle-orm";
+import { z } from "zod";
 import { schema } from "@lyra/db";
 import { badRequest, notFound } from "./errors.js";
 import { taxPpmOf, taxTreatment } from "./tax.js";
@@ -96,6 +97,41 @@ export function volumeBonusMinor(amountMinor: number, bonus: VolumeBonusInput): 
 }
 
 /** Defensive: a malformed or absent `structure_json` resolves as flat, never a throw at read time. */
+const Ppm = z.number().int().min(0).max(1_000_000);
+
+/**
+ * ADR-0084's shape, strictly. `commissionStructureOf` reads anything it cannot
+ * parse as "flat" — right for a stored row, wrong for a write: a typo would pass
+ * for a ladder and pay the flat rate. Tiers ascend and the last is open-ended,
+ * the precondition `tieredCommissionMinor` states.
+ */
+export const CommissionStructureJson = z
+  .object({
+    tiers: z
+      .array(z.object({ uptoMinor: z.number().int().positive().optional(), ratePpm: Ppm }).strict())
+      .min(1)
+      .optional(),
+    volumeBonus: z.object({ thresholdMinor: z.number().int().min(0), bonusPpm: Ppm }).strict().optional(),
+    overridePpm: Ppm.optional()
+  })
+  .strict()
+  .superRefine((value, issue) => {
+    const tiers = value.tiers ?? [];
+    tiers.forEach((tier, i) => {
+      const last = i === tiers.length - 1;
+      if (last && tier.uptoMinor !== undefined) {
+        issue.addIssue({ code: "custom", path: ["tiers", i, "uptoMinor"], message: "the last tier must be open-ended" });
+      }
+      if (!last && tier.uptoMinor === undefined) {
+        issue.addIssue({ code: "custom", path: ["tiers", i, "uptoMinor"], message: "only the last tier may be open-ended" });
+      }
+      const prev = tiers[i - 1]?.uptoMinor;
+      if (prev !== undefined && tier.uptoMinor !== undefined && tier.uptoMinor <= prev) {
+        issue.addIssue({ code: "custom", path: ["tiers", i, "uptoMinor"], message: "tiers must ascend" });
+      }
+    });
+  });
+
 export function commissionStructureOf(json: string | null | undefined): CommissionStructure {
   if (!json) return {};
   try {

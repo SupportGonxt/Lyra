@@ -1,6 +1,6 @@
 import { and, sql, type SQL } from "drizzle-orm";
 import { schema } from "@lyra/db";
-import { badRequest, sha256Hex, type Ctx } from "@lyra/core";
+import { badRequest, REPORT_MAX_ROWS, sha256Hex, type Ctx } from "@lyra/core";
 import type { ReportTable } from "@lyra/ledger";
 
 // The reporting engine. A report is a definition over a registered dataset, not
@@ -22,9 +22,18 @@ interface Field {
 interface Metric {
   label: string;
   kind: ColKind;
-  /** SQL aggregate over one physical column, or `*` for count. */
-  agg: "count" | "sum" | "avg" | "min" | "max" | "count_distinct";
+  /**
+   * SQL aggregate over one physical column, or `*` for count. `count_if` counts
+   * the rows matching `when`; `pct_if` is that count as a whole percentage of
+   * the group — the shape every rate question takes (acceptance, refusal, pass).
+   */
+  agg: "count" | "sum" | "avg" | "min" | "max" | "count_distinct" | "count_if" | "pct_if";
   column?: string;
+  /**
+   * Registry-owned predicate for `count_if`/`pct_if`. A literal in this file,
+   * never assembled from request data — the same rule as `column`.
+   */
+  when?: string;
 }
 
 export interface Dataset {
@@ -182,7 +191,8 @@ export const DATASETS: Record<string, Dataset> = {
       tokensIn: { label: "Tokens in", kind: "number", agg: "sum", column: "tokens_in" },
       tokensOut: { label: "Tokens out", kind: "number", agg: "sum", column: "tokens_out" },
       costMicro: { label: "Cost (micro)", kind: "number", agg: "sum", column: "cost_micro" },
-      latency: { label: "Latency ms", kind: "number", agg: "avg", column: "latency_ms" }
+      latency: { label: "Latency ms", kind: "number", agg: "avg", column: "latency_ms" },
+      refusalRate: { label: "Refusal rate %", kind: "number", agg: "pct_if", when: "outcome = 'refused'" }
     }
   },
   conversations: {
@@ -318,6 +328,91 @@ export const DATASETS: Record<string, Dataset> = {
       avgFloor: { label: "Average k-anonymity floor", kind: "number", agg: "avg", column: "aggregation_min" }
     }
   },
+  // ANL-009's operating half: the AI subsystem reported through the same layer
+  // as the business it serves. Gates mirror the bespoke endpoints each one
+  // generalises — /ai/suggestions/acceptance reads on ai:runs:read, guardrail
+  // events are CRUD-read on ai:audit:read, evals on ai:evals:read, spend on
+  // ai:budgets:read — so a report is never a wider door than the screen it
+  // replaces.
+  aiRuns: {
+    table: "ai_runs",
+    module: "ai",
+    permission: "ai:runs:read",
+    timeColumn: "started_at",
+    dimensions: {
+      module: { column: "module", label: "Module", kind: "text" },
+      purpose: { column: "purpose", label: "Purpose", kind: "text" },
+      agentKey: { column: "agent_key", label: "Agent", kind: "text" },
+      state: { column: "state", label: "State", kind: "text" },
+      trigger: { column: "trigger", label: "Trigger", kind: "text" },
+      autonomyLevel: { column: "autonomy_level", label: "Autonomy", kind: "text" }
+    },
+    metrics: {
+      runs: { label: "Runs", kind: "number", agg: "count" },
+      tokensIn: { label: "Tokens in", kind: "number", agg: "sum", column: "tokens_in" },
+      tokensOut: { label: "Tokens out", kind: "number", agg: "sum", column: "tokens_out" },
+      costMicro: { label: "Cost (micro)", kind: "number", agg: "sum", column: "cost_micro" },
+      latency: { label: "Latency ms", kind: "number", agg: "avg", column: "latency_ms" },
+      avgConfidence: { label: "Average confidence", kind: "number", agg: "avg", column: "confidence" },
+      failureRate: { label: "Failure rate %", kind: "number", agg: "pct_if", when: "state in ('failed', 'budget_stopped')" },
+      refusalRate: { label: "Refusal rate %", kind: "number", agg: "pct_if", when: "state = 'refused'" }
+    }
+  },
+  aiSuggestions: {
+    table: "ai_suggestions",
+    module: "ai",
+    permission: "ai:runs:read",
+    timeColumn: "shown_at",
+    dimensions: {
+      module: { column: "module", label: "Module", kind: "text" },
+      surface: { column: "surface", label: "Surface", kind: "text" },
+      outcome: { column: "outcome", label: "Outcome", kind: "text" }
+    },
+    metrics: {
+      shown: { label: "Shown", kind: "number", agg: "count" },
+      accepted: { label: "Accepted", kind: "number", agg: "count_if", when: "outcome = 'accepted'" },
+      edited: { label: "Edited", kind: "number", agg: "count_if", when: "outcome = 'edited'" },
+      dismissed: { label: "Dismissed", kind: "number", agg: "count_if", when: "outcome = 'dismissed'" },
+      // An edit counts as a hit: the reader kept the shape and changed the words
+      // — the rule /v1/ai/suggestions/acceptance applies.
+      acceptanceRate: { label: "Acceptance rate %", kind: "number", agg: "pct_if", when: "outcome in ('accepted', 'edited')" }
+    }
+  },
+  aiGuardrails: {
+    table: "ai_guardrail_events",
+    module: "ai",
+    permission: "ai:audit:read",
+    timeColumn: "ts",
+    // ponytail: the table has no module column, so "trips by module" needs a
+    // join through ai_runs this engine does not do; rule and severity answer
+    // "what is tripping" today.
+    dimensions: {
+      rule: { column: "rule", label: "Rule", kind: "text" },
+      severity: { column: "severity", label: "Severity", kind: "text" }
+    },
+    metrics: {
+      events: { label: "Events", kind: "number", agg: "count" },
+      blocks: { label: "Blocks", kind: "number", agg: "count_if", when: "severity = 'block'" }
+    }
+  },
+  aiEvals: {
+    table: "ai_evals",
+    module: "ai",
+    permission: "ai:evals:read",
+    timeColumn: "ts",
+    dimensions: {
+      suite: { column: "suite", label: "Suite", kind: "text" },
+      agentKey: { column: "agent_key", label: "Agent", kind: "text" },
+      model: { column: "model", label: "Model", kind: "text" },
+      gitSha: { column: "git_sha", label: "Build", kind: "text" }
+    },
+    metrics: {
+      cases: { label: "Cases", kind: "number", agg: "count" },
+      avgScore: { label: "Average score", kind: "number", agg: "avg", column: "score" },
+      minScore: { label: "Lowest score", kind: "number", agg: "min", column: "score" },
+      passRate: { label: "Pass rate %", kind: "number", agg: "pct_if", when: "passed = 1" }
+    }
+  },
   boardpacks: {
     table: "north_boardpacks",
     module: "north",
@@ -369,7 +464,7 @@ export interface ReportDefinition {
 }
 
 /** Hard ceiling on any single materialisation; bigger jobs export, not render. */
-export const MAX_ROWS = 50_000;
+export const MAX_ROWS = REPORT_MAX_ROWS;
 
 const GRAIN_FORMAT: Record<Exclude<Grain, "none">, string> = {
   day: "%Y-%m-%d",
@@ -571,6 +666,11 @@ async function mask(ctx: Ctx, rows: Record<string, unknown>[], keys: string[]): 
 
 function aggregate(m: Metric): string {
   if (m.agg === "count") return "count(*)";
+  if (m.agg === "count_if" || m.agg === "pct_if") {
+    if (!m.when) throw badRequest(`metric needs a predicate for ${m.agg}`);
+    const hits = `sum(case when ${m.when} then 1 else 0 end)`;
+    return m.agg === "count_if" ? hits : `cast(round(100.0 * ${hits} / count(*)) as integer)`;
+  }
   if (!m.column) throw badRequest(`metric needs a column for ${m.agg}`);
   if (m.agg === "count_distinct") return `count(distinct ${m.column})`;
   // avg of an integer minor amount is rounded back to minor units, because half

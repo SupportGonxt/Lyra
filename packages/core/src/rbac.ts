@@ -66,6 +66,11 @@ export const PERMISSIONS = [
   "core:files:read", "core:files:create", "core:files:delete",
   "core:notifications:read",
   "core:search:read",
+  // ADR-0089: the markdown note on a record and its [[links]]. Separate from
+  // the record's own grant because writing about a customer is not editing
+  // one — and a note is only ever shown to a reader who can also read the
+  // record it is about (routes/notes.ts checks both).
+  "core:notes:read", "core:notes:write",
   "core:pii:view",
   "core:audit:read", "core:audit:export",
   "core:approvals:read", "core:approvals:decide",
@@ -370,7 +375,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // still costs a justification and an approval.
     "analytics:reports:read", "analytics:reports:run",
     "axis:policies:read", "dist:quote_requests:read",
-    "ledger:client_money:read", "ledger:journals:read"
+    "ledger:client_money:read", "ledger:journals:read",
+    "core:notes:read"
   ],
 
   /* AXIS */
@@ -389,7 +395,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // a customer — `:select` without `:share`. Before F13 the desk wrote its own
     // `axis_quotes.winFlag`; now there is one table, so it needs dist's verb.
     "dist:ai:invoke", "dist:offerings:read", "dist:quote_requests:read", "dist:quote_requests:create",
-    "dist:quote_requests:select", "dist:offers:read", "dist:offers:surface"
+    "dist:quote_requests:select", "dist:offers:read", "dist:offers:surface",
+    "core:notes:read", "core:notes:write"
   ],
   "axis.lead": [
     ...readsOf("axis"), "axis:ai:invoke", "ai:suggestions:read", "ai:command:read",
@@ -421,7 +428,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "dist:ai:invoke", "dist:quote_requests:read", "dist:quote_requests:create", "dist:quote_requests:share",
     "dist:quote_requests:select",
     "dist:commissions:read", "dist:offers:read", "dist:offers:surface", "dist:offers:override",
-    "compliance:disclosures:present"
+    "compliance:disclosures:present",
+    "core:notes:read", "core:notes:write"
   ],
   "axis.admin": [
     "axis:*:*", "ai:suggestions:read", "core:customers:*", "core:products:*", "core:providers:*",
@@ -429,7 +437,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "ledger:txns:read", "ledger:recon:read", "ledger:recon:run",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
     "dist:channels:*", "dist:offerings:*", "dist:quote_requests:*", "dist:offers:*",
-    "dist:rates:read", "dist:commissions:read"
+    "dist:rates:read", "dist:commissions:read",
+    "core:notes:read", "core:notes:write"
   ],
 
   /* ORBIT */
@@ -441,7 +450,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // and the AI's drafted reply to it — both are `content`, PII-masked
     // without this grant (packages/core/src/pii.ts).
     "core:customers:read", "core:pii:view", "core:consents:read", "core:search:read", "core:files:read",
-    "axis:policies:read", "axis:cases:read", "axis:cases:create"
+    "axis:policies:read", "axis:cases:read", "axis:cases:create",
+    "core:notes:read", "core:notes:write"
   ],
   "orbit.lead": [
     ...readsOf("orbit"), "orbit:ai:invoke", "ai:suggestions:read", "ai:command:read",
@@ -458,7 +468,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "core:approvals:read", "core:approvals:decide", "core:files:read",
     "axis:policies:read", "axis:cases:read", "axis:cases:create",
     "analytics:reports:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
-    "analytics:saved_views:read", "analytics:saved_views:write"
+    "analytics:saved_views:read", "analytics:saved_views:write",
+    "core:notes:read", "core:notes:write"
   ],
   "orbit.retention": [
     ...readsOf("orbit"), "orbit:ai:invoke", "ai:suggestions:read", "ai:command:read",
@@ -471,7 +482,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "axis:policies:read", "axis:policies:renew", "axis:quotes:create", "axis:quotes:compare",
     "analytics:reports:read", "analytics:reports:run",
     "dist:ai:invoke", "dist:offerings:read", "dist:quote_requests:create",
-    "dist:offers:read"
+    "dist:offers:read",
+    "core:notes:read", "core:notes:write"
   ],
   "orbit.partners": [
     ...readsOf("orbit"), "orbit:ai:invoke", "ai:suggestions:read", "ai:command:read",
@@ -484,13 +496,15 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // countersign the agreement they drafted — both are someone else's call.
     "core:onboarding:read", "core:onboarding:write",
     "dist:agreements:read", "dist:agreements:write",
-    "compliance:screenings:read", "compliance:screenings:run"
+    "compliance:screenings:read", "compliance:screenings:run",
+    "core:notes:read", "core:notes:write"
   ],
   "orbit.admin": [
     "orbit:*:*", "ai:suggestions:read", "core:customers:*", "core:pii:view", "core:consents:*",
     "core:approvals:read", "core:approvals:decide", "core:files:*",
     "axis:policies:read", "axis:cases:read",
-    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download"
+    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
+    "core:notes:read", "core:notes:write"
   ],
 
   /* SIGNAL */
@@ -500,7 +514,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "signal:audiences:create", "signal:audiences:estimate",
     "signal:creatives:generate", "signal:aeo:write", "signal:experiments:create",
     "core:consents:read", "core:search:read", "core:files:read", "core:files:create",
-    "analytics:reports:read", "analytics:reports:run"
+    "analytics:reports:read", "analytics:reports:run",
+    "core:notes:read", "core:notes:write"
   ],
   "signal.lead": [
     ...readsOf("signal"), "signal:ai:invoke", "ai:suggestions:read", "ai:command:read",
@@ -516,12 +531,14 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "ledger:txns:read", "analytics:reports:read", "analytics:reports:run",
     "analytics:exports:create", "analytics:exports:download",
     "analytics:saved_views:read", "analytics:saved_views:write",
-    "compliance:disclosures:present"
+    "compliance:disclosures:present",
+    "core:notes:read", "core:notes:write"
   ],
   "signal.admin": [
     "signal:*:*", "ai:suggestions:read", "core:consents:read", "core:files:*", "core:approvals:read",
     "core:approvals:decide", "ledger:txns:read",
-    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download"
+    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
+    "core:notes:read", "core:notes:write"
   ],
 
   /* SCOUT */
@@ -529,7 +546,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     ...readsOf("scout"), "scout:ai:invoke", "ai:suggestions:read", "ai:command:read",
     "scout:experiments:create", "scout:whitespaces:promote",
     "core:products:read", "core:providers:read", "dist:offerings:read",
-    "analytics:reports:read", "analytics:reports:run"
+    "analytics:reports:read", "analytics:reports:run",
+    "core:notes:read", "core:notes:write"
   ],
   "scout.lead": [
     ...readsOf("scout"), "scout:ai:invoke", "ai:suggestions:read", "ai:command:read",
@@ -543,11 +561,13 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // A lead reruns the Clusterer and the Bench Builder; ingest stays admin.
     "scout:clusters:build", "scout:panel_bench:build",
     "core:products:read", "core:providers:read", "core:approvals:read", "core:approvals:decide",
-    "analytics:reports:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download"
+    "analytics:reports:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
+    "core:notes:read", "core:notes:write"
   ],
   "scout.admin": [
     "scout:*:*", "ai:suggestions:read", "core:products:*", "core:providers:*",
-    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download"
+    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
+    "core:notes:read", "core:notes:write"
   ],
 
   /* NORTH */
@@ -560,7 +580,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "dist:commissions:read", "dist:channels:read",
     "analytics:dashboards:read", "analytics:reports:read", "analytics:reports:run",
     "analytics:exports:create", "analytics:exports:download",
-    "analytics:saved_views:read", "analytics:saved_views:write"
+    "analytics:saved_views:read", "analytics:saved_views:write",
+    "core:notes:read", "core:notes:write"
   ],
   "north.analyst": [
     ...readsOf("north"), "north:ai:invoke", "ai:suggestions:read", "ai:command:read",
@@ -571,7 +592,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "analytics:dashboards:write", "analytics:reports:write", "analytics:reports:run",
     "analytics:exports:create", "analytics:exports:download",
     "analytics:schedules:read", "analytics:schedules:write",
-    "analytics:saved_views:read", "analytics:saved_views:write"
+    "analytics:saved_views:read", "analytics:saved_views:write",
+    "core:notes:read", "core:notes:write"
   ],
   /** Board pack readers. Read-only by design — never grant write here. */
   "north.board": [
@@ -581,7 +603,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "north:decisions:read", "analytics:dashboards:read"
   ],
   "north.admin": [
-    "north:*:*", "ai:suggestions:read", "analytics:*:*", "ledger:journals:read", "ledger:txns:read"
+    "north:*:*", "ai:suggestions:read", "analytics:*:*", "ledger:journals:read", "ledger:txns:read",
+    "core:notes:read", "core:notes:write"
   ],
 
   /* finance — money movement is separated from operations by design (docs/19 §7) */
@@ -591,7 +614,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // `ledger:journals:post`, which is the whole point of the split.
     "ledger:journals:draft",
     "analytics:reports:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
-    "dist:commissions:read", "dist:rates:read", "dist:channels:read"
+    "dist:commissions:read", "dist:rates:read", "dist:channels:read",
+    "core:notes:read", "core:notes:write"
   ],
   "finance.controller": [
     "ledger:*:*", "core:approvals:read", "core:approvals:decide",
@@ -599,7 +623,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // Settles against the terms, so must be able to read them.
     "dist:agreements:read", "core:onboarding:read",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
-    "analytics:exports:unmasked", "compliance:disclosures:present", "compliance:evidence:read", "compliance:evidence:export"
+    "analytics:exports:unmasked", "compliance:disclosures:present", "compliance:evidence:read", "compliance:evidence:export",
+    "core:notes:read", "core:notes:write"
   ],
   /**
    * Dual control needs a second seat that is only a second seat. The director
@@ -614,7 +639,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "ledger:journals:post", "ledger:periods:close", "ledger:periods:force_close",
     "ledger:periods:reopen", "ledger:periods:year_end", "ledger:payouts:approve",
     "ledger:invoices:approve", "ledger:client_money:transfer", "ledger:txns:reverse",
-    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download"
+    "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
+    "core:notes:read"
   ],
 
   /* developer */

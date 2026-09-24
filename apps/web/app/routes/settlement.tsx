@@ -27,6 +27,7 @@ import {
 import { ApiError, api, fetchMe, names } from "../api.server";
 import { refOptions } from "../refs.server";
 import { RefPicker, type RefOption } from "../components/ref-picker";
+import { WorkLayout } from "../components/work-layout";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { who } from "../names";
@@ -586,6 +587,58 @@ export default function SettlementPeriod() {
     }
   ];
 
+  // What is waiting, before anything that drafts more: the register leads and
+  // the run composer sits beside it (WorkLayout), or alone when there is none.
+  const register = (
+    <div aria-busy={busy} className="flex flex-col gap-4">
+      <Card title={l("queueTitle")} padded={false}>
+        <Table
+          caption={l("queueCaption")}
+          density="compact"
+          rowKey={(group) => `${group.state}|${group.currency}`}
+          rows={groups}
+          empty={<EmptyState title={l("queueEmpty")} body={l("queueEmpty.body")} />}
+          columns={[
+            {
+              key: "state",
+              header: l("colState"),
+              render: (group) => (
+                <Badge tone={settlementTone(group.state)} size="sm" dot>
+                  {l(`state.${group.state}`)}
+                </Badge>
+              )
+            },
+            {
+              key: "count",
+              header: t("common.rows"),
+              render: (group) => l("groupCount", { count: String(group.count) })
+            },
+            {
+              key: "netMinor",
+              header: l("colNet"),
+              numeric: true,
+              render: (group) => (
+                <Money amountMinor={group.netMinor} currency={group.currency} locale={locale} />
+              )
+            }
+          ]}
+        />
+      </Card>
+
+      {loaded.settlements.length === 0 ? (
+        <EmptyState title={l("emptyTitle")} body={l("emptyBody")} />
+      ) : (
+        <Table
+          caption={l("listCaption")}
+          columns={columns}
+          rows={loaded.settlements}
+          rowKey={(row) => row.id}
+          rowState={(row) => (row.state === "paid" ? "sealed" : row.state === "draft" ? "draft" : undefined)}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader eyebrow={l("title")} title={queueHeadline(groups, l)} description={l("intro")} />
@@ -623,120 +676,86 @@ export default function SettlementPeriod() {
         ) : null}
       </Form>
 
-      {loaded.may.settle ? (
-        <Card title={l("runTitle")} description={l("runIntro")}>
-          <Form method="post" className="flex flex-wrap items-end gap-3">
-            <input type="hidden" name="intent" value="run" />
-            <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />
-            <Field label={l("counterpartyKind")} required>
-              <Select
-                name="counterpartyKind"
-                defaultValue={context.counterpartyKind ?? PAYABLE_KINDS[0]}
-                options={PAYABLE_KINDS.map((kind) => ({ value: kind, label: l(`kind.${kind}`) }))}
-              />
-            </Field>
-            <Field label={l("channelId")} required hint={l("channelIdHint", { example: "…" })}>
-              <RefPicker
-                name="channelId"
-                options={loaded.channels}
-                defaultValue={context.channelId ?? ""}
-                className="w-56"
-              />
-            </Field>
-            <Field label={l("period")} required hint={l("periodHint")}>
-              <Input type="month" name="period" required defaultValue={context.period ?? thisMonth()} />
-            </Field>
-            <Field label={l("currency")} hint={l("currencyHint")}>
-              <Input name="currency" maxLength={3} pattern="[A-Za-z]{3}" className="w-24" />
-            </Field>
-            <Button type="submit" loading={busy}>
-              {l("run")}
-            </Button>
-          </Form>
+      {/* The register first, the run composer beside it: a controller opens
+          this screen to see what is waiting, and drafts a period second. */}
+      {loaded.may.settle || drafted || result?.error || result?.problem ? (
+        <WorkLayout
+          aside={
+            <>
+              {loaded.may.settle ? (
+                <Card title={l("runTitle")} description={l("runIntro")}>
+                  <Form method="post" className="flex flex-wrap items-end gap-3">
+                    <input type="hidden" name="intent" value="run" />
+                    <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />
+                    <Field label={l("counterpartyKind")} required>
+                      <Select
+                        name="counterpartyKind"
+                        defaultValue={context.counterpartyKind ?? PAYABLE_KINDS[0]}
+                        options={PAYABLE_KINDS.map((kind) => ({ value: kind, label: l(`kind.${kind}`) }))}
+                      />
+                    </Field>
+                    <Field label={l("channelId")} required hint={l("channelIdHint", { example: "…" })}>
+                      <RefPicker
+                        name="channelId"
+                        options={loaded.channels}
+                        defaultValue={context.channelId ?? ""}
+                        className="w-56"
+                      />
+                    </Field>
+                    <Field label={l("period")} required hint={l("periodHint")}>
+                      <Input type="month" name="period" required defaultValue={context.period ?? thisMonth()} />
+                    </Field>
+                    <Field label={l("currency")} hint={l("currencyHint")}>
+                      <Input name="currency" maxLength={3} pattern="[A-Za-z]{3}" className="w-24" />
+                    </Field>
+                    <Button type="submit" loading={busy}>
+                      {l("run")}
+                    </Button>
+                  </Form>
 
-          <p className="mt-3 font-ui text-12 text-subtle">{l("twoSignatures")}</p>
-        </Card>
-      ) : null}
+                  <p className="mt-3 font-ui text-12 text-subtle">{l("twoSignatures")}</p>
+                </Card>
+              ) : null}
 
-      {result?.error ? (
-        <p role="alert" className="font-ui text-13 text-danger">
-          {l(result.error)}
-        </p>
-      ) : null}
-      {result?.problem ? <Gate problem={result.problem} l={l} /> : null}
+              {result?.error ? (
+                <p role="alert" className="font-ui text-13 text-danger">
+                  {l(result.error)}
+                </p>
+              ) : null}
+              {result?.problem ? <Gate problem={result.problem} l={l} /> : null}
 
-      {drafted ? (
-        <Card
-          title={l("draftedTitle")}
-          description={l("draftedBody", { count: String(drafted.entryCount) })}
-          actions={
-            <Badge tone={settlementTone(drafted.settlement.state)} size="sm" dot>
-              {l(`state.${drafted.settlement.state}`)}
-            </Badge>
+              {drafted ? (
+                <Card
+                  title={l("draftedTitle")}
+                  description={l("draftedBody", { count: String(drafted.entryCount) })}
+                  actions={
+                    <Badge tone={settlementTone(drafted.settlement.state)} size="sm" dot>
+                      {l(`state.${drafted.settlement.state}`)}
+                    </Badge>
+                  }
+                >
+                  <p className="flex flex-wrap items-baseline gap-2" role="status">
+                    <span className="font-ui text-12 text-subtle">{l("draftedNet")}</span>
+                    <Money
+                      amountMinor={drafted.settlement.netMinor}
+                      currency={drafted.settlement.currency}
+                      locale={locale}
+                      className="font-ui text-22"
+                    />
+                  </p>
+                  <Button asChild variant="secondary" size="sm" className="mt-3">
+                    <Link to={`/ledger/settlements/${drafted.settlement.id}`}>{l("openDrafted")}</Link>
+                  </Button>
+                </Card>
+              ) : null}
+            </>
           }
         >
-          <p className="flex flex-wrap items-baseline gap-2" role="status">
-            <span className="font-ui text-12 text-subtle">{l("draftedNet")}</span>
-            <Money
-              amountMinor={drafted.settlement.netMinor}
-              currency={drafted.settlement.currency}
-              locale={locale}
-              className="font-ui text-22"
-            />
-          </p>
-          <Button asChild variant="secondary" size="sm" className="mt-3">
-            <Link to={`/ledger/settlements/${drafted.settlement.id}`}>{l("openDrafted")}</Link>
-          </Button>
-        </Card>
-      ) : null}
-
-      <div aria-busy={busy} className="flex flex-col gap-4">
-        <Card title={l("queueTitle")} padded={false}>
-          <Table
-            caption={l("queueCaption")}
-            density="compact"
-            rowKey={(group) => `${group.state}|${group.currency}`}
-            rows={groups}
-            empty={<EmptyState title={l("queueEmpty")} body={l("queueEmpty.body")} />}
-            columns={[
-              {
-                key: "state",
-                header: l("colState"),
-                render: (group) => (
-                  <Badge tone={settlementTone(group.state)} size="sm" dot>
-                    {l(`state.${group.state}`)}
-                  </Badge>
-                )
-              },
-              {
-                key: "count",
-                header: t("common.rows"),
-                render: (group) => l("groupCount", { count: String(group.count) })
-              },
-              {
-                key: "netMinor",
-                header: l("colNet"),
-                numeric: true,
-                render: (group) => (
-                  <Money amountMinor={group.netMinor} currency={group.currency} locale={locale} />
-                )
-              }
-            ]}
-          />
-        </Card>
-
-        {loaded.settlements.length === 0 ? (
-          <EmptyState title={l("emptyTitle")} body={l("emptyBody")} />
-        ) : (
-          <Table
-            caption={l("listCaption")}
-            columns={columns}
-            rows={loaded.settlements}
-            rowKey={(row) => row.id}
-            rowState={(row) => (row.state === "paid" ? "sealed" : row.state === "draft" ? "draft" : undefined)}
-          />
-        )}
-      </div>
+          {register}
+        </WorkLayout>
+      ) : (
+        register
+      )}
     </div>
   );
 }

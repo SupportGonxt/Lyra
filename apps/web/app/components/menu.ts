@@ -15,6 +15,8 @@ import { labelKeyFor } from "../routing";
 export interface MenuEntry {
   href: string;
   label: string;
+  /** A file, not a screen (WorkspaceLink.download): fetched as a document. */
+  download?: boolean;
 }
 
 export interface WorkspaceMenu {
@@ -55,7 +57,7 @@ export function menuFor(
         .filter((screen) => !screen.permission || held.has(screen.permission))
         .map((screen) => ({ href: screen.href, label: t(labelKeyFor(screen.href)) }))
     : spec && label
-      ? visibleLinks(spec, permissions).map((link) => ({ href: link.href, label: label(link.labelKey) }))
+      ? visibleLinks(spec, permissions).map((link) => ({ href: link.href, label: label(link.labelKey), ...(link.download ? { download: true } : {}) }))
       : [];
   // A bespoke screen can sit at a list's own address (/north/anomalies); it is
   // listed once, as the screen.

@@ -78,6 +78,10 @@ test("J-C2 a customer rates a closed conversation in one tap @journey:J-C2 @acce
   await expect(five).toBeVisible();
   await five.click();
 
+  // Wait for the settled answer, not any status: while the rating posts, the
+  // pending "sending…" line is a role=status too, and reloading on it raced
+  // the write — the reload read the conversation before the rating landed.
+  await expect(page.getByRole("button", { name: /out of 5/i })).toHaveCount(0);
   await expect(page.getByRole("status")).toBeVisible();
 
   // One rating per conversation: the buttons are gone, and the answer is the

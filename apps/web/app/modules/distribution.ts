@@ -55,6 +55,8 @@ export const distribution: WorkspaceSpec = {
       flatFeeMinor: "Flat fee",
       earnedOn: "Earned on",
       clawbackDays: "Clawback window",
+      structureJson: "Tiers and bonuses",
+      "structureJson.hint": "Optional. Tiers ascend and the last has no upper limit, e.g. {\"tiers\":[{\"uptoMinor\":1000000,\"ratePpm\":100000},{\"ratePpm\":150000}]}.",
       customerId: "Customer",
       caseId: "Case",
       state: "State",
@@ -195,6 +197,8 @@ export const distribution: WorkspaceSpec = {
       flatFeeMinor: "رسوم ثابتة",
       earnedOn: "استحقاق العمولة",
       clawbackDays: "مهلة الاسترداد",
+      structureJson: "الشرائح والمكافآت",
+      "structureJson.hint": "اختياري. تتصاعد الشرائح والأخيرة بلا حد أعلى، مثل {\"tiers\":[{\"uptoMinor\":1000000,\"ratePpm\":100000},{\"ratePpm\":150000}]}.",
       customerId: "العميل",
       caseId: "الحالة",
       state: "الوضع",
@@ -435,7 +439,10 @@ export const distribution: WorkspaceSpec = {
         { name: "earnedOn", type: "select", options: ["issue", "collection"] },
         { name: "clawbackDays", type: "number" },
         { name: "effectiveFrom", type: "date", required: true },
-        { name: "effectiveTo", type: "date" }
+        { name: "effectiveTo", type: "date" },
+        // ADR-0084 tiers, volume bonus and override. Validated by the API on
+        // write, so a malformed ladder is refused rather than paid flat.
+        { name: "structureJson", type: "json", hintKey: "structureJson.hint" }
       ]
     },
     {
@@ -466,7 +473,8 @@ export const distribution: WorkspaceSpec = {
       fields: [
         { name: "channelId", type: "text", required: true },
         { name: "productId", type: "text", required: true },
-        { name: "customerId", type: "text" },
+        // A shop is the start of a sale; the API refuses one with no customer.
+        { name: "customerId", type: "text", required: true },
         { name: "caseId", type: "text" },
         { name: "inputsJson", type: "json", required: true },
         { name: "consentId", type: "text" },

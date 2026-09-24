@@ -106,6 +106,9 @@ export const accounts = sqliteTable(
     // close (e.g. 1300 PSP Clearing) — read by periods.ts's no_suspense_balance
     // close check, never inferred from the account's name or code.
     suspense: integer("suspense", { mode: "boolean" }).notNull().default(false),
+    // ADR-0090 (IAS 7): cash|operating|investing|financing. Null derives the
+    // class from `type` — see `cashFlowClass` in packages/ledger/src/reports.ts.
+    cashFlow: text("cash_flow"),
     currency: text("currency"), // null = multi-currency account
     parentCode: text("parent_code"),
     status: text("status").notNull().default("active"),

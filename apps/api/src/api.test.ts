@@ -124,6 +124,21 @@ describe("semantic layer", () => {
     expect(bad).toEqual([]);
   });
 
+  it("every metric's aggregate compiles — a `when` predicate names real columns too", async () => {
+    // The column walk above cannot see inside a count_if/pct_if predicate, so
+    // run each dataset with every metric and every dimension at once.
+    const bad: string[] = [];
+    for (const [key, ds] of Object.entries(DATASETS)) {
+      await runReport(ctx, {
+        dataset: key,
+        metrics: Object.keys(ds.metrics),
+        dimensions: Object.keys(ds.dimensions),
+        grain: "day"
+      }).catch((e: unknown) => bad.push(`${key}: ${e instanceof Error ? e.message : String(e)}`));
+    }
+    expect(bad).toEqual([]);
+  });
+
   it("refuses a dimension that is not in the registry", async () => {
     expect(
       await detailOf(() =>

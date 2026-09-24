@@ -24,6 +24,8 @@ import { ApiError, api, fetchMe } from "../api.server";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { ConfirmButton } from "../components/confirm";
+import { WorkLayout } from "../components/work-layout";
+import { labelsFrom } from "./detail-kit";
 import { Problem } from "./module";
 import { useShellData } from "./workspace";
 import { PERM, argsFromForm, labelIn, mintKey, openHeadline, type ArgField } from "./ledger.shared";
@@ -37,6 +39,32 @@ import { PERM, argsFromForm, labelIn, mintKey, openHeadline, type ArgField } fro
 // money in a money field instead of asking a controller to type JSON
 // (docs/ui.md §7 P3-16). The API's field-error map still renders back beside it:
 // the ledger owns the validation and names the field it refused.
+
+/** How many catalogue rows show before the reader asks for the rest. */
+export const CATALOGUE_PAGE = 25;
+
+// The catalogue's own words: the filter and the "show all" toggle. Everything
+// else on this screen speaks through the ledger's shared table.
+const LABELS: Record<string, Record<string, string>> = {
+  en: {
+    "catalogue.filter": "Filter by code or detail",
+    "catalogue.showAll": "Show all {count}",
+    "catalogue.showFewer": "Show the first {count}",
+    "catalogue.shown": "{shown} of {count} types",
+    "catalogue.noMatch": "No type matches this filter",
+    "catalogue.noMatchBody": "Clear the filter to see the whole catalogue."
+  },
+  ar: {
+    "catalogue.filter": "تصفية حسب الرمز أو التفاصيل",
+    "catalogue.showAll": "عرض الكل ({count})",
+    "catalogue.showFewer": "عرض أول {count}",
+    "catalogue.shown": "{shown} من {count} نوعًا",
+    "catalogue.noMatch": "لا يطابق أي نوع هذه التصفية",
+    "catalogue.noMatchBody": "امسح التصفية لرؤية الكتالوج كاملًا."
+  }
+};
+
+const catalogueLabels = labelsFrom(LABELS);
 
 interface TxnType {
   code: string;
@@ -138,7 +166,11 @@ export default function LedgerOpenTxn() {
   // The type decides the recipe, and the recipe decides which fields this form
   // asks for — so the picker drives the rest of the form, not just the URL.
   const [code, setCode] = useState(loaded.denied ? "" : (loaded.types[0]?.code ?? ""));
-
+  // The catalogue runs to a hundred-odd types: a filter and a first page keep
+  // it readable, and the whole list is one click away.
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const c = catalogueLabels(locale, shell?.domainPack);
 
   if (loaded.denied) {
     return (
@@ -190,6 +222,26 @@ export default function LedgerOpenTxn() {
   // publish the list yet simply renders no argument inputs rather than breaking.
   const argFields = loaded.types.find((type) => type.code === code)?.args ?? [];
 
+  // Matched against what the row says, not only its code: "money out" finds
+  // every payout type.
+  const needle = query.trim().toLowerCase();
+  const matching = needle
+    ? loaded.types.filter((row) =>
+        [
+          row.code,
+          row.approval ?? "",
+          row.financial ? l("open.financial") : l("open.nonFinancial"),
+          row.approval ? l("open.approval") : "",
+          row.payout ? l("open.payout") : "",
+          row.clientMoney ? l("open.clientMoney") : ""
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(needle)
+      )
+    : loaded.types;
+  const shown = showAll ? matching : matching.slice(0, CATALOGUE_PAGE);
+
   // The API names the argument fields it wanted when the recipe refuses.
   const fieldErrors = Object.entries(result?.problem?.errors ?? {});
 
@@ -234,95 +286,129 @@ export default function LedgerOpenTxn() {
 
       {result?.problem ? <Problem problem={result.problem} /> : null}
 
-      {fieldErrors.length > 0 ? (
-        <ul role="alert" className="flex flex-col gap-1 rounded-md border border-danger/40 bg-danger/10 p-3">
-          {fieldErrors.map(([path, message]) => (
-            <li key={path} className="font-ui text-13 text-text">
-              <span className="font-mono text-12 text-muted">{path}</span> — {message}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      <Card title={l("open.title")} elevation="flat">
-        <Form method="post" className="flex flex-col gap-4">
-          <input type="hidden" name="headerKey" value={loaded.headerKey} />
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label={l("open.type")} required className="w-64">
-              <Select
-                name="type"
-                value={code}
-                onValueChange={setCode}
-                options={loaded.types.map((type) => ({ value: type.code, label: type.code }))}
-              />
-            </Field>
-            <Field label={l("currency")} className="w-28">
-              <Input
-                name="currency"
-                value={currency}
-                onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-                maxLength={3}
-              />
-            </Field>
-            <Field label={l("open.gross")} className="w-44">
-              <MoneyField name="grossMinor" currency={currency || "ZAR"} locale={locale} />
-            </Field>
-          </div>
-
-          <Field label={l("open.key")} hint={l("open.keyHint")} required>
-            <Input name="naturalKey" defaultValue={loaded.naturalKey} maxLength={200} required />
-          </Field>
-
-          <fieldset className="flex flex-col gap-3 border-0 p-0">
-            <legend className="eyebrow">
-              {l("open.args")}
-            </legend>
-            <p className="max-w-prose font-ui text-12 text-subtle">{l("open.argsHint")}</p>
-            {/* Posted back so the action reads exactly the fields it rendered. */}
-            <input type="hidden" name="argFields" value={JSON.stringify(argFields)} />
-            {argFields.length ? (
-              <div className="flex flex-wrap gap-3">
-                {argFields.map((field) => (
-                  <ArgInput
-                    key={`${code}.${field.name}`}
-                    field={field}
-                    label={l(`arg.${field.name}`)}
-                    accountHint={l("open.argAccountHint")}
-                    currency={currency || "ZAR"}
-                    locale={locale}
-                  />
+      <WorkLayout
+        aside={
+          <>
+            {fieldErrors.length > 0 ? (
+              <ul role="alert" className="flex flex-col gap-1 rounded-md border border-danger/40 bg-danger/10 p-3">
+                {fieldErrors.map(([path, message]) => (
+                  <li key={path} className="font-ui text-13 text-text">
+                    <span className="font-mono text-12 text-muted">{path}</span> — {message}
+                  </li>
                 ))}
-              </div>
-            ) : (
-              <p className="font-ui text-13 text-muted">{l("open.argsNone")}</p>
-            )}
-          </fieldset>
+              </ul>
+            ) : null}
 
-          <Field label={l("reason")}>
-            <Input name="reason" maxLength={500} />
-          </Field>
+            <Card title={l("open.title")} elevation="flat">
+              <Form method="post" className="flex flex-col gap-4">
+                <input type="hidden" name="headerKey" value={loaded.headerKey} />
+                <div className="flex flex-wrap items-end gap-3">
+                  <Field label={l("open.type")} required className="w-64">
+                    <Select
+                      name="type"
+                      value={code}
+                      onValueChange={setCode}
+                      options={loaded.types.map((type) => ({ value: type.code, label: type.code }))}
+                    />
+                  </Field>
+                  <Field label={l("currency")} className="w-28">
+                    <Input
+                      name="currency"
+                      value={currency}
+                      onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+                      maxLength={3}
+                    />
+                  </Field>
+                  <Field label={l("open.gross")} className="w-44">
+                    <MoneyField name="grossMinor" currency={currency || "ZAR"} locale={locale} />
+                  </Field>
+                </div>
 
-          <p className="font-ui text-12 text-subtle">{l("idempotencyNote")}</p>
-          <div>
-            <ConfirmButton type="submit" loading={busy} message={l("open.confirm")}>
-              {l("open.submit")}
-            </ConfirmButton>
+                <Field label={l("open.key")} hint={l("open.keyHint")} required>
+                  <Input name="naturalKey" defaultValue={loaded.naturalKey} maxLength={200} required />
+                </Field>
+
+                <fieldset className="flex flex-col gap-3 border-0 p-0">
+                  <legend className="eyebrow">
+                    {l("open.args")}
+                  </legend>
+                  <p className="max-w-prose font-ui text-12 text-subtle">{l("open.argsHint")}</p>
+                  {/* Posted back so the action reads exactly the fields it rendered. */}
+                  <input type="hidden" name="argFields" value={JSON.stringify(argFields)} />
+                  {argFields.length ? (
+                    <div className="flex flex-wrap gap-3">
+                      {argFields.map((field) => (
+                        <ArgInput
+                          key={`${code}.${field.name}`}
+                          field={field}
+                          label={l(`arg.${field.name}`)}
+                          accountHint={l("open.argAccountHint")}
+                          currency={currency || "ZAR"}
+                          locale={locale}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="font-ui text-13 text-muted">{l("open.argsNone")}</p>
+                  )}
+                </fieldset>
+
+                <Field label={l("reason")}>
+                  <Input name="reason" maxLength={500} />
+                </Field>
+
+                <p className="font-ui text-12 text-subtle">{l("idempotencyNote")}</p>
+                <div>
+                  <ConfirmButton type="submit" loading={busy} message={l("open.confirm")}>
+                    {l("open.submit")}
+                  </ConfirmButton>
+                </div>
+              </Form>
+            </Card>
+          </>
+        }
+      >
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2 className="eyebrow">{l("open.catalogue")}</h2>
+            <Field label={c("catalogue.filter")} labelHidden className="w-72">
+              <Input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={c("catalogue.filter")}
+              />
+            </Field>
           </div>
-        </Form>
-      </Card>
-
-      <section className="flex flex-col gap-3">
-        <h2 className="eyebrow">{l("open.catalogue")}</h2>
-        <Table<TxnType>
-          caption={l("open.catalogueCaption")}
-          captionHidden
-          density="compact"
-          columns={columns}
-          rows={loaded.types}
-          rowKey={(row) => row.code}
-          empty={<EmptyState title={l("open.catalogueEmpty")} body={l("open.catalogueEmptyBody")} />}
-        />
-      </section>
+          <Table<TxnType>
+            caption={l("open.catalogueCaption")}
+            captionHidden
+            density="compact"
+            columns={columns}
+            rows={shown}
+            rowKey={(row) => row.code}
+            empty={
+              needle ? (
+                <EmptyState title={c("catalogue.noMatch")} body={c("catalogue.noMatchBody")} />
+              ) : (
+                <EmptyState title={l("open.catalogueEmpty")} body={l("open.catalogueEmptyBody")} />
+              )
+            }
+          />
+          {matching.length > CATALOGUE_PAGE ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="font-ui text-12 text-subtle">
+                {c("catalogue.shown", { shown: String(shown.length), count: String(matching.length) })}
+              </p>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowAll((all) => !all)}>
+                {showAll
+                  ? c("catalogue.showFewer", { count: String(CATALOGUE_PAGE) })
+                  : c("catalogue.showAll", { count: String(matching.length) })}
+              </Button>
+            </div>
+          ) : null}
+        </section>
+      </WorkLayout>
     </div>
   );
 }

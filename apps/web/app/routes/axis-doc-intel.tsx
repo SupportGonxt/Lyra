@@ -111,7 +111,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "verify.hint": "Stamps your name and the time on this row. It cannot be undone from here.",
     "extract.title": "Read this file",
     "extract.intro":
-      "Paste the text of the document. Extraction runs against the platform's own gateway, inside the tenant's model budget.",
+      "Paste the document's text, or leave it empty to read the stored file itself. Extraction runs against the platform's own gateway, inside the tenant's model budget.",
     "extract.rawText": "Document text",
     "extract.locale": "Language of the document",
     "extract.submit": "Read",
@@ -131,7 +131,6 @@ const LABELS: Record<string, Record<string, string>> = {
     "preview.open": "Open the file",
     "problem.bad_intent": "The form did not carry an action this screen knows.",
     "problem.missing_doc": "No document was named.",
-    "problem.missing_text": "Reading a file needs its text.",
     "problem.no_change": "Nothing was typed, so nothing was saved.",
     "problem.conflict": "Someone already moved this document. Reload to see where it got to.",
     "headline.clear": "Nothing waiting to be read",
@@ -177,7 +176,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "verify.submit": "تأكيد",
     "verify.hint": "يثبّت اسمك ووقتك على هذا الصف، ولا يمكن التراجع عنه من هنا.",
     "extract.title": "قراءة الملف",
-    "extract.intro": "الصق نص المستند. تجري القراءة عبر بوابة المنصة نفسها وداخل ميزانية النماذج للمستأجر.",
+    "extract.intro": "الصق نص المستند، أو اتركه فارغًا لقراءة الملف المحفوظ نفسه. تجري القراءة عبر بوابة المنصة نفسها وداخل ميزانية النماذج للمستأجر.",
     "extract.rawText": "نص المستند",
     "extract.locale": "لغة المستند",
     "extract.submit": "قراءة",
@@ -197,7 +196,6 @@ const LABELS: Record<string, Record<string, string>> = {
     "preview.open": "فتح الملف",
     "problem.bad_intent": "لم يحمل النموذج إجراءً تعرفه هذه الشاشة.",
     "problem.missing_doc": "لم يُحدَّد أي مستند.",
-    "problem.missing_text": "قراءة الملف تحتاج نصه.",
     "problem.no_change": "لم يُكتب شيء، فلم يُحفظ شيء.",
     "problem.conflict": "حرّك شخصٌ هذا المستند قبلك. أعد التحميل لتعرف إلى أين وصل.",
     "headline.clear": "لا شيء بانتظار القراءة",
@@ -491,10 +489,10 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
 
     if (intent === "extract") {
       const rawText = String(form.get("rawText") ?? "").trim();
-      if (!rawText) return refuse("missing_text");
       const locale = String(form.get("locale") ?? "en") === "ar" ? "ar" : "en";
-
-      await api(`${at}/extract`, { env, request, method: "POST", headers, body: { rawText, locale } });
+      // Nothing pasted: the API reads the stored file itself (vision). An
+      // on-prem tenant has no vision path and is told so by the API.
+      await api(`${at}/extract`, { env, request, method: "POST", headers, body: rawText ? { rawText, locale } : { locale } });
       return { problem: null, done: "extract" };
     }
   } catch (error) {
@@ -842,7 +840,7 @@ export default function AxisDocIntel() {
                   <p className="font-ui text-13 font-medium text-text">{l("extract.title")}</p>
                   <p className="font-ui text-12 text-subtle">{l("extract.intro")}</p>
                   <Field label={l("extract.rawText")}>
-                    <Textarea name="rawText" required maxLength={20_000} rows={4} />
+                    <Textarea name="rawText" maxLength={20_000} rows={4} />
                   </Field>
                   <span className="flex flex-wrap items-end gap-3">
                     <Field label={l("extract.locale")} className="w-40">

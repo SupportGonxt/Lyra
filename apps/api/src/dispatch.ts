@@ -3,6 +3,7 @@ import { id as newId, schema } from "@lyra/db";
 import {
   consume,
   hmacHex,
+  moduleEnabled,
   markPublishFailed,
   markPublished,
   pendingOutbox,
@@ -16,7 +17,10 @@ import { onBindIssued } from "./engines/signal-attribution.js";
 import { onLeadConverted } from "./engines/signal-outreach.js";
 import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
+import { onDsarUpdated } from "./engines/compliance-erasure.js";
 import { onJourneyEvent } from "./engines/orbit-journeys.js";
+import { onAlertTriggered } from "./engines/north-alert-notify.js";
+import { onAccrualDecided, onPolicyIssuedAccrue } from "./engines/commission-accrual.js";
 
 // The outbox drain. Events are written in the same request that changed the row,
 // so delivery can fail all it likes without ever losing the fact that something
@@ -54,6 +58,10 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
   let failed = 0;
   let queued = 0;
   const done: string[] = [];
+  // ADR-0087: a switched-off module's consumers stand down with its routes and
+  // sweeps. Suppression is not gated: a withdrawn consent must hold whenever
+  // SIGNAL comes back on.
+  const on = (module: string) => moduleEnabled(ctx.policy, module);
 
   for (const event of events) {
     // A single bad event must not abort the drain: mark it failed (so its
@@ -67,24 +75,43 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       if (event.type === "core.consent.updated") {
         await consume(ctx.db, event, "signal.suppression", (e) => onConsentUpdated(ctx, e), ctx.now);
       }
-      if (event.type === "ledger.financing.lapse_due") {
+      if (event.type === "ledger.financing.lapse_due" && on("axis")) {
         await consume(ctx.db, event, "axis.lifecycle", (e) => onFinancingLapseDue(ctx, e), ctx.now);
       }
       // A policy issued closes SIGNAL's funnel: the customer's most recent
       // attributed lead becomes a bind touch (engines/signal-attribution.ts),
       // and if that lead came from an outreach send, the loop is stamped
       // closed — the cockpit's "SIGNAL bought this customer" proof.
-      if (event.type === "axis.policy.issued") {
+      if (event.type === "axis.policy.issued" && on("signal")) {
         await consume(ctx.db, event, "signal.attribution", async (e) => {
           await onBindIssued(ctx, e);
           const data = e.data as { customerId?: string; policyId?: string };
           if (data.customerId && data.policyId) await onLeadConverted(ctx, data.customerId, data.policyId);
         }, ctx.now);
       }
+      // ...and it opens Distribution's side: the channel's commission accrues
+      // through the same gate and unique index as the manual route
+      // (engines/commission-accrual.ts). The bind raises the approval; the
+      // approver's decision, arriving as `core.approval.decided`, books it.
+      if (event.type === "axis.policy.issued") {
+        await consume(ctx.db, event, "dist.commission.accrual", (e) => onPolicyIssuedAccrue(ctx, e), ctx.now);
+      }
+      if (event.type === "core.approval.decided") {
+        await consume(ctx.db, event, "dist.commission.accrual.decided", (e) => onAccrualDecided(ctx, e), ctx.now);
+      }
       // F61: a portal-filed DSAR gets its acknowledgement here — the compliance
       // staff are notified so the request never arrives with no owner.
       if (event.type === "compliance.dsar-requests.created") {
         await consume(ctx.db, event, "compliance.dsar", (e) => onDsarCreated(ctx, e), ctx.now);
+      }
+      // A breached NORTH threshold reaches whoever the rule names, in-app.
+      if (event.type === "north.alert.triggered" && on("north")) {
+        await consume(ctx.db, event, "north.alert.notify", (e) => onAlertTriggered(ctx, e), ctx.now);
+      }
+      // docs/12 §3, ADR-0089: a fulfilled erasure reaches per-record memory —
+      // the AI's memories and the notes staff wrote — and logs what it erased.
+      if (event.type === "compliance.dsar-requests.updated") {
+        await consume(ctx.db, event, "compliance.erasure", (e) => onDsarUpdated(ctx, e), ctx.now);
       }
       // The retention loop (docs/17 SIG-007): a decided renewal folds in the
       // campaign-window conversations and their QA scores, and announces the
@@ -95,8 +122,8 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // own `trigger` node names the event it starts on, and a list of
       // trigger-able types here would silently ignore every journey authored
       // outside it (docs/27 F30).
-      await consume(ctx.db, event, "orbit.journeys", (e) => onJourneyEvent(ctx, e), ctx.now);
-      if (event.type === "orbit.renewal.accepted" || event.type === "orbit.renewal.lost") {
+      if (on("orbit")) await consume(ctx.db, event, "orbit.journeys", (e) => onJourneyEvent(ctx, e), ctx.now);
+      if ((event.type === "orbit.renewal.accepted" || event.type === "orbit.renewal.lost") && on("orbit")) {
         await consume(ctx.db, event, "orbit.renewal.attribution", (e) => onRenewalDecided(ctx, e).then(() => undefined), ctx.now);
       }
 

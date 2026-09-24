@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { chooseOption, confirmAction, content, goto, loginAsAxisAgent, loginAsAxisLead, loginAsFinanceController, loginAsTenantAdmin } from "./fixtures.js";
+import { API_ORIGIN, PERSONAS } from "./env.js";
 
 // J-O1 "Exception clearing" (docs/06-roles-and-journeys.md §Ops (AXIS)): an
 // axis.agent opens the exceptions queue — AXIS cases filtered to
@@ -171,15 +172,26 @@ test("J-O2 axis lead shops a new risk and the panel answers @journey:J-O2 @accep
   await page.waitForURL(/\/distribution\/channels\/.+/);
   const channelId = page.url().split("/").pop()!;
 
+  // A shop names its customer (docs/27, 2026-09-23): an anonymous risk can no
+  // longer be shopped. The seed's one answered request carries a customer and
+  // the data-sharing consent the reshop's docs/12 §3 gate reads, so reuse both.
+  // The persona sign-in the login picker itself uses (demo deployments only).
+  const login = await page.request.post(`${API_ORIGIN}/v1/auth/demo/login`, { data: { email: PERSONAS.axisLead.email } });
+  const { token } = (await login.json()) as { token: string };
+  const seeded = await page.request.get(`${API_ORIGIN}/v1/dist/quote-requests?state=complete&limit=1`, {
+    headers: { authorization: `Bearer ${token}` }
+  });
+  expect(seeded.ok()).toBe(true);
+  const { customerId, consentId } = ((await seeded.json()) as { data: { customerId: string; consentId: string }[] }).data[0]!;
+
   await loginAsAxisLead(page);
 
-  // No customerId here: the reshop action re-forwards it, and a customer with
-  // no matching consentId trips the docs/12 §3 consent gate on reshop. This
-  // journey is about an anonymous risk shopped cold, so leave it unset.
   await goto(page, "/distribution/quote-requests");
   await page.locator("summary", { hasText: "New" }).click();
   await page.getByLabel("Channel*", { exact: true }).fill(channelId);
   await page.getByLabel("Product*", { exact: true }).fill(productId);
+  await page.getByLabel("Customer*", { exact: true }).fill(customerId);
+  await page.getByLabel("Consent", { exact: true }).fill(consentId);
   await page
     .getByLabel("Risk details*", { exact: true })
     .fill(JSON.stringify({ age: 41, sumInsuredMinor: 10_000_000, priorClaims: false, lives: 120 }));

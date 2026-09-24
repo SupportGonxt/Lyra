@@ -241,6 +241,29 @@ describe("AXIS bind (docs/27 F4)", () => {
     expect(good.policy.endAt).toBe(start + 365 * DAY);
   });
 
+  it("refuses an operator shop that names no customer: a sale needs one (docs/27, 2026-09-23)", async () => {
+    const res = await call("POST", "/v1/dist/quote-requests/shop", {
+      productId,
+      channelId: seeded.channels.web,
+      consentId,
+      inputs: RISK,
+      currency: "AED"
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toHaveProperty("customerId");
+  });
+
+  it("refuses a hand-opened quote request that names no customer", async () => {
+    const res = await call("POST", "/v1/dist/quote-requests", {
+      productId,
+      channelId: seeded.channels.web,
+      inputsJson: "{}",
+      currency: "AED"
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toHaveProperty("customerId");
+  });
+
   it("refuses to bind twice from the same response", async () => {
     const { responseId } = await selectedQuote();
     const start = Date.now();

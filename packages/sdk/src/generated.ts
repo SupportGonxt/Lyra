@@ -1202,7 +1202,7 @@ export interface CoreWebhooks {
 }
 
 export interface Dataset {
-  key?: "policies" | "quotes" | "quoteResponses" | "commissions" | "cases" | "transactions" | "aiSpend" | "conversations" | "campaigns" | "spend" | "signals" | "whitespaces" | "clusters" | "experiments" | "dataProducts" | "boardpacks" | "decisions";
+  key?: "policies" | "quotes" | "quoteResponses" | "commissions" | "cases" | "transactions" | "aiSpend" | "conversations" | "campaigns" | "spend" | "signals" | "whitespaces" | "clusters" | "experiments" | "dataProducts" | "aiRuns" | "aiSuggestions" | "aiGuardrails" | "aiEvals" | "boardpacks" | "decisions";
   module?: string;
   dimensions?: Record<string, unknown>[];
   metrics?: Record<string, unknown>[];
@@ -1417,6 +1417,7 @@ export interface LedgerAccounts {
   normalSide: string;
   clientMoney?: boolean;
   suspense?: boolean;
+  cashFlow?: string;
   currency?: string;
   parentCode?: string;
   status?: string;
@@ -2402,6 +2403,7 @@ export interface Operations {
   "POST /v1/ai/suggestions/{id}/outcome": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ai/tool-calls": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AiToolCalls>>;
   "GET /v1/ai/tool-calls/{id}": Op<{ id: string }, never, never, AiToolCalls>;
+  "POST /v1/analytics/ask": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/analytics/dashboards": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/analytics/dashboards": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/analytics/dashboards/{id}": Op<{ id: string }, never, never, AnalyticsDashboards>;
@@ -2611,6 +2613,7 @@ export interface Operations {
   "GET /v1/core/approvals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreApprovals>>;
   "GET /v1/core/approvals/{id}": Op<{ id: string }, never, never, CoreApprovals>;
   "GET /v1/core/audit-log": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreAuditLog>>;
+  "GET /v1/core/audit-log/export": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/audit-log/{id}": Op<{ id: string }, never, never, CoreAuditLog>;
   "GET /v1/core/consents": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreConsents>>;
   "POST /v1/core/consents": Op<never, never, CoreConsents, CoreConsents>;
@@ -2631,6 +2634,7 @@ export interface Operations {
   "GET /v1/core/files/{id}": Op<{ id: string }, never, never, CoreFiles>;
   "DELETE /v1/core/files/{id}": Op<{ id: string }, never, never, void>;
   "POST /v1/core/files/{id}/restore": Op<{ id: string }, never, never, CoreFiles>;
+  "GET /v1/core/graph": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/identity-providers": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreIdentityProviders>>;
   "POST /v1/core/identity-providers": Op<never, never, CoreIdentityProviders, CoreIdentityProviders>;
   "GET /v1/core/identity-providers/{id}": Op<{ id: string }, never, never, CoreIdentityProviders>;
@@ -2643,6 +2647,7 @@ export interface Operations {
   "GET /v1/core/lenses/{id}": Op<{ id: string }, never, never, CoreLenses>;
   "PATCH /v1/core/lenses/{id}": Op<{ id: string }, never, CoreLenses, CoreLenses>;
   "DELETE /v1/core/lenses/{id}": Op<{ id: string }, never, never, void>;
+  "GET /v1/core/links": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/locale-overrides": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreLocaleOverrides>>;
   "POST /v1/core/locale-overrides": Op<never, never, CoreLocaleOverrides, CoreLocaleOverrides>;
   "GET /v1/core/locale-overrides/{id}": Op<{ id: string }, never, never, CoreLocaleOverrides>;
@@ -2666,6 +2671,9 @@ export interface Operations {
   "POST /v1/core/message-templates/{id}/restore": Op<{ id: string }, never, never, CoreMessageTemplates>;
   "GET /v1/core/modules/config": Op<never, never, never, Record<string, unknown>>;
   "PATCH /v1/core/modules/{module}/config": Op<{ module: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/core/notes": Op<never, never, never, Record<string, unknown>>;
+  "PUT /v1/core/notes": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/core/notes/export": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/core/notifications": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreNotifications>>;
   "GET /v1/core/notifications/{id}": Op<{ id: string }, never, never, CoreNotifications>;
   "GET /v1/core/onboarding-steps": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreOnboardingSteps>>;
@@ -2810,6 +2818,7 @@ export interface Operations {
   "GET /v1/ledger/reports/aged": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/balance-sheet": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/bordereaux": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/ledger/reports/cash-flow": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/chart-of-accounts": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/client-money": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/commission": Op<never, never, never, Record<string, unknown>>;
@@ -3172,6 +3181,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/ai/suggestions/{id}/outcome": { tag: "ai", summary: "Record whether the current user accepted, edited or dismissed it", permission: "ai:suggestions:read", public: false },
   "GET /v1/ai/tool-calls": { tag: "ai", summary: "List tool-calls", permission: "ai:runs:read", public: false },
   "GET /v1/ai/tool-calls/{id}": { tag: "ai", summary: "Fetch one tool call", permission: "ai:runs:read", public: false },
+  "POST /v1/analytics/ask": { tag: "analytics", summary: "Compile a question in words into a report definition over the caller's own catalogue (gateway purpose analytics.ask, audited); runs nothing, 422 ask_refused rather than a guess", permission: "analytics:reports:run", public: false },
   "GET /v1/analytics/dashboards": { tag: "analytics", summary: "Dashboards the caller may open", permission: "analytics:dashboards:read", public: false },
   "POST /v1/analytics/dashboards": { tag: "analytics", summary: "Create a dashboard from a set of report tiles", permission: "analytics:dashboards:write", public: false },
   "GET /v1/analytics/dashboards/{id}": { tag: "analytics", summary: "Fetch one dashboard", permission: "analytics:dashboards:read", public: false },
@@ -3216,7 +3226,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/auth/demo/clock": { tag: "auth", summary: "Advance the simulated clock used by non-production timestamps (non-production only)", permission: null, public: true },
   "POST /v1/auth/demo/login": { tag: "auth", summary: "Sign in as a seeded demo persona without a password (non-production only)", permission: null, public: true },
   "GET /v1/auth/demo/personas": { tag: "auth", summary: "Seeded demo personas offered as one-click sign-in (non-production only)", permission: null, public: true },
-  "POST /v1/auth/demo/resync-roles": { tag: "auth", summary: "Refresh the demo tenant's system role permissions, chart of accounts and seeded personas to match the compiled tables (non-production only)", permission: null, public: true },
+  "POST /v1/auth/demo/resync-roles": { tag: "auth", summary: "Refresh the demo tenant's system role permissions, chart of accounts, seeded personas, tax rules and seeded event names to match the compiled tables (non-production only)", permission: null, public: true },
   "POST /v1/auth/demo/seed": { tag: "auth", summary: "Seed one demo tenant with its personas and starting data (non-production only)", permission: null, public: true },
   "POST /v1/auth/login": { tag: "auth", summary: "Password login, returns a session cookie", permission: null, public: true },
   "POST /v1/auth/logout": { tag: "auth", summary: "End the current session", permission: null, public: true },
@@ -3381,6 +3391,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/approvals": { tag: "core", summary: "List approvals", permission: "core:approvals:read", public: false },
   "GET /v1/core/approvals/{id}": { tag: "core", summary: "Fetch one approval", permission: "core:approvals:read", public: false },
   "GET /v1/core/audit-log": { tag: "core", summary: "List audit-log", permission: "core:audit:read", public: false },
+  "GET /v1/core/audit-log/export": { tag: "core", summary: "The audit chain as CSV, oldest first with every hash; narrowed by q (action text) and from/to (ms); capped at 50,000 rows; the export is itself audited", permission: "core:audit:export", public: false },
   "GET /v1/core/audit-log/{id}": { tag: "core", summary: "Fetch one audit log", permission: "core:audit:read", public: false },
   "GET /v1/core/consents": { tag: "core", summary: "List consents", permission: "core:consents:read", public: false },
   "POST /v1/core/consents": { tag: "core", summary: "Create a consent", permission: "core:consents:create", public: false },
@@ -3401,6 +3412,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/files/{id}": { tag: "core", summary: "Fetch one file", permission: "core:files:read", public: false },
   "DELETE /v1/core/files/{id}": { tag: "core", summary: "Soft-delete a file", permission: "core:files:delete", public: false },
   "POST /v1/core/files/{id}/restore": { tag: "core", summary: "Restore a soft-deleted file", permission: "core:files:delete", public: false },
+  "GET /v1/core/graph": { tag: "core", summary: "The records linked to one record within `depth` 1 or 2 hops (`?subject=<ref>&depth=`), capped at 40 nodes", permission: "core:notes:read", public: false },
   "GET /v1/core/identity-providers": { tag: "core", summary: "List identity-providers", permission: "core:identity_providers:read", public: false },
   "POST /v1/core/identity-providers": { tag: "core", summary: "Create a identity provider", permission: "core:identity_providers:write", public: false },
   "GET /v1/core/identity-providers/{id}": { tag: "core", summary: "Fetch one identity provider", permission: "core:identity_providers:read", public: false },
@@ -3413,6 +3425,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/lenses/{id}": { tag: "core", summary: "Fetch one lens", permission: "core:settings:read", public: false },
   "PATCH /v1/core/lenses/{id}": { tag: "core", summary: "Update a lens", permission: "core:settings:update", public: false },
   "DELETE /v1/core/lenses/{id}": { tag: "core", summary: "Soft-delete a lens", permission: "core:settings:update", public: false },
+  "GET /v1/core/links": { tag: "core", summary: "Backlinks: the notes that link to one record (`?to=<ref>`), with their names and where each opens", permission: "core:notes:read", public: false },
   "GET /v1/core/locale-overrides": { tag: "core", summary: "List locale-overrides", permission: "core:locale_overrides:read", public: false },
   "POST /v1/core/locale-overrides": { tag: "core", summary: "Create a locale override", permission: "core:locale_overrides:write", public: false },
   "GET /v1/core/locale-overrides/{id}": { tag: "core", summary: "Fetch one locale override", permission: "core:locale_overrides:read", public: false },
@@ -3436,6 +3449,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/core/message-templates/{id}/restore": { tag: "core", summary: "Restore a soft-deleted message template", permission: "core:templates:write", public: false },
   "GET /v1/core/modules/config": { tag: "core", summary: "Every module's effective configuration — enabled flag, autonomy override, model tier and settings", permission: "core:settings:read", public: false },
   "PATCH /v1/core/modules/{module}/config": { tag: "core", summary: "Update one module's configuration; absent keys fall through to the tenant-wide defaults", permission: "core:settings:update", public: false },
+  "GET /v1/core/notes": { tag: "core", summary: "Read the markdown note on one record (`?subject=<ref>`); `note` is null when none is written", permission: "core:notes:read", public: false },
+  "PUT /v1/core/notes": { tag: "core", summary: "Write the note on one record (`?subject=<ref>`, body `{bodyMd, version}`); 409 when someone saved since `version`; [[wikilinks]] become links", permission: "core:notes:write", public: false },
+  "GET /v1/core/notes/export": { tag: "core", summary: "Download the notes the caller may read as an Obsidian vault (application/zip, one `<Type>/<name>.md` per note)", permission: "core:notes:read", public: false },
   "GET /v1/core/notifications": { tag: "core", summary: "List notifications", permission: "core:notifications:read", public: false },
   "GET /v1/core/notifications/{id}": { tag: "core", summary: "Fetch one notification", permission: "core:notifications:read", public: false },
   "GET /v1/core/onboarding-steps": { tag: "core", summary: "List onboarding-steps", permission: "core:onboarding:read", public: false },
@@ -3580,6 +3596,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/reports/aged": { tag: "ledger", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/balance-sheet": { tag: "ledger", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/bordereaux": { tag: "ledger", summary: "Outbound bordereaux: per-policy premium and commission for a provider and period", permission: "ledger:journals:read", public: false },
+  "GET /v1/ledger/reports/cash-flow": { tag: "ledger", summary: "Statement of cash flows (IFRS, IAS 7 indirect) for a window", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/chart-of-accounts": { tag: "ledger", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/client-money": { tag: "ledger", summary: "Client money sufficiency: what is held against what is owed", permission: "ledger:client_money:read", public: false },
   "GET /v1/ledger/reports/commission": { tag: "ledger", summary: "Commission earned, clawed back and payable by channel", permission: "ledger:journals:read", public: false },

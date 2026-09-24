@@ -120,6 +120,14 @@ describe("finance report exports", () => {
     expect(table.totals.debitMinor).toBe(table.totals.creditMinor);
   });
 
+  it("exports the statement of cash flows as the same figures the screen shows (ADR-0090)", async () => {
+    const res = await fetchAs(CONTROLLER, `/v1/ledger/reports/cash-flow/export?format=json&from=0&to=${Date.now()}`);
+    expect(res.status).toBe(200);
+    const table = (await res.json()) as { rows: { name: string; amountMinor: number }[] };
+    const line = (name: string) => table.rows.find((r) => r.name === name)?.amountMinor;
+    expect(line("Closing cash")).toBe((line("Opening cash") ?? 0) + (line("Net increase in cash") ?? 0) + (line("Effect of exchange rate changes on cash") ?? 0));
+  });
+
   // docs/27 "thin screens": the statement and the money map had no export at
   // all, so a controller could read either on screen and hand nothing to an
   // auditor. Both are driven by the very functions their JSON routes call.

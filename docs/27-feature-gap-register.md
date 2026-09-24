@@ -244,7 +244,8 @@ with its golden set authored first under `packages/model-gateway/evals`
   with no `purposesJson` is read by nothing, an unrecognised sensitivity ranks
   above the scale, and `maxSensitivity` has no default. Read and written by the
   ORBIT run, so it is not a seam waiting for a caller. `forgetMemories` is the
-  erasure link and is honestly labelled: no DSAR runner calls it yet.
+  erasure link, called since ADR-0089 by `onDsarUpdated` (a fulfilled erasure
+  DSAR), beside `forgetNotes` for the notes staff wrote about the subject.
 - **F35** *Closed.* `Gateway.stream` + `POST /v1/ai/runs/stream` (SSE).
   `guardChunk` (`src/stream-guard.ts`, `evals/streaming`) runs the real output
   rule over the accumulated text behind a holdback sized against the rules —
@@ -1055,6 +1056,15 @@ before any screen changes.
 
 ### New finding — the quote desk issues around the sale endpoint, 2026-09-23
 
+**Closed, same day — decided: a named customer is required at shop time.**
+`POST /v1/dist/quote-requests/shop` and the generic quote-request create both
+refuse a request with no `customerId` (400, `errors.customerId`); the portal
+already names its visitor. The desk now issues through
+`/quote-responses/:id/bind` (`bindFrom`, `axis-quote-desk.tsx`): the form sends
+the contract number and cover dates only, and the server reads price, provider
+and customer off the quote. The desk shows the customer and cannot change it.
+Contract note: `customerId` on `/shop` went from optional to required.
+
 `POST /v1/axis/quote-responses/:id/bind` (apps/api/src/routes/axis.ts) is the
 sale: it checks the response is quoted and selected, takes premium, provider and
 product from the quote on the server, links the policy version to the response
@@ -1079,6 +1089,10 @@ AXIS policy versions — a module boundary — so it is left for the same decisi
 
 ### New finding — per-module config is stored and never read, 2026-09-23
 
+**Update, same day: `enabled` is read now** (ADR-0087) — it subtracts the
+module's permissions exactly as a missing entitlement does, and
+`/admin/automation` offers the switch. `autonomy` and `modelTier` remain unread.
+
 `PATCH /v1/core/modules/:module/config` (apps/api/src/routes/core.ts) writes
 `policyJson.moduleConfig[module]` — `enabled`, `autonomy`, `modelTier`,
 `settings` — and `moduleSettings()` (packages/core/src/module-config.ts) resolves
@@ -1090,6 +1104,35 @@ auto-approve allowlist only; a toggle for a flag nothing obeys would be a lie.
 Wiring it wants a spec decision first — whether `enabled: false` gates the
 module's routes, and how a module autonomy override composes with an agent's own
 `autonomyLevel` and the `ai.autonomy_raise` approval.
+
+### ANL-009 — no report builder, no ask-in-words, AI not reportable, 2026-09-23 — closed
+
+**Closed** (ADR-0088). Found by asking what the API sends that nothing reads, the
+question behind dead seams 15 and 16: `GET /v1/analytics/datasets` — the
+semantic layer a builder offers — had **no web caller**, and
+`modules/analytics.ts` said authoring a definition belonged to a builder
+screen that did not exist, so a report could be run and exported but created
+only through the API. docs/17 ANL-009 ("natural-language analytics question →
+visible editable query, never a black box") had no implementation at all, and
+of the AI tables only `ai_audit_log` was a dataset.
+
+- **Builder** — `/analytics/builder` (`routes/analytics-builder.tsx`), linked
+  from the analytics tools list; the definition lives in `?def=`
+  (`app/analytics-def.ts`), previews through `POST /v1/analytics/run` only on
+  `run=1`, saves through `/reports` and optionally schedules.
+- **Ask in words** — purpose `analytics.ask`
+  (`packages/model-gateway/src/analytics-ask.ts`), `POST /v1/analytics/ask`,
+  a ✦ ghost line with its why on the builder, loaded on the reader's click and
+  never run. Eval `evals/analytics-ask`: 22 en + 7 ar questions, 18
+  must-refuse replies; 0.000 against the stub, 1.000 on every accuracy and
+  0.000 `invalidAcceptRate` after.
+- **AI datasets** — `aiRuns`, `aiSuggestions`, `aiGuardrails`, `aiEvals` beside
+  `aiSpend` (now with a refusal rate), permission-gated as the bespoke
+  endpoints are; tested in `apps/api/src/analytics-ai.test.ts`.
+- **AI operations** — `/admin/ai/analytics`, every figure a builder link.
+
+Still open, by decision: a live-model twin of the ask eval (ADR-0088
+Consequences), and guardrail events by module (no module column).
 
 ## What is genuinely strong
 
@@ -1241,6 +1284,79 @@ them took.
   index — so the query filters on a `kind` metadata field, the index holding two
   populations now. A miss is logged as loudly as a hit, because containment %
   (§7) is a ratio and a log that kept only the wins would report 100% forever.
+
+### Cross-module wiring — events and seams, 2026-09-23
+
+A module review reported eight wiring defects. Each was checked at its cited
+lines before it was touched; seven were real as stated, one was half-stale.
+
+- **Settlement events emitted twice — closed** (`c74f526`). `approveSettlement`
+  / `paySettlement` passed `event` to `runTxn` *and* emitted the same type by
+  hand, so every subscriber got `ledger.settlement.approved|paid` twice. The
+  hand-written, settlement-shaped emit stays; `runTxn`'s goes.
+- **Admin-entered consents bypassed suppression — closed** (`736822d`). Generic
+  CRUD emitted `core.consents.created`; suppression listens for
+  `core.consent.updated`. `announceConsent` (`packages/core/src/consent.ts`) is
+  now the one emitter, called by `recordConsent` and by the consents resource's
+  `afterWrite`; `beforeWrite` holds the two maps to their zod shapes.
+- **Save-desk outcomes skipped their events — closed** (`2b943c9`). The renewals
+  resource's `afterWrite` emits `orbit.renewal.{offered,accepted,lost}` on the
+  state change only; CRUD's `afterWrite` now receives the `before` row.
+- **Dashboard schedules — half-stale, closed** (`0f39126`). `POST /schedules`
+  already refused a dashboard-*only* schedule. Still open were a `dashboardId`
+  beside a `reportId` (stored, never delivered), the generic PATCH, and
+  `/schedules/:id/resume` on the seeded paused dashboard schedule.
+  `assertDeliverableSchedule` is the one rule at all three doors.
+- **`"v1/signal/outreach/run"` — closed** (`4456ea9`). Latent rather than live:
+  `new URL(path, API_ORIGIN)` resolves a relative path correctly while the
+  origin has no path. `app/api-paths.test.ts` partitions every `api`/`apiFetch`/
+  `proxyFile` first argument and requires the leftover bucket to be empty.
+- **NORTH alerts went nowhere — closed** (`d235ea1`).
+  `engines/north-alert-notify.ts` consumes `north.alert.triggered` and writes
+  the in-app inbox. `notifyChannelRef` is read as `user:<id>` or
+  `role:<key>`; empty or unresolvable (`slack:#ops`) falls back to
+  `north.analyst`, and the audit row names the unresolved ref. No email or chat
+  service was added (CLAUDE.md §13). One notice per rule per period per person,
+  because the snapshotter re-fires open periods every night.
+- **Commission did not accrue on bind — closed** (`6ac22c0`, `cde2679`). The
+  route's body is `engines/commission-accrual.ts#accrueCommission`.
+  `axis.policy.issued` raises the `dist.commission_accrue` approval (it is
+  never auto-approved). The approver's `core.approval.decided` then books it,
+  but only for approvals a *system* actor requested: an approval a controller
+  raised by hand stays theirs to retry. No journal is posted at accrual on
+  either door. RSHARE-ACCR/SETL post at settlement approve/pay, as they always
+  did.
+- **Dead event names in seeds — closed** (`75cc60a`). Nine, not eight: the
+  review missed that the partner webhook's `orbit.renewal.due` (the docs/04 §7
+  name) was never emitted either. The renewal sweep now emits
+  `orbit.renewal.due`, and a recon run reaching `closed` emits
+  `ledger.recon.completed`. The rest were renamed to what is emitted:
+  `dist.policy.issued` and `dist.quote.bound` became `axis.policy.issued`,
+  `dist.quote.ready` became `dist.quote_request.fanned_out`,
+  `ledger.settlement.posted` became `ledger.settlement.approved`,
+  `orbit.document.missing` became `orbit.conversation.document`, and
+  `dist.partner.approved` became `orbit.partner.stage_changed`. Deployed
+  tenants get the change through `SEED_EVENT_RENAMES` + `syncSeedEventNames`,
+  the sixth reconciler behind `/v1/auth/demo/resync-roles`. It rewrites only
+  those names and does it idempotently. **Needs a call to that route on
+  staging after the next deploy.** The guard is `apps/api/src/event-seams.test.ts`.
+
+Skipped, with reasons (findings, not fixed):
+
+- **`ledger.period.closed`** was offered as an example emit, but nothing seeded
+  or shipped subscribes to it. Adding an event with no reader is the dead seam
+  in reverse, so it is left for whoever needs it.
+- **Partner journeys still cannot enrol.** `onJourneyEvent` enrols
+  `data.customerId`, and partner events carry none. So `broker_activation` now
+  names a real event and still never starts. Journeys enrol customers only.
+  Enrolling a partner needs a spec decision, not a rename.
+- **Seeded journey node types the executor does not know.** `message`, `agent`,
+  `survey` and `wait_for` (including `wait_for: orbit.partner.quote`, which
+  nothing emits) are outside the vocabulary in `orbit-journeys.ts:185-194`. The
+  guard checks triggers and subscriptions only.
+- **Seeded DLQ history** (`seed/platform.ts`) still carries a
+  `ledger.settlement.posted` envelope. It is a record of a past failure, not a
+  subscription, so it was left as written.
 
 ---
 

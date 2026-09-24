@@ -80,3 +80,33 @@ describe("action", () => {
     expect(result.problem?.status).toBe(403);
   });
 });
+
+// ADR-0087: the tenant's module switch is real now (the same subtraction as a
+// missing entitlement), so the screen that governs automation also governs
+// which modules are on. Only a changed module is patched.
+describe("modules", () => {
+  it("patches only the modules whose switch changed", async () => {
+    const calls: Array<{ url: string; method: string; body: string | null }> = [];
+    vi.stubGlobal("fetch", (input: URL | string, init: RequestInit = {}) => {
+      calls.push({ url: String(input), method: init.method ?? "GET", body: typeof init.body === "string" ? init.body : null });
+      const body =
+        (init.method ?? "GET") === "GET"
+          ? { data: [{ module: "axis", enabled: true }, { module: "orbit", enabled: true }, { module: "signal", enabled: false }, { module: "ledger", enabled: true }] }
+          : {};
+      return Promise.resolve(new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } }));
+    });
+    const form = new FormData();
+    form.set("intent", "modules");
+    form.append("module", "axis");
+    form.append("module", "signal");
+
+    const result = await action(args(form));
+
+    const patches = calls.filter((c) => c.method === "PATCH").map((c) => [c.url, JSON.parse(c.body!)]);
+    expect(patches).toEqual([
+      ["https://api.test/v1/core/modules/orbit/config", { enabled: false }],
+      ["https://api.test/v1/core/modules/signal/config", { enabled: true }]
+    ]);
+    expect(result).toEqual({ problem: null, saved: true });
+  });
+});

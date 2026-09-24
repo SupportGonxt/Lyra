@@ -1,9 +1,11 @@
 import { eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
-import { PaymentPlanWrite, schema } from "@lyra/db";
+import { AGENT_AUTONOMY, ChannelOptinsJson, PaymentPlanWrite, PurposesJson, schema } from "@lyra/db";
 import {
+  announceConsent,
   autoApproveProblem,
   badRequest,
+  CommissionStructureJson,
   can,
   canClaimTransition,
   canPolicyTransition,
@@ -26,6 +28,7 @@ import { assertCanGrant, bundleOf } from "./engines/staff.js";
 import { onExperimentConcluded } from "./engines/scout-validate.js";
 import { must } from "./rows.js";
 import {
+  assertDeliverableSchedule,
   dashboardVisible,
   exportVisible,
   reportRunVisible,
@@ -74,6 +77,17 @@ const ru = (stem: string) => ({
 });
 
 const ro = (perm: string) => ({ read: perm });
+
+/** A JSON column as it arrives (object) or as it is stored (TEXT). Unparseable
+ *  text is `undefined`, which every zod object shape then refuses. */
+function jsonValue(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  try {
+    return JSON.parse(v) as unknown;
+  } catch {
+    return undefined;
+  }
+}
 
 /* -------------------------------------------------------------------- core */
 
@@ -167,7 +181,32 @@ export const CORE = register(
   r("consents", schema.consents, "cs", "core", {
     read: "core:consents:read",
     create: "core:consents:create"
-  }, { immutable: true }),
+  }, {
+    immutable: true,
+    // The two maps are what SIGNAL's suppression consumer reads, so they are
+    // held to the same shapes recordConsent writes — `{ marketing: "no" }`
+    // would otherwise land, and be read as "not a withdrawal".
+    beforeWrite: (_ctx, values) => {
+      const purposes = PurposesJson.safeParse(jsonValue(values.purposesJson));
+      const channels = ChannelOptinsJson.safeParse(jsonValue(values.channelOptinsJson));
+      if (!purposes.success) throw badRequest("purposesJson is not a purposes map");
+      if (!channels.success) throw badRequest("channelOptinsJson is not a channel opt-in map");
+      return { ...values, purposesJson: purposes.data, channelOptinsJson: channels.data };
+    },
+    // An administrator entering a withdrawal is the same fact as a customer
+    // withdrawing on the portal: it must reach suppression through the same
+    // `core.consent.updated` event (dispatch.ts), not only the generic
+    // `core.consents.created` nothing internal listens to.
+    afterWrite: async (ctx, row, action) => {
+      if (action !== "create") return;
+      await announceConsent(ctx, {
+        customerId: row.customerId as string,
+        purposes: PurposesJson.parse(jsonValue(row.purposesJson)),
+        channels: ChannelOptinsJson.parse(jsonValue(row.channelOptinsJson)),
+        source: row.source as string
+      });
+    }
+  }),
   r("products", schema.products, "prd", "core", rw("core:products"), {
     searchable: ["name", "code"],
     // docs/16 H8, docs/27 F45. A product's Shariah ruling is issued by a board
@@ -249,7 +288,10 @@ export const CORE = register(
     // not be the back door that shows every user's notifications tenant-wide.
     rowVisible: (ctx, row) => row.userId === ctx.actor.id
   }),
-  r("audit-log", schema.auditLog, "aud", "core", ro("core:audit:read"), { immutable: true }),
+  r("audit-log", schema.auditLog, "aud", "core", ro("core:audit:read"), {
+    immutable: true,
+    searchable: ["action", "actorRef", "subjectRef"]
+  }),
   r("event-dlq", schema.eventDlq, "dlq", "core", ro("admin:dlq:read")),
   // Read-only here on purpose. A checklist step is generated from a template and
   // moved by the onboarding engine (routes/onboarding.ts); letting CRUD PATCH
@@ -287,11 +329,42 @@ export const DIST = register(
   r("commission-rates", schema.distCommissionRates, "cr", "dist", {
     read: "dist:rates:read",
     create: "dist:rates:write"
-  }, { immutable: true, actorColumns: ["createdBy"], approval: { create: "dist.rate_change" } }),
+  }, {
+    immutable: true,
+    actorColumns: ["createdBy"],
+    approval: { create: "dist.rate_change" },
+    // ADR-0084: validated before the approval is asked for, so an approver is
+    // never asked to wave through a structure the engine would read as flat.
+    beforeWrite: (_ctx, values) => {
+      const raw = values.structureJson;
+      if (raw === undefined || raw === null || raw === "") return values;
+      let parsed: unknown = raw;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw badRequest("structureJson is not valid JSON");
+        }
+      }
+      const checked = CommissionStructureJson.safeParse(parsed);
+      if (!checked.success) throw badRequest(`structureJson: ${checked.error.issues[0]?.message ?? "invalid"}`);
+      return { ...values, structureJson: JSON.stringify(checked.data) };
+    }
+  }),
   r("quote-requests", schema.distQuoteRequests, "qr", "dist", {
     read: "dist:quote_requests:read",
     create: "dist:quote_requests:create",
     update: "dist:quote_requests:create"
+  }, {
+    // A shop is the start of a sale and a sale needs someone to sell to
+    // (docs/27, 2026-09-23): the same rule as `/shop`, at the other door.
+    beforeWrite: (_ctx, values, existing) => {
+      const customerId = "customerId" in values ? values.customerId : existing?.customerId;
+      if (typeof customerId !== "string" || !customerId) {
+        throw badRequest("a quote request names its customer", { customerId: "required" });
+      }
+      return values;
+    }
   }),
   r("quote-responses", schema.distQuoteResponses, "qs", "dist", ro("dist:quote_requests:read")),
   // `state`, `channelSettlementId` and `txnId` are settlement-engine-owned:
@@ -567,6 +640,13 @@ const RENEWAL_TRANSITIONS: Record<string, string[]> = {
   lost: []
 };
 
+/** The domain event a renewal entering each state announces (docs/04 §7). */
+const RENEWAL_EVENTS: Record<string, string> = {
+  offered: "orbit.renewal.offered",
+  accepted: "orbit.renewal.accepted",
+  lost: "orbit.renewal.lost"
+};
+
 export const ORBIT = register(
   r("conversations", schema.orbitConversations, "cnv", "orbit", {
     read: "orbit:conversations:read",
@@ -607,6 +687,27 @@ export const ORBIT = register(
         throw badRequest(`a renewal cannot move ${from} -> ${to}`);
       }
       return values;
+    },
+    // The save desk (orbit-save.tsx) decides renewals through this PATCH. The
+    // generic `orbit.renewals.updated` is not what anything downstream reads:
+    // retention attribution (dispatch.ts) and journeys listen for the same
+    // domain events the portal and RenewalWorkflow emit. Fired on the state
+    // *change* only, so a later edit to a decided row announces nothing twice.
+    afterWrite: async (ctx, row, action, before) => {
+      if (action !== "update" || !before || before.state === row.state) return;
+      const type = RENEWAL_EVENTS[row.state as string];
+      if (!type) return;
+      await emit(ctx, {
+        module: "orbit",
+        type,
+        subject: row.id as string,
+        data: {
+          policyRef: row.policyRef,
+          customerId: row.customerId,
+          via: "desk",
+          ...(row.outcomeReason ? { reason: row.outcomeReason } : {})
+        }
+      });
     }
   }),
   r("journeys", schema.orbitJourneys, "jrn", "orbit", rw("orbit:journeys"), { actorColumns: ["createdBy"] }),
@@ -1093,7 +1194,24 @@ export const LEDGER = register(
 /* ---------------------------------------------------------------------- ai */
 
 export const AI = register(
-  r("agents", schema.aiAgents, "agt", "ai", rw("ai:agents")),
+  r("agents", schema.aiAgents, "agt", "ai", rw("ai:agents"), {
+    // Raising autonomy is dual control, never auto-approvable
+    // (`ai.autonomy_raise`, POST /v1/ai/agents/:key/autonomy). This CRUD was a
+    // second door with no gate, so here it may only hold or lower the level: a
+    // create starts at most on the table's default rung, and an update never
+    // climbs. Narrowing what an agent may do needs no second seat.
+    beforeWrite: (_ctx, values, existing) => {
+      const next = values.autonomyLevel;
+      if (next === undefined || next === null) return values;
+      const rung = (level: unknown) => AGENT_AUTONOMY.indexOf(level as (typeof AGENT_AUTONOMY)[number]);
+      if (rung(next) < 0) throw badRequest(`unknown autonomy level ${String(next)}`);
+      const ceiling = existing ? rung(existing.autonomyLevel) : rung("act_with_approval");
+      if (rung(next) > ceiling) {
+        throw badRequest("raising an agent's autonomy needs an approval: use POST /v1/ai/agents/:key/autonomy");
+      }
+      return values;
+    }
+  }),
   r("prompts", schema.aiPrompts, "prm", "ai", rw("ai:prompts"), {
     actorColumns: ["createdBy"],
     approval: { update: "ai.prompt_publish" }
@@ -1181,7 +1299,17 @@ export const ANALYTICS = register(
     rowVisible: exportVisible as NonNullable<Resource["rowVisible"]>
   }),
   r("schedules", schema.analyticsSchedules, "sch", "analytics", rw("analytics:schedules"), {
-    actorColumns: ["createdBy"]
+    actorColumns: ["createdBy"],
+    // The same refusal POST /v1/analytics/schedules makes, on the other door,
+    // judged on the row as it would stand after the write — but only for a
+    // write that changes what is delivered or switches delivery on. A legacy
+    // (seeded, paused) dashboard schedule can still be renamed or tidied.
+    beforeWrite: (_ctx, values, existing) => {
+      if ("reportId" in values || "dashboardId" in values || values.status === "active") {
+        assertDeliverableSchedule({ ...(existing ?? {}), ...values });
+      }
+      return values;
+    }
   }),
   r("saved-views", schema.savedViews, "svw", "analytics", rw("analytics:saved_views"), {
     rowVisible: savedViewVisible as NonNullable<Resource["rowVisible"]>

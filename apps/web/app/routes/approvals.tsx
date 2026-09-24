@@ -328,6 +328,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "state.pending": "Awaiting decision",
     "state.rejected": "Rejected",
     queue: "Requests",
+    jump: "Requests by area",
     rule: "Rule",
     module: "Area",
     subject: "Subject",
@@ -383,6 +384,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "state.pending": "بانتظار القرار",
     "state.rejected": "مرفوض",
     queue: "الطلبات",
+    jump: "الطلبات حسب المجال",
     rule: "القاعدة",
     module: "المجال",
     subject: "الموضوع",
@@ -468,6 +470,12 @@ export default function Approvals() {
   const items = loaded.items;
   // Arabic reads Eastern Arabic digits; a figure printed with String() would not.
   const count = (value: number) => new Intl.NumberFormat(locale).format(value);
+  // One group per area, in the order the queue already lists them, so the
+  // jump list at the top reads as the queue's own table of contents.
+  const groups = [...new Set(items.map((item) => item.module))].map((module) => ({
+    module,
+    items: items.filter((item) => item.module === module)
+  }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -508,9 +516,10 @@ export default function Approvals() {
         </Card>
       ) : null}
 
-      <Form method="get" className="flex flex-wrap items-end gap-3">
+      <Form method="get" className="flex flex-wrap items-center gap-2">
         <Select
           name="state"
+          className="w-auto min-w-48"
           aria-label={l("state")}
           defaultValue={loaded.state}
           options={STATES.filter(
@@ -581,22 +590,60 @@ export default function Approvals() {
           }
         />
       ) : (
-        <ul aria-label={l("queue")} className="flex flex-col gap-4">
-          {items.map((item) => (
-            <li key={item.id}>
-              <ApprovalCard
-                item={item}
-                locale={locale}
-                l={l}
-                t={t}
-                busy={busy}
-                deciding={deciding}
-                resolved={loaded.resolved}
-                problem={result?.id === item.id ? (result.problem ?? null) : null}
-              />
-            </li>
-          ))}
-        </ul>
+        <>
+          {/* A queue is several screens tall once a few areas are waiting, so
+              it opens on its own contents: each area, how many, and a jump to
+              it. */}
+          <nav aria-label={l("jump")}>
+            <ul className="flex flex-wrap gap-2">
+              {groups.map((group) => (
+                <li key={group.module}>
+                  <a
+                    href={`#area-${group.module}`}
+                    className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-ui text-13 text-text hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    {moduleName(t, group.module)}
+                    <span className="font-mono text-12 tabular-nums text-subtle">{count(group.items.length)}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          {/* One list per area, each named "Requests — <area>": the items of
+              every list are requests and nothing else, so a count of them is
+              a count of what is waiting. */}
+          <div className="flex flex-col gap-6">
+            {groups.map((group) => (
+              <section
+                key={group.module}
+                id={`area-${group.module}`}
+                aria-labelledby={`area-${group.module}-title`}
+                className="flex scroll-mt-4 flex-col gap-3"
+              >
+                <h2 id={`area-${group.module}-title`} className="flex items-center gap-2 font-ui text-14 text-text">
+                  {moduleName(t, group.module)}
+                  <span className="font-mono text-12 tabular-nums text-subtle">{count(group.items.length)}</span>
+                </h2>
+                <ul aria-label={`${l("queue")} — ${moduleName(t, group.module)}`} className="flex flex-col gap-3">
+                  {group.items.map((item) => (
+                    <li key={item.id}>
+                      <ApprovalCard
+                        item={item}
+                        locale={locale}
+                        l={l}
+                        t={t}
+                        busy={busy}
+                        deciding={deciding}
+                        resolved={loaded.resolved}
+                        problem={result?.id === item.id ? (result.problem ?? null) : null}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        </>
       )}
 
       <div className="flex justify-between gap-2">
@@ -672,8 +719,8 @@ function ApprovalCard({
         </div>
       }
     >
-      <div className="flex flex-col gap-4">
-        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+      <div className="flex flex-col gap-3">
+        <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
           <Entry term={l("module")}>{moduleName(t, item.module)}</Entry>
           {/* What is actually being changed. A create has no row to open yet,
               and a hand-written engine's subject has no generic screen — both
@@ -735,7 +782,7 @@ function ApprovalCard({
         {item.why.length ? (
           <section className="rounded-md border border-border bg-surface-2 p-3">
             <h3 className="font-ui text-12 text-subtle">{l("why")}</h3>
-            <dl className="mt-2 grid gap-x-8 gap-y-2 sm:grid-cols-2">
+            <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
               {item.why.map((entry) => (
                 <Entry key={entry.key} term={contextTerm(entry.key, l)}>
                   {entry.minor !== null && item.currency ? (
@@ -764,11 +811,14 @@ function ApprovalCard({
         {problem ? <Problem problem={problem} /> : null}
 
         {blocked ? (
-          <p role="note" className="border-t border-border pt-4 font-ui text-13 text-subtle">
+          <p role="note" className="border-t border-border pt-3 font-ui text-13 text-subtle">
             {l("selfRaised")}
           </p>
         ) : pending ? (
-          <Form method="post" className="flex flex-col gap-3 border-t border-border pt-4">
+          <Form
+            method="post"
+            className="grid gap-3 border-t border-border pt-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
+          >
             <input type="hidden" name="id" value={item.id} />
             <Field
               label={l("reason")}
@@ -786,7 +836,7 @@ function ApprovalCard({
                 onChange={(event) => setReason(event.currentTarget.value)}
               />
             </Field>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 lg:pb-6">
               <Button type="submit" name="intent" value="approve" loading={mine} disabled={busy}>
                 {l("approve")}
               </Button>

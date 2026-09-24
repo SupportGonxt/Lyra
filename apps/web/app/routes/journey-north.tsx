@@ -1,4 +1,4 @@
-import { AgentBadge, Hero, ScreenState, renderSection, hueVar, type HeroChip, type Section } from "@lyra/ui";
+import { AgentBadge, Hero, ScreenState, cn, renderSection, hueVar, type HeroChip, type Section } from "@lyra/ui";
 import { useLocation, type LoaderFunctionArgs } from "react-router";
 import { api, asRouteError } from "../api.server";
 import { cloudflare } from "../context";
@@ -244,33 +244,49 @@ export default function JourneyNorth({ loaderData }: { loaderData: Awaited<Retur
     <div className="flex flex-col gap-6 pb-12">
       <JourneyNav current="north" locale={locale} pack={pack} t={t} />
       <JourneyHeader step="north" title={l("title")} locale={locale} pack={pack} />
-      <Hero
-        eyebrow={l("heroEyebrow")}
-        title={
-          briefing
-            ? lede(l, { productLine, audience: briefing.audience, highlights: highlights.length, locale })
-            : l("emptyTitle")
-        }
-        mod="north"
-        {...(briefing ? { hero: { chips: heroChips(l, briefing, highlights.length, locale) } } : {})}
-      />
-      <ScreenState state={briefing ? "ready" : "empty"} title={l("emptyTitle")} body={l("emptyBody")}>
-        <div className="flex flex-col gap-5">
-          {history.length > 1 ? <div>{renderSection(trend, "north")}</div> : null}
-          <div>{renderSection(kv, "north")}</div>
-          {prose ? (
-            <div className="flex flex-col gap-2">
-              {briefing?.generatedBy === "ai" ? (
-                <div>
-                  <AgentBadge agent={l("agentKey.briefing")} why={<p className="text-13">{l("why")}</p>} />
+      {/* The briefing's facts and its trend sit beside the hero on a wide
+          screen rather than under it, so the first figures are in the first
+          screen; narrower, they follow the narrative. */}
+      <div
+        className={cn(
+          "grid items-start gap-6",
+          briefing ? "xl:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)]" : ""
+        )}
+      >
+        <div className="flex min-w-0 flex-col gap-6">
+          <Hero
+            eyebrow={l("heroEyebrow")}
+            title={
+              briefing
+                ? lede(l, { productLine, audience: briefing.audience, highlights: highlights.length, locale })
+                : l("emptyTitle")
+            }
+            mod="north"
+            {...(briefing ? { hero: { chips: heroChips(l, briefing, highlights.length, locale) } } : {})}
+          />
+          <ScreenState state={briefing ? "ready" : "empty"} title={l("emptyTitle")} body={l("emptyBody")}>
+            <div className="flex flex-col gap-5">
+              {prose ? (
+                <div className="flex flex-col gap-2">
+                  {briefing?.generatedBy === "ai" ? (
+                    <div>
+                      <AgentBadge agent={l("agentKey.briefing")} why={<p className="text-13">{l("why")}</p>} />
+                    </div>
+                  ) : null}
+                  {renderSection(text, "north")}
                 </div>
               ) : null}
-              {renderSection(text, "north")}
+              {highlights.length > 0 ? <div>{renderSection(notes, "north")}</div> : null}
             </div>
-          ) : null}
-          {highlights.length > 0 ? <div>{renderSection(notes, "north")}</div> : null}
+          </ScreenState>
         </div>
-      </ScreenState>
+        {briefing ? (
+          <div className="flex min-w-0 flex-col gap-5">
+            <div>{renderSection(kv, "north")}</div>
+            {history.length > 1 ? <div>{renderSection(trend, "north")}</div> : null}
+          </div>
+        ) : null}
+      </div>
       {briefing ? (
         <JourneyContinue to={stepHref("scout", search, { briefingId: briefing.id })} label={l("continue")} />
       ) : null}

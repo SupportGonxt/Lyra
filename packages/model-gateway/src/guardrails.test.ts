@@ -36,7 +36,11 @@ function makeCtx(now = NOW): Ctx {
   };
 }
 
-beforeEach(async () => {
+// A migrated database costs ~0.2s idle and several times that on a loaded CI
+// runner, so it is built only for the tests that write to one: the checkers
+// above are pure, and running ~500 migration statements for each of them starved vitest's
+// worker RPC under the full turbo run (CLAUDE.md, the onTaskUpdate timeout).
+async function freshDb(): Promise<void> {
   client = createClient({ url: ":memory:" });
   for (const sql of migrationStatements()) await client.execute(sql);
   db = drizzle(client) as unknown as Ctx["db"];
@@ -48,7 +52,8 @@ beforeEach(async () => {
     createdAt: NOW,
     updatedAt: NOW
   });
-});
+}
+
 
 describe("checkOutput — regulated claims", () => {
   it("flags a bare optional-suffix claim as warn by default", () => {
@@ -334,6 +339,8 @@ describe("blocked", () => {
 });
 
 describe("recordGuardrails", () => {
+  beforeEach(freshDb);
+
   it("writes nothing and does not touch the db on an empty hit list", async () => {
     await recordGuardrails(makeCtx(), []);
     expect(await db.select().from(schema.aiGuardrailEvents)).toHaveLength(0);

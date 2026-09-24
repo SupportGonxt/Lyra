@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatMoney } from "@lyra/ui";
-import { LABELS, labelIn, reportsHeadline } from "./ledger-reports";
+import { LABELS, epochOf, labelIn, reportsHeadline } from "./ledger-reports";
 
 // The reports screen's hero: the report's own name plus the one figure it
 // already computed, never a made-up number. Denied falls back to the
@@ -106,6 +106,47 @@ describe("reportsHeadline", () => {
   it("says client money is clear when nothing breaches", () => {
     const report = { key: "client-money" as const, data: { data: [cmRow(false)] } };
     expect(reportsHeadline(report, l, "en")).toBe("Client money check is clear — no breach.");
+  });
+});
+
+describe("cash flow (ADR-0090)", () => {
+  const l = labelIn("en");
+  const section = (totalMinor: number) => ({ rows: [], totalMinor });
+  const cashFlow = (reconciled: boolean) => ({
+    key: "cash-flow" as const,
+    data: {
+      from: 0,
+      to: 1,
+      currency: "AED",
+      profitMinor: 1000,
+      nonCashFxMinor: 0,
+      operating: section(400),
+      investing: section(0),
+      financing: section(0),
+      netIncreaseMinor: 400,
+      fxEffectMinor: 0,
+      openingCashMinor: 100,
+      closingCashMinor: reconciled ? 500 : 900,
+      restrictedCashMinor: 0,
+      reconciled
+    }
+  });
+
+  it("headlines the net change in cash", () => {
+    expect(reportsHeadline(cashFlow(true), l, "en")).toBe(
+      `Cash flow: cash rose by ${formatMoney(400, "AED", "en")}.`
+    );
+  });
+
+  it("says so loudly when cash does not reconcile", () => {
+    expect(reportsHeadline(cashFlow(false), l, "en")).toBe(
+      `Cash flow is out by ${formatMoney(400, "AED", "en")}.`
+    );
+  });
+
+  it("reads a window's start as the start of the day and its end as the end", () => {
+    expect(epochOf("2026-06-01", "start")).toBe(Date.UTC(2026, 5, 1));
+    expect(epochOf("2026-06-30")).toBe(Date.UTC(2026, 5, 30, 23, 59, 59, 999));
   });
 });
 

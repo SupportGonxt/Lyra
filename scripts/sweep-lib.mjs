@@ -207,6 +207,13 @@ export async function signOut(page) {
  *  - a screen more than four viewports tall with no in-page navigation.
  * Measured on the rendered page, so it sees what the reader sees.
  */
+/** Routes the layout findings may not speak for, and why. */
+const LAYOUT_BY_DESIGN = {
+  // The design principles page is a specimen gallery: it prints the same AI
+  // chip in several states on purpose, and it has no data to lead with.
+  "/design": "specimen gallery — repeats components on purpose"
+};
+
 export async function layoutFindings(page) {
   return page.evaluate(() => {
     const main = document.querySelector("main");
@@ -269,7 +276,7 @@ export async function sweepRoute(page, path, { walls = true, quiet = false, layo
       const m = text.match(re);
       return `${label}: ${JSON.stringify(m[0].slice(0, 60))}`;
     });
-  if (layout) hits.push(...(await layoutFindings(page).catch(() => [])));
+  if (layout && !LAYOUT_BY_DESIGN[path]) hits.push(...(await layoutFindings(page).catch(() => [])));
   if (hits.length) {
     console.log(`HIT  ${path}  [${status}]  ${hits.join(" | ")}`);
     return "hit";

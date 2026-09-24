@@ -19,6 +19,7 @@ export * from "./vocabulary.js";
 export * from "./whitespace-brief.js";
 export * from "./audience-brief.js";
 export * from "./campaign-plan.js";
+export * from "./analytics-ask.js";
 // scrub is exported for the CI prompt-scrubber test; app code should not need it.
 export { scrub, scrubMessages, rehydrate, newScrubState } from "./scrub.js";
 // The stub is a test double, not a route. Real adapters stay private to the Gateway

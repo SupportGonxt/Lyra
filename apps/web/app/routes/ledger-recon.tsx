@@ -35,6 +35,7 @@ import { ApiError, api, fetchMe } from "../api.server";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { ConfirmButton } from "../components/confirm";
+import { WorkLayout } from "../components/work-layout";
 import { Problem } from "./module";
 import { useShellData } from "./workspace";
 import { PERM, labelIn, reconHeadline, statementFromCsv, type StatementLine } from "./ledger.shared";
@@ -569,313 +570,321 @@ export default function LedgerRecon() {
         </div>
       ) : null}
 
-      <Form method="get" aria-label={l("recon.lookup")} className="flex flex-wrap items-end gap-3">
-        <Field label={l("recon.runId")} className="w-80">
-          <Input name="run" defaultValue={loaded.runId} />
-        </Field>
-        <Button type="submit" variant="secondary" loading={busy}>
-          {t("common.apply")}
-        </Button>
-      </Form>
-
-      {summary ? (
-        <Card
-          title={`${l(`process.${summary.process}`)} · ${summary.period}`}
-          description={summary.runId}
-          elevation="flat"
-          actions={
-            <span className="flex flex-wrap items-center gap-3">
-              <Badge tone={summary.state === "closed" ? "success" : "warning"}>
-                {l(`state.${summary.state}`)}
-              </Badge>
-              {/* Offered only while something is still open to close and only to
-                  the permission the API enforces. A run with matches still
-                  awaiting a decision comes back 409 — the count beside it says
-                  how many, so the refusal is never a surprise. */}
-              {loaded.canDecide && summary.state !== "closed" ? (
-                <Form method="post">
-                  <input type="hidden" name="intent" value="close-run" />
-                  <input type="hidden" name="runId" value={summary.runId} />
-                  <ConfirmButton
-                    type="submit"
-                    size="sm"
-                    variant="secondary"
-                    loading={busy}
-                    message={l("recon.closeConfirm")}
-                  >
-                    {l("recon.close")}
-                  </ConfirmButton>
-                </Form>
-              ) : null}
-            </span>
-          }
-        >
-          <dl className="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-5">
-            <div className="flex flex-col gap-1">
-              <dt className="font-ui text-12 text-subtle">{l("recon.matched")}</dt>
-              <dd className="font-mono text-22 tabular-nums text-text">{summary.matchedCount}</dd>
-            </div>
-            <div className="flex flex-col gap-1">
-              <dt className="font-ui text-12 text-subtle">{l("recon.variance")}</dt>
-              <dd className="font-mono text-22 tabular-nums text-text">{summary.varianceCount}</dd>
-            </div>
-            <div className="flex flex-col gap-1">
-              <dt className="font-ui text-12 text-subtle">{l("recon.varianceMinor")}</dt>
-              <dd className="font-mono text-22 tabular-nums text-text">
-                <Money
-                  amountMinor={summary.varianceMinor}
-                  currency={summary.currency}
-                  locale={locale}
-                  signed
-                  toned={summary.varianceMinor !== 0}
-                />
-              </dd>
-            </div>
-            <div className="flex flex-col gap-1">
-              <dt className="font-ui text-12 text-subtle">{l("recon.open")}</dt>
-              <dd className="font-mono text-22 tabular-nums text-text">{summary.open}</dd>
-            </div>
-          </dl>
-        </Card>
-      ) : null}
-
-      {loaded.runId ? (
-        <section className="flex flex-col gap-3">
-          <h2 className="eyebrow">{l("recon.matches")}</h2>
-          <Table<ReconMatch>
-            caption={l("recon.matchesCaption")}
-            captionHidden
-            density="compact"
-            columns={matchColumns}
-            rows={loaded.matches}
-            rowKey={(row) => row.id}
-            empty={<EmptyState title={l("recon.noMatches")} body={l("recon.noMatchesBody")} />}
-          />
-        </section>
-      ) : (
-        <EmptyState title={l("recon.pick")} body={l("recon.pickBody")} />
-      )}
-
-      <section className="flex flex-col gap-3">
-        <h2 className="eyebrow">{l("recon.runs")}</h2>
-        <Table<ReconRun>
-          caption={l("recon.runsCaption")}
-          captionHidden
-          density="compact"
-          rows={loaded.runs}
-          rowKey={(row) => row.id}
-          empty={<EmptyState title={l("recon.noRuns")} body={l("recon.noRuns.body")} />}
-          columns={[
-              {
-                key: "process",
-                header: l("recon.process"),
-                render: (row) => (
-                  <Link
-                    to={`/ledger/recon?run=${encodeURIComponent(row.id)}`}
-                    className="rounded-sm font-ui text-13 text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
-                  >
-                    {l(`process.${row.process}`)}
-                  </Link>
-                )
-              },
-              { key: "period", header: l("recon.period"), render: (row) => row.period },
-              {
-                key: "state",
-                header: l("state"),
-                render: (row) => (
-                  <Badge size="sm" tone={row.state === "closed" ? "success" : "warning"}>
-                    {l(`state.${row.state}`)}
-                  </Badge>
-                )
-              },
-              {
-                key: "matchedCount",
-                header: l("recon.matched"),
-                numeric: true,
-                render: (row) => row.matchedCount
-              },
-              {
-                key: "varianceMinor",
-                header: l("recon.varianceMinor"),
-                numeric: true,
-                render: (row) => (
-                  <Money
-                    amountMinor={row.varianceMinor}
-                    currency={row.currency}
-                    locale={locale}
-                    signed
-                    toned={row.varianceMinor !== 0}
-                  />
-                )
-              },
-              {
-                key: "createdAt",
-                header: l("when"),
-                render: (row) => <DateTime value={row.createdAt} locale={locale} precision="minute" />
-              }
-          ]}
-        />
-      </section>
-
-      {/* The residual a reconciliation leaves behind — rounded premium tax, a
-          PSP fee booked to the cent — needs an instrument, or the difference
-          sits on a clearing account forever. It is a transaction like any
-          other: idempotency key, dual control always, two balanced lines
-          (docs/19 §5, CLAUDE.md §12). Offered only on an open run: a closed one
-          is a period a controller has already signed. */}
-      {loaded.canWriteOff && summary && summary.state !== "closed" ? (
-        <Card title={l("recon.writeOff")} description={l("recon.writeOffIntro")} elevation="flat">
-          <Form method="post" className="flex flex-col gap-4">
-            <input type="hidden" name="intent" value="write-off" />
-            <input type="hidden" name="runId" value={summary.runId} />
-            <input type="hidden" name="currency" value={summary.currency} />
-            <div className="flex flex-wrap items-end gap-3">
-              <Field label={l("recon.writeOffAmount")} hint={l("recon.writeOffAmountHint")} required className="w-52">
-                <MoneyField
-                  name="amountMinor"
-                  currency={summary.currency}
-                  locale={locale}
-                  min={0}
-                  defaultMinor={Math.abs(summary.varianceMinor)}
-                  required
-                />
+      <WorkLayout
+        aside={
+          <>
+            <Form method="get" aria-label={l("recon.lookup")} className="flex flex-wrap items-end gap-3">
+              <Field label={l("recon.runId")} className="w-80">
+                <Input name="run" defaultValue={loaded.runId} />
               </Field>
-              <Field label={l("recon.writeOffDirection")} required className="w-56">
-                <Select
-                  name="direction"
-                  defaultValue="shortfall"
-                  options={[
-                    { value: "shortfall", label: l("recon.writeOffShortfall") },
-                    { value: "surplus", label: l("recon.writeOffSurplus") }
-                  ]}
-                />
-              </Field>
-              <Field
-                label={l("recon.writeOffAccount")}
-                hint={l("recon.writeOffAccountHint")}
-                className="w-44"
-              >
-                <Input name="clearingAccount" defaultValue="1100" maxLength={4} />
-              </Field>
-            </div>
-            <Field label={l("recon.writeOffReason")} hint={l("recon.writeOffReasonHint")} required>
-              <Textarea name="reason" rows={2} minLength={10} maxLength={500} required />
-            </Field>
-            <div>
-              <ConfirmButton type="submit" loading={busy} message={l("recon.writeOffConfirm")}>
-                {l("recon.writeOff")}
-              </ConfirmButton>
-            </div>
-          </Form>
-        </Card>
-      ) : null}
-
-      {loaded.canExport && loaded.runId ? (
-        <Card title={l("recon.evidence")} description={l("recon.evidenceIntro")} elevation="flat">
-          <div className="flex flex-col gap-4">
-            <Form method="post">
-              <input type="hidden" name="intent" value="generate-evidence-bundle" />
-              <input type="hidden" name="runId" value={loaded.runId} />
-              <ConfirmButton type="submit" loading={busy} message={l("recon.evidenceBuildConfirm")}>
-                {l("recon.evidenceBuild")}
-              </ConfirmButton>
+              <Button type="submit" variant="secondary" loading={busy}>
+                {t("common.apply")}
+              </Button>
             </Form>
 
-            {result?.bundle ? (
-              <EvidenceResult bundle={result.bundle} apiOrigin={loaded.apiOrigin} locale={locale} l={l} />
+            {/* The residual a reconciliation leaves behind — rounded premium tax, a
+                PSP fee booked to the cent — needs an instrument, or the difference
+                sits on a clearing account forever. It is a transaction like any
+                other: idempotency key, dual control always, two balanced lines
+                (docs/19 §5, CLAUDE.md §12). Offered only on an open run: a closed one
+                is a period a controller has already signed. */}
+            {loaded.canWriteOff && summary && summary.state !== "closed" ? (
+              <Card title={l("recon.writeOff")} description={l("recon.writeOffIntro")} elevation="flat">
+                <Form method="post" className="flex flex-col gap-4">
+                  <input type="hidden" name="intent" value="write-off" />
+                  <input type="hidden" name="runId" value={summary.runId} />
+                  <input type="hidden" name="currency" value={summary.currency} />
+                  <div className="flex flex-wrap items-end gap-3">
+                    <Field label={l("recon.writeOffAmount")} hint={l("recon.writeOffAmountHint")} required className="w-52">
+                      <MoneyField
+                        name="amountMinor"
+                        currency={summary.currency}
+                        locale={locale}
+                        min={0}
+                        defaultMinor={Math.abs(summary.varianceMinor)}
+                        required
+                      />
+                    </Field>
+                    <Field label={l("recon.writeOffDirection")} required className="w-56">
+                      <Select
+                        name="direction"
+                        defaultValue="shortfall"
+                        options={[
+                          { value: "shortfall", label: l("recon.writeOffShortfall") },
+                          { value: "surplus", label: l("recon.writeOffSurplus") }
+                        ]}
+                      />
+                    </Field>
+                    <Field
+                      label={l("recon.writeOffAccount")}
+                      hint={l("recon.writeOffAccountHint")}
+                      className="w-44"
+                    >
+                      <Input name="clearingAccount" defaultValue="1100" maxLength={4} />
+                    </Field>
+                  </div>
+                  <Field label={l("recon.writeOffReason")} hint={l("recon.writeOffReasonHint")} required>
+                    <Textarea name="reason" rows={2} minLength={10} maxLength={500} required />
+                  </Field>
+                  <div>
+                    <ConfirmButton type="submit" loading={busy} message={l("recon.writeOffConfirm")}>
+                      {l("recon.writeOff")}
+                    </ConfirmButton>
+                  </div>
+                </Form>
+              </Card>
             ) : null}
-          </div>
-        </Card>
-      ) : null}
 
-      {loaded.canRun ? (
-        <Card title={l("recon.start")} elevation="flat">
-          {/* multipart: a file input in a urlencoded form posts its *name*,
-              not its contents, and the action would read an empty statement. */}
-          <Form method="post" encType="multipart/form-data" className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <Field label={l("recon.process")} required className="w-52">
-                <Select
-                  name="process"
-                  defaultValue="insurer"
-                  options={PROCESSES.map((process) => ({
-                    value: process,
-                    label: l(`process.${process}`)
-                  }))}
-                />
-              </Field>
-              <Field label={l("recon.period")} required className="w-40">
-                <Input name="period" defaultValue={new Date().toISOString().slice(0, 7)} required />
-              </Field>
-              <Field label={l("currency")} required className="w-28">
-                <Input
-                  name="currency"
-                  value={currency}
-                  onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-                  maxLength={3}
-                  required
-                />
-              </Field>
-              {/* ponytail: a free text id, not a picker — finance roles hold
-                  `dist:channels:read` but no `core:providers:read`, so half the
-                  counterparties cannot be listed to them. The hint says what to
-                  paste; widening the grant is an ADR, not a form change. */}
-              <Field
-                label={l("recon.counterparty")}
-                hint={l("recon.counterpartyHint")}
-                className="w-56"
-              >
-                <Input name="counterpartyRef" />
-              </Field>
-              <Field label={l("recon.tolerance")} className="w-44">
-                <MoneyField name="toleranceMinor" currency={currency || "ZAR"} locale={locale} min={0} />
-              </Field>
-            </div>
+            {loaded.canExport && loaded.runId ? (
+              <Card title={l("recon.evidence")} description={l("recon.evidenceIntro")} elevation="flat">
+                <div className="flex flex-col gap-4">
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="generate-evidence-bundle" />
+                    <input type="hidden" name="runId" value={loaded.runId} />
+                    <ConfirmButton type="submit" loading={busy} message={l("recon.evidenceBuildConfirm")}>
+                      {l("recon.evidenceBuild")}
+                    </ConfirmButton>
+                  </Form>
 
-            {/* docs/27 F16: the counterparty's own export, in the format it
-                came in. The paste below stays for the statement that arrived as
-                a spreadsheet, which is most of them today. */}
-            <Field label={l("recon.file")} hint={l("recon.fileHint")}>
-              <input
-                type="file"
-                name="statementFile"
-                accept=".xml,.txt,.sta,.940,.ofx,.qfx,text/xml,application/xml,text/plain"
-                className="block w-full rounded-sm border border-line bg-surface-1 px-3 py-2 font-ui text-13 text-text file:me-3 file:rounded-sm file:border-0 file:bg-accent/10 file:px-3 file:py-1 file:font-ui file:text-13 file:text-accent"
-              />
-            </Field>
+                  {result?.bundle ? (
+                    <EvidenceResult bundle={result.bundle} apiOrigin={loaded.apiOrigin} locale={locale} l={l} />
+                  ) : null}
+                </div>
+              </Card>
+            ) : null}
 
-            <Field label={l("recon.lines")} hint={l("recon.linesHint")}>
-              {/* The statement as the counterparty exported it. No defaultValue:
-                  an empty paste must fail `required` rather than post a run
-                  against nothing. */}
-              <Textarea
-                name="lines"
-                rows={8}
-                value={statement}
-                onChange={(event) => setStatement(event.target.value)}
-                placeholder={l("recon.linesPlaceholder")}
-                className="font-mono text-12"
-              />
-            </Field>
+            {loaded.canRun ? (
+              <Card title={l("recon.start")} elevation="flat">
+                {/* multipart: a file input in a urlencoded form posts its *name*,
+                    not its contents, and the action would read an empty statement. */}
+                <Form method="post" encType="multipart/form-data" className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <Field label={l("recon.process")} required className="w-52">
+                      <Select
+                        name="process"
+                        defaultValue="insurer"
+                        options={PROCESSES.map((process) => ({
+                          value: process,
+                          label: l(`process.${process}`)
+                        }))}
+                      />
+                    </Field>
+                    <Field label={l("recon.period")} required className="w-40">
+                      <Input name="period" defaultValue={new Date().toISOString().slice(0, 7)} required />
+                    </Field>
+                    <Field label={l("currency")} required className="w-28">
+                      <Input
+                        name="currency"
+                        value={currency}
+                        onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+                        maxLength={3}
+                        required
+                      />
+                    </Field>
+                    {/* ponytail: a free text id, not a picker — finance roles hold
+                        `dist:channels:read` but no `core:providers:read`, so half the
+                        counterparties cannot be listed to them. The hint says what to
+                        paste; widening the grant is an ADR, not a form change. */}
+                    <Field
+                      label={l("recon.counterparty")}
+                      hint={l("recon.counterpartyHint")}
+                      className="w-56"
+                    >
+                      <Input name="counterpartyRef" />
+                    </Field>
+                    <Field label={l("recon.tolerance")} className="w-44">
+                      <MoneyField name="toleranceMinor" currency={currency || "ZAR"} locale={locale} min={0} />
+                    </Field>
+                  </div>
 
-            <StatementPreview
-              text={statement}
-              currency={currency || "ZAR"}
-              locale={locale}
-              l={l}
+                  {/* docs/27 F16: the counterparty's own export, in the format it
+                      came in. The paste below stays for the statement that arrived as
+                      a spreadsheet, which is most of them today. */}
+                  <Field label={l("recon.file")} hint={l("recon.fileHint")}>
+                    <input
+                      type="file"
+                      name="statementFile"
+                      accept=".xml,.txt,.sta,.940,.ofx,.qfx,text/xml,application/xml,text/plain"
+                      className="block w-full rounded-sm border border-line bg-surface-1 px-3 py-2 font-ui text-13 text-text file:me-3 file:rounded-sm file:border-0 file:bg-accent/10 file:px-3 file:py-1 file:font-ui file:text-13 file:text-accent"
+                    />
+                  </Field>
+
+                  <Field label={l("recon.lines")} hint={l("recon.linesHint")}>
+                    {/* The statement as the counterparty exported it. No defaultValue:
+                        an empty paste must fail `required` rather than post a run
+                        against nothing. */}
+                    <Textarea
+                      name="lines"
+                      rows={8}
+                      value={statement}
+                      onChange={(event) => setStatement(event.target.value)}
+                      placeholder={l("recon.linesPlaceholder")}
+                      className="font-mono text-12"
+                    />
+                  </Field>
+
+                  <StatementPreview
+                    text={statement}
+                    currency={currency || "ZAR"}
+                    locale={locale}
+                    l={l}
+                  />
+
+                  <Checkbox name="propose" label={l("recon.propose")} />
+                  <p className="font-ui text-12 text-subtle">{l("recon.proposeHint")}</p>
+
+                  <div>
+                    <ConfirmButton type="submit" loading={busy} message={l("recon.startConfirm")}>
+                      {l("recon.start")}
+                    </ConfirmButton>
+                  </div>
+                </Form>
+              </Card>
+            ) : null}
+
+            {/* Last in the aside, so "start a run above" is where the reader
+                finds it on either layout. */}
+            {loaded.runId ? null : <EmptyState title={l("recon.pick")} body={l("recon.pickBody")} />}
+          </>
+        }
+      >
+        {summary ? (
+          <Card
+            title={`${l(`process.${summary.process}`)} · ${summary.period}`}
+            description={summary.runId}
+            elevation="flat"
+            actions={
+              <span className="flex flex-wrap items-center gap-3">
+                <Badge tone={summary.state === "closed" ? "success" : "warning"}>
+                  {l(`state.${summary.state}`)}
+                </Badge>
+                {/* Offered only while something is still open to close and only to
+                    the permission the API enforces. A run with matches still
+                    awaiting a decision comes back 409 — the count beside it says
+                    how many, so the refusal is never a surprise. */}
+                {loaded.canDecide && summary.state !== "closed" ? (
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="close-run" />
+                    <input type="hidden" name="runId" value={summary.runId} />
+                    <ConfirmButton
+                      type="submit"
+                      size="sm"
+                      variant="secondary"
+                      loading={busy}
+                      message={l("recon.closeConfirm")}
+                    >
+                      {l("recon.close")}
+                    </ConfirmButton>
+                  </Form>
+                ) : null}
+              </span>
+            }
+          >
+            <dl className="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-5">
+              <div className="flex flex-col gap-1">
+                <dt className="font-ui text-12 text-subtle">{l("recon.matched")}</dt>
+                <dd className="font-mono text-22 tabular-nums text-text">{summary.matchedCount}</dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-ui text-12 text-subtle">{l("recon.variance")}</dt>
+                <dd className="font-mono text-22 tabular-nums text-text">{summary.varianceCount}</dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-ui text-12 text-subtle">{l("recon.varianceMinor")}</dt>
+                <dd className="font-mono text-22 tabular-nums text-text">
+                  <Money
+                    amountMinor={summary.varianceMinor}
+                    currency={summary.currency}
+                    locale={locale}
+                    signed
+                    toned={summary.varianceMinor !== 0}
+                  />
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-ui text-12 text-subtle">{l("recon.open")}</dt>
+                <dd className="font-mono text-22 tabular-nums text-text">{summary.open}</dd>
+              </div>
+            </dl>
+          </Card>
+        ) : null}
+
+        {loaded.runId ? (
+          <section className="flex flex-col gap-3">
+            <h2 className="eyebrow">{l("recon.matches")}</h2>
+            <Table<ReconMatch>
+              caption={l("recon.matchesCaption")}
+              captionHidden
+              density="compact"
+              columns={matchColumns}
+              rows={loaded.matches}
+              rowKey={(row) => row.id}
+              empty={<EmptyState title={l("recon.noMatches")} body={l("recon.noMatchesBody")} />}
             />
+          </section>
+        ) : null}
 
-            <Checkbox name="propose" label={l("recon.propose")} />
-            <p className="font-ui text-12 text-subtle">{l("recon.proposeHint")}</p>
-
-            <div>
-              <ConfirmButton type="submit" loading={busy} message={l("recon.startConfirm")}>
-                {l("recon.start")}
-              </ConfirmButton>
-            </div>
-          </Form>
-        </Card>
-      ) : null}
+        <section className="flex flex-col gap-3">
+          <h2 className="eyebrow">{l("recon.runs")}</h2>
+          <Table<ReconRun>
+            caption={l("recon.runsCaption")}
+            captionHidden
+            density="compact"
+            rows={loaded.runs}
+            rowKey={(row) => row.id}
+            empty={<EmptyState title={l("recon.noRuns")} body={l("recon.noRuns.body")} />}
+            columns={[
+                {
+                  key: "process",
+                  header: l("recon.process"),
+                  render: (row) => (
+                    <Link
+                      to={`/ledger/recon?run=${encodeURIComponent(row.id)}`}
+                      className="rounded-sm font-ui text-13 text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+                    >
+                      {l(`process.${row.process}`)}
+                    </Link>
+                  )
+                },
+                { key: "period", header: l("recon.period"), render: (row) => row.period },
+                {
+                  key: "state",
+                  header: l("state"),
+                  render: (row) => (
+                    <Badge size="sm" tone={row.state === "closed" ? "success" : "warning"}>
+                      {l(`state.${row.state}`)}
+                    </Badge>
+                  )
+                },
+                {
+                  key: "matchedCount",
+                  header: l("recon.matched"),
+                  numeric: true,
+                  render: (row) => row.matchedCount
+                },
+                {
+                  key: "varianceMinor",
+                  header: l("recon.varianceMinor"),
+                  numeric: true,
+                  render: (row) => (
+                    <Money
+                      amountMinor={row.varianceMinor}
+                      currency={row.currency}
+                      locale={locale}
+                      signed
+                      toned={row.varianceMinor !== 0}
+                    />
+                  )
+                },
+                {
+                  key: "createdAt",
+                  header: l("when"),
+                  render: (row) => <DateTime value={row.createdAt} locale={locale} precision="minute" />
+                }
+            ]}
+          />
+        </section>
+      </WorkLayout>
     </div>
   );
 }

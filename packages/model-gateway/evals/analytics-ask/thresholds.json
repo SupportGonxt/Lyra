@@ -1,0 +1,11 @@
+{
+  "datasetAccuracyMin": 1.0,
+  "metricAccuracyMin": 1.0,
+  "dimensionAccuracyMin": 1.0,
+  "grainAccuracyMin": 1.0,
+  "filterAccuracyMin": 1.0,
+  "windowAccuracyMin": 1.0,
+  "arabicMatchMin": 1.0,
+  "falseRefusalMax": 0.0,
+  "invalidAcceptMax": 0.0
+}

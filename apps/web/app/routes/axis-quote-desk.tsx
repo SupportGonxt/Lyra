@@ -25,7 +25,6 @@ import { ApiError, api, names } from "../api.server";
 import { ConfirmButton } from "../components/confirm";
 import { HeroStat, lensOf, useFocus, type Lens } from "../components/hero";
 import { cloudflare } from "../context";
-import { RefPicker, type RefOption } from "../components/ref-picker";
 import { Gate } from "./staff";
 import { useAxisSessionData } from "./axis-shell";
 import { labelsFrom } from "./detail-kit";
@@ -50,7 +49,8 @@ export const PERM = {
   quoteWrite: "axis:quotes:create",
   /** Picking the winner is dist's `/select` verb — one table, one door (F13). */
   pick: "dist:quote_requests:select",
-  issue: "axis:policies:create"
+  /** The sale endpoint (`/quote-responses/:id/bind`). */
+  issue: "axis:policies:bind"
 } as const;
 
 /** Cases in scope: the ones out with providers, waiting on paper to come back. */
@@ -108,6 +108,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "issue.start": "Cover starts",
     "issue.end": "Cover ends",
     "issue.submit": "Issue",
+    "issue.noCustomer": "No customer named — this quote cannot be sold.",
     "issue.none": "Pick a winning quote first — there is nothing to issue from yet.",
     "done.pick": "Winner recorded.",
     "done.decline": "Quote declined.",
@@ -117,7 +118,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "problem.bad_intent": "The form did not carry an action this screen knows.",
     "problem.missing_quote": "No quote was named.",
     "problem.missing_reason": "A decline has to say why — it is what the provider is told.",
-    "problem.missing_policy": "A contract needs its number, its customer and both cover dates.",
+    "problem.missing_policy": "A contract needs its number and both cover dates.",
     "problem.bad_dates": "Cover cannot end before it starts."
   },
   ar: {
@@ -160,6 +161,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "issue.start": "بداية التغطية",
     "issue.end": "نهاية التغطية",
     "issue.submit": "إصدار",
+    "issue.noCustomer": "لا عميل مسمّى — لا يمكن بيع هذا العرض.",
     "issue.none": "اختر عرضًا فائزًا أولًا — لا يوجد ما يُصدر منه بعد.",
     "done.pick": "سُجّل الفائز.",
     "done.decline": "رُفض العرض.",
@@ -169,7 +171,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "problem.bad_intent": "لم يحمل النموذج إجراءً تعرفه هذه الشاشة.",
     "problem.missing_quote": "لم يُحدَّد أي عرض.",
     "problem.missing_reason": "الرفض يجب أن يذكر سببه — فهو ما يُبلَّغ به المزوّد.",
-    "problem.missing_policy": "العقد يحتاج رقمه وعميله وتاريخَي التغطية.",
+    "problem.missing_policy": "العقد يحتاج رقمه وتاريخَي التغطية.",
     "problem.bad_dates": "لا يمكن أن تنتهي التغطية قبل بدايتها."
   }
 };
@@ -373,23 +375,6 @@ export function toDeskQuotes(cases: DeskCase[], responses: QuoteResponse[]): Des
   });
 }
 
-/**
- * The customers the issue form can offer: the ones on this desk that resolved
- * to a name. A case whose customer the actor may not read is left out rather
- * than offered as a ULID, and one customer with two open cases is offered once.
- */
-export function deskCustomers(
-  cases: DeskCase[],
-  resolved: Record<string, string>
-): RefOption[] {
-  const byId = new Map<string, RefOption>();
-  for (const kase of cases) {
-    const label = kase.customerId ? resolved[kase.customerId] : undefined;
-    if (kase.customerId && label) byId.set(kase.customerId, { id: kase.customerId, label });
-  }
-  return [...byId.values()];
-}
-
 async function safe<T>(call: Promise<T>, fallback: T): Promise<T> {
   try {
     return await call;
@@ -445,9 +430,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     kind,
     cases: cases.data,
     quotes: toDeskQuotes(cases.data, responses.data),
-    resolved,
-    // The desk's own customers, so the issue form can be typed over by name.
-    customers: deskCustomers(cases.data, resolved)
+    resolved
   };
 }
 
@@ -478,31 +461,25 @@ export function epochOf(value: string): number | null {
 }
 
 /**
- * The contract a picked quote turns into. Pure so the validation can be tested
- * without a request: every branch here is a refusal the operator has to read.
+ * The sale a picked quote turns into. The bind endpoint reads the premium,
+ * provider and customer off the quote on the server, so the form carries only
+ * what the operator decides: the contract number and the cover dates. Pure so
+ * every refusal can be tested without a request.
  */
-export function policyFrom(
+export function bindFrom(
   form: FormData
-): { body: Record<string, unknown> } | { code: string } {
+): { quoteId: string; body: Record<string, unknown> } | { code: string } {
+  const quoteId = String(form.get("quoteId") ?? "").trim();
   const policyNo = String(form.get("policyNo") ?? "").trim();
-  const customerId = String(form.get("customerId") ?? "").trim();
+  const caseId = String(form.get("caseId") ?? "").trim();
   const startAt = epochOf(String(form.get("startAt") ?? ""));
   const endAt = epochOf(String(form.get("endAt") ?? ""));
-  const providerId = String(form.get("providerId") ?? "").trim();
-  const caseId = String(form.get("caseId") ?? "").trim();
-  const currency = String(form.get("currency") ?? "").trim();
-  // `Number(null)` is 0, so a dropped premium field would issue a free contract.
-  // The raw string has to be there before it is allowed to be a number.
-  const raw = String(form.get("premiumMinor") ?? "").trim();
-  const premiumMinor = Number(raw);
 
-  if (!policyNo || !customerId || startAt === null || endAt === null) return { code: "missing_policy" };
-  if (!providerId || !currency || !raw || !Number.isFinite(premiumMinor)) return { code: "missing_quote" };
+  if (!quoteId) return { code: "missing_quote" };
+  if (!policyNo || startAt === null || endAt === null) return { code: "missing_policy" };
   if (endAt < startAt) return { code: "bad_dates" };
 
-  return {
-    body: { caseId, customerId, providerId, policyNo, startAt, endAt, premiumMinor, currency }
-  };
+  return { quoteId, body: { caseId, policyNo, startAt, endAt } };
 }
 
 export async function action({ request, context }: ActionFunctionArgs): Promise<ActionResult> {
@@ -548,13 +525,18 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
     }
 
     if (intent === "issue") {
-      const built = policyFrom(form);
+      const built = bindFrom(form);
       if ("code" in built) return refuse(built.code);
 
-      // Consequential and financial: `resources.ts` puts the `axis.bind` policy
-      // on this create with `premiumMinor` as the amount, so an over-threshold
-      // contract comes back 403 `approval_required` and the Gate below says so.
-      await api("/v1/axis/policies", { env, request, method: "POST", headers, body: built.body });
+      // The sale: consequential and financial, so an over-threshold contract
+      // comes back 403 `approval_required` (`axis.bind`) and the Gate says so.
+      await api(`/v1/axis/quote-responses/${encodeURIComponent(built.quoteId)}/bind`, {
+        env,
+        request,
+        method: "POST",
+        headers,
+        body: built.body
+      });
       return { problem: null, done: "issue" };
     }
   } catch (error) {
@@ -781,10 +763,8 @@ export default function AxisQuoteDesk() {
               return (
                 <Form key={quote.id} method="post" className="flex flex-wrap items-end gap-4 py-2">
                   <input type="hidden" name="intent" value="issue" />
+                  <input type="hidden" name="quoteId" value={quote.id} />
                   <input type="hidden" name="caseId" value={quote.caseId} />
-                  <input type="hidden" name="providerId" value={quote.providerId} />
-                  <input type="hidden" name="premiumMinor" value={quote.premiumMinor} />
-                  <input type="hidden" name="currency" value={quote.currency} />
                   <span className="flex flex-col gap-1">
                     <span className="font-ui text-13 font-medium text-muted">{l("issue.quote")}</span>
                     <span className="font-mono text-13 text-text">
@@ -795,20 +775,21 @@ export default function AxisQuoteDesk() {
                   <Field label={l("issue.policyNo")} className="w-40">
                     <Input name="policyNo" required />
                   </Field>
-                  <Field label={l("issue.customer")} className="w-48">
-                    <RefPicker
-                      name="customerId"
-                      options={loaded.customers}
-                      defaultValue={kase?.customerId ?? ""}
-                    />
-                  </Field>
+                  {/* Named at shop time and read off the quote by the server; the
+                      desk shows who it is selling to and cannot change it. */}
+                  <span className="flex flex-col gap-1">
+                    <span className="font-ui text-13 font-medium text-muted">{l("issue.customer")}</span>
+                    <span className="font-ui text-13 text-text">
+                      {kase?.customerId ? (loaded.resolved[kase.customerId] ?? shortRef(kase.customerId)) : l("issue.noCustomer")}
+                    </span>
+                  </span>
                   <Field label={l("issue.start")} className="w-40">
                     <DatePicker name="startAt" required />
                   </Field>
                   <Field label={l("issue.end")} className="w-40">
                     <DatePicker name="endAt" required />
                   </Field>
-                  <Button type="submit" variant="primary" loading={busy}>
+                  <Button type="submit" variant="primary" loading={busy} disabled={!kase?.customerId}>
                     {l("issue.submit")}
                   </Button>
                 </Form>

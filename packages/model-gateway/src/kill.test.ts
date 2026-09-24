@@ -64,10 +64,11 @@ async function flag(patch: Partial<typeof schema.featureFlags.$inferInsert>) {
   });
 }
 
-beforeEach(async () => {
+/** Only the suites that read the kill-switch table build a database (see guardrails.test.ts). */
+async function freshDb(): Promise<void> {
   client = createClient({ url: ":memory:" });
   for (const sql of migrationStatements()) await client.execute(sql);
-});
+}
 
 describe("killedBy", () => {
   const clean = PolicyJson.parse({});
@@ -116,6 +117,8 @@ describe("killedBy", () => {
 });
 
 describe("assertNotKilled", () => {
+  beforeEach(freshDb);
+
   it("passes when nothing is paused and no flag row exists", async () => {
     await expect(assertNotKilled(makeCtx(), "axis")).resolves.toBeNull();
   });
@@ -134,6 +137,8 @@ describe("assertNotKilled", () => {
 });
 
 describe("gateway enforcement", () => {
+  beforeEach(freshDb);
+
   it("audits a killed call and never reaches the provider", async () => {
     const stub = makeStub();
     const gw = new Gateway({ env: {}, providers: { stub, "workers-ai": stub, anthropic: stub } });

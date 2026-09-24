@@ -12,6 +12,7 @@ import { api } from "../api.server";
 import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { useNorthSessionData } from "./north-shell";
+import { WorkLayout } from "../components/work-layout";
 import {
   labelsFrom,
   parsed,
@@ -278,6 +279,28 @@ export default function NorthBoard() {
         }
       : (result?.problem ?? null);
 
+  // The register first, the composer beside it (WorkLayout): the open pack
+  // and the list are what a reader came for, assembling one is what they
+  // might do next.
+  const composer = held.has(PERM.generate) ? (
+    <Panel module="north" eyebrow={l("assemble.title")} lede={l("assemble.note")}>
+      <Form method="post" className="flex flex-col gap-3">
+        <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+        <Field label={l("assemble.period")} hint={l("assemble.period.hint")}>
+          <Input name="period" required aria-label={l("assemble.period")} />
+        </Field>
+        <Field label={l("assemble.packTitle")} hint={l("assemble.packTitle.hint")}>
+          <Input name="title" required aria-label={l("assemble.packTitle")} />
+        </Field>
+        <div>
+          <Button type="submit" disabled={busy}>
+            {l("assemble.submit")}
+          </Button>
+        </div>
+      </Form>
+    </Panel>
+  ) : null;
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
@@ -306,85 +329,68 @@ export default function NorthBoard() {
         </p>
       ) : null}
 
-      {held.has(PERM.generate) ? (
-        <Panel module="north" eyebrow={l("assemble.title")} lede={l("assemble.note")}>
-          <Form method="post" className="flex flex-col gap-3">
-            <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-            <Field label={l("assemble.period")} hint={l("assemble.period.hint")}>
-              <Input name="period" required aria-label={l("assemble.period")} />
-            </Field>
-            <Field label={l("assemble.packTitle")} hint={l("assemble.packTitle.hint")}>
-              <Input name="title" required aria-label={l("assemble.packTitle")} />
-            </Field>
-            <div>
-              <Button type="submit" disabled={busy}>
-                {l("assemble.submit")}
-              </Button>
-            </div>
-          </Form>
-        </Panel>
-      ) : null}
-
-      {packs === null ? (
-        <Panel>
-          <p className="font-ui text-13 text-subtle">{l("denied")}</p>
-        </Panel>
-      ) : packs.length === 0 ? (
-        <EmptyState title={l("none.title")} body={l("none.body")} />
-      ) : (
-        <>
-          {open ? <PackDetail pack={open} locale={locale} l={l} /> : null}
-
-          <Panel eyebrow={l("title")}>
-            <Table
-              caption={l("list.caption")}
-              rows={packs}
-              rowKey={(row) => row.id}
-              columns={[
-                {
-                  key: "title",
-                  header: l("list.packTitle"),
-                  render: (row) => (
-                    <a className="text-text underline decoration-border underline-offset-4" href={`?id=${row.id}`}>
-                      {row.title}
-                    </a>
-                  )
-                },
-                { key: "period", header: l("list.period"), render: (row) => row.period },
-                {
-                  key: "status",
-                  header: l("list.status"),
-                  render: (row) => (
-                    <Badge tone={TONE[row.status] ?? "neutral"}>{l(`status.${row.status}`) || row.status}</Badge>
-                  )
-                },
-                {
-                  key: "made",
-                  header: l("list.made"),
-                  render: (row) => <DateTime value={row.createdAt} locale={locale} />
-                },
-                {
-                  key: "pdf",
-                  header: l("list.pdf"),
-                  // Streamed through the web app rather than linked at R2: the
-                  // object is private and the download is audited.
-                  render: (row) =>
-                    row.pdfFileId ? (
-                      <a
-                        className="text-text underline decoration-border underline-offset-4"
-                        href={`/north/board/${row.id}/file`}
-                      >
-                        {l("list.open")}
-                      </a>
-                    ) : (
-                      <span className="text-subtle">{l("pdf.none")}</span>
-                    )
-                }
-              ]}
-            />
+      <WorkLayout aside={composer}>
+        {packs === null ? (
+          <Panel>
+            <p className="font-ui text-13 text-subtle">{l("denied")}</p>
           </Panel>
-        </>
-      )}
+        ) : packs.length === 0 ? (
+          <EmptyState title={l("none.title")} body={l("none.body")} />
+        ) : (
+          <>
+            {open ? <PackDetail pack={open} locale={locale} l={l} /> : null}
+
+            <Panel eyebrow={l("title")}>
+              <Table
+                caption={l("list.caption")}
+                rows={packs}
+                rowKey={(row) => row.id}
+                columns={[
+                  {
+                    key: "title",
+                    header: l("list.packTitle"),
+                    render: (row) => (
+                      <a className="text-text underline decoration-border underline-offset-4" href={`?id=${row.id}`}>
+                        {row.title}
+                      </a>
+                    )
+                  },
+                  { key: "period", header: l("list.period"), render: (row) => row.period },
+                  {
+                    key: "status",
+                    header: l("list.status"),
+                    render: (row) => (
+                      <Badge tone={TONE[row.status] ?? "neutral"}>{l(`status.${row.status}`) || row.status}</Badge>
+                    )
+                  },
+                  {
+                    key: "made",
+                    header: l("list.made"),
+                    render: (row) => <DateTime value={row.createdAt} locale={locale} />
+                  },
+                  {
+                    key: "pdf",
+                    header: l("list.pdf"),
+                    // Streamed through the web app rather than linked at R2: the
+                    // object is private and the download is audited.
+                    render: (row) =>
+                      row.pdfFileId ? (
+                        <a
+                          className="text-text underline decoration-border underline-offset-4"
+                          href={`/north/board/${row.id}/file`}
+                        >
+                          {l("list.open")}
+                        </a>
+                      ) : (
+                        <span className="text-subtle">{l("pdf.none")}</span>
+                      )
+                  }
+                ]}
+              />
+            </Panel>
+          </>
+        )}
+      </WorkLayout>
     </div>
   );
 }

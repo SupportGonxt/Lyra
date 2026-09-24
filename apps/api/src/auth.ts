@@ -9,7 +9,10 @@ import {
   emit,
   ensureDemoAdmin,
   ensureSeedPeople,
+  syncSeedEventNames,
   entitledGrants,
+  GATED_MODULES,
+  moduleEnabled,
   forbidden,
   grantsFor,
   hashPassword,
@@ -208,6 +211,18 @@ export async function allTenants(env: Env): Promise<string[]> {
   return rows.map((t) => t.id);
 }
 
+/**
+ * ADR-0087: the modules a tenant has switched off, for the scheduler. Reads the
+ * policy alone — not `tenantConfig`, which refuses a suspended tenant whose
+ * outbox must still drain — and a corrupt policy switches nothing off.
+ */
+export async function switchedOff(env: Env, tenantId: string): Promise<Set<string>> {
+  const rows = await db(env).select({ policyJson: schema.tenants.policyJson }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+  const parsed = PolicyJson.safeParse(safeJson<Record<string, unknown>>(rows[0]?.policyJson ?? null) ?? {});
+  if (!parsed.success) return new Set();
+  return new Set(GATED_MODULES.filter((m) => !moduleEnabled(parsed.data, m)));
+}
+
 /** Session cookie or `Authorization: Bearer <session token>`. */
 async function fromSession(
   database: ReturnType<typeof makeDb>,
@@ -260,7 +275,7 @@ async function fromSession(
       kind: "user",
       id: row.user.id,
       tenantId: effectiveTenantId,
-      grants: entitledGrants(grants, config.entitlements),
+      grants: entitledGrants(grants, config.entitlements, config.policy.moduleConfig),
       ...(impersonation ? { impersonating: true as const } : {})
     },
     ...config
@@ -306,7 +321,8 @@ async function fromApiKey(
       // reach a module its tenant has not licensed, whatever its scopes say.
       grants: entitledGrants(
         [{ roleKey: `apikey.${key.mode}`, permissions: scopes }],
-        config.entitlements
+        config.entitlements,
+        config.policy.moduleConfig
       )
     },
     ...config
@@ -597,7 +613,11 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // whose absence is loudest — taxTreatment() refuses a supply it has no rule
   // for, so a tenant seeded before the rulepack existed cannot bind at all.
   const taxRules = await syncTaxRules(database as unknown as CoreDb, tenantId);
-  return c.json({ tenantId, updated, accounts, demo, people, taxRules });
+  // Sixth: seeded journey triggers and webhook subscriptions that named events
+  // no code emits (docs/27, 2026-09-23). The seed is fixed; this is how a
+  // tenant provisioned before the fix gets the live names.
+  const events = await syncSeedEventNames(database as unknown as CoreDb, tenantId);
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events });
 });
 
 /**

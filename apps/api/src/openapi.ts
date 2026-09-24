@@ -9,7 +9,7 @@ import type { Resource } from "./crud.js";
 // below cover the module routers, which are not CRUD.
 
 interface Op {
-  method: "get" | "post" | "patch" | "delete";
+  method: "get" | "post" | "patch" | "put" | "delete";
   path: string;
   summary: string;
   /** Omitted when the endpoint is authenticated but scoped to the caller itself. */
@@ -35,7 +35,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/auth/demo/login", summary: "Sign in as a seeded demo persona without a password (non-production only)", tag: "auth", requestBody: true, public: true },
   { method: "post", path: "/v1/auth/demo/clock", summary: "Advance the simulated clock used by non-production timestamps (non-production only)", tag: "auth", requestBody: true, public: true },
   { method: "post", path: "/v1/auth/demo/seed", summary: "Seed one demo tenant with its personas and starting data (non-production only)", tag: "auth", public: true },
-  { method: "post", path: "/v1/auth/demo/resync-roles", summary: "Refresh the demo tenant's system role permissions, chart of accounts and seeded personas to match the compiled tables (non-production only)", tag: "auth", public: true },
+  { method: "post", path: "/v1/auth/demo/resync-roles", summary: "Refresh the demo tenant's system role permissions, chart of accounts, seeded personas, tax rules and seeded event names to match the compiled tables (non-production only)", tag: "auth", public: true },
   // Enterprise sign-in. Public because a browser walks these before any session exists.
   { method: "get", path: "/v1/auth/sso/discover", summary: "Which identity provider, if any, owns an email domain", tag: "auth", public: true },
   { method: "get", path: "/v1/auth/sso/{id}/start", summary: "Redirect to the provider's authorization endpoint (OIDC + PKCE)", tag: "auth", public: true },
@@ -76,6 +76,15 @@ const HAND_WRITTEN: Op[] = [
   // so generic CRUD delete would hard-delete it. This sets `revokedAt` instead.
   { method: "delete", path: "/v1/core/api-keys/{id}", summary: "Revoke an API key; the row is kept for audit, the key stops authenticating", permission: "core:api_keys:revoke", tag: "core" },
 
+  // ADR-0089, docs/16 H11: per-record memory. Each read is gated twice — the
+  // notes permission and the read permission of the record the note is about —
+  // and every other record a response names is filtered by its own read.
+  { method: "get", path: "/v1/core/notes", summary: "Read the markdown note on one record (`?subject=<ref>`); `note` is null when none is written", permission: "core:notes:read", tag: "core" },
+  { method: "put", path: "/v1/core/notes", summary: "Write the note on one record (`?subject=<ref>`, body `{bodyMd, version}`); 409 when someone saved since `version`; [[wikilinks]] become links", permission: "core:notes:write", tag: "core", requestBody: true },
+  { method: "get", path: "/v1/core/links", summary: "Backlinks: the notes that link to one record (`?to=<ref>`), with their names and where each opens", permission: "core:notes:read", tag: "core" },
+  { method: "get", path: "/v1/core/graph", summary: "The records linked to one record within `depth` 1 or 2 hops (`?subject=<ref>&depth=`), capped at 40 nodes", permission: "core:notes:read", tag: "core" },
+  { method: "get", path: "/v1/core/notes/export", summary: "Download the notes the caller may read as an Obsidian vault (application/zip, one `<Type>/<name>.md` per note)", permission: "core:notes:read", tag: "core" },
+
   { method: "post", path: "/v1/core/webhooks/{id}/rotate", summary: "Rotate a webhook's signing secret to a fresh, server-generated one", permission: "core:webhooks:write", tag: "core" },
 
   // Per-module configuration (docs/05 module independence): each module's
@@ -86,6 +95,7 @@ const HAND_WRITTEN: Op[] = [
   // The escape hatch out of the approval gate, so the write path validates what
   // the seed never had to: an unknown policy key is a 400 rather than an inert
   // entry, and a `neverAutoApprove` policy is refused outright (docs/19 §7).
+  { method: "get", path: "/v1/core/audit-log/export", summary: "The audit chain as CSV, oldest first with every hash; narrowed by q (action text) and from/to (ms); capped at 50,000 rows; the export is itself audited", permission: "core:audit:export", tag: "core" },
   { method: "get", path: "/v1/core/settings/auto-approve", summary: "The tenant's auto-approve allowlist and every approval policy, marking which the floor lets a tenant automate", permission: "core:settings:read", tag: "core" },
   { method: "patch", path: "/v1/core/settings/auto-approve", summary: "Add or remove approval policy keys from the tenant's auto-approve allowlist; never-auto-approve policies are refused", permission: "core:settings:update", tag: "core", requestBody: true },
 
@@ -221,6 +231,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/ledger/reports/trial-balance", summary: "Trial balance as at a moment", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/pnl", summary: "Profit and loss for a period", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/balance-sheet", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", tag: "ledger" },
+  { method: "get", path: "/v1/ledger/reports/cash-flow", summary: "Statement of cash flows (IFRS, IAS 7 indirect) for a window", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/aged", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/commission", summary: "Commission earned, clawed back and payable by channel", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/client-money", summary: "Client money sufficiency: what is held against what is owed", permission: "ledger:client_money:read", tag: "ledger" },
@@ -309,6 +320,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "delete", path: "/v1/analytics/reports/{id}", summary: "Delete a saved report", permission: "analytics:reports:write", tag: "analytics" },
   { method: "post", path: "/v1/analytics/reports/{id}/run", summary: "Run a saved report", permission: "analytics:reports:run", tag: "analytics", requestBody: true },
   { method: "post", path: "/v1/analytics/run", summary: "Run an ad-hoc report definition without saving it", permission: "analytics:reports:run", tag: "analytics", requestBody: true },
+  { method: "post", path: "/v1/analytics/ask", summary: "Compile a question in words into a report definition over the caller's own catalogue (gateway purpose analytics.ask, audited); runs nothing, 422 ask_refused rather than a guess", permission: "analytics:reports:run", tag: "analytics", requestBody: true },
   { method: "get", path: "/v1/analytics/runs/{id}", summary: "A completed run with its rows, totals and truncation flag", permission: "analytics:reports:read", tag: "analytics" },
   { method: "post", path: "/v1/analytics/exports", summary: "Render a run to xlsx, pdf, csv or json", permission: "analytics:exports:create", tag: "analytics", requestBody: true },
   { method: "get", path: "/v1/analytics/exports", summary: "The caller's recent exports and their state", permission: "analytics:exports:create", tag: "analytics" },

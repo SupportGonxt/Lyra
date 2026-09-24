@@ -45,6 +45,7 @@ import {
 import { Gate } from "./staff";
 import { useShellData } from "./workspace";
 import { FALLBACK_CURRENCY } from "../calendar";
+import { MemoryPanel } from "../components/memory-panel";
 
 // One customer, everything the platform holds on them: what they bought, what
 // they claimed, who they talked to, what they consented to, what they are worth
@@ -935,6 +936,15 @@ export default function Customer360() {
           empty={<EmptyState title={l("none")} body={l("noneDocuments")} />}
         />
       </LinkedCard>
+
+      {/* The record's memory (ADR-0089), last: below everything the record
+          itself shows, loaded after it, so it never pushes the record down. */}
+      <MemoryPanel
+        subject={customer.id}
+        t={t}
+        locale={locale}
+        permissions={shell?.permissions ?? []}
+      />
     </div>
   );
 }

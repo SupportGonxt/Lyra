@@ -11,7 +11,6 @@ import {
   emit,
   gate,
   notFound,
-  quoteCommission,
   require_,
   sha256Hex,
   unearnedShareMinor,
@@ -19,13 +18,13 @@ import {
   type Ctx
 } from "@lyra/core";
 import { body, created, listParams, InstantMs } from "../http.js";
-import { isUniqueViolation } from "../crud.js";
 import { one } from "../rows.js";
 import type { QuoteOutcome } from "../engines/rating.js";
 import { quoterFor } from "../engines/dist-quoter.js";
 import { runShop } from "../engines/shop.js";
 import { decideOffer, markSurfaced, proposeOffers } from "../engines/nbo.js";
 import { qualifyReferral, settleReferral } from "../engines/referral-settlement.js";
+import { accrueCommission } from "../engines/commission-accrual.js";
 import type { App } from "../env.js";
 
 // docs/05 §4-6. The aggregator's own verbs: shop a risk across the panel, show
@@ -42,7 +41,10 @@ const ctxOf = (c: { get(k: "ctx"): Ctx }): Ctx => c.get("ctx");
 const ShopBody = z.object({
   productId: z.string().min(1),
   channelId: z.string().min(1),
-  customerId: z.string().optional(),
+  /** A shop is the start of a sale, and a sale needs someone to sell to: the
+   *  bind refuses a request with no customer, so the shop refuses it first
+   *  (docs/27, 2026-09-23). The portal names its visitor the same way. */
+  customerId: z.string().min(1),
   consentId: z.string().optional(),
   caseId: z.string().optional(),
   /** The risk, in the product's rating inputs. */
@@ -69,20 +71,18 @@ distRoutes.post("/quote-requests/shop", async (c) => {
 
       // Passing a customer's details to third-party underwriters is data sharing
       // and needs a recorded basis. No consent, no fan-out (docs/12 §3).
-      if (input.customerId) {
-        if (!input.consentId) throw badRequest("consentId is required when a customer is identified");
-        const consent = await one(ctx, schema.consents, input.consentId);
-        if (!consent || consent.customerId !== input.customerId) throw badRequest("consent does not match customer");
-        const purposes = JSON.parse(consent.purposesJson) as { dataSharing?: boolean };
-        if (!purposes.dataSharing) throw badRequest("consent does not permit sharing with providers");
-      }
+      if (!input.consentId) throw badRequest("consentId is required when a customer is identified");
+      const consent = await one(ctx, schema.consents, input.consentId);
+      if (!consent || consent.customerId !== input.customerId) throw badRequest("consent does not match customer");
+      const purposes = JSON.parse(consent.purposesJson) as { dataSharing?: boolean };
+      if (!purposes.dataSharing) throw badRequest("consent does not permit sharing with providers");
 
       const { request, responses } = await runShop(ctx, {
         request: {
           id: newId("qr", ctx.now),
           tenantId: ctx.tenantId,
           caseId: input.caseId ?? null,
-          customerId: input.customerId ?? null,
+          customerId: input.customerId,
           channelId: input.channelId,
           productId: input.productId,
           inputsJson: JSON.stringify(input.inputs),
@@ -271,76 +271,9 @@ distRoutes.post("/commission-entries/accrue", async (c) => {
   const input = await body(c, AccrueBody);
 
   return c.json(
-    await withIdempotency(ctx, c.req.header("idempotency-key"), "dist.accrue", input, async () => {
-      const policy = await one(ctx, schema.axisPolicies, input.policyId);
-      if (!policy) throw notFound("policy");
-      if (!policy.offeringId || !policy.channelId) throw badRequest("policy has no offering or channel to rate");
-
-      const split = await quoteCommission(ctx, {
-        offeringId: policy.offeringId,
-        channelId: policy.channelId,
-        premiumMinor: policy.premiumMinor
-      });
-
-      // Tax comes off the net share and can never exceed it: a taxMinor above
-      // net is a caller error, and clamping it would hide that error inside a
-      // silently wrong accrual.
-      if (input.taxMinor > split.netMinor) {
-        throw badRequest(`taxMinor (${input.taxMinor}) exceeds the net commission (${split.netMinor})`);
-      }
-
-      // The position is only knowable once the rate has been applied, so the
-      // gate sits here: it is the commission that is approved, not the request.
-      // Keyed by policy and kind, because that pair is what may exist once.
-      // singleUse: false on this policy — dist_commission_entries_accrual_uq
-      // below is the sole arbiter of "exactly one execution"; gate() just
-      // needs to stay valid across the whole race, not spend on first pass.
-      await gate(ctx, {
-        policyKey: "dist.commission_accrue",
-        subjectRef: `${policy.id}:${input.kind}`,
-        amountMinor: split.grossMinor,
-        context: { policyId: policy.id, kind: input.kind, premiumMinor: policy.premiumMinor }
-      });
-
-      const row: typeof schema.distCommissionEntries.$inferInsert = {
-        id: newId("ce", ctx.now),
-        tenantId: ctx.tenantId,
-        policyId: policy.id,
-        offeringId: policy.offeringId,
-        providerId: policy.providerId,
-        channelId: policy.channelId,
-        rateId: split.rateId ?? null,
-        kind: input.kind,
-        premiumMinor: policy.premiumMinor,
-        grossCommissionMinor: split.grossMinor,
-        channelCommissionMinor: split.channelMinor,
-        netCommissionMinor: split.netMinor - input.taxMinor,
-        taxMinor: input.taxMinor,
-        currency: policy.currency,
-        earnedOn: input.earnedOn,
-        earnedAt: input.earnedOn === "issue" ? ctx.now : null,
-        state: "accrued",
-        createdAt: ctx.now,
-        updatedAt: ctx.now
-      };
-      try {
-        await ctx.db.insert(schema.distCommissionEntries).values(row);
-      } catch (e) {
-        // dist_commission_entries_accrual_uq — one accrual per (policy, kind).
-        // The index, not a pre-check, is the guard: two submits racing a
-        // check-then-insert both pass the check, but only one insert lands.
-        if (isUniqueViolation(e)) throw conflict("commission already accrued for this policy and kind");
-        throw e;
-      }
-      await audit(ctx, { action: "dist.commission.accrue", subjectRef: row.id, after: row });
-      await emit(ctx, {
-        module: "dist",
-        type: "dist.commission.accrued",
-        subject: row.id,
-        data: { policyId: policy.id, grossMinor: split.grossMinor, channelMinor: split.channelMinor }
-      });
-      return row;
-    }),
+    // engines/commission-accrual.ts: the same body the bind's
+    // `axis.policy.issued` consumer runs, so the two doors cannot drift.
+    await withIdempotency(ctx, c.req.header("idempotency-key"), "dist.accrue", input, () => accrueCommission(ctx, input)),
     201
   );
 });

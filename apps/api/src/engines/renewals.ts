@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import type { Ctx } from "@lyra/core";
+import { emit, type Ctx } from "@lyra/core";
 import type { RenewalWorkflowParams } from "./renewal-campaign.js";
 
 // docs/05 J-C3. A renewal is raised by a sweep, not by a person — `orbit:renewals`
@@ -181,6 +181,17 @@ export async function sweepRenewals(ctx: Ctx, wf?: Workflow<RenewalWorkflowParam
   });
 
   await ctx.db.insert(schema.orbitRenewals).values(rows as never);
+  // docs/04 §7 `orbit.renewal.due`: the fact that a renewal was raised. Journeys
+  // (orbit-journeys.ts, which enrol `data.customerId`) and webhook subscribers
+  // hear of it here or nowhere — the sweep is the only writer of these rows.
+  for (const row of rows) {
+    await emit(ctx, {
+      module: "orbit",
+      type: "orbit.renewal.due",
+      subject: row.id,
+      data: { policyRef: row.policyRef, customerId: row.customerId, expiryAt: row.expiryAt, strategy: row.strategy }
+    });
+  }
   if (wf) {
     for (const row of rows) {
       await wf.create({ params: { tenantId: ctx.tenantId, renewalId: row.id } });

@@ -137,6 +137,8 @@ export interface NavItem {
   /** A section label, not a link — `href`/`icon` are unused. */
   heading?: boolean;
   children?: NavItem[];
+  /** A resource route answering a file: opened as a document, not client-routed. */
+  download?: boolean;
 }
 
 /** The whitelabel contract, docs/01 §6. Everything optional: a tenant that

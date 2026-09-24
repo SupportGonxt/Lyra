@@ -13,6 +13,7 @@ import {
   agedOpenItems,
   balanceOf,
   balanceSheet,
+  cashFlowStatement,
   bordereauxRows,
   buildRecipe,
   chartOfAccountsTable,
@@ -432,6 +433,23 @@ ledgerRoutes.get("/reports/balance-sheet", async (c) => {
   return c.json(await balanceSheet(ctx, asOf(qOf(c))));
 });
 
+// docs/19 §5.4, ADR-0090: IAS 7, indirect. `from`/`to` are instants; the
+// default window is this month to date.
+ledgerRoutes.get("/reports/cash-flow", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
+  return c.json(await cashFlowStatement(ctx, cashFlowWindow(ctx, qOf(c))));
+});
+
+/** `from`/`to` instants; this month to date when absent. */
+function cashFlowWindow(ctx: Ctx, q: Query): { from: number; to: number } {
+  const now = new Date(ctx.now);
+  return {
+    from: instantParam(q("from")) ?? Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    to: instantParam(q("to")) ?? ctx.now
+  };
+}
+
 ledgerRoutes.get("/reports/aged", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
@@ -673,6 +691,39 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
           ],
           currency: bs.currency,
           generatedAt: bs.asOf
+        }
+      };
+    }
+  },
+  // ADR-0090: the statement in presentation order, one line per figure.
+  "cash-flow": {
+    permission: "ledger:journals:read",
+    build: async (ctx, q) => {
+      const cf = await cashFlowStatement(ctx, cashFlowWindow(ctx, q));
+      const lines = (section: string, rows: { accountCode: string; name: string; amountMinor: number }[]) =>
+        rows.map((r) => ({ section, accountCode: r.accountCode, name: r.name, amountMinor: r.amountMinor }));
+      const total = (section: string, name: string, amountMinor: number) => ({ section, accountCode: "", name, amountMinor });
+      return {
+        table: {
+          title: "Statement of cash flows",
+          columns: SECTION_COLUMNS,
+          rows: [
+            total("Operating", "Profit for the period", cf.profitMinor),
+            ...(cf.nonCashFxMinor ? [total("Operating", "Unrealised exchange differences on cash", cf.nonCashFxMinor)] : []),
+            ...lines("Operating", cf.operating.rows),
+            total("Operating", "Net cash from operating activities", cf.operating.totalMinor),
+            ...lines("Investing", cf.investing.rows),
+            total("Investing", "Net cash from investing activities", cf.investing.totalMinor),
+            ...lines("Financing", cf.financing.rows),
+            total("Financing", "Net cash from financing activities", cf.financing.totalMinor),
+            total("Cash", "Net increase in cash", cf.netIncreaseMinor),
+            total("Cash", "Effect of exchange rate changes on cash", cf.fxEffectMinor),
+            total("Cash", "Opening cash", cf.openingCashMinor),
+            total("Cash", "Closing cash", cf.closingCashMinor),
+            total("Note", "Client money held (restricted, not cash)", cf.restrictedCashMinor)
+          ],
+          currency: cf.currency,
+          generatedAt: cf.to
         }
       };
     }

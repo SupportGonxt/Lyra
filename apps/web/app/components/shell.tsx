@@ -270,7 +270,7 @@ export function Shell({
   // The workspace the reader is in leads the rail with its own menu — its
   // screens, then its records — on every screen of it (components/menu.ts).
   const menu = menuFor(pathname, permissions, t, locale, pack);
-  const menuScreens: NavItem[] = (menu?.screens ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
+  const menuScreens: NavItem[] = (menu?.screens ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "", ...(entry.download ? { download: true } : {}) }));
   const menuRecords: NavItem[] = (menu?.records ?? []).map((entry) => ({ href: entry.href, labelKey: entry.label, icon: "" }));
   // Which module the reader is in, and every one they may move to (the top
   // bar's switcher). The rail's Modules list sits under the module's own menu,
@@ -753,6 +753,8 @@ function NavItemLink({
     <NavLink
       to={item.href}
       end={exact || item.href === "/"}
+      // A file route has no component to render: fetch it as a document.
+      {...(item.download ? { reloadDocument: true, download: "" } : {})}
       // docs/15 §3: navigation runs through a view transition, so the frame
       // holds still and only the workspace changes. Browsers without the API
       // ignore this and navigate normally.

@@ -25,6 +25,7 @@ import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { FALLBACK_CURRENCY } from "../calendar";
 import { useNorthSessionData } from "./north-shell";
+import { WorkLayout } from "../components/work-layout";
 import {
   labelsFrom,
   parsed,
@@ -312,6 +313,31 @@ export default function NorthWhatIf() {
         }
       : (result?.problem ?? null);
 
+  // The register first, the composer beside it (WorkLayout): the stored
+  // scenario and the library are what a reader came for, the ask form is what
+  // they might add to it.
+  const composer = held.has(PERM.run) ? (
+    <Panel module="north" eyebrow={l("ask.title")} lede={l("ask.note")}>
+      <Form method="post" className="flex flex-col gap-3">
+        <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+        <Field label={l("ask.question")} hint={l("ask.question.hint")}>
+          <Input name="question" required aria-label={l("ask.question")} />
+        </Field>
+        <Field label={l("ask.assumptions")} hint={l("ask.assumptions.hint")}>
+          <Textarea name="assumptions" rows={4} aria-label={l("ask.assumptions")} />
+        </Field>
+        <Field label={l("ask.author")} hint={l("ask.author.hint")}>
+          <Input name="author" required defaultValue={shell?.actorName ?? ""} aria-label={l("ask.author")} />
+        </Field>
+        <div>
+          <Button type="submit" disabled={busy}>
+            {l("ask.submit")}
+          </Button>
+        </div>
+      </Form>
+    </Panel>
+  ) : null;
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
@@ -337,76 +363,56 @@ export default function NorthWhatIf() {
         </p>
       ) : null}
 
-      {held.has(PERM.run) ? (
-        <Panel module="north" eyebrow={l("ask.title")} lede={l("ask.note")}>
-          <Form method="post" className="flex flex-col gap-3">
-            <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-            <Field label={l("ask.question")} hint={l("ask.question.hint")}>
-              <Input name="question" required aria-label={l("ask.question")} />
-            </Field>
-            <Field label={l("ask.assumptions")} hint={l("ask.assumptions.hint")}>
-              <Textarea name="assumptions" rows={4} aria-label={l("ask.assumptions")} />
-            </Field>
-            <Field label={l("ask.author")} hint={l("ask.author.hint")}>
-              <Input name="author" required defaultValue={shell?.actorName ?? ""} aria-label={l("ask.author")} />
-            </Field>
-            <div>
-              <Button type="submit" disabled={busy}>
-                {l("ask.submit")}
-              </Button>
-            </div>
-          </Form>
-        </Panel>
-      ) : null}
-
-      {scenarios === null ? (
-        <Panel>
-          <p className="font-ui text-13 text-subtle">{l("denied")}</p>
-        </Panel>
-      ) : scenarios.length === 0 ? (
-        <EmptyState title={l("none.title")} body={l("none.body")} />
-      ) : (
-        <>
-          {open ? <ScenarioDetail scenario={open} locale={locale} currency={currency} l={l} /> : null}
-
-          <Panel eyebrow={l("library.title")}>
-            <Table
-              caption={l("library.caption")}
-              rows={scenarios}
-              rowKey={(row) => row.id}
-              columns={[
-                {
-                  key: "question",
-                  header: l("library.question"),
-                  // The library is the navigation: the URL carries which
-                  // scenario is open, so a question can be sent to somebody.
-                  render: (row) => (
-                    <a className="text-text underline decoration-border underline-offset-4" href={`?id=${row.id}`}>
-                      {row.question}
-                    </a>
-                  )
-                },
-                { key: "author", header: l("library.author"), render: (row) => row.author },
-                {
-                  key: "asked",
-                  header: l("library.asked"),
-                  render: (row) => <DateTime value={row.createdAt} locale={locale} />
-                },
-                {
-                  key: "result",
-                  header: l("library.result"),
-                  render: (row) => {
-                    const answered = Object.keys(parsed<Record<string, unknown>>(row.resultJson, {})).length > 0;
-                    return (
-                      <Badge tone={answered ? "neutral" : "warning"}>{l(answered ? "result.yes" : "result.no")}</Badge>
-                    );
-                  }
-                }
-              ]}
-            />
+      <WorkLayout aside={composer}>
+        {scenarios === null ? (
+          <Panel>
+            <p className="font-ui text-13 text-subtle">{l("denied")}</p>
           </Panel>
-        </>
-      )}
+        ) : scenarios.length === 0 ? (
+          <EmptyState title={l("none.title")} body={l("none.body")} />
+        ) : (
+          <>
+            {open ? <ScenarioDetail scenario={open} locale={locale} currency={currency} l={l} /> : null}
+
+            <Panel eyebrow={l("library.title")}>
+              <Table
+                caption={l("library.caption")}
+                rows={scenarios}
+                rowKey={(row) => row.id}
+                columns={[
+                  {
+                    key: "question",
+                    header: l("library.question"),
+                    // The library is the navigation: the URL carries which
+                    // scenario is open, so a question can be sent to somebody.
+                    render: (row) => (
+                      <a className="text-text underline decoration-border underline-offset-4" href={`?id=${row.id}`}>
+                        {row.question}
+                      </a>
+                    )
+                  },
+                  { key: "author", header: l("library.author"), render: (row) => row.author },
+                  {
+                    key: "asked",
+                    header: l("library.asked"),
+                    render: (row) => <DateTime value={row.createdAt} locale={locale} />
+                  },
+                  {
+                    key: "result",
+                    header: l("library.result"),
+                    render: (row) => {
+                      const answered = Object.keys(parsed<Record<string, unknown>>(row.resultJson, {})).length > 0;
+                      return (
+                        <Badge tone={answered ? "neutral" : "warning"}>{l(answered ? "result.yes" : "result.no")}</Badge>
+                      );
+                    }
+                  }
+                ]}
+              />
+            </Panel>
+          </>
+        )}
+      </WorkLayout>
     </div>
   );
 }

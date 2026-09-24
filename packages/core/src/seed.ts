@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   BrandJson,
   CHART_OF_ACCOUNTS,
@@ -290,6 +290,7 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
       suspense: acc.suspense ?? false,
+      cashFlow: acc.cashFlow ?? null,
       currency: "AED",
       status: "active",
       createdAt: now
@@ -2416,7 +2417,23 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
   const now = Date.now();
   const added: string[] = [];
   for (const acc of CHART_OF_ACCOUNTS) {
-    if (existing.has(acc.code)) continue;
+    if (existing.has(acc.code)) {
+      // ADR-0090: the IAS 7 class reaches a tenant seeded before it existed.
+      // Only where unset — a class the tenant chose is theirs.
+      if (acc.cashFlow) {
+        await db
+          .update(schema.ledgerAccounts)
+          .set({ cashFlow: acc.cashFlow })
+          .where(
+            and(
+              eq(schema.ledgerAccounts.tenantId, tenantId),
+              eq(schema.ledgerAccounts.code, acc.code),
+              isNull(schema.ledgerAccounts.cashFlow)
+            )
+          );
+      }
+      continue;
+    }
     await db.insert(schema.ledgerAccounts).values({
       id: id("acc", now + added.length),
       tenantId,
@@ -2426,6 +2443,7 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
       suspense: acc.suspense ?? false,
+      cashFlow: acc.cashFlow ?? null,
       currency: "AED",
       status: "active",
       createdAt: now
@@ -2576,6 +2594,85 @@ export async function ensureSeedPeople(
     created.push(email);
   }
   return { created };
+}
+
+/**
+ * Event names the seed once shipped that no code emits, and the event each
+ * fact is actually announced as (docs/27, 2026-09-23). A journey triggering on
+ * the left-hand name could never enrol anybody; a webhook subscribed to it
+ * could never receive anything. apps/api event-seams.test.ts holds the seed to
+ * emitted names from here on; this map is what brings a tenant seeded earlier.
+ */
+export const SEED_EVENT_RENAMES: Readonly<Record<string, string>> = {
+  // Nothing ever emitted these: the renewal sweep now announces the catalogue's
+  // `orbit.renewal.due` (docs/04 §7), and a bind is AXIS's `axis.policy.issued`.
+  "orbit.renewal.raised": "orbit.renewal.due",
+  "dist.policy.issued": "axis.policy.issued",
+  "dist.quote.bound": "axis.policy.issued",
+  // Shopping fans out and collects the panel's quotes in one request (dist.ts
+  // /quote-requests/shop), so "quotes are ready" is exactly that event.
+  "dist.quote.ready": "dist.quote_request.fanned_out",
+  // A settlement's accrual posts (RSHARE-ACCR) when it is approved.
+  "ledger.settlement.posted": "ledger.settlement.approved",
+  // The document chase begins when ORBIT asks the customer for a document.
+  "orbit.document.missing": "orbit.conversation.document",
+  // A partner moving up the onboarding ladder (onboarding.ts advancePartner).
+  "dist.partner.approved": "orbit.partner.stage_changed"
+};
+
+/**
+ * Rewrite the seeded dead event names a tenant still holds — journey trigger
+ * nodes and webhook subscriptions — to the names the code emits. Only names in
+ * SEED_EVENT_RENAMES move; anything a tenant authored is left alone. Idempotent:
+ * a second run finds nothing to rewrite. Returns the ids it changed.
+ */
+export async function syncSeedEventNames(
+  db: CoreDb,
+  tenantId: string
+): Promise<{ journeys: string[]; webhooks: string[] }> {
+  const rename = (name: string): string => SEED_EVENT_RENAMES[name] ?? name;
+  const journeys: string[] = [];
+  for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
+    let graph: { nodes?: { type?: string; on?: unknown }[] };
+    try {
+      graph = JSON.parse(j.graphJson) as typeof graph;
+    } catch {
+      continue; // not ours to repair
+    }
+    let changed = false;
+    for (const node of graph.nodes ?? []) {
+      if (node.type === "trigger" && typeof node.on === "string" && rename(node.on) !== node.on) {
+        node.on = rename(node.on);
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    await db
+      .update(schema.orbitJourneys)
+      .set({ graphJson: JSON.stringify(graph) })
+      .where(and(eq(schema.orbitJourneys.tenantId, tenantId), eq(schema.orbitJourneys.id, j.id)));
+    journeys.push(j.id);
+  }
+
+  const webhooks: string[] = [];
+  for (const h of await db.select().from(schema.webhooks).where(eq(schema.webhooks.tenantId, tenantId))) {
+    let types: unknown;
+    try {
+      types = JSON.parse(h.eventTypesJson);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(types) || !types.some((t) => typeof t === "string" && rename(t) !== t)) continue;
+    // Two dead names can map to one live one (the bank hook held both quote
+    // names' bind half): keep the first, drop the duplicate.
+    const next = [...new Set(types.map((t) => (typeof t === "string" ? rename(t) : t)))];
+    await db
+      .update(schema.webhooks)
+      .set({ eventTypesJson: JSON.stringify(next) })
+      .where(and(eq(schema.webhooks.tenantId, tenantId), eq(schema.webhooks.id, h.id)));
+    webhooks.push(h.id);
+  }
+  return { journeys, webhooks };
 }
 
 /**

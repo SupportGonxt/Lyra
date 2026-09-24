@@ -405,6 +405,85 @@ describe("schedule creation", () => {
     });
     expect(res.status).toBe(400);
   });
+
+  // Regression: with a reportId beside it, `dashboardId` was accepted, stored,
+  // and never delivered — the owner asked for a dashboard and got the report.
+  it("rejects a dashboardId beside a reportId instead of storing it and ignoring it", async () => {
+    await seedSchedule({ status: "paused" });
+    const res = await post({ ...daily, dashboardId: "dsh_1" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { detail?: string }).detail).toMatch(/dashboard/);
+  });
+
+  // The generic PATCH is the other door onto the same row: dropping the report
+  // or adding a dashboard there mints the schedule deliverSchedule refuses on
+  // every fire.
+  it("refuses a PATCH that would turn a report schedule into a dashboard schedule", async () => {
+    const id = await seedSchedule({ status: "paused" });
+    const crud = new Hono<App>();
+    crud.onError(onError);
+    crud.use("*", async (c, next) => {
+      c.set("ctx", ctx);
+      await next();
+    });
+    crud.route("/", crudRouter(ANALYTICS.find((r) => r.path === "schedules")!));
+    const patch = (payload: unknown) =>
+      crud.fetch(
+        new Request(`http://api.test/${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        }),
+        env as never
+      );
+    expect((await patch({ dashboardId: "dsh_1" })).status).toBe(400);
+    expect((await patch({ reportId: null })).status).toBe(400);
+    expect((await patch({ locale: "ar" })).status).toBe(200);
+  });
+
+  // The seed carries one paused dashboard schedule (seed/analytics.ts), and
+  // deployed tenants hold it. Resuming it is the third door onto a schedule
+  // that fails on every tick; editing its name or deleting it is not.
+  it("refuses to resume a dashboard schedule, and still lets it be tidied", async () => {
+    const id = await seedSchedule({ status: "paused" });
+    await ctx.db
+      .update(schema.analyticsSchedules)
+      .set({ reportId: null, dashboardId: "dsh_1" })
+      .where(eq(schema.analyticsSchedules.id, id));
+    const resume = await router().fetch(
+      new Request(`http://api.test/v1/analytics/schedules/${id}/resume`, { method: "POST" }),
+      env as never
+    );
+    expect(resume.status).toBe(400);
+    const [row] = await ctx.db.select().from(schema.analyticsSchedules).where(eq(schema.analyticsSchedules.id, id));
+    expect(row?.status).toBe("paused");
+
+    const crud = new Hono<App>();
+    crud.onError(onError);
+    crud.use("*", async (c, next) => {
+      c.set("ctx", ctx);
+      await next();
+    });
+    crud.route("/", crudRouter(ANALYTICS.find((r) => r.path === "schedules")!));
+    const rename = await crud.fetch(
+      new Request(`http://api.test/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ locale: "ar" })
+      }),
+      env as never
+    );
+    expect(rename.status).toBe(200);
+    const activate = await crud.fetch(
+      new Request(`http://api.test/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "active" })
+      }),
+      env as never
+    );
+    expect(activate.status).toBe(400);
+  });
 });
 
 /* --------------------------------------------------------- unit economics */

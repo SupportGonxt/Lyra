@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, schema } from "@lyra/db";
-import { ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts } from "./seed.js";
+import { ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames } from "./seed.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
 import { TENANT_ROLE_KEYS, isInternalRole, permissionsForRole } from "./rbac.js";
 import type { CoreDb } from "./context.js";
@@ -228,6 +228,41 @@ describe("seed", () => {
   });
 
   /**
+   * Sighting 9's shape again: seeded journeys and webhooks named events the
+   * code never emits (`dist.policy.issued`, `dist.quote.bound`, …). Fixing the
+   * seed reaches a fresh tenant; a tenant provisioned before it keeps the dead
+   * names forever unless the resync seam rewrites them.
+   */
+  it("rewrites the seeded dead event names a deployed tenant still holds, and only those", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    // The state a tenant seeded before the rename is in.
+    const journeys = await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId));
+    const welcome = journeys.find((j) => j.key === "onboarding_new_policy")!;
+    await db
+      .update(schema.orbitJourneys)
+      .set({ graphJson: welcome.graphJson.replace('"axis.policy.issued"', '"dist.policy.issued"') })
+      .where(eq(schema.orbitJourneys.id, welcome.id));
+    const hooks = await db.select().from(schema.webhooks).where(eq(schema.webhooks.tenantId, tenantId));
+    const ops = hooks.find((h) => h.url.includes("ops.gonxt.ae"))!;
+    await db
+      .update(schema.webhooks)
+      .set({ eventTypesJson: JSON.stringify(["ledger.settlement.posted", "ledger.recon.completed", "tenant.own.event"]) })
+      .where(eq(schema.webhooks.id, ops.id));
+
+    const first = await syncSeedEventNames(db, tenantId);
+    expect(first).toEqual({ journeys: [welcome.id], webhooks: [ops.id] });
+
+    const [after] = await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.id, welcome.id));
+    expect(after!.graphJson).toContain('"on":"axis.policy.issued"');
+    expect(after!.graphJson).not.toContain("dist.policy.issued");
+    const [hook] = await db.select().from(schema.webhooks).where(eq(schema.webhooks.id, ops.id));
+    // A name the tenant authored is theirs: only the seeded dead names move.
+    expect(JSON.parse(hook!.eventTypesJson)).toEqual(["ledger.settlement.approved", "ledger.recon.completed", "tenant.own.event"]);
+
+    expect(await syncSeedEventNames(db, tenantId)).toEqual({ journeys: [], webhooks: [] });
+  });
+
+  /**
    * An unscoped provider.viewer is a WIDER grant than the seeded one (ROLE-028,
    * ADR-0025), so a backfill that cannot find the provider must not create the
    * persona at all rather than create it seeing every provider's rows.
@@ -331,6 +366,25 @@ describe("seed", () => {
     // Idempotent: the second call is a no-op, so the post-deploy step is safe
     // to repeat and safe to run on a tenant that never missed anything.
     expect(await syncChartOfAccounts(db, r.tenantId)).toEqual([]);
+  });
+
+  // ADR-0090: a tenant provisioned before the chart carried an IAS 7 class has
+  // `cash_flow` null on every row; the resync gives the seeded codes theirs and
+  // leaves a class a tenant set by hand alone.
+  it("backfills the cash-flow class onto existing accounts without overriding one set by hand", async () => {
+    const r = await seed(db, { password: "gonxt-test-password" });
+    await db.update(schema.ledgerAccounts).set({ cashFlow: null });
+    await db
+      .update(schema.ledgerAccounts)
+      .set({ cashFlow: "financing" })
+      .where(eq(schema.ledgerAccounts.code, "1100"));
+
+    await syncChartOfAccounts(db, r.tenantId);
+
+    const byCode = new Map((await db.select().from(schema.ledgerAccounts)).map((a) => [a.code, a.cashFlow]));
+    expect(byCode.get("1000")).toBe("cash");
+    expect(byCode.get("1100")).toBe("financing");
+    expect(byCode.get("1010")).toBeNull();
   });
 
   it("seeds the panel with GONXT's own paper plus five external providers", async () => {

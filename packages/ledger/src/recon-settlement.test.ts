@@ -165,6 +165,30 @@ describe("docs/27 F19 — confirming an insurer match books CMSN-SETL", () => {
     expect((await matchRow("L1"))?.settlementTxnId).toMatch(/^txn_/);
   });
 
+  // Regression: a run reaching `closed` announced nothing, so the seeded ops
+  // webhook subscribed to `ledger.recon.completed` could never fire. A run
+  // closes on one of two paths — the deterministic pass (clean statement) or
+  // closeRun after review — and each says so exactly once.
+  it("announces ledger.recon.completed once when a clean statement closes the run itself", async () => {
+    await accrual("tx_f", "stmt-f", 10_000);
+    const r = await run([{ ref: "L1", ourRef: "stmt-f", amountMinor: 10_000 }]);
+    expect(r.state).toBe("closed");
+    await closeRun(ctx, r.runId); // closing a closed run is not a second completion
+    const events = (await ctx.db.select().from(schema.eventOutbox)).filter((e) => e.type === "ledger.recon.completed");
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0]!.envelopeJson).data).toMatchObject({ runId: r.runId, process: "insurer", period: "2026-06" });
+  });
+
+  it("announces ledger.recon.completed when a reviewed run is closed", async () => {
+    await accrual("tx_g", "stmt-g", 10_000);
+    const r = await run([{ ref: "L1", ourRef: "stmt-g", amountMinor: 9_950 }]);
+    expect(r.state).toBe("review");
+    expect((await ctx.db.select().from(schema.eventOutbox)).filter((e) => e.type === "ledger.recon.completed")).toHaveLength(0);
+    await decideMatch(ctx, (await matchRow("L1"))?.id ?? "", "confirmed");
+    await closeRun(ctx, r.runId);
+    expect((await ctx.db.select().from(schema.eventOutbox)).filter((e) => e.type === "ledger.recon.completed")).toHaveLength(1);
+  });
+
   it("is idempotent: closing a run twice books one settlement", async () => {
     await accrual("tx_e", "stmt-e", 10_000);
     await run([{ ref: "L1", ourRef: "stmt-e", amountMinor: 10_000 }]);

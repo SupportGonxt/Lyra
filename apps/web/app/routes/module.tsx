@@ -472,8 +472,16 @@ export default function ModuleList() {
           ) : (
             <h1 className="page-title">{t(labelKeyFor(spec.path))}</h1>
           )}
-          {(tab.import && held.has(tab.import.permission) && !deletedView) || canCreate ? (
+          {(tab.import && held.has(tab.import.permission) && !deletedView) || canCreate || (tab.download && held.has(tab.download.permission)) ? (
             <div className="flex flex-wrap items-start justify-end gap-2">
+              {tab.download && held.has(tab.download.permission) ? (
+                // A plain link, not a client navigation: the target is a file.
+                <Button asChild variant="secondary">
+                  <a href={`${tab.download.href}${current("q") ? `?q=${encodeURIComponent(current("q"))}` : ""}`} download>
+                    {label(tab.download.labelKey)}
+                  </a>
+                </Button>
+              ) : null}
               {tab.import && held.has(tab.import.permission) && !deletedView ? (
                 <ImportPanel spec={tab.import} t={t} busy={pending("import")} outcome={result?.imported ?? null} />
               ) : null}
@@ -891,7 +899,9 @@ function CreatePanel({
   }, [outcome]);
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    // The confirmation sits beside the button, not under it: the panel drops
+    // from the button, and would cover a line placed below.
+    <div className="flex flex-row-reverse flex-wrap items-center gap-3">
       <details
         id={CREATE_PANEL_ID}
         open={open}

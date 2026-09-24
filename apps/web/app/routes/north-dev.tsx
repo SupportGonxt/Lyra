@@ -10,6 +10,7 @@ import {
 import { Badge, Button, EmptyState, Field, Input, Panel, Select, Table, type Column } from "@lyra/ui";
 import { api } from "../api.server";
 import { cloudflare } from "../context";
+import { WorkLayout } from "../components/work-layout";
 import { Gate } from "./staff";
 import { useNorthSessionData } from "./north-shell";
 import {
@@ -331,7 +332,35 @@ export default function NorthDev() {
           <p className="font-ui text-13 text-subtle">{l("denied")}</p>
         </Panel>
       ) : (
-        <>
+        // Data first: the console and what it returned, the curl card under
+        // it (its lede says "the console above"), then the snapshotter. The
+        // event catalogue and the sandbox link are reference — beside it.
+        <WorkLayout
+          aside={
+            <>
+              <Panel module="north" eyebrow={l("hooks.eyebrow")} lede={l("hooks.lede")}>
+                <ul className="flex flex-wrap gap-2">
+                  {TOPICS.map((topic) => (
+                    <li key={topic}>
+                      <Badge tone="neutral" size="sm">
+                        <span className="font-mono">{topic}</span>
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </Panel>
+
+              {/* ponytail: the sandbox is the seeded synthetic dataset every
+                  environment shares, not a second tenant to switch into — there is
+                  no tenant-switching surface to hang one off. */}
+              <Panel module="north" eyebrow={l("sandbox.eyebrow")} lede={l("sandbox.lede")}>
+                <Link to="/north/explorer" className="font-ui text-13 text-accent underline underline-offset-2">
+                  {l("sandbox.open")}
+                </Link>
+              </Panel>
+            </>
+          }
+        >
           <Panel module="north" eyebrow={l("query.eyebrow")} lede={l("query.lede")}>
             <Form method="post" className="flex flex-col gap-4">
               <input type="hidden" name="intent" value="query" />
@@ -417,18 +446,6 @@ export default function NorthDev() {
             </div>
           </Panel>
 
-          <Panel module="north" eyebrow={l("hooks.eyebrow")} lede={l("hooks.lede")}>
-            <ul className="flex flex-wrap gap-2">
-              {TOPICS.map((topic) => (
-                <li key={topic}>
-                  <Badge tone="neutral" size="sm">
-                    <span className="font-mono">{topic}</span>
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-
           {held.has(PERM.run) ? (
             <Panel module="north" eyebrow={l("snap.eyebrow")} lede={l("snap.lede")}>
               <div className="flex flex-col gap-3">
@@ -451,16 +468,7 @@ export default function NorthDev() {
               </div>
             </Panel>
           ) : null}
-
-          {/* ponytail: the sandbox is the seeded synthetic dataset every
-              environment shares, not a second tenant to switch into — there is
-              no tenant-switching surface to hang one off. */}
-          <Panel module="north" eyebrow={l("sandbox.eyebrow")} lede={l("sandbox.lede")}>
-            <Link to="/north/explorer" className="font-ui text-13 text-accent underline underline-offset-2">
-              {l("sandbox.open")}
-            </Link>
-          </Panel>
-        </>
+        </WorkLayout>
       )}
     </div>
   );

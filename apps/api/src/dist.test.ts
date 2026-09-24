@@ -22,7 +22,9 @@ const PEOPLE: Record<string, string> = {
   // threshold, so an accrual needs one to ask and the other to decide.
   "finance.controller": "faisal.omar",
   "finance.approver": "nadia.rahman",
-  "axis.lead": "omar.farouk"
+  "axis.lead": "omar.farouk",
+  // Rate cards are the administrator's (rbac.ts tenant.admin `dist:rates:write`).
+  "tenant.admin": "amina.saleh"
 };
 
 let env: Env;
@@ -742,5 +744,36 @@ describe("F56: POST /next-best-offers/:id/decide refuses a decided offer", () =>
 
     const [row] = await database.select().from(schema.distNextBestOffers).where(eq(schema.distNextBestOffers.id, offerId));
     expect(row?.state).toBe("accepted");
+  });
+});
+
+// ADR-0084: `structureJson` (tiers, volume bonus, override) is parsed by
+// `commissionStructureOf`, which reads anything it cannot parse as "flat". Once
+// the rates form offers the field, a typo would pass for a ladder and pay the
+// flat rate — so a structure is validated where it is written.
+describe("commission-rate structures are validated on write", () => {
+  const rate = (structureJson: unknown) => ({
+    channelId: "chn_rate_structure_test",
+    channelSharePpm: 100_000,
+    effectiveFrom: Date.UTC(2026, 9, 1),
+    structureJson
+  });
+
+  it("refuses a structure that is not the ADR-0084 shape", async () => {
+    for (const bad of [{ tiers: [{ ratePpm: "ten" }] }, { tiers: [{ uptoMinor: 100, ratePpm: 1 }] }, "not json", { unknown: 1 }]) {
+      const res = await call("tenant.admin", "POST", "/v1/dist/commission-rates", rate(bad));
+      expect(res.status, JSON.stringify(bad)).toBe(400);
+    }
+  });
+
+  it("lets a well-formed ladder through to the rate-change approval", async () => {
+    const res = await call(
+      "tenant.admin",
+      "POST",
+      "/v1/dist/commission-rates",
+      rate({ tiers: [{ uptoMinor: 1_000_000, ratePpm: 100_000 }, { ratePpm: 150_000 }], overridePpm: 10_000 })
+    );
+    expect([201, 403]).toContain(res.status);
+    if (res.status === 403) expect(res.body.code).toBe("approval_required");
   });
 });

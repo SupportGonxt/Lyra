@@ -603,7 +603,7 @@ describe("seedOrbit — graph() helper via orbit_journeys", () => {
     expect(v1.createdBy).toBe(USER_IDS.retention); // not "user:usr_yusuf"
     expect(v1.createdAt).toBe(NOW - 300 * DAY);
     const nodes1 = [
-      { key: "start", type: "trigger", on: "orbit.renewal.raised" },
+      { key: "start", type: "trigger", on: "orbit.renewal.due" },
       { key: "email_offer", type: "message", channel: "email" },
       { key: "wait_7d", type: "wait", days: 7 },
       { key: "call", type: "task", team: "retention" },
@@ -618,7 +618,7 @@ describe("seedOrbit — graph() helper via orbit_journeys", () => {
     expect(v2.createdBy).toBe(USER_IDS.retention);
     expect(v2.createdAt).toBe(NOW - 40 * DAY);
     const nodes2 = [
-      { key: "start", type: "trigger", on: "orbit.renewal.raised" },
+      { key: "start", type: "trigger", on: "orbit.renewal.due" },
       { key: "score_churn", type: "agent", agent: "renewal" },
       { key: "draft_offer", type: "agent", agent: "renewal", approval: "orbit.outbound_send" },
       { key: "wait_5d", type: "wait", days: 5 },
@@ -640,7 +640,7 @@ describe("seedOrbit — graph() helper via orbit_journeys", () => {
     expect(row.createdBy).toBe(USER_IDS.agent);
     expect(row.createdAt).toBe(NOW - 120 * DAY);
     const nodes = [
-      { key: "start", type: "trigger", on: "dist.policy.issued" },
+      { key: "start", type: "trigger", on: "axis.policy.issued" },
       { key: "send_documents", type: "message", channel: "email" },
       { key: "wait_2d", type: "wait", days: 2 },
       { key: "csat", type: "survey" },
@@ -658,7 +658,7 @@ describe("seedOrbit — graph() helper via orbit_journeys", () => {
     expect(row.status).toBe("paused");
     expect(row.createdBy).toBe(USER_IDS.agent);
     const nodes = [
-      { key: "start", type: "trigger", on: "orbit.document.missing" },
+      { key: "start", type: "trigger", on: "orbit.conversation.document" },
       { key: "remind_1", type: "message", channel: "email" },
       { key: "wait_3d", type: "wait", days: 3 },
       { key: "remind_2", type: "message", channel: "whatsapp" },
@@ -696,7 +696,7 @@ describe("seedOrbit — graph() helper via orbit_journeys", () => {
     expect(row.status).toBe("active");
     expect(row.createdBy).toBe(USER_IDS.partners);
     const nodes = [
-      { key: "start", type: "trigger", on: "dist.partner.approved" },
+      { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
       { key: "sandbox_keys", type: "task", team: "partners" },
       { key: "first_quote", type: "wait_for", event: "orbit.partner.quote" },
       { key: "go_live", type: "task", team: "partners" },
