@@ -9,6 +9,7 @@ export const scout: WorkspaceSpec = {
   path: "/scout",
   labels: {
     en: {
+      import: "Import",
       signals: "Signals",
       clusters: "Clusters",
       whitespaces: "Whitespace",
@@ -81,6 +82,7 @@ export const scout: WorkspaceSpec = {
       "link.dev": "For integrators"
     },
     ar: {
+      import: "استيراد",
       signals: "الإشارات",
       clusters: "المجموعات",
       whitespaces: "الفجوات السوقية",
@@ -174,6 +176,8 @@ export const scout: WorkspaceSpec = {
       // Signals are appended, never edited — a corrected observation is a new
       // one, so `ingest` buys create and nothing else.
       create: "scout:signals:ingest",
+      // @accept:SA: a tenant with SCOUT alone brings its market by file.
+      import: { api: "/v1/scout/signals/import", permission: "scout:signals:ingest", required: ["source", "sourceRef", "observedAt"] },
       sort: "observedAt",
       filters: [
         {

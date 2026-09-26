@@ -3101,6 +3101,7 @@ export interface Operations {
   "GET /v1/scout/signals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutSignals>>;
   "POST /v1/scout/signals": Op<never, never, ScoutSignals, ScoutSignals>;
   "POST /v1/scout/signals/harvest": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/scout/signals/import": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/scout/signals/similar": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/scout/signals/{id}": Op<{ id: string }, never, never, ScoutSignals>;
   "GET /v1/scout/sources": Op<never, never, never, Record<string, unknown>>;
@@ -3898,6 +3899,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/scout/signals": { tag: "scout", summary: "List signals", permission: "scout:signals:read", public: false },
   "POST /v1/scout/signals": { tag: "scout", summary: "Create a signal", permission: "scout:signals:ingest", public: false },
   "POST /v1/scout/signals/harvest": { tag: "scout", summary: "Run the Harvester: every registered signal source, plus any fed items, recorded once per (source, sourceRef)", permission: "scout:signals:ingest", public: false },
+  "POST /v1/scout/signals/import": { tag: "scout", summary: "Import SCOUT signals from CSV (source, sourceRef, observedAt YYYY-MM-DD, weight; other columns become the payload). Stored by the harvest path, per-line honest", permission: "scout:signals:ingest", public: false },
   "POST /v1/scout/signals/similar": { tag: "scout", summary: "Nearest signals to a phrase, from the market embedding index", permission: "scout:signals:read", public: false },
   "GET /v1/scout/signals/{id}": { tag: "scout", summary: "Fetch one signal", permission: "scout:signals:read", public: false },
   "GET /v1/scout/sources": { tag: "scout", summary: "The registered signal sources — id, kind, and whether the adapter leaves LYRA (none do today, ADR-0078)", permission: "scout:signals:read", public: false },

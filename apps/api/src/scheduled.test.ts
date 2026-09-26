@@ -17,8 +17,14 @@ vi.mock("./engines/renewals.js", () => ({
   })
 }));
 
+vi.mock("./engines/scout-whitespace.js", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  sweepWhitespace: vi.fn(async () => 0)
+}));
+
 import worker from "./index.js";
 import { sweepRenewals } from "./engines/renewals.js";
+import { sweepWhitespace } from "./engines/scout-whitespace.js";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "..", "packages", "db", "migrations");
 
@@ -109,5 +115,31 @@ describe("queue consumer", () => {
     await worker.queue({ messages: [m] }, env);
     expect(m.ack).toHaveBeenCalled();
     expect(m.retry).not.toHaveBeenCalled();
+  });
+});
+
+describe("the nightly window", () => {
+  // @accept:SA: the Radar's whitespace was only ever computed by hand, so a
+  // tenant living on SCOUT saw last quarter's candidates until someone pressed
+  // a button. The nightly window recomputes it, for tenants with SCOUT on.
+  it("recomputes whitespace for a tenant with SCOUT, and not for one without", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 8, 29, 2, 5));
+    try {
+      const now = Date.now();
+      await client.execute({
+        sql: `insert into core_tenants (id, slug, name, status, entitlements_json, created_at, updated_at)
+              values ('t_scout','scout','Scout','active',?,?,?), ('t_axis','axis','Axis','active',?,?,?)`,
+        args: [JSON.stringify({ modules: ["scout"] }), now, now, JSON.stringify({ modules: ["axis"] }), now, now]
+      });
+      vi.mocked(sweepWhitespace).mockClear();
+      let tail: Promise<unknown> = Promise.resolve();
+      await worker.scheduled(undefined, env, { waitUntil(p: Promise<unknown>) { tail = p; } });
+      await tail;
+      const swept = vi.mocked(sweepWhitespace).mock.calls.map(([c]) => (c as { tenantId: string }).tenantId);
+      expect(swept).toEqual(["t_scout"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
