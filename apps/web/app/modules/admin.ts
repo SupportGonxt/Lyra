@@ -782,6 +782,8 @@ export const admin: WorkspaceSpec = {
       update: "core:customers:update",
       remove: "core:customers:delete",
       search: true,
+      // @accept:SA: a module bought alone brings its people by file.
+      import: { api: "/v1/core/customers/import", permission: "core:customers:create", required: ["name"] },
       sort: "updatedAt",
       filters: [
         { name: "type", options: ["person", "business"] },
