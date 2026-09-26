@@ -24,6 +24,24 @@ export const BrandJson = z.object({
 });
 export type BrandJson = z.infer<typeof BrandJson>;
 
+/**
+ * A creative's design (docs/30, ST2): the layout chosen in the studio and the
+ * designer's canvas edits, per size — a nudge on a story frame is not one on a
+ * square. Slots and layouts mirror packages/ui/src/design.ts; the engine clamps
+ * every value again, so this only refuses what is not a design at all.
+ */
+const DesignEditJson = z.object({ dx: z.number().finite(), dy: z.number().finite(), scale: z.number().min(0.5).max(2) });
+export const DesignJson = z.object({
+  template: z.enum(["spotlight", "split", "quote", "offer", "clean"]),
+  edits: z
+    .partialRecord(
+      z.enum(["square", "portrait", "story", "landscape", "display", "leaderboard", "email"]),
+      z.partialRecord(z.enum(["headline", "body", "kicker", "cta", "brand"]), DesignEditJson)
+    )
+    .default({})
+});
+export type DesignJson = z.infer<typeof DesignJson>;
+
 /* ----------------------------------------------------------------- policy */
 
 /**

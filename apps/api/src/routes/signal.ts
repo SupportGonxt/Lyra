@@ -4,7 +4,7 @@ import { importSpend } from "../engines/signal-spend-import.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { require_, audit, badRequest, emit, notFound, type Ctx } from "@lyra/core";
-import { schema, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
+import { schema, DesignJson, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
 import { z } from "zod";
 import { body, csvBody } from "../http.js";
 import { must } from "../rows.js";
@@ -319,6 +319,27 @@ signalRoutes.get("/attribution/funnel", async (c) => {
 
 // docs/30 SIGNAL gap 1: spend actuals from an ad-platform export. Per-line
 // honest like the case import; a day already held is corrected, not doubled.
+// ST2: the designer's layout and canvas edits. Moving a headline changes how an
+// ad looks, not what it says, so it is not a publish and raises no approval;
+// the copy itself still changes only through the approval-gated update.
+signalRoutes.put("/creatives/:id/design", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:creatives:generate", { tenantId: ctx.tenantId, module: "signal" });
+  const input = await body(c, DesignJson);
+  const creative = await must(ctx, schema.signalCreatives, c.req.param("id"), "creative");
+  await ctx.db
+    .update(schema.signalCreatives)
+    .set({ designJson: JSON.stringify(input), updatedAt: ctx.now })
+    .where(and(eq(schema.signalCreatives.tenantId, ctx.tenantId), eq(schema.signalCreatives.id, creative.id)));
+  await audit(ctx, {
+    action: "signal.creative.designed",
+    subjectRef: creative.id,
+    before: { design: creative.designJson ? JSON.parse(creative.designJson) : null },
+    after: { design: input }
+  });
+  return c.json({ id: creative.id, design: input });
+});
+
 signalRoutes.post("/spend/import", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });

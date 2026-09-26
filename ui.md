@@ -228,6 +228,19 @@ Also the ambient context providers: `UiCalendarProvider` /
 `postCardSvg(PostCardInput)` + `POST_RATIOS` — SIGNAL's generated social creative,
 rendered server-side as SVG so a campaign preview needs no image service.
 
+### 3.10 `design.ts` — the designer studio
+
+`designSvg(DesignInput)` lays one brief out in any of `TEMPLATES` (spotlight,
+image and words, quote, offer, clean) at any of `FORMATS` (feed 1:1 and 4:5,
+story, link card, ad slot, banner, email header) from the tenant's brand kit.
+Each element (`DESIGN_SLOTS`) is its own `<g data-slot>` so the studio's canvas
+(`components/design-canvas.tsx`) can move and resize it, by pointer or by
+keyboard; edits are clamped to the frame and to half-to-double size, and saved
+per size on the creative (`DesignJson`, `PUT /v1/signal/creatives/{id}/design`,
+no approval: the copy is unchanged). `designFindings` names any slot the brand
+colour makes unreadable (WCAG 2.2 AA) before a file is downloaded. Arabic
+anchors logically: under `direction="rtl"`, "start" is the right edge.
+
 ---
 
 ## 4. Rules every screen obeys

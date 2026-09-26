@@ -4,6 +4,7 @@ import {
   Link,
   redirect,
   useActionData,
+  useFetcher,
   useLoaderData,
   useNavigation,
   type ActionFunctionArgs,
@@ -39,6 +40,7 @@ import {
 } from "@lyra/ui";
 import { ApiError, api, directory } from "../api.server";
 import { cloudflare } from "../context";
+import { DesignCanvas, designOf, type SlotEdits, type StoredDesign } from "../components/design-canvas";
 import { Gate } from "./staff";
 import { useSignalSessionData } from "./signal-shell";
 import {
@@ -330,6 +332,15 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
         return { problem: null, done: intent };
       }
 
+      // ST2: layout and canvas edits. Not a publish — the copy is untouched —
+      // so the API raises no approval; it still audits the change.
+      case "save-design": {
+        const id = text(form, "creativeId");
+        if (!id) return refuse("creative_required");
+        await api(`/v1/signal/creatives/${id}/design`, { env, request, method: "PUT", body: JSON.parse(text(form, "design") || "{}") });
+        return { problem: null, done: intent };
+      }
+
       // Clearing and discarding are the same write with opposite verdicts, and
       // both carry `signal.creative_publish` on the API side.
       case "clear-variant":
@@ -392,19 +403,30 @@ function toneOf(status: string): BadgeTone {
  * rasterised by the browser, so nothing new ships.
  */
 function DesignSet({
+  creativeId,
+  saved,
+  canEdit,
   copy,
   kicker,
   contentLocale,
   brand,
   l
 }: {
+  creativeId: string;
+  saved: StoredDesign;
+  canEdit: boolean;
   copy: string;
   kicker: string;
   contentLocale: string;
   brand?: { name?: string; font?: string; logo?: { mark?: string }; palette?: { accent?: string; accentContrast?: string } } | null | undefined;
   l: (key: string, vars?: Record<string, string>) => string;
 }) {
-  const [template, setTemplate] = useState<DesignTemplate>("spotlight");
+  const [template, setTemplate] = useState<DesignTemplate>(saved.template);
+  const [edits, setEdits] = useState<StoredDesign["edits"]>(saved.edits);
+  const [editing, setEditing] = useState<DesignFormat | null>(null);
+  const fetcher = useFetcher();
+  const save = (next: StoredDesign) =>
+    fetcher.submit({ intent: "save-design", creativeId, design: JSON.stringify(next) }, { method: "post" });
   const { headline, body } = splitCopy(copy);
   const mark = brand?.logo?.mark;
   const input = {
@@ -433,7 +455,10 @@ function DesignSet({
         <span className="eyebrow">{l("studio.art")}</span>
         <Select
           value={template}
-          onValueChange={(next) => setTemplate(next as DesignTemplate)}
+          onValueChange={(next) => {
+            setTemplate(next as DesignTemplate);
+            if (canEdit) save({ template: next as DesignTemplate, edits });
+          }}
           size="sm"
           aria-label={l("studio.template")}
           options={TEMPLATES.map((t) => ({ value: t, label: l(`studio.template.${t}`) }))}
@@ -448,30 +473,73 @@ function DesignSet({
           ))}
         </ul>
       ) : null}
-      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {/* Tiles size to the column, not the viewport: the studio's variant column
+          is narrow, and three fixed columns crushed the captions into each other. */}
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4">
         {(Object.keys(FORMATS) as DesignFormat[]).map((format) => {
           const { w, h } = FORMATS[format];
-          const svg = designSvg({ ...input, format });
+          const svg = designSvg({ ...input, format, edits: edits[format] });
           const href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
           const name = `${stem}-${template}-${format}`;
           return (
             <li key={format} className="flex flex-col gap-1">
-              <img src={href} width={w} height={h} alt={l("studio.artHint")} className="h-auto w-full rounded-md border border-border" />
+              <img src={href} width={w} height={h} alt={l("studio.artHint")} className="h-auto max-h-48 w-full rounded-md border border-border object-contain" />
               <span className="font-ui text-12 text-muted">
                 {l(`studio.format.${format}`)} · {w}×{h}
               </span>
-              <span className="flex gap-3 font-ui text-12">
+              <span className="flex flex-wrap gap-x-3 gap-y-1 font-ui text-12">
                 <a href={href} download={`${name}.svg`} className="text-accent underline-offset-2 hover:underline">
                   {l("studio.svg")}
                 </a>
                 <button type="button" onClick={() => void downloadPng(href, w, h, `${name}.png`)} className="text-accent underline-offset-2 hover:underline">
                   {l("studio.png")}
                 </button>
+                {canEdit ? (
+                  <button type="button" onClick={() => setEditing(format)} aria-expanded={editing === format} className="text-accent underline-offset-2 hover:underline">
+                    {l("studio.edit")}
+                  </button>
+                ) : null}
               </span>
             </li>
           );
         })}
       </ul>
+      {editing ? (
+        <section aria-label={l("studio.edit")} className="flex flex-col gap-3 rounded-md border border-border p-3">
+          <DesignCanvas
+            svg={designSvg({ ...input, format: editing, edits: edits[editing] })}
+            width={FORMATS[editing].w}
+            height={FORMATS[editing].h}
+            edits={edits[editing] ?? {}}
+            onChange={(next: SlotEdits) => setEdits({ ...edits, [editing]: next })}
+            l={l}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" loading={fetcher.state !== "idle"} onClick={() => save({ template, edits })}>
+              {l("studio.save")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const { [editing]: _dropped, ...rest } = edits;
+                setEdits(rest);
+              }}
+            >
+              {l("studio.reset")}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>
+              {l("studio.done")}
+            </Button>
+            {fetcher.state === "idle" && fetcher.data ? (
+              <span role="status" className="font-ui text-12 text-success">
+                {l("studio.saved")}
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
     </figure>
   );
 }
@@ -967,6 +1035,9 @@ export default function CampaignStudio() {
                           ) : null}
                         </Form>
                         <DesignSet
+                          creativeId={creative.id}
+                          saved={designOf(creative.designJson)}
+                          canEdit={may.has("signal:creatives:generate")}
                           copy={creative.contentRef}
                           kicker={campaign.name}
                           contentLocale={creative.locale}

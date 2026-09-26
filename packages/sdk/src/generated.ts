@@ -2309,6 +2309,7 @@ export interface SignalCreatives {
   performanceJson?: string;
   generatedBy?: string;
   aiAuditId?: string;
+  designJson?: string;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -3151,6 +3152,7 @@ export interface Operations {
   "POST /v1/signal/creatives/image": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/signal/creatives/{id}": Op<{ id: string }, never, never, SignalCreatives>;
   "PATCH /v1/signal/creatives/{id}": Op<{ id: string }, never, SignalCreatives, SignalCreatives>;
+  "PUT /v1/signal/creatives/{id}/design": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/signal/creatives/{id}/image": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/signal/demo/spend-tick": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalOutreach>>;
@@ -3947,6 +3949,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/signal/creatives/image": { tag: "signal", summary: "Generate a hero/post image from a prompt (ADR-0060); stores bytes to R2 and returns a data URL for immediate preview", permission: "signal:creatives:generate", public: false },
   "GET /v1/signal/creatives/{id}": { tag: "signal", summary: "Fetch one creative", permission: "signal:creatives:read", public: false },
   "PATCH /v1/signal/creatives/{id}": { tag: "signal", summary: "Update a creative", permission: "signal:creatives:approve", public: false },
+  "PUT /v1/signal/creatives/{id}/design": { tag: "signal", summary: "Save a creative's studio layout and canvas edits (DesignJson). Not a publish: no approval, audited", permission: "signal:creatives:generate", public: false },
   "GET /v1/signal/creatives/{id}/image": { tag: "signal", summary: "Re-stream a previously generated creative image's bytes", permission: "signal:creatives:read", public: false },
   "POST /v1/signal/demo/spend-tick": { tag: "signal", summary: "Insert a spend row per channel per live campaign, keyed off the simulated clock (non-production only)", permission: "signal:autopilot:run", public: false },
   "GET /v1/signal/outreach": { tag: "signal", summary: "List outreach", permission: "signal:outreach:read", public: false },

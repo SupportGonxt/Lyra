@@ -61,6 +61,13 @@ describe("designSvg", () => {
     expect(svg).toContain('href="https://cdn.example.test/hero.jpg"');
   });
 
+  it("breaks a word longer than a line rather than running it off the frame", () => {
+    const svg = designSvg({ ...base, headline: "x".repeat(60) });
+    const lines = [...svg.matchAll(/class="head">([^<]*)</g)].map((m) => m[1]!.replace("…", ""));
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(30);
+  });
+
   it("keeps a banner to one line of headline", () => {
     const svg = designSvg({ ...base, format: "leaderboard", headline: "A long headline that would wrap three times on a square card" });
     expect((svg.match(/class="head"/g) ?? []).length).toBe(1);
@@ -80,5 +87,28 @@ describe("designFindings", () => {
     // A mid-grey accent under mid-grey text: every slot on the quote ground fails.
     expect(designFindings({ ...base, template: "quote", brand: { name: "Acme", accent: "#777777", accentContrast: "#8a8a8a" } }).map((f) => f.slot)).toEqual(["headline", "body", "kicker", "cta"]);
     expect(designFindings(base)).toEqual([]);
+  });
+});
+
+describe("edits (ST2 canvas)", () => {
+  const slot = (svg: string, name: string) => new RegExp(`<g data-slot="${name}"([^>]*)>`).exec(svg)?.[1] ?? "";
+
+  it("wraps each element in a group the editor can grab", () => {
+    const svg = designSvg(base);
+    for (const name of ["headline", "body", "kicker", "cta", "brand"]) expect(svg, name).toContain(`<g data-slot="${name}"`);
+  });
+
+  it("moves and scales an element about its own origin, leaving the rest where they were", () => {
+    const plain = designSvg(base);
+    const moved = designSvg({ ...base, edits: { headline: { dx: 40, dy: -20, scale: 1.25 } } });
+    expect(slot(moved, "headline")).toContain("translate(40 -20)");
+    expect(slot(moved, "headline")).toContain("scale(1.25)");
+    expect(slot(moved, "body")).toBe(slot(plain, "body"));
+  });
+
+  it("keeps an edit on the canvas and within a sane size", () => {
+    const svg = designSvg({ ...base, edits: { cta: { dx: 99999, dy: -99999, scale: 40 } } });
+    expect(slot(svg, "cta")).toContain("translate(1080 -1080)");
+    expect(slot(svg, "cta")).toContain("scale(2)");
   });
 });
