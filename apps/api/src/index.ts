@@ -21,6 +21,8 @@ import { runAcquisitionSweep } from "./engines/signal-outreach.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
 import { sweepAiDrift } from "./engines/ai-drift.js";
 import { expireDelegations } from "./engines/staff.js";
+import { notifyUrgentWatch, runWatch } from "./engines/scout-watch.js";
+import { nightlyBriefing } from "./engines/narrator.js";
 import { expireQuoteRequests } from "./engines/dist-quote-expiry.js";
 import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions, switchedOff } from "./auth.js";
 import { mountAll } from "./crud.js";
@@ -294,6 +296,14 @@ export default {
             if (isBackupWindow) await nudgeApiKeyRotation(ctx);
             // docs/modules/north.md §3 Snapshotter: nightly, 02:00Z per seed.ts's timing model (ADR-0024).
             if (isBackupWindow && on("north")) await runSnapshotter(ctx);
+            // docs/30 NORTH gap 1: yesterday's brief, drafted from the snapshot
+            // just taken. Once per date; published only by a person.
+            // A model refusal or kill switch costs tonight's draft, not the rest of the tick.
+            if (isBackupWindow && on("north")) {
+              await nightlyBriefing(ctx, gatewayFor(env)).catch((err: unknown) =>
+                console.error("nightly briefing failed", { tenantId, err: String(err) })
+              );
+            }
             // docs/modules/scout.md §3. Harvester "schedules per source" and
             // Bench Builder "nightly" run in the same window; the Clusterer is
             // weekly, so it gates on the day as well as the hour. All three are
@@ -302,6 +312,9 @@ export default {
             // months, because only the first run would ever need the rest.
             if (isBackupWindow && on("scout")) {
               await harvestSignals(ctx, gatewayFor(env), env, { lookbackMs: 7 * 86_400_000 });
+              // docs/30 SCOUT gap 3: urgent watch findings, over what was just
+              // harvested, reach the SCOUT leads.
+              await notifyUrgentWatch(ctx, (await runWatch(ctx)).findings);
               await sweepPanelBench(ctx);
               if (nowDate.getUTCDay() === 1) await sweepSignalClusters(ctx, gatewayFor(env), env);
             }

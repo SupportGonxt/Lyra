@@ -166,3 +166,21 @@ describe("docs/27 F20 — a reopen states why", () => {
     expect((await reopenPeriod(ctx, CODE)).state).toBe("open");
   });
 });
+
+// docs/30 Ledger gap 3. A close (and a reopen) changed a period's state and
+// told only the audit log; nothing on the bus could hear that a month was
+// signed off. Both now announce it, once per transition.
+describe("a period's close and reopen are announced", () => {
+  const announced = async () =>
+    (await ctx.db.select().from(schema.eventOutbox)).map((e) => JSON.parse(e.envelopeJson)).filter((e) => e.type.startsWith("ledger.period."));
+
+  it("emits ledger.period.closed with the transition, and ledger.period.reopened with the reason", async () => {
+    await closePeriod(ctx, CODE, "soft_closed", { preApproved: true });
+    await reopenPeriod(ctx, CODE, { reason: "late supplier invoice for March", preApproved: true });
+    await reopenPeriod(ctx, CODE, { preApproved: true }); // already open: no transition, no event
+    expect((await announced()).map((e) => [e.type, e.subject, e.data])).toEqual([
+      ["ledger.period.closed", `period:${CODE}`, { code: CODE, from: "open", to: "soft_closed", forced: false }],
+      ["ledger.period.reopened", `period:${CODE}`, { code: CODE, from: "soft_closed", reason: "late supplier invoice for March" }]
+    ]);
+  });
+});
