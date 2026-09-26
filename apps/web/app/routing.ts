@@ -84,6 +84,10 @@ export const HIDDEN_ROUTES: Record<string, string> = {
     "opens from a single commission entry on the statement",
   "/distribution/next-best-offers/suggest":
     "asks for offers inside the distribution workspace, linked from its offers tab",
+  "/analytics/schedules/new":
+    "schedules a saved report, linked from the analytics workspace",
+  "/distribution/referrals":
+    "the referral desk, linked from the distribution workspace",
   "/compliance/run/:kind":
     "starts a screening, evidence export or retention run, linked from the compliance workspace",
   "/admin/permissions":

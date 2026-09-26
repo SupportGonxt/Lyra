@@ -23,6 +23,7 @@ export const distribution: WorkspaceSpec = {
       compare: "Comparison",
       statement: "Commission statement",
       suggest: "Propose offers",
+      referrals: "Referrals",
       clawback: "Claw back",
 
       key: "Key",
@@ -164,6 +165,7 @@ export const distribution: WorkspaceSpec = {
       "next-best-offers": "أفضل العروض التالية",
       statement: "كشف العمولات",
       suggest: "اقتراح عروض",
+      referrals: "الإحالات",
       clawback: "استرداد",
       compare: "المقارنة",
 
@@ -651,6 +653,8 @@ export const distribution: WorkspaceSpec = {
   // renders is a screen that opens rather than a denied notice.
   links: [
     { href: "/distribution/commission-entries/statement", labelKey: "statement", permission: "dist:commissions:read" },
-    { href: "/distribution/next-best-offers/suggest", labelKey: "suggest", permission: "dist:offers:read" }
+    { href: "/distribution/next-best-offers/suggest", labelKey: "suggest", permission: "dist:offers:read" },
+    // docs/30 Distribution 4. The desk's loader lets either verb in; qualify is the first step.
+    { href: "/distribution/referrals", labelKey: "referrals", permission: "dist:commissions:adjust" }
   ]
 };

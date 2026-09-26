@@ -66,10 +66,10 @@ const PERM = {
 } as const;
 
 /** ScheduleBody.format, apps/api/src/routes/analytics.ts. */
-const FORMATS = ["pdf", "xlsx", "csv", "json"] as const;
+export const FORMATS = ["pdf", "xlsx", "csv", "json"] as const;
 
 /** A cadence the reader picks, and the cron the scheduler is handed for it. */
-const CADENCES: Record<string, string> = {
+export const CADENCES: Record<string, string> = {
   daily: "0 6 * * *",
   weekly: "0 6 * * 1",
   monthly: "0 6 1 * *"

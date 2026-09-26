@@ -38,6 +38,8 @@ export const ar: Messages = {
   "nav.ledger/recon": "مطابقة الحسابات",
   "nav.distribution/commission-entries/statement": "كشف العمولات",
   "nav.distribution/next-best-offers/suggest": "اقتراح عرض",
+  "nav.distribution/referrals": "الإحالات",
+  "nav.analytics/schedules/new": "جدولة تقرير",
   "nav.ledger/settlement": "التسويات",
   "nav.admin/permissions": "الأدوار والصلاحيات",
   "nav.admin/developer": "بوابة المطورين",

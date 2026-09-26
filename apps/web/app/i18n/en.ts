@@ -39,6 +39,8 @@ export const en = {
   "nav.ledger/recon": "Reconciliation",
   "nav.distribution/commission-entries/statement": "Commission statement",
   "nav.distribution/next-best-offers/suggest": "Suggest an offer",
+  "nav.distribution/referrals": "Referrals",
+  "nav.analytics/schedules/new": "Schedule a report",
   "nav.ledger/settlement": "Settlements",
   "nav.admin/permissions": "Roles and permissions",
   "nav.admin/developer": "Developer portal",
