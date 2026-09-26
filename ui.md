@@ -27,7 +27,7 @@ of route files driven by declarative specs in [apps/web/app/modules/](apps/web/a
 - [module.tsx](apps/web/app/routes/module.tsx) — `/:module` and `/:module/:resource`, the tabbed list
 - [record.tsx](apps/web/app/routes/record.tsx) — `/:module/:resource/:id`, the single record
 
-Adding a resource adds a `ResourceSpec` entry, not a route. 135 resource tabs
+Adding a resource adds a `ResourceSpec` entry, not a route. 136 resource tabs
 across 10 workspaces render this way. §7 is the full table.
 
 **Bespoke.** A screen that is genuinely its own thing — a quote comparison, a
@@ -572,10 +572,10 @@ multiplier in ppm (FX 18.5 is `18500000`, never 1850%), `measure` is a number
 whose unit is a sibling column (NORTH stores money, basis points, milliseconds and
 counts in one `value`), `money` is minor units.
 
-### 7.1 The 135 resource tabs
+### 7.1 The 136 resource tabs
 
 
-#### `/admin` — 35 tabs
+#### `/admin` — 36 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
@@ -584,6 +584,7 @@ counts in one `value`), `money` is minor units.
 | `roles` | `/v1/core/roles` | `core:roles:read` | ✓ | ✓ | ✓ |  |  |
 | `user-roles` | `/v1/core/user-roles` | `core:roles:read` | ✓ |  | ✓ |  |  |
 | `teams` | `/v1/core/teams` | `core:teams:read` | ✓ | ✓ | ✓ | ✓ |  |
+| `channel-connectors` | `/v1/core/channel-connectors` | `core:channels:read` | ✓ | ✓ | ✓ |  |  |
 | `customers` | `/v1/core/customers` | `core:customers:read` | ✓ | ✓ | ✓ | ✓ |  |
 | `consents` | `/v1/core/consents` | `core:consents:read` | ✓ |  |  |  |  |
 | `products` | `/v1/core/products` | `core:products:read` | ✓ | ✓ | ✓ | ✓ |  |

@@ -3,13 +3,28 @@ import { drizzle } from "drizzle-orm/libsql";
 import { eq } from "drizzle-orm";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
 import { acquisitionCampaigns, audienceRuleProblem, inQuietHours, onLeadConverted, recipientsFor, runAcquisitionSweep } from "./signal-outreach.js";
 import { recordTouch } from "./signal-attribution.js";
 import { BY_MODULE } from "../resources.js";
+
+// The provider is the only thing faked: a first contact runs the real inline
+// path (connector, identity, conversation, consent gate, write-after-send).
+const sentTo: string[] = [];
+vi.mock("./orbit-channel-adapters.js", () => ({
+  adapterFor: () => ({
+    provider: "fake",
+    transport: "whatsapp",
+    consentChannel: "whatsapp",
+    send: async (out: { to: string }) => {
+      sentTo.push(out.to);
+      return { externalRef: `wamid.${out.to}` };
+    }
+  })
+}));
 
 // The send half of the publish loop. These tests pin the three guarantees the
 // rest of the loop stands on: nothing is sent without consent AND approval,
@@ -153,6 +168,45 @@ describe("inQuietHours", () => {
 
   it("falls back to UTC for an unknown zone rather than throwing", () => {
     expect(() => inQuietHours(Date.parse("2026-08-20T21:00:00Z"), "Not/AZone")).not.toThrow();
+  });
+});
+
+describe("first contact (ADR-0093)", () => {
+  // Outreach could only reach someone who had already written in: delivery
+  // needed a conversation the prospect opened. A marketer's whole job is the
+  // person who has not written yet.
+  it("opens the identity and conversation itself, and sends to a consented prospect who never wrote in", async () => {
+    await seedCampaign();
+    await ctx.db.update(schema.customers).set({ phonesJson: JSON.stringify(["+971 50 000 0001"]) }).where(eq(schema.customers.id, "cus_1"));
+    await ctx.db.insert(schema.orbitChannelConnectors).values({
+      id: "ccn_1", tenantId: "t_1", label: "WhatsApp", transport: "whatsapp", provider: "fake", status: "active",
+      configJson: "{}", secretsJson: "{}", createdAt: ctx.now, updatedAt: ctx.now
+    } as never);
+    (ctx as Ctx & { env?: unknown }).env = { FIELD_KEY: "test-key" };
+    sentTo.length = 0;
+
+    const outcome = await runAcquisitionSweep(ctx, stubGateway());
+    expect(outcome.sent).toBe(1);
+    expect(sentTo).toEqual(["971500000001"]);
+    const [identity] = await ctx.db.select().from(schema.orbitChannelIdentities);
+    expect(identity).toMatchObject({ connectorId: "ccn_1", handle: "971500000001", customerId: "cus_1" });
+    const [conversation] = await ctx.db.select().from(schema.orbitConversations);
+    expect(conversation).toMatchObject({ customerId: "cus_1", connectorId: "ccn_1", externalRef: "971500000001" });
+    const [row] = await ctx.db.select().from(schema.signalOutreach);
+    expect(row).toMatchObject({ state: "sent", conversationId: conversation!.id });
+  });
+
+  it("fails honestly when the person has no address on that channel", async () => {
+    await seedCampaign();
+    await ctx.db.insert(schema.orbitChannelConnectors).values({
+      id: "ccn_1", tenantId: "t_1", label: "WhatsApp", transport: "whatsapp", provider: "fake", status: "active",
+      configJson: "{}", secretsJson: "{}", createdAt: ctx.now, updatedAt: ctx.now
+    } as never);
+    (ctx as Ctx & { env?: unknown }).env = { FIELD_KEY: "test-key" };
+    const outcome = await runAcquisitionSweep(ctx, stubGateway());
+    expect(outcome.sent).toBe(0);
+    expect((await ctx.db.select().from(schema.signalOutreach))[0]!.state).toBe("failed");
+    expect(await ctx.db.select().from(schema.orbitConversations)).toEqual([]);
   });
 });
 

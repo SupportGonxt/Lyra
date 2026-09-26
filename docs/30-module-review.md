@@ -54,7 +54,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 | --- | --- | --- | --- | --- | --- |
 | AXIS · Operations | Guidewire, Duck Creek, Sapiens, Pega | 12 | 5 | 1 | Yes — core spine only |
 | ORBIT · Conversations | Zendesk, Intercom, Service Cloud, Sprinklr | 10 | 3 | 3 | Yes (2026-09-26) — AXIS work goes by event; AXIS tools only where AXIS is held |
-| SIGNAL · Marketing | HubSpot, Braze/Iterable, Ads managers, Marketo | 5 | 8 | 3 | Partly — people by CSV (`/v1/core/customers/import`), conversions by signed `/track`, autopilot on imported spend; outreach still sends only through ORBIT connectors to people who already wrote in |
+| SIGNAL · Marketing | HubSpot, Braze/Iterable, Ads managers, Marketo | 5 | 8 | 3 | Yes (2026-09-26) — people by CSV (`/v1/core/customers/import`), channels on the platform and first contact (ADR-0093), conversions by signed `/track`, autopilot on imported spend |
 | SCOUT · Market | Crayon/Klue, Similarweb, Qualtrics, Earnix/Akur8 | 8 | 4 | 4 | No — reads quotes/policies, writes SIGNAL |
 | NORTH · Insight | Tableau Pulse, ThoughtSpot, Power BI, Anaplan | 5 | 7 | 4 | No — every metric reads other modules |
 | Ledger | NetSuite, Sage Intacct, Xero, Insurity | 12 | 1 | 5 | Mostly — soft reads of NORTH/Dist/AXIS |

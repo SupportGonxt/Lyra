@@ -212,6 +212,14 @@ export const admin: WorkspaceSpec = {
       web: "Web",
       whatsapp: "WhatsApp",
       import: "Import",
+      "channel-connectors": "Channels",
+      label: "Name",
+      transport: "Carries",
+      configJson: "Settings",
+      secretsJson: "Credentials",
+      "secretsJson.hint": "One JSON object of provider secrets. Stored sealed and never shown again.",
+      "provider.whatsapp-cloud-api": "WhatsApp Cloud API",
+      "provider.mailgun-email": "Mailgun",
       agent: "Agent",
       portal: "Portal",
       motor: "Motor",
@@ -528,6 +536,14 @@ export const admin: WorkspaceSpec = {
       failed: "فشل",
       web: "الويب",
       whatsapp: "واتساب",
+      "channel-connectors": "القنوات",
+      label: "الاسم",
+      transport: "يحمل",
+      configJson: "الإعدادات",
+      secretsJson: "بيانات الاعتماد",
+      "secretsJson.hint": "كائن JSON واحد يضم أسرار المزود. يُخزَّن مشفّرًا ولا يُعرض مرة أخرى.",
+      "provider.whatsapp-cloud-api": "واتساب كلاود API",
+      "provider.mailgun-email": "ميلغن",
       import: "استيراد",
       agent: "وكيل",
       portal: "بوابة",
@@ -773,6 +789,40 @@ export const admin: WorkspaceSpec = {
       ]
     },
 
+    // ADR-0093: channels are the platform's — the account a message goes out on
+    // is set up once, whichever module sends (ORBIT's tab reads the same rows).
+    {
+      key: "channel-connectors",
+      api: "/v1/core/channel-connectors",
+      read: "core:channels:read",
+      create: "core:channels:write",
+      update: "core:channels:write",
+      remove: "core:channels:write",
+      filters: [
+        { name: "transport", options: ["whatsapp", "email", "web", "voice", "agent"] },
+        { name: "status", options: ["active", "disabled"] }
+      ],
+      columns: [
+        { name: "label", type: "text" },
+        { name: "provider", type: "text" },
+        { name: "transport", type: "text", badge: true },
+        { name: "status", type: "text", badge: true },
+        { name: "updatedAt", type: "datetime", sortable: true }
+      ],
+      fields: [
+        { name: "label", type: "text", required: true },
+        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email"], required: true },
+        { name: "transport", type: "select", options: ["whatsapp", "email", "web", "voice", "agent"], required: true },
+        { name: "secretsJson", type: "json", required: true, hintKey: "secretsJson.hint" },
+        { name: "configJson", type: "json" }
+      ],
+      editable: [
+        { name: "label", type: "text" },
+        { name: "status", type: "select", options: ["active", "disabled"] },
+        { name: "secretsJson", type: "json", hintKey: "secretsJson.hint" },
+        { name: "configJson", type: "json" }
+      ]
+    },
     /* --------------------------------------------------------- core: record */
     {
       key: "customers",
