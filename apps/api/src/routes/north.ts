@@ -9,7 +9,7 @@ import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateBriefing } from "../engines/narrator.js";
 import { runSnapshotter } from "../engines/north-snapshotter.js";
-import { assembleBoardpackSections } from "../engines/north-boardpack.js";
+import { approveBoardpack, assembleBoardpackSections, distributeBoardpack } from "../engines/north-boardpack.js";
 import { toPdf } from "../engines/export/pdf.js";
 import { pushToActor } from "../engines/realtime.js";
 import type { App } from "../env.js";
@@ -53,12 +53,26 @@ northRoutes.post("/briefings/generate", async (c) => {
 
 const GenerateBoardpackBody = z.object({ period: z.string().min(1), title: z.string().min(1).max(200) });
 
+// docs/30 NORTH 5, rule 4: a person signs the rendered pack off, then sends it.
+northRoutes.post("/boardpacks/:id/approve", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:boardpacks:approve", { tenantId: ctx.tenantId, module: "north" });
+  return c.json(await approveBoardpack(ctx, c.req.param("id")));
+});
+
+northRoutes.post("/boardpacks/:id/distribute", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:boardpacks:distribute", { tenantId: ctx.tenantId, module: "north" });
+  const input = await body(c, z.object({ recipients: z.array(z.string().min(1).max(200)).min(1).max(100) }));
+  return c.json(await distributeBoardpack(ctx, c.req.param("id"), input.recipients));
+});
+
 // Mounted before generic CRUD (index.ts), so this real assembly+render wins
 // over the generated create for the same path — which would otherwise accept
 // arbitrary sectionsJson/pdfFileId straight from the client with no render
 // behind it. Status lands on "review", never "final": rule 4 (human-in-the-
 // loop) — distribution is the consequential step (docs/modules/north.md §3),
-// not assembly, and no approval/distribution route exists yet (ADR-0017).
+// not assembly: approval and distribution are the two routes above.
 northRoutes.post("/boardpacks", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "north:boardpacks:generate", { tenantId: ctx.tenantId, module: "north" });

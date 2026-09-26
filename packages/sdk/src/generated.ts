@@ -2909,6 +2909,8 @@ export interface Operations {
   "GET /v1/north/boardpacks": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthBoardpacks>>;
   "POST /v1/north/boardpacks": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/north/boardpacks/{id}": Op<{ id: string }, never, never, NorthBoardpacks>;
+  "POST /v1/north/boardpacks/{id}/approve": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/north/boardpacks/{id}/distribute": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/north/boardpacks/{id}/file": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/north/briefings": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthBriefings>>;
   "POST /v1/north/briefings/generate": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3696,6 +3698,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/north/boardpacks": { tag: "north", summary: "List boardpacks", permission: "north:boardpacks:read", public: false },
   "POST /v1/north/boardpacks": { tag: "north", summary: "Assemble a board pack PDF from the latest briefing, period metrics and open decisions", permission: "north:boardpacks:generate", public: false },
   "GET /v1/north/boardpacks/{id}": { tag: "north", summary: "Fetch one boardpack", permission: "north:boardpacks:read", public: false },
+  "POST /v1/north/boardpacks/{id}/approve": { tag: "north", summary: "Sign off a rendered board pack: review → final (docs/30 NORTH 5)", permission: "north:boardpacks:approve", public: false },
+  "POST /v1/north/boardpacks/{id}/distribute": { tag: "north", summary: "Send an approved board pack to named people (ids or emails): one notice each and a line in its distribution log", permission: "north:boardpacks:distribute", public: false },
   "GET /v1/north/boardpacks/{id}/file": { tag: "north", summary: "Download the rendered board pack PDF", permission: "north:boardpacks:read", public: false },
   "GET /v1/north/briefings": { tag: "north", summary: "List briefings", permission: "north:briefings:read", public: false },
   "POST /v1/north/briefings/generate": { tag: "north", summary: "Generate an executive briefing from live metric snapshots, numeric claims verified against the input", permission: "north:briefings:generate", public: false },

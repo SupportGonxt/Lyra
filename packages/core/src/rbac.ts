@@ -216,7 +216,7 @@ export const PERMISSIONS = [
   // recorded fact (gap-north-design §B.3): whoever may read yesterday's policy
   // count does not thereby get next quarter's projected commission.
   "north:forecasts:read",
-  "north:boardpacks:read", "north:boardpacks:generate",
+  "north:boardpacks:read", "north:boardpacks:generate", "north:boardpacks:approve", "north:boardpacks:distribute",
   "north:decisions:read", "north:decisions:write",
   "north:alerts:read", "north:alerts:write",
 
@@ -575,6 +575,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     ...readsOf("north"), "north:ai:invoke", "ai:suggestions:read", "ai:command:read",
     "north:anomalies:assign", "north:scenarios:run",
     "north:decisions:write", "north:boardpacks:generate", "north:snapshots:run",
+    // docs/30 NORTH 5: signing off a pack and sending it to the board.
+    "north:boardpacks:approve", "north:boardpacks:distribute",
     "axis:metrics:read", "signal:attribution:read", "signal:spend:read",
     "orbit:renewals:read", "scout:clusters:read", "ledger:txns:read",
     "dist:commissions:read", "dist:channels:read",

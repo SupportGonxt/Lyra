@@ -9,6 +9,10 @@ export const north: WorkspaceSpec = {
   path: "/north",
   labels: {
     en: {
+      "boardpacks.approve": "Approve",
+      "boardpacks.approve.confirm": "Sign this pack off as final? It can then be sent to the board.",
+      "boardpacks.distribute": "Send to the board",
+      recipients: "Recipients (emails, comma separated)",
       metrics: "Metrics",
       snapshots: "Snapshots",
       briefings: "Briefings",
@@ -129,6 +133,10 @@ export const north: WorkspaceSpec = {
       reversed: "Reversed"
     },
     ar: {
+      "boardpacks.approve": "اعتماد",
+      "boardpacks.approve.confirm": "اعتماد هذه الحزمة نهائية؟ يمكن بعدها إرسالها إلى المجلس.",
+      "boardpacks.distribute": "إرسال إلى المجلس",
+      recipients: "المستلمون (عناوين بريد مفصولة بفواصل)",
       metrics: "المؤشرات",
       snapshots: "اللقطات",
       briefings: "الإحاطات",
@@ -485,6 +493,18 @@ export const north: WorkspaceSpec = {
         // cannot answer the only question anyone asks about one.
         { name: "distributionLogJson", type: "json" },
         { name: "updatedAt", type: "datetime", sortable: true }
+      ],
+      // docs/30 NORTH 5, rule 4: a person signs the pack off, then sends it.
+      actions: [
+        { intent: "approve", method: "POST", path: "/{id}/approve", labelKey: "boardpacks.approve", permission: "north:boardpacks:approve", confirm: true },
+        {
+          intent: "distribute",
+          method: "POST",
+          path: "/{id}/distribute",
+          labelKey: "boardpacks.distribute",
+          permission: "north:boardpacks:distribute",
+          fields: [{ name: "recipients", type: "json", required: true }]
+        }
       ],
       fields: [
         { name: "title", type: "text", required: true },
