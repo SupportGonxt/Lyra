@@ -723,7 +723,7 @@ export const ORBIT = register(
       const raw = "graphJson" in values ? values.graphJson : existing?.graphJson;
       let cooldown: unknown;
       try {
-        cooldown = (JSON.parse(String(raw)) as { cooldownDays?: unknown }).cooldownDays;
+        cooldown = (asJson(raw) as { cooldownDays?: unknown }).cooldownDays;
       } catch {
         cooldown = undefined;
       }
@@ -851,7 +851,7 @@ export const SIGNAL = register(
       if (!("definitionJson" in values)) return values;
       let def: unknown;
       try {
-        def = JSON.parse(String(values.definitionJson));
+        def = asJson(values.definitionJson);
       } catch {
         throw badRequest("definitionJson is not JSON", { definitionJson: "not JSON" });
       }
@@ -1380,9 +1380,14 @@ export const BY_MODULE: Record<string, Resource[]> = {
   analytics: ANALYTICS
 };
 
+/** A `*Json` value as CRUD hands it over: the web posts it parsed, the API client as a string. */
+function asJson(value: unknown): unknown {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
 function sameJson(stored: unknown, parsed: unknown): boolean {
   try {
-    return JSON.stringify(JSON.parse(String(stored))) === JSON.stringify(parsed);
+    return JSON.stringify(asJson(stored)) === JSON.stringify(parsed);
   } catch {
     return false;
   }

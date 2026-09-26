@@ -48,6 +48,46 @@ export const PERM = {
 
 /* ------------------------------------------------------------------- shapes */
 
+/**
+ * GET /v1/signal/responses/rollup — mirrors `responseRollup` in
+ * apps/api/src/engines/signal-responses.ts: counts per response kind, grouped
+ * by campaign, audience or person (ADR-0091).
+ */
+export type ResponseRollup = Array<{ key: string; counts: Partial<Record<string, number>> }>;
+
+export interface ScaleRow {
+  key: string;
+  name: string | null;
+  sent: number;
+  read: number;
+  replied: number;
+  /** Replies per send, whole percent; null when nothing was sent to divide by. */
+  replyPct: number | null;
+  binds: number;
+  optedOut: number;
+}
+
+/** One scale's rollup as rows to compare: named, rated, biggest first. */
+export function scaleRows(rollup: ResponseRollup, names: Record<string, string>, top = Infinity): ScaleRow[] {
+  return rollup
+    .map(({ key, counts }) => {
+      const n = (k: string) => counts[k] ?? 0;
+      const sent = n("lead");
+      return {
+        key,
+        name: names[key] ?? null,
+        sent,
+        read: n("read"),
+        replied: n("replied"),
+        replyPct: sent ? Math.round((n("replied") / sent) * 100) : null,
+        binds: n("bind"),
+        optedOut: n("opted_out")
+      };
+    })
+    .sort((a, b) => b.sent - a.sent || b.replied - a.replied)
+    .slice(0, top);
+}
+
 /** apps/api/src/crud.ts list envelope. */
 export interface Page<T> {
   data: T[];
@@ -1161,6 +1201,18 @@ const LABELS: Record<string, Record<string, string>> = {
     "cockpit.runOutreach": "Run outreach now",
     "cockpit.noLoop": "No outreach has been sent in this window yet.",
     "cockpit.noLoop.body": "Nothing has gone out to a customer here. The loop fills once a campaign starts sending.",
+    "cockpit.scales": "What came back",
+    "cockpit.scalesCaption": "Replies, reads and signings from every send, counted per campaign, per audience and per person",
+    "cockpit.scale.campaign": "Campaigns",
+    "cockpit.scale.audience": "Audiences",
+    "cockpit.scale.customer": "People",
+    "cockpit.read": "Read",
+    "cockpit.replied": "Replied",
+    "cockpit.replyRate": "Reply rate",
+    "cockpit.optedOut": "Opted out",
+    "cockpit.signed": "Signed",
+    "cockpit.noResponses": "Nothing has come back in this window yet.",
+    "cockpit.noResponses.body": "Replies, reads and opt-outs land here once outreach has been sent.",
     "cockpit.closedLoop": "A {channel} message for {campaign} became a policy:",
     "cockpit.liveCampaigns": "Running now",
     "cockpit.liveCaption": "Campaigns in a live or paused state",
@@ -1733,6 +1785,18 @@ const LABELS: Record<string, Record<string, string>> = {
     "cockpit.runOutreach": "تشغيل التواصل الآن",
     "cockpit.noLoop": "لم تُرسل رسائل تواصل في هذه الفترة بعد.",
     "cockpit.noLoop.body": "لم يُرسل شيء إلى أي عميل هنا. تمتلئ الحلقة عندما تبدأ حملة بالإرسال.",
+    "cockpit.scales": "ما الذي عاد",
+    "cockpit.scalesCaption": "الردود والقراءات والتعاقدات من كل رسالة، لكل حملة ولكل جمهور ولكل شخص",
+    "cockpit.scale.campaign": "الحملات",
+    "cockpit.scale.audience": "الجماهير",
+    "cockpit.scale.customer": "الأشخاص",
+    "cockpit.read": "قُرئت",
+    "cockpit.replied": "ردود",
+    "cockpit.replyRate": "معدل الرد",
+    "cockpit.optedOut": "ألغوا الاشتراك",
+    "cockpit.signed": "تعاقدات",
+    "cockpit.noResponses": "لم يعد شيء في هذه الفترة بعد.",
+    "cockpit.noResponses.body": "تظهر الردود والقراءات وإلغاءات الاشتراك هنا بعد إرسال الرسائل.",
     "cockpit.closedLoop": "رسالة عبر {channel} لحملة {campaign} أصبحت وثيقة:",
     "cockpit.liveCampaigns": "تعمل الآن",
     "cockpit.liveCaption": "الحملات المباشرة أو المتوقفة مؤقتًا",

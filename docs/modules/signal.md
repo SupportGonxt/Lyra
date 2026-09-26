@@ -31,6 +31,15 @@ Reviewer · SIGNAL Module Admin · Developer (pixel/feeds).
   (recent purchasers, do-not-contact, complainers).
 - Bind-probability + predicted-LTV models score prospects; value-based bidding
   exports to ad platforms (Google/Meta APIs via connectors; TikTok v1.1).
+- Marketing at three scales (ADR-0091). **Prospects** are identified people
+  other modules reported, by event: a lapsed comparison (`quote_expired`), a
+  renewal at churn risk (`churn_risk`, left to ORBIT's journeys), a customer
+  holding no contract (`no_policy`). **Niche** audiences name a reason and a
+  score floor; **broad** plans argue from the counts; an **individual** draft
+  is written from that person's one reason and gated by `checkOutreachDraft`.
+  **Responses** (`signal_responses`) record the send, delivered/read receipts,
+  replies, binds and opt-outs against the campaign, the audience and the
+  person at once.
 
 ### 2.3 Budget autopilot
 - Daily loop: marginal CAC/LTV per channel×campaign → reallocation proposals;
@@ -98,7 +107,9 @@ Tables `signal_*` · routes `/v1/signal/*` · emits `signal.campaign.*`,
 `signal.experiment.concluded`, `signal.budget.moved`,
 `signal.creative.flagged`; consumes `axis.policy.issued` (conversions),
 `orbit.renewal.accepted` (retention campaigns), `core.consent.updated`
-(instant suppression).
+(instant suppression), and for prospects and responses (ADR-0091)
+`dist.quote.expired`, `orbit.renewal.due`, `core.customers.created`,
+`orbit.message.status`, `orbit.message.received`.
 
 ## 7. KPIs
 

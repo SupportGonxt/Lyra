@@ -48,11 +48,14 @@ import {
   totalSpendMinor,
   windowDays,
   channelLabel,
+  scaleRows,
   type CampaignRow,
   type MoveRow,
   type OutreachRow,
   type Page,
   type Problemish,
+  type ResponseRollup,
+  type ScaleRow,
   type SpendRow,
   type TouchRow
 } from "./signal.shared";
@@ -74,7 +77,9 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const from = Date.now() - days * 86_400_000;
   const window = `sort=ts&from=${from}&limit=200`;
 
-  const [me, campaigns, spend, touches, moves, outreach] = await Promise.all([
+  const rollup = (level: string) =>
+    safe(() => api<{ data: ResponseRollup }>(`/v1/signal/responses/rollup?level=${level}&since=${from}`, { env, request }), { data: [] });
+  const [me, campaigns, spend, touches, moves, outreach, byCampaign, byAudience, byCustomer, audiences] = await Promise.all([
     safe(() => fetchMe(env, request), null),
     safe(() => api<Page<CampaignRow>>("/v1/signal/campaigns?limit=200", { env, request }), empty<CampaignRow>()),
     safe(() => api<Page<SpendRow>>(`/v1/signal/spend?${window}`, { env, request }), empty<SpendRow>()),
@@ -86,7 +91,12 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     // The acquisition outreach ledger (engines/signal-outreach.ts): what was
     // sent, to whom, and which rows closed into a policy. This is the loop's
     // proof side — spend is the left edge, these are the middle and the close.
-    safe(() => api<Page<OutreachRow>>(`/v1/signal/outreach?${window}`, { env, request }), empty<OutreachRow>())
+    safe(() => api<Page<OutreachRow>>(`/v1/signal/outreach?${window}`, { env, request }), empty<OutreachRow>()),
+    // ADR-0091: what came back, at the three scales marketing works at.
+    rollup("campaign"),
+    rollup("audience"),
+    rollup("customer"),
+    safe(() => api<Page<{ id: string; name: string }>>("/v1/signal/audiences?limit=200", { env, request }), empty<{ id: string; name: string }>())
   ]);
 
   const running = campaigns.data.filter((campaign) => RUNNING_STATES.includes(campaign.state));
@@ -101,6 +111,12 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     touches: touches.data,
     moves: moves.data,
     outreach: outreach.data,
+    scales: {
+      campaign: byCampaign.data,
+      audience: byAudience.data,
+      customer: byCustomer.data
+    },
+    audienceNames: Object.fromEntries(audiences.data.map((one) => [one.id, one.name])) as Record<string, string>,
     // A move names its campaign by ref; the changes table printed the ref.
     campaignNames: Object.fromEntries(campaigns.data.map((one) => [one.id, one.name])) as Record<string, string>,
     running,
@@ -365,6 +381,36 @@ export default function GrowthCockpit() {
         </Card>
       ) : null}
 
+      {/* ADR-0091: the same responses rolled up broad (campaign), niche
+          (audience) and individual (person). Withheld without campaign read,
+          which is what the rollup endpoint checks. */}
+      {may.has(PERM.campaignsRead) ? (
+        <Card title={l("cockpit.scales")} description={l("cockpit.scalesCaption")}>
+          {loaded.scales.campaign.length === 0 ? (
+            <EmptyState title={l("cockpit.noResponses")} body={l("cockpit.noResponses.body")} />
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-3">
+              {(
+                [
+                  ["campaign", loaded.campaignNames],
+                  ["audience", loaded.audienceNames],
+                  ["customer", {}]
+                ] as const
+              ).map(([level, names]) => (
+                <section key={level}>
+                  <Table
+                    caption={l(`cockpit.scale.${level}`)}
+                    rowKey={(row) => row.key}
+                    rows={scaleRows(loaded.scales[level], names, 5)}
+                    columns={scaleColumns(l, l(`cockpit.scale.${level}`))}
+                  />
+                </section>
+              ))}
+            </div>
+          )}
+        </Card>
+      ) : null}
+
       <Card
         title={l("cockpit.liveCampaigns")}
         actions={
@@ -528,5 +574,16 @@ export function loopColumns(
     { key: "sends", header: l("cockpit.loopSends"), numeric: true, render: (row) => row.sends },
     { key: "leads", header: l("cockpit.loopLeads"), numeric: true, render: (row) => row.leads },
     { key: "binds", header: l("binds"), numeric: true, render: (row) => row.binds }
+  ];
+}
+
+/** One scale's columns: who, how many were sent, and what came back. */
+export function scaleColumns(l: (key: string) => string, who: string): Array<Column<ScaleRow>> {
+  return [
+    { key: "name", header: who, render: (row) => row.name ?? shortRef(row.key) },
+    { key: "sent", header: l("cockpit.loopSends"), numeric: true, render: (row) => row.sent },
+    { key: "replied", header: l("cockpit.replied"), numeric: true, render: (row) => row.replied },
+    { key: "rate", header: l("cockpit.replyRate"), numeric: true, render: (row) => (row.replyPct === null ? "—" : `${row.replyPct}%`) },
+    { key: "binds", header: l("cockpit.signed"), numeric: true, render: (row) => row.binds }
   ];
 }

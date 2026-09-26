@@ -92,7 +92,8 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### SIGNAL · Marketing
 1. Writable spend with CSV import (unblocks the autopilot and `signal.spend.recorded`).
 2. Standalone conversions: signed `lead`/`bind` touches on `/track`.
-3. Full audience rules with a builder instead of raw JSON; lift the 500 cap.
+3. Full audience rules with a builder instead of raw JSON. *500 cap lifted and unrunnable rules refused on write (ADR-0091); a visual builder remains.*
+6. *Done (ADR-0091): marketing at three scales — `signal_prospects` from DIST/ORBIT/core events, prospect-sourced niche audiences, drafts written from the person's own reason behind `checkOutreachDraft`, and `signal_responses` rolled up per campaign, audience and person.*
 4. Experiment engine: compute probability-to-beat-control; emit `signal.experiment.concluded`, `campaign.launched`, `creative.flagged`.
 5. Ad-platform seam (`core/seams.ts`) with Google/Meta adapters — channels are allowed (CLAUDE.md §13).
 

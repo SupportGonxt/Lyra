@@ -524,6 +524,10 @@ describe("the journeys resource refuses an active journey with no frequency cap"
     await expect(write({ status: "active", graphJson: graph({ cooldownDays: 14 }) }, draft)).resolves.toBeTruthy();
   });
 
+  it("reads a graph the web form posts already parsed", async () => {
+    await expect(write({ status: "active", graphJson: JSON.parse(graph({ cooldownDays: 14 })) })).resolves.toBeTruthy();
+  });
+
   it("leaves a draft alone: a cap is only required to go live", async () => {
     await expect(write({ status: "draft", graphJson: graph() })).resolves.toBeTruthy();
   });

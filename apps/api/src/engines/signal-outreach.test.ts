@@ -402,6 +402,11 @@ describe("the audiences resource refuses a rule outreach cannot run", () => {
     await expect(write({ name: "x", definitionJson: JSON.stringify({ all: [{ field: "prospect.reason", op: "eq", value: "no_policy" }] }) })).resolves.toBeTruthy();
   });
 
+  it("reads the rule whether it arrives as text or already parsed, as the web form sends it", async () => {
+    await expect(write({ name: "x", definitionJson: { all: [{ field: "tagsJson", op: "contains", value: "vip" }] } })).resolves.toBeTruthy();
+    await expect(write({ name: "x", definitionJson: { all: [{ field: "policy.status", op: "eq", value: "x" }] } })).rejects.toMatchObject({ status: 400 });
+  });
+
   it("leaves a stored rule alone when an edit does not change it", async () => {
     const stored = { definitionJson: JSON.stringify({ all: [{ field: "policy.status", op: "eq", value: "x" }] }) };
     await expect(write({ name: "renamed" }, stored)).resolves.toBeTruthy();
