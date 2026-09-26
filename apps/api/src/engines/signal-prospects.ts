@@ -82,7 +82,7 @@ export async function onProspectSignal(ctx: Ctx, e: Envelope): Promise<void> {
     case "orbit.renewal.due": {
       const customerId = str("customerId");
       const score = typeof d.churnScore === "number" ? Math.round(d.churnScore) : null;
-      if (!customerId || score === null || score < CHURN_PROSPECT_FLOOR) return;
+      if (!customerId || score === null || score < (ctx.policy.signalChurnProspectFloor ?? CHURN_PROSPECT_FLOOR)) return;
       await upsert(ctx, customerId, "churn_risk", score, { expiryAt: d.expiryAt ?? null }, str("policyRef"));
       return;
     }

@@ -73,6 +73,13 @@ describe("onProspectSignal", () => {
     expect((await prospects()).map((p) => [p.customerId, p.reason, p.score])).toEqual([["cus_high", "churn_risk", 82]]);
   });
 
+  it("reads the floor from tenant policy when the tenant set one", async () => {
+    ctx = { ...ctx, policy: PolicyJson.parse({ signalChurnProspectFloor: 90 }) };
+    await onProspectSignal(ctx, event("orbit.renewal.due", { customerId: "cus_high", policyRef: "pol_2", churnScore: 82 }));
+    await onProspectSignal(ctx, event("orbit.renewal.due", { customerId: "cus_top", policyRef: "pol_3", churnScore: 95 }));
+    expect((await prospects()).map((p) => p.customerId)).toEqual(["cus_top"]);
+  });
+
   it("records a new customer as holding no policy, and converts every reason once one issues", async () => {
     await onProspectSignal(ctx, event("core.customers.created", { id: "cus_1" }));
     await onProspectSignal(ctx, event("dist.quote.expired", { quoteRequestId: "qr_1", customerId: "cus_1", productId: "p" }));

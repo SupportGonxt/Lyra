@@ -98,6 +98,9 @@ export const PolicyJson = z.object({
   // a tenant-wide kill switch, distinct from a single campaign's own
   // state=paused (packages/db/schema/signal.ts).
   signalAutopilotPaused: z.boolean().default(false),
+  // ADR-0091: the churn score (0-100) at which a renewal becomes a marketing
+  // prospect. Unset reads PROSPECT_CHURN_FLOOR (packages/core/src/prospects.ts).
+  signalChurnProspectFloor: z.number().int().min(0).max(100).optional(),
   // docs/12 §4 kill switches. Per-agent is the agent row's status; these two
   // are the tenant-wide and per-module tiers, read straight off the Ctx so the
   // check in front of every model call costs no query.

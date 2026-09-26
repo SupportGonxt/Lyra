@@ -7,7 +7,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import { permissionsForRole, seed, type Ctx } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
-import { buildSnapshot, generateBriefing, verifyNumericClaims } from "./narrator.js";
+import { buildSnapshot, generateBriefing, nightlyBriefing, verifyNumericClaims } from "./narrator.js";
+import { BY_MODULE } from "../resources.js";
 
 // The seed leaves {2026-01-06, exec, en} free specifically for this engine to
 // fill (packages/core/src/seed.ts's comment on the fake `north_briefings`
@@ -162,5 +163,43 @@ describe("generateBriefing", () => {
       .where(and(eq(schema.northBriefings.tenantId, tenantId), eq(schema.northBriefings.id, result.id)));
     expect(row!.status).toBe("draft");
     expect(row!.approvedBy).toBeNull();
+  });
+});
+
+// docs/30 NORTH gap 1. The brief existed only when someone pressed Generate;
+// the nightly window now writes yesterday's, once, beside the snapshot. It is
+// still never published by a machine (rule 4): a person moves it to published,
+// and that transition — only that one — announces north.briefing.published.
+describe("the nightly brief", () => {
+  it("writes yesterday's exec brief once, and does nothing when it exists", async () => {
+    const night = { ...ctx, now: Date.parse("2026-01-08T02:00:00Z") };
+    const { stub, gw } = stubbedGateway(["A quiet day."]);
+    const first = await nightlyBriefing(night, gw);
+    expect(first).toMatchObject({ status: expect.stringMatching(/review|draft/) });
+    const [row] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, first!.id));
+    expect(row).toMatchObject({ date: "2026-01-07", audience: "exec", locale: "en", approvedBy: null, publishedAt: null });
+    expect(await nightlyBriefing(night, gw)).toBeNull();
+    expect(stub.calls).toHaveLength(1);
+  });
+});
+
+describe("publishing a brief", () => {
+  const briefings = BY_MODULE.north!.find((r) => r.path === "briefings")!;
+  const write = (values: Record<string, unknown>, existing: Record<string, unknown>) =>
+    Promise.resolve().then(() => briefings.beforeWrite!(ctx, values, existing, {} as never));
+
+  it("publishes only a verified brief, stamping who and when", async () => {
+    await expect(write({ status: "published" }, { status: "draft" })).rejects.toMatchObject({ status: 409 });
+    const values = await write({ status: "published" }, { status: "review" });
+    expect(values).toMatchObject({ status: "published", approvedBy: `${ctx.actor.kind}:${ctx.actor.id}`, publishedAt: ctx.now });
+  });
+
+  it("announces north.briefing.published on the transition, and not on a later edit", async () => {
+    const published = () =>
+      ctx.db.select().from(schema.eventOutbox).then((rows) => rows.map((e) => JSON.parse(e.envelopeJson)).filter((e) => e.type === "north.briefing.published"));
+    const row = { id: "brf_x", date: "2026-01-05", audience: "exec", locale: "en", status: "published" };
+    await briefings.afterWrite!(ctx, row, "update", { ...row, status: "review" });
+    await briefings.afterWrite!(ctx, row, "update", row);
+    expect((await published()).map((e) => e.data)).toEqual([{ id: "brf_x", date: "2026-01-05", audience: "exec", locale: "en" }]);
   });
 });

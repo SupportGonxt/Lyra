@@ -2,6 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
 import { AGENT_AUTONOMY, ChannelOptinsJson, PaymentPlanWrite, PurposesJson, schema } from "@lyra/db";
 import {
+  actorRef,
   announceConsent,
   autoApproveProblem,
   badRequest,
@@ -10,6 +11,7 @@ import {
   canClaimTransition,
   canPolicyTransition,
   checkKAnonymity,
+  conflict,
   CUSTOMER_PII,
   emit,
   gate,
@@ -904,7 +906,13 @@ export const SIGNAL = register(
   r("attribution-events", schema.signalAttributionEvents, "atr", "signal", ro("signal:attribution:read"), {
     immutable: true
   }),
-  r("spend", schema.signalSpend, "spd", "signal", ro("signal:spend:read"), {
+  // Writable since docs/30 SIGNAL gap 1: a table only a demo tick could fill
+  // left the autopilot's CAC and every response rate with no denominator.
+  r("spend", schema.signalSpend, "spd", "signal", {
+    read: "signal:spend:read",
+    create: "signal:spend:write",
+    update: "signal:spend:write"
+  }, {
     // F62 groundwork: spend lands on the bus as signal.spend.recorded, so
     // NORTH's snapshotter can eventually consume the event instead of
     // querying this module's table directly (CLAUDE.md rule 6).
@@ -1106,6 +1114,24 @@ export const NORTH = register(
   r("briefings", schema.northBriefings, "brf", "north", {
     read: "north:briefings:read",
     update: "north:briefings:approve"
+  }, {
+    // docs/30 NORTH gap 1. Publishing is a person's act (rule 4) and only a
+    // verified brief may be published: a draft failed its numeric check.
+    beforeWrite: (ctx, values, existing) => {
+      if (values.status !== "published" || existing?.status === "published") return values;
+      if (existing?.status !== "review") throw conflict("only a verified brief (in review) can be published");
+      return { ...values, approvedBy: actorRef(ctx), publishedAt: ctx.now };
+    },
+    // The transition — not every later edit — is the news.
+    afterWrite: async (ctx, row, action, before) => {
+      if (action !== "update" || row.status !== "published" || before?.status === "published") return;
+      await emit(ctx, {
+        module: "north",
+        type: "north.briefing.published",
+        subject: String(row.id),
+        data: { id: row.id, date: row.date, audience: row.audience, locale: row.locale }
+      });
+    }
   }),
   r("anomalies", schema.northAnomalies, "ano", "north", {
     read: "north:anomalies:read",

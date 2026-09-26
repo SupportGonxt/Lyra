@@ -211,3 +211,26 @@ export async function generateBriefing(
     auditId: res.auditId
   };
 }
+
+/**
+ * docs/30 NORTH gap 1: yesterday's exec brief, written in the nightly window
+ * beside the snapshot. Once per date — the row's unique key says so, and a
+ * second run returns null without asking the model again. Never published here.
+ */
+export async function nightlyBriefing(ctx: Ctx, gateway: Gateway): Promise<GenerateBriefingResult | null> {
+  const date = new Date(ctx.now - 86_400_000).toISOString().slice(0, 10);
+  const [held] = await ctx.db
+    .select({ id: schema.northBriefings.id })
+    .from(schema.northBriefings)
+    .where(
+      and(
+        eq(schema.northBriefings.tenantId, ctx.tenantId),
+        eq(schema.northBriefings.date, date),
+        eq(schema.northBriefings.audience, "exec"),
+        eq(schema.northBriefings.locale, "en")
+      )
+    )
+    .limit(1);
+  if (held) return null;
+  return generateBriefing(ctx, gateway, { date });
+}

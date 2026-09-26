@@ -67,7 +67,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 
 ### AXIS · Operations
 1. ~~Document extraction from an uploaded file — the vision path exists in the API; the web screen demands pasted text.~~ **Fixed** 2026-09-23: an empty paste now reads the stored file (`axis-doc-intel.tsx`, test "reads the stored file when nothing is pasted").
-2. Policy schedule produced on bind (the document engine exists; only a manual route calls it).
+2. ~~Policy schedule produced on bind.~~ **Fixed** 2026-09-26: `bindPolicy` issues the schedule with the bind; a document the renderer refuses is audited (`axis.policy.document_failed`), never a 409 on a policy that now exists.
 3. ~~Quote desk issues through `/quote-responses/:id/bind`.~~ **Fixed** 2026-09-23: a named customer is required at shop time; the desk binds (docs/27).
 4. ~~Screens for NTU / lapse / reinstate~~ — **reviewer was wrong**: all three are declared actions on the policies tab (`apps/web/app/modules/axis.ts` `/{id}/ntu`, `/lapse`, `/reinstate`) and render on the generic record page. SLA prediction (`axis.ts:454`) still has no web caller.
 5. Reinsurance treaties and cessions (missing).
@@ -90,9 +90,9 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 5. Module-aware tools: hide AXIS tools when AXIS is off; replace direct `axis_cases` writes with an event AXIS consumes; route `bindPartner`.
 
 ### SIGNAL · Marketing
-1. Writable spend with CSV import (unblocks the autopilot and `signal.spend.recorded`).
-2. Standalone conversions: signed `lead`/`bind` touches on `/track`.
-3. Full audience rules with a builder instead of raw JSON. *500 cap lifted and unrunnable rules refused on write (ADR-0091); a visual builder remains.*
+1. *Done: writable spend (`signal:spend:write`) with a per-line honest CSV import; a restated day is corrected, not doubled.*
+2. *Done (ADR-0092): signed `lead`/`bind` touches on `/track`, keyed by a tenant webhook secret, replay-safe by `eventId`.*
+3. *Done: the audience rule builder (tagged / prospect reason / prospect score, all or any); 500 cap lifted and unrunnable rules refused on write (ADR-0091).*
 6. *Done (ADR-0091): marketing at three scales — `signal_prospects` from DIST/ORBIT/core events, prospect-sourced niche audiences, drafts written from the person's own reason behind `checkOutreachDraft`, and `signal_responses` rolled up per campaign, audience and person.*
 4. Experiment engine: compute probability-to-beat-control; emit `signal.experiment.concluded`, `campaign.launched`, `creative.flagged`.
 5. Ad-platform seam (`core/seams.ts`) with Google/Meta adapters — channels are allowed (CLAUDE.md §13).
@@ -100,12 +100,12 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### SCOUT · Market
 1. Data-product subscribe/deliver routes (billing functions exist, called only from tests).
 2. First external source adapter (news/RSS), per ADR-0078.
-3. Watch alerts routed to notifications.
+3. ~~Watch alerts routed to notifications.~~ **Fixed** 2026-09-26: the nightly window runs the watch after the harvest and `notifyUrgentWatch` tells every `scout.lead`, once per subject per day.
 4. PDF wording diff via the AXIS extraction path.
 5. Price elasticity from bench data on the pricing screen.
 
 ### NORTH · Insight
-1. Schedule the brief with the nightly snapshot; emit `north.briefing.published`.
+1. ~~Schedule the brief; emit `north.briefing.published`.~~ **Fixed** 2026-09-26: `nightlyBriefing` drafts yesterday's exec brief after the snapshot, once per date; publishing stays a person's act (only a verified brief, stamped who and when), and that transition alone emits `north.briefing.published`.
 2. ~~Deliver `north.alert.triggered`.~~ **Fixed** 2026-09-23: `engines/north-alert-notify.ts`, consumed in `dispatch.ts`.
 3. Metric push API — makes NORTH usable standalone on imported data.
 4. Scenario engine (the what-if screen stores a question and nothing computes it).
@@ -114,7 +114,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### Ledger
 1. ~~Remove the duplicate settlement emits.~~ **Fixed** 2026-09-23: each settlement transition emits once.
 2. ~~Cash-flow statement (indirect method).~~ **Fixed** 2026-09-24 (ADR-0090, IFRS IAS 7 indirect): `cashFlowStatement` is proved against cash by a property test, served at `/v1/ledger/reports/cash-flow` and its export, and shown at `/ledger/reports/cash-flow`.
-3. Emit `ledger.recon.completed` and `ledger.period.closed`.
+3. ~~Emit `ledger.recon.completed` and `ledger.period.closed`.~~ **Fixed**: recon already announced its close (`recon.ts` `announceCompleted`); 2026-09-26 a period close and reopen emit `ledger.period.closed` / `ledger.period.reopened`.
 4. Budgets and budget-vs-actual.
 5. Inbound bordereaux reconciliation.
 

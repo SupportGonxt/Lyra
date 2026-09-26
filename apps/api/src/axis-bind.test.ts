@@ -177,6 +177,13 @@ describe("AXIS bind (docs/27 F4)", () => {
 
     const events = await database.select().from(schema.eventOutbox).where(eq(schema.eventOutbox.type, "axis.policy.issued"));
     expect(events.some((e) => e.envelopeJson.includes(out.policy.id))).toBe(true);
+
+    // docs/30 AXIS gap 2: the customer's schedule is produced by the bind itself,
+    // not by someone remembering to press a button afterwards.
+    const [issued] = await database.select().from(schema.axisPolicyVersions).where(eq(schema.axisPolicyVersions.id, out.version.id));
+    expect(issued!.documentFileId).toBeTruthy();
+    const docs = await database.select().from(schema.eventOutbox).where(eq(schema.eventOutbox.type, "axis.policy.document_issued"));
+    expect(docs.some((e) => e.envelopeJson.includes(out.policy.id))).toBe(true);
   });
 
   it("is idempotent under a replayed idempotency key", async () => {

@@ -696,7 +696,8 @@ async function enforceUnderwritingAuthority(
 async function bindPolicy(
   ctx: Ctx,
   policy: PolicyRow,
-  opts: { quoteResponseId?: string; channelMinor?: number; terms?: Record<string, unknown> }
+  opts: { quoteResponseId?: string; channelMinor?: number; terms?: Record<string, unknown> },
+  files?: R2Bucket
 ) {
   if (!isPolicyState(policy.status)) throw conflict(`policy is in unknown state ${policy.status}`);
   assertPolicyTransition(policy.status, "bound");
@@ -814,6 +815,12 @@ async function bindPolicy(
       ...(opts.quoteResponseId ? { quoteResponseId: opts.quoteResponseId } : {})
     }
   });
+  // docs/30 AXIS gap 2: the schedule comes with the bind. The bind has already
+  // committed, so a document the renderer refuses is recorded, not a 409 on a
+  // policy that now exists — the manual documents route can issue it later.
+  await issuePolicyDocument(ctx, after as PolicyRow, { kind: "schedule", versionId: version.id }, files).catch((err: unknown) =>
+    audit(ctx, { action: "axis.policy.document_failed", subjectRef: policy.id, after: { kind: "schedule", error: String(err).slice(0, 300) } })
+  );
   return { policy: after, version, txn };
 }
 
@@ -898,7 +905,7 @@ axisRoutes.post("/quote-responses/:id/bind", async (c) => {
       quoteResponseId: response.id,
       channelMinor: response.channelCommissionMinor ?? 0,
       ...(input.terms ? { terms: input.terms } : {})
-    });
+    }, c.env.FILES);
   });
   return c.json(out, 201);
 });
@@ -1089,7 +1096,7 @@ axisRoutes.post("/policies/:id/bind", async (c) => {
   const before = await must(ctx, schema.axisPolicies, rowId, "policies");
   const input = await body(c, z.object({ terms: z.record(z.string(), z.unknown()).optional() }));
   const out = await withIdempotency(ctx, c.req.header("idempotency-key"), `POST ${c.req.path}`, input, () =>
-    bindPolicy(ctx, before, { ...(input.terms ? { terms: input.terms } : {}) })
+    bindPolicy(ctx, before, { ...(input.terms ? { terms: input.terms } : {}) }, c.env.FILES)
   );
   return c.json(out, 201);
 });

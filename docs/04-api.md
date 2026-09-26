@@ -83,6 +83,7 @@ dist.referral.qualified                   dist.referral.settled
 ledger.recon.completed                    ledger.settlement.approved|paid
 compliance.disclosure.presented
 dist.quote.expired                        orbit.message.received|status
+ledger.period.closed|reopened             axis.policy.document_issued
 ```
 Envelope: `{id, ts, tenant_id, module, type, actor, subject, data, v:1}`.
 

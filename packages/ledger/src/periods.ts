@@ -5,6 +5,7 @@ import {
   audit,
   badRequest,
   conflict,
+  emit,
   gate,
   require_,
   suspenseAccounts,
@@ -411,6 +412,13 @@ export async function closePeriod(
       ...(opts.force ? { forceReason: opts.reason, overrode: failed.map((c) => c.name) } : {})
     }
   });
+  // docs/30 Ledger gap 3: a signed-off month is news on the bus, not only in the audit log.
+  await emit(ctx, {
+    module: "ledger",
+    type: "ledger.period.closed",
+    subject: `period:${code}`,
+    data: { code, from: p.state, to, forced: Boolean(opts.force) }
+  });
 
   return { ...p, state: to };
 }
@@ -452,6 +460,12 @@ export async function reopenPeriod(
     subjectRef: `period:${code}`,
     before: { state: p.state },
     after: { state: "open", reason: opts.reason }
+  });
+  await emit(ctx, {
+    module: "ledger",
+    type: "ledger.period.reopened",
+    subject: `period:${code}`,
+    data: { code, from: p.state, reason: opts.reason }
   });
   return { ...p, state: "open" };
 }

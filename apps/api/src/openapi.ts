@@ -457,6 +457,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/axis/cases/import", summary: "Bulk-import cases from CSV (AXIS-001). Per-row honest: the response names every line that failed and why; duplicate refs are counted, not errors", permission: "axis:cases:create", tag: "axis", requestBody: true },
   { method: "post", path: "/v1/axis/cases/bulk", summary: "Bulk actions on cases — assign, reprioritise, close, tag (AXIS-007). Per-row permission checks and audit; the response names every case that failed and why", permission: "axis:cases:update", tag: "axis", requestBody: true },
   { method: "post", path: "/v1/signal/outreach/run", summary: "Run the acquisition outreach sweep now — draft, consent-gate, approval-gate, send, and record the lead touch (also runs on the nightly tick)", permission: "signal:outreach:send", tag: "signal" },
+  { method: "post", path: "/v1/signal/spend/import", summary: "Import spend actuals from CSV (day, campaignId, channel, amountMinor, currency, impressions, clicks, conversions). Per-line honest; a (campaign, channel, day) already held is corrected, not doubled", permission: "signal:spend:write", tag: "signal", requestBody: true },
   { method: "get", path: "/v1/signal/responses/rollup", summary: "Responses to outreach (delivered, read, replied, lead, bind, opted out) counted per campaign, audience or person: ?level=campaign|audience|customer&since=", permission: "signal:campaigns:read", tag: "signal" },
   { method: "get", path: "/v1/signal/attribution/funnel", summary: "The acquisition funnel aggregated per campaign and channel for a window — impressions, clicks, visits, leads, binds and value", permission: "signal:attribution:read", tag: "signal" },
   // Demo deployments only: answers 404 when ENVIRONMENT is production.
@@ -515,7 +516,7 @@ const HAND_WRITTEN: Op[] = [
   // both are public by shape (mw.ts `/v1/portal/*`).
   { method: "get", path: "/v1/portal/{tenantSlug}/site", summary: "A tenant's public storefront: brand and active products", tag: "portal", public: true },
   { method: "post", path: "/v1/portal/{tenantSlug}/leads", summary: "Submit a quote lead from the public storefront; rate-limited per email", tag: "portal", requestBody: true, public: true },
-  { method: "post", path: "/v1/portal/{tenantSlug}/track", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP", tag: "portal", requestBody: true, public: true },
+  { method: "post", path: "/v1/portal/{tenantSlug}/track", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP. A lead or bind must be signed (ADR-0092): x-lyra-key-id (a tenant webhook id), x-lyra-timestamp, x-lyra-signature v1=HMAC-SHA256(secret, `${timestamp}.${body}`); a replayed eventId is answered 200 with duplicate: true", tag: "portal", requestBody: true, public: true },
   // J-C1 self-serve. The visitor has no session, so the one-time token from the
   // lead response is the credential on all three (ADR-0043).
   { method: "get", path: "/v1/portal/{tenantSlug}/quote-requests/{id}", summary: "Re-open a self-serve comparison with the one-time token", tag: "portal", public: true },
