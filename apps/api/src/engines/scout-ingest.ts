@@ -148,10 +148,12 @@ export async function harvestSignals(
   ctx: Ctx,
   gateway: Gateway,
   env: Env,
-  opts: { fed?: readonly HarvestedSignal[]; lookbackMs?: number } = {}
+  opts: { fed?: readonly HarvestedSignal[]; lookbackMs?: number; fedOnly?: boolean } = {}
 ): Promise<HarvestReport> {
   const window: HarvestWindow = { since: ctx.now - (opts.lookbackMs ?? HARVEST_LOOKBACK_MS), until: ctx.now };
-  const sources = sourcesFor(ctx, opts.fed ?? []);
+  // A file import stores what it was given and nothing else; a harvest also
+  // runs every registered source.
+  const sources = opts.fedOnly ? [fedSource(opts.fed ?? [])] : sourcesFor(ctx, opts.fed ?? []);
 
   const harvested: HarvestedSignal[] = [];
   for (const source of sources) {

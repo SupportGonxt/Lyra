@@ -1,4 +1,5 @@
-import type { EntitlementsJson } from "@lyra/db";
+import type { EntitlementsJson, PolicyJson } from "@lyra/db";
+import { moduleEnabled } from "./module-config.js";
 import { schema } from "@lyra/db";
 import { forbidden } from "./errors.js";
 import { scoped, type Ctx } from "./context.js";
@@ -12,6 +13,16 @@ import type { Grant } from "./rbac.js";
 /** The switchable modules — exactly the EntitlementsJson.modules enum. Core,
  * dist, ledger, ai, analytics and compliance are the platform itself, never gated. */
 export const GATED_MODULES = ["axis", "orbit", "signal", "scout", "north"] as const;
+
+/**
+ * Whether a tenant can use a module now: it bought it and has not switched it
+ * off (ADR-0087). The platform (core, dist, ledger, …) is never gated. The
+ * question an engine asks when a sibling module's data may simply not exist.
+ */
+export function moduleOn(ctx: { entitlements: EntitlementsJson; policy: PolicyJson }, module: string): boolean {
+  if (!(GATED_MODULES as readonly string[]).includes(module)) return true;
+  return ctx.entitlements.modules.includes(module as (typeof GATED_MODULES)[number]) && moduleEnabled(ctx.policy, module);
+}
 
 /**
  * Drop permissions belonging to modules the tenant is not entitled to, or has

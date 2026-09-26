@@ -8,7 +8,7 @@ import { id as newId, schema } from "@lyra/db";
 import { EntitlementsJson, PolicyJson } from "@lyra/db";
 import { permissionsForRole, seed, type Ctx } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
-import { cellSize, clusterSizes, evidenceRefCount, sweepWhitespace } from "./scout-whitespace.js";
+import { cellSize, clusterSizes, coveragePerLine, evidenceRefCount, sweepWhitespace } from "./scout-whitespace.js";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "..", "..", "packages", "db", "migrations");
 
@@ -44,7 +44,8 @@ beforeAll(async () => {
     now: Date.UTC(2026, 0, 6, 8, 0, 0),
     locale: "en",
     policy: PolicyJson.parse({}),
-    entitlements: EntitlementsJson.parse({})
+    // What seed() provisions: every module, so coverage reads the policy book.
+    entitlements: EntitlementsJson.parse({ modules: ["axis", "orbit", "signal", "scout", "north"] })
   };
 }, 120_000);
 
@@ -271,5 +272,31 @@ describe("clusterSizes", () => {
       updatedAt: ctx.now
     });
     expect(await clusterSizes(ctx, [foreign])).toEqual(new Map());
+  });
+});
+
+// @accept:SA — coverage is "what this tenant already sells on that line". With
+// AXIS it is the active policy book. Without AXIS there is no policy book, and
+// reading one returned zero everywhere, so every line with demand looked like
+// untouched whitespace. The platform's own record of a sale is a converted
+// quote request, so that is the book a SCOUT-only tenant is measured against.
+describe("coveragePerLine", () => {
+  it("counts active policies when AXIS is on, and converted quote requests when it is not", async () => {
+    const withAxis = await coveragePerLine(ctx);
+    expect(withAxis.get("motor")).toBeGreaterThan(0);
+
+    await seedQuoteCluster("pet", 3, ctx.now - 86_400_000);
+    const pet = await ctx.db
+      .select({ id: schema.distQuoteRequests.id })
+      .from(schema.distQuoteRequests)
+      .innerJoin(schema.products, eq(schema.products.id, schema.distQuoteRequests.productId))
+      .where(and(eq(schema.distQuoteRequests.tenantId, tenantId), eq(schema.products.line, "pet")));
+    for (const r of pet.slice(0, 2)) {
+      await ctx.db.update(schema.distQuoteRequests).set({ state: "converted" }).where(eq(schema.distQuoteRequests.id, r.id));
+    }
+
+    const scoutOnly = await coveragePerLine({ ...ctx, entitlements: EntitlementsJson.parse({ modules: ["scout"] }) });
+    expect(scoutOnly.get("pet")).toBe(2);
+    expect(withAxis.get("pet")).toBeUndefined();
   });
 });
