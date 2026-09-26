@@ -8,7 +8,7 @@ import { signal } from "../modules/signal";
 // the shared catalogue the way the field hints do (spec.ts label fall-through).
 describe("the audience rule builder", () => {
   const field = signal.tabs.find((t) => t.key === "audiences")!.fields!.find((f) => f.name === "definitionJson")!;
-  const html = (row?: Record<string, unknown>) => renderToStaticMarkup(<FieldInput field={field} row={row} label={labelsFrom(signal.labels)("en")} />);
+  const html = (row?: Record<string, unknown>) => renderToStaticMarkup(<FieldInput field={field} {...(row ? { row } : {})} label={labelsFrom(signal.labels)("en")} />);
 
   it("renders rows with words, and no raw key", () => {
     const out = html({ definitionJson: { all: [{ field: "prospect.reason", op: "eq", value: "quote_expired" }] } });

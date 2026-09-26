@@ -2701,8 +2701,10 @@ export async function backfillProspects(db: CoreDb, tenantId: string, now: numbe
       sourceRef: q.id
     });
   }
+  const [tenant] = await db.select({ policyJson: schema.tenants.policyJson }).from(schema.tenants).where(eq(schema.tenants.id, tenantId));
+  const floor = PolicyJson.parse(tenant?.policyJson ? JSON.parse(tenant.policyJson) : {}).signalChurnProspectFloor ?? PROSPECT_CHURN_FLOOR;
   for (const r of await db.select().from(schema.orbitRenewals).where(eq(schema.orbitRenewals.tenantId, tenantId))) {
-    if (r.churnScore === null || r.churnScore < PROSPECT_CHURN_FLOOR || r.state === "accepted" || r.state === "lost") continue;
+    if (r.churnScore === null || r.churnScore < floor || r.state === "accepted" || r.state === "lost") continue;
     rows.push({ customerId: r.customerId, reason: "churn_risk", score: r.churnScore, evidenceJson: JSON.stringify({ expiryAt: r.expiryAt }), sourceRef: r.policyRef });
   }
   let created = 0;
