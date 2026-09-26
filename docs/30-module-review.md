@@ -53,7 +53,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 | Workspace | Leaders compared | ✓ | ◐ | ✗ | Stands alone? |
 | --- | --- | --- | --- | --- | --- |
 | AXIS · Operations | Guidewire, Duck Creek, Sapiens, Pega | 12 | 5 | 1 | Yes — core spine only |
-| ORBIT · Conversations | Zendesk, Intercom, Service Cloud, Sprinklr | 10 | 3 | 3 | No — imports AXIS engines, writes AXIS tables |
+| ORBIT · Conversations | Zendesk, Intercom, Service Cloud, Sprinklr | 10 | 3 | 3 | Yes (2026-09-26) — AXIS work goes by event; AXIS tools only where AXIS is held |
 | SIGNAL · Marketing | HubSpot, Braze/Iterable, Ads managers, Marketo | 5 | 8 | 3 | Partly — studio yes; autopilot/attribution idle without AXIS/ORBIT |
 | SCOUT · Market | Crayon/Klue, Similarweb, Qualtrics, Earnix/Akur8 | 8 | 4 | 4 | No — reads quotes/policies, writes SIGNAL |
 | NORTH · Insight | Tableau Pulse, ThoughtSpot, Power BI, Anaplan | 5 | 7 | 4 | No — every metric reads other modules |
@@ -87,7 +87,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. ~~Save-desk outcomes emit `orbit.renewal.accepted`/`lost`.~~ **Fixed** 2026-09-23 (renewal outcome events: offered/accepted/lost).
 3. Real-time AI replies on inbound, sent within the agent's autonomy.
 4. Web chat channel (a `ChannelAdapter` plus a portal route).
-5. Module-aware tools: hide AXIS tools when AXIS is off; replace direct `axis_cases` writes with an event AXIS consumes; route `bindPartner`.
+5. ~~Module-aware tools.~~ **Fixed** 2026-09-26: the agent is offered only tools the person it acts for can run (`TOOL_PERMISSION`), so an ORBIT-only tenant sees no AXIS tool; `start_quote` and a document chase announce `orbit.quote.requested` / `orbit.conversation.document` and AXIS raises its own case and task (`engines/axis-orbit-intake.ts`). The scheduler stands down every module a tenant did not buy (`switchedOff`), and `solo-modules.test.ts` holds each module alone to what a full tenant is told. `bindPartner` still has no route (Distribution).
 
 ### SIGNAL · Marketing
 1. *Done: writable spend (`signal:spend:write`) with a per-line honest CSV import; a restated day is corrected, not doubled.*

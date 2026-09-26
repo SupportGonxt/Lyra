@@ -8,6 +8,7 @@ import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import { FnolBody } from "./axis-fnol.js";
 import { ORBIT_TOOL_DEFS, runOrbitTool } from "./orbit-tools.js";
+import { onDocumentRequested } from "./axis-orbit-intake.js";
 
 // docs/27 F31: docs/modules/orbit.md §2.1 names eight tools in the agent's
 // registry — "fetch policy, start quote, endorsement request, document
@@ -130,6 +131,10 @@ describe("send_document", () => {
     const messages = await ctx.db.select().from(schema.orbitMessages);
     expect(messages).toHaveLength(1);
     expect(messages[0]!.role).toBe("agent_ai");
+    // Rule 6: ORBIT writes no AXIS row; AXIS raises the chase task on hearing it.
+    expect(await ctx.db.select().from(schema.axisTasks)).toHaveLength(0);
+    const [event] = await ctx.db.select().from(schema.eventOutbox).where(eq(schema.eventOutbox.type, "orbit.conversation.document"));
+    await onDocumentRequested(ctx, JSON.parse(event!.envelopeJson));
     const [task] = await ctx.db.select().from(schema.axisTasks);
     expect(task!.type).toBe("document_collect");
     expect(task!.caseId).toBe("cas_1");

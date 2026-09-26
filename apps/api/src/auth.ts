@@ -214,15 +214,32 @@ export async function allTenants(env: Env): Promise<string[]> {
 }
 
 /**
- * ADR-0087: the modules a tenant has switched off, for the scheduler. Reads the
- * policy alone — not `tenantConfig`, which refuses a suspended tenant whose
- * outbox must still drain — and a corrupt policy switches nothing off.
+ * What the scheduler runs a tenant on: its own policy and entitlements, with
+ * every module it did not buy or switched off (ADR-0087) forced off, so sweeps
+ * and consumers stand down with the routes. Reads the row directly rather than
+ * `tenantConfig`, which refuses a suspended tenant whose outbox must still
+ * drain; a corrupt blob falls back to defaults, as tenantConfig's does.
  */
+export async function scheduledConfig(env: Env, tenantId: string): Promise<{ policy: PolicyJson; entitlements: EntitlementsJson }> {
+  const rows = await db(env)
+    .select({ policyJson: schema.tenants.policyJson, entitlementsJson: schema.tenants.entitlementsJson })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, tenantId))
+    .limit(1);
+  const parsedPolicy = PolicyJson.safeParse(safeJson<Record<string, unknown>>(rows[0]?.policyJson ?? null) ?? {});
+  const policy = parsedPolicy.success ? parsedPolicy.data : PolicyJson.parse({});
+  const bought = EntitlementsJson.safeParse(safeJson<Record<string, unknown>>(rows[0]?.entitlementsJson ?? null) ?? {});
+  const entitlements = bought.success ? bought.data : EntitlementsJson.parse({});
+  const off = GATED_MODULES.filter((m) => !entitlements.modules.includes(m) || !moduleEnabled(policy, m));
+  const moduleConfig = { ...policy.moduleConfig };
+  for (const m of off) moduleConfig[m] = { settings: {}, ...moduleConfig[m], enabled: false };
+  return { policy: { ...policy, moduleConfig }, entitlements };
+}
+
+/** The modules the scheduler stands down for a tenant. */
 export async function switchedOff(env: Env, tenantId: string): Promise<Set<string>> {
-  const rows = await db(env).select({ policyJson: schema.tenants.policyJson }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
-  const parsed = PolicyJson.safeParse(safeJson<Record<string, unknown>>(rows[0]?.policyJson ?? null) ?? {});
-  if (!parsed.success) return new Set();
-  return new Set(GATED_MODULES.filter((m) => !moduleEnabled(parsed.data, m)));
+  const { policy } = await scheduledConfig(env, tenantId);
+  return new Set(GATED_MODULES.filter((m) => !moduleEnabled(policy, m)));
 }
 
 /** Session cookie or `Authorization: Bearer <session token>`. */
