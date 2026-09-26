@@ -345,7 +345,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 125 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 127 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -382,12 +382,14 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/ledger/statement` | [ledger-account.tsx](apps/web/app/routes/ledger-account.tsx) |
 | `/ledger/recon` | [ledger-recon.tsx](apps/web/app/routes/ledger-recon.tsx) |
 | `/analytics/builder` | [analytics-builder.tsx](apps/web/app/routes/analytics-builder.tsx) |
+| `/analytics/schedules/new` | [analytics-schedule-new.tsx](apps/web/app/routes/analytics-schedule-new.tsx) |
 | `/analytics/report/:id` | [analytics-report.tsx](apps/web/app/routes/analytics-report.tsx) |
 | `/analytics/dashboard/:id` | [analytics-dashboard.tsx](apps/web/app/routes/analytics-dashboard.tsx) |
 | `/distribution/quote-requests/:id/compare` | [quote-compare.tsx](apps/web/app/routes/quote-compare.tsx) |
 | `/distribution/commission-entries/statement` | [commission-statement.tsx](apps/web/app/routes/commission-statement.tsx) |
 | `/distribution/commission-entries/:id/clawback` | [commission-clawback.tsx](apps/web/app/routes/commission-clawback.tsx) |
 | `/distribution/next-best-offers/suggest` | [dist-offers.tsx](apps/web/app/routes/dist-offers.tsx) |
+| `/distribution/referrals` | [dist-referrals.tsx](apps/web/app/routes/dist-referrals.tsx) |
 | `/compliance/run/:kind` | [compliance-run.tsx](apps/web/app/routes/compliance-run.tsx) |
 | `/ledger/settlement` | [settlement.tsx](apps/web/app/routes/settlement.tsx) |
 | `/ledger/settlements/:id` | [settlement-detail.tsx](apps/web/app/routes/settlement-detail.tsx) |

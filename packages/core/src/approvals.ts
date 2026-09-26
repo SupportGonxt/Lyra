@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, lte } from "drizzle-orm";
+import { and, desc, eq, gt, lte, or } from "drizzle-orm";
 import { id as newId, schema, ScopeJson } from "@lyra/db";
 import { approvalRequired, badRequest, conflict, forbidden, internal, notFound } from "./errors.js";
 import { audit } from "./audit.js";
@@ -615,14 +615,24 @@ async function delegatorActor(ctx: Ctx, userId: string): Promise<Actor> {
   return { kind: "user", id: userId, tenantId: ctx.tenantId, grants };
 }
 
-export async function pendingApprovals(ctx: Ctx, module?: string, limit = 100): Promise<ApprovalRow[]> {
-  const where = module
-    ? and(
-        eq(schema.approvals.tenantId, ctx.tenantId),
-        eq(schema.approvals.decision, "pending"),
-        eq(schema.approvals.module, module)
-      )
-    : and(eq(schema.approvals.tenantId, ctx.tenantId), eq(schema.approvals.decision, "pending"));
+export async function pendingApprovals(
+  ctx: Ctx,
+  module?: string,
+  limit = 100,
+  /** Keyset cursor: the last row of the previous page (F60 — the queue pages, it does not stop). */
+  after?: { requestedAt: number; id: string }
+): Promise<ApprovalRow[]> {
+  const where = and(
+    eq(schema.approvals.tenantId, ctx.tenantId),
+    eq(schema.approvals.decision, "pending"),
+    module ? eq(schema.approvals.module, module) : undefined,
+    after
+      ? or(
+          gt(schema.approvals.requestedAt, after.requestedAt),
+          and(eq(schema.approvals.requestedAt, after.requestedAt), gt(schema.approvals.id, after.id))
+        )
+      : undefined
+  );
 
   // F60: oldest first. The inbox is a work queue, and a cap that cuts off the
   // tail must drop the *newest* rows — the ones with the least waiting — never
@@ -632,7 +642,7 @@ export async function pendingApprovals(ctx: Ctx, module?: string, limit = 100): 
     .select()
     .from(schema.approvals)
     .where(where)
-    .orderBy(schema.approvals.requestedAt)
+    .orderBy(schema.approvals.requestedAt, schema.approvals.id)
     .limit(limit) as Promise<ApprovalRow[]>;
 }
 

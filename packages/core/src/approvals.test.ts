@@ -698,6 +698,18 @@ describe("pendingApprovals", () => {
     const capped = await pendingApprovals(analyst, undefined, 1);
     expect(capped).toHaveLength(1);
     expect(capped[0]!.subjectRef).toBe("txn:a");
+
+    // F60 in full: the queue pages instead of stopping at the cap. Keyset on
+    // (requestedAt, id), so walking the pages visits every row exactly once.
+    const walked: string[] = [];
+    let after: { requestedAt: number; id: string } | undefined;
+    for (let page = 0; page < 5; page++) {
+      const rows = await pendingApprovals(analyst, undefined, 1, after);
+      if (!rows.length) break;
+      walked.push(rows[0]!.subjectRef);
+      after = { requestedAt: rows[0]!.requestedAt, id: rows[0]!.id };
+    }
+    expect(walked).toEqual(["txn:a", "txn:c", "case:1"]);
   });
 });
 

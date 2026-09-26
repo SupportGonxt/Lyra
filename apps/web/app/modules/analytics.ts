@@ -25,6 +25,7 @@ export const analytics: WorkspaceSpec = {
       "journey-events": "Journey events",
       reportBuilder: "Report builder",
       buildReport: "Build a report",
+      scheduleReport: "Schedule a report",
       openDashboard: "Open dashboard",
 
       // Record actions the API owns (apps/api/src/routes/analytics.ts).
@@ -140,6 +141,7 @@ export const analytics: WorkspaceSpec = {
       "journey-events": "أحداث الرحلة",
       reportBuilder: "منشئ التقارير",
       buildReport: "إنشاء تقرير",
+      scheduleReport: "جدولة تقرير",
       openDashboard: "فتح اللوحة",
 
       "schedules.pause": "إيقاف هذا الجدول مؤقتًا",
@@ -498,5 +500,9 @@ export const analytics: WorkspaceSpec = {
   ],
   // Authoring a definition is the builder's job (see the header above); the
   // tools list is where the workspace hands the reader to it.
-  links: [{ href: "/analytics/builder", labelKey: "buildReport", permission: "analytics:reports:run" }]
+  links: [
+    { href: "/analytics/builder", labelKey: "buildReport", permission: "analytics:reports:run" },
+    // docs/30 Analytics 2: a report saved earlier had no way onto a schedule.
+    { href: "/analytics/schedules/new", labelKey: "scheduleReport", permission: "analytics:schedules:write" }
+  ]
 };

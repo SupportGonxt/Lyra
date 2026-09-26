@@ -10,6 +10,8 @@ export const admin: WorkspaceSpec = {
   path: "/admin",
   labels: {
     en: {
+      "event-dlq.replay": "Replay",
+      "event-dlq.replay.confirm": "Put this event back on the bus for the consumer that gave up on it? Webhook subscribers may receive it again.",
       tenants: "Organisations",
       users: "People",
       roles: "Roles",
@@ -325,6 +327,8 @@ export const admin: WorkspaceSpec = {
       dataRequests: "Data subject requests"
     },
     ar: {
+      "event-dlq.replay": "إعادة التشغيل",
+      "event-dlq.replay.confirm": "إعادة هذا الحدث إلى الناقل للمستهلك الذي تخلّى عنه؟ قد يستلمه مشتركو الويب هوك مرة أخرى.",
       tenants: "المنشآت",
       users: "الأشخاص",
       roles: "الأدوار",
@@ -1260,7 +1264,9 @@ export const admin: WorkspaceSpec = {
         { name: "attempts", type: "number" },
         { name: "replayedAt", type: "datetime" },
         { name: "createdAt", type: "datetime", sortable: true }
-      ]
+      ],
+      // docs/09 replay from the admin console (docs/30 Admin 4).
+      actions: [{ intent: "replay", method: "POST", path: "/{id}/replay", labelKey: "event-dlq.replay", permission: "admin:dlq:replay", confirm: true }]
     },
     {
       key: "message-templates",

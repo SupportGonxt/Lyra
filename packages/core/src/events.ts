@@ -2,6 +2,7 @@ import { and, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import { z } from "zod";
 import { actorRef, type Ctx, type CoreDb } from "./context.js";
+import { conflict, notFound } from "./errors.js";
 
 // docs/04 §7. Transactional outbox out, inbox dedupe in, DLQ for what keeps failing.
 
@@ -246,4 +247,49 @@ export async function replayDlq(
 /** Housekeeping: published outbox rows older than the cutoff are dead weight. */
 export async function pruneOutbox(db: CoreDb, before: number): Promise<void> {
   await db.delete(schema.eventOutbox).where(lt(schema.eventOutbox.publishedAt, before));
+}
+
+/**
+ * docs/09 "replay from the admin console", docs/30 Admin 4. Re-queues a
+ * dead-lettered event: its outbox row goes back to pending, and the dead
+ * consumer's inbox mark is cleared so that consumer runs again — every
+ * consumer that already succeeded holds `done` and skips it (consume() is
+ * exactly-once per event and consumer). Webhook subscribers may see the
+ * delivery again; `x-lyra-event-id` is what they dedupe on. Once per row.
+ */
+export async function replayDead(db: CoreDb, tenantId: string, dlqId: string, now: number): Promise<string> {
+  const [row] = await db
+    .select()
+    .from(schema.eventDlq)
+    .where(and(eq(schema.eventDlq.tenantId, tenantId), eq(schema.eventDlq.id, dlqId)))
+    .limit(1);
+  if (!row) throw notFound("dead-lettered event");
+  if (row.replayedAt !== null) throw conflict("this event was already replayed");
+  const envelope = Envelope.parse(JSON.parse(row.envelopeJson));
+
+  if (row.consumer !== "outbox.publish") {
+    await db
+      .delete(schema.eventInbox)
+      .where(and(eq(schema.eventInbox.id, envelope.id), eq(schema.eventInbox.consumer, row.consumer)));
+  }
+  const reset = await db
+    .update(schema.eventOutbox)
+    .set({ publishedAt: null, attempts: 0, lastError: null })
+    .where(and(eq(schema.eventOutbox.tenantId, tenantId), eq(schema.eventOutbox.id, envelope.id)))
+    .returning({ id: schema.eventOutbox.id });
+  if (!reset.length) {
+    await db.insert(schema.eventOutbox).values({
+      id: envelope.id,
+      tenantId,
+      module: envelope.module,
+      type: envelope.type,
+      envelopeJson: row.envelopeJson,
+      publishedAt: null,
+      attempts: 0,
+      lastError: null,
+      createdAt: now
+    });
+  }
+  await db.update(schema.eventDlq).set({ replayedAt: now }).where(eq(schema.eventDlq.id, row.id));
+  return envelope.id;
 }

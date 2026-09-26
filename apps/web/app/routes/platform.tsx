@@ -207,6 +207,15 @@ export const LABELS: Record<string, Record<string, string>> = {
 
     savedFlag: "Flag created",
     savedToggle: "Flag changed",
+    savedKill: "All AI is stopped",
+    savedRelease: "AI is running again",
+    killTitle: "AI kill switch",
+    killCaption: "Stops every model call on the platform at once. Releasing it needs an approval.",
+    killOn: "Stopped",
+    killOff: "Running",
+    killReason: "Why",
+    killStop: "Stop all AI",
+    killRelease: "Release",
     savedStart: "Session started",
     savedEnd: "Session ended"
   },
@@ -312,6 +321,15 @@ export const LABELS: Record<string, Record<string, string>> = {
 
     savedFlag: "أُنشئ المفتاح",
     savedToggle: "تغيّر المفتاح",
+    savedKill: "توقّف الذكاء الاصطناعي بالكامل",
+    savedRelease: "عاد الذكاء الاصطناعي إلى العمل",
+    killTitle: "مفتاح إيقاف الذكاء الاصطناعي",
+    killCaption: "يوقف كل استدعاء للنماذج على المنصة دفعة واحدة. إعادة التشغيل تحتاج إلى موافقة.",
+    killOn: "متوقّف",
+    killOff: "يعمل",
+    killReason: "السبب",
+    killStop: "إيقاف الذكاء الاصطناعي بالكامل",
+    killRelease: "إعادة التشغيل",
     savedStart: "بدأت الجلسة",
     savedEnd: "انتهت الجلسة"
   }
@@ -468,6 +486,19 @@ export async function action({ request, context }: ActionFunctionArgs) {
     return call("/v1/platform/impersonation/start", "POST", { targetUserId, reason }, "savedStart");
   }
 
+  // docs/30 Admin 4. The switch is a flag, but it is flipped only through its
+  // own routes: a stop carries a reason into the audit, and a release is gated
+  // by core.flag_toggle — the generic toggle would skip both.
+  if (intent === "ai-kill") {
+    const reason = String(form.get("reason") ?? "").trim();
+    if (reason.length < 3) return wrong("errReasonRequired");
+    return call("/v1/platform/ai/kill", "POST", { reason }, "savedKill");
+  }
+
+  if (intent === "ai-release") {
+    return call("/v1/platform/ai/release", "POST", {}, "savedRelease");
+  }
+
   if (intent === "impersonate-end") {
     const sessionId = String(form.get("sessionId") ?? "");
     return call(`/v1/platform/impersonation/${sessionId}/end`, "POST", {}, "savedEnd");
@@ -581,6 +612,9 @@ export default function Platform() {
     { key: "by", header: l("colBy"), render: (row) => row.deployedBy },
     { key: "at", header: l("colDeployed"), render: (row) => <DateTime value={row.deployedAt} locale={locale} /> }
   ];
+
+  // The kill switch is the `ai.kill_switch` flag (packages/model-gateway/src/kill.ts).
+  const aiKilled = loaded.flags.some((flag) => flag.key === "ai.kill_switch" && flag.enabled);
 
   const flagColumns: Array<Column<FeatureFlag>> = [
     { key: "flag", header: l("colFlag"), render: (row) => row.key },
@@ -724,6 +758,27 @@ export default function Platform() {
           empty={<EmptyState title={l("deploysEmpty")} body={l("deploysEmptyBody")} />}
         />
       </Card>
+
+      {loaded.may.flagsWrite ? (
+        <Card
+          title={l("killTitle")}
+          description={l("killCaption")}
+          actions={<Badge tone={aiKilled ? "danger" : "success"}>{aiKilled ? l("killOn") : l("killOff")}</Badge>}
+        >
+          <Form method="post" className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <input type="hidden" name="intent" value={aiKilled ? "ai-release" : "ai-kill"} />
+            <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />
+            {aiKilled ? null : (
+              <Field label={l("killReason")} required className="sm:flex-1">
+                <Input name="reason" required minLength={3} maxLength={500} />
+              </Field>
+            )}
+            <Button type="submit" variant={aiKilled ? "secondary" : "danger"} disabled={busy}>
+              {aiKilled ? l("killRelease") : l("killStop")}
+            </Button>
+          </Form>
+        </Card>
+      ) : null}
 
       <Card title={l("flagsTitle")} description={l("flagsCaption")}>
         {loaded.may.flagsRead ? (

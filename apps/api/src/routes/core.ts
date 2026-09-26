@@ -13,6 +13,7 @@ import {
   forbidden,
   isKnownPermission,
   notFound,
+  replayDead,
   require_,
   requiresMfa,
   scoped,
@@ -231,6 +232,17 @@ coreRoutes.post("/webhooks/:id/test", async (c) => {
   const result = await deliver(ctx, hook, envelope, 1);
   await audit(ctx, { action: "core.webhooks.test", subjectRef: `webhooks:${rowId}`, after: result });
   return c.json(result);
+});
+
+// docs/09 "replay from the admin console", docs/30 Admin 4: a dead-lettered
+// event goes back on the bus for the consumer that gave up on it, once.
+coreRoutes.post("/event-dlq/:id/replay", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "admin:dlq:replay", { tenantId: ctx.tenantId, module: "core" });
+  const rowId = c.req.param("id");
+  const eventId = await replayDead(ctx.db, ctx.tenantId, rowId, ctx.now);
+  await audit(ctx, { action: "core.event_dlq.replay", subjectRef: `event-dlq:${rowId}`, after: { eventId } });
+  return c.json({ eventId, replayedAt: ctx.now });
 });
 
 /**

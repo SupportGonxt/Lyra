@@ -154,6 +154,19 @@ describe("platform workspace action", () => {
     expect(calls[0]?.url).toContain("/v1/platform/impersonation/ims_1/end");
   });
 
+  // docs/30 Admin 4: the platform AI kill switch had routes and no button. A
+  // stop needs a stated reason (the route requires 3+ characters); a release
+  // goes through the gated route, never the generic flag toggle.
+  it("stops all AI only with a reason, and releases through the gated route", async () => {
+    expect((await action(args(form({ intent: "ai-kill", reason: " " })))).error).toBe("errReasonRequired");
+    const calls = stubFetch(ok());
+    expect((await action(args(form({ intent: "ai-kill", reason: "provider outage" })))).saved).toBe("savedKill");
+    expect(calls[0]).toMatchObject({ method: "POST", url: expect.stringContaining("/v1/platform/ai/kill") });
+    expect(JSON.parse(calls[0]!.body ?? "{}")).toEqual({ reason: "provider outage" });
+    expect((await action(args(form({ intent: "ai-release" })))).saved).toBe("savedRelease");
+    expect(calls[1]?.url).toContain("/v1/platform/ai/release");
+  });
+
   it("refuses an intent it does not know", async () => {
     expect((await action(args(form({ intent: "nope" })))).problem?.status).toBe(400);
   });
