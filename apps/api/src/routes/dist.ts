@@ -140,6 +140,16 @@ distRoutes.get("/quote-requests/:id/comparison", async (c) => {
         .where(and(eq(schema.distOfferings.tenantId, ctx.tenantId), inArray(schema.distOfferings.id, offeringIds)))
     : [];
   const byOffering = new Map(offerings.map((o) => [o.id, o]));
+  // docs/30 Distribution 5: a bound quote names its policy, so a revisit shows
+  // the policy instead of offering the bind again (which the API refuses).
+  const responseIds = responses.map((r) => r.id);
+  const bound = responseIds.length
+    ? await ctx.db
+        .select({ responseId: schema.axisPolicyVersions.quoteResponseId, policyId: schema.axisPolicyVersions.policyId })
+        .from(schema.axisPolicyVersions)
+        .where(and(eq(schema.axisPolicyVersions.tenantId, ctx.tenantId), inArray(schema.axisPolicyVersions.quoteResponseId, responseIds)))
+    : [];
+  const policyOf = new Map(bound.map((b) => [b.responseId, b.policyId]));
 
   const quoted = responses
     .filter((r) => r.state === "quoted")
@@ -149,7 +159,8 @@ distRoutes.get("/quote-requests/:id/comparison", async (c) => {
       // Commission is ours, not the customer's business; strip it unless the
       // caller is staff with the permission to see the margin.
       ...(canSeeMargin(ctx) ? {} : { commissionPpm: null, commissionMinor: null, channelCommissionMinor: null }),
-      offering: byOffering.get(r.offeringId) ?? null
+      offering: byOffering.get(r.offeringId) ?? null,
+      policyId: policyOf.get(r.id) ?? null
     }));
 
   return c.json({

@@ -23,7 +23,7 @@ import {
   Table,
   type Column
 } from "@lyra/ui";
-import { ApiError, api, fetchMe } from "../api.server";
+import { ApiError, api, fetchMe, names } from "../api.server";
 import {
   FILTER_OPS,
   FILTER_ROWS,
@@ -42,6 +42,7 @@ import { Cell } from "../components/fields";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import type { Row } from "../modules/spec";
+import { refsIn, type Names } from "../names";
 import { labelsFrom } from "./detail-kit";
 import { Problem } from "./module";
 import { useShellData } from "./workspace";
@@ -415,7 +416,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const held = new Set(me.permissions);
   const may = { run: held.has(PERM.run), write: held.has(PERM.write), schedule: held.has(PERM.schedule) };
   const email = me.profile?.email ?? "";
-  const empty = { may, email, datasets: [] as DatasetInfo[], def: null, run: null, problem: null, unavailable: false };
+  const empty = { may, email, datasets: [] as DatasetInfo[], def: null, run: null, problem: null, unavailable: false, resolved: {} as Names };
   if (!may.run) return empty;
 
   const { data: datasets } = await api<{ data: DatasetInfo[] }>("/v1/analytics/datasets", { env, request });
@@ -455,7 +456,9 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       problem = refusalOf(error);
     }
   }
-  return { may, email, datasets, def, run, problem, unavailable };
+  // docs/30 Analytics 4: a split by channel or owner reads as names, not ids.
+  const resolved = run ? await names(refsIn(run.rows), { env, request }) : {};
+  return { may, email, datasets, def, run, problem, unavailable, resolved };
 }
 
 /* ---------------------------------------------------------------- action */
@@ -575,7 +578,7 @@ export default function AnalyticsBuilder() {
     header: metricOrDim(column.key, column.label),
     numeric: column.kind === "money" || column.kind === "number",
     render: (row: Row) => (
-      <Cell column={{ name: column.key, type: column.kind, currencyFrom: "__currency" }} row={row} locale={locale} label={l} />
+      <Cell column={{ name: column.key, type: column.kind, currencyFrom: "__currency" }} row={row} locale={locale} label={l} resolved={loaded.resolved} />
     )
   }));
   const totalsRow: Row = { ...(run?.totals ?? {}), __currency: run?.currency ?? "" };

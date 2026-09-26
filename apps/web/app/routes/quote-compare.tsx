@@ -109,6 +109,8 @@ interface Quote {
   validUntil: number | null;
   selectedAt: number | null;
   offering: Offering | null;
+  /** The policy this quote was bound into, if any (routes/dist.ts comparison). */
+  policyId: string | null;
 }
 
 interface Unavailable {
@@ -192,6 +194,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "done.select": "Selection recorded and the comparison closed as converted.",
     "done.bind": "Issued.",
     openPolicy: "Open what was issued",
+    bound: "The selected quote is already issued.",
     bindTitle: "Issue from the selected quote",
     bindBody: "The selected quote becomes what the customer holds. Price, provider and product come from the quote itself; give it a number and a term.",
     bindNoCustomer: "This comparison has no customer, so it can be priced but not sold. Shop it again for a named customer to issue it.",
@@ -282,6 +285,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "done.select": "سُجّل الاختيار وأُغلقت المقارنة كمحوّلة.",
     "done.bind": "تم الإصدار.",
     openPolicy: "فتح ما صدر",
+    bound: "العرض المختار صدر بالفعل.",
     bindTitle: "الإصدار من العرض المختار",
     bindBody: "يصبح العرض المختار ما يحمله العميل. السعر والجهة والمنتج من العرض نفسه؛ أدخل رقمًا ومدة.",
     bindNoCustomer: "لا عميل لهذه المقارنة، فيمكن تسعيرها لا بيعها. أعد طلب العروض لعميل محدد لإصدارها.",
@@ -332,6 +336,11 @@ const LABELS: Record<string, Record<string, string>> = {
 
 /** Past its expiry the API refuses a selection (routes/dist.ts returns 409) — pulled
  *  out of the component so the header and the button read the same clock. */
+/** The policy the chosen quote became: this visit's bind, else what the comparison reports. */
+export function boundPolicy(chosen: Pick<Quote, "policyId"> | null, result: { policyId?: string | null } | undefined): string | null {
+  return result?.policyId ?? chosen?.policyId ?? null;
+}
+
 export function requestExpired(expiresAt: number | null, now: number): boolean {
   return expiresAt !== null && expiresAt <= now;
 }
@@ -548,6 +557,7 @@ export default function QuoteCompare() {
   const attributes = attributesFor(quotes, { locale, L, t, commission: loaded.can.commission });
   const alreadySelected = quotes.some((quote) => quote.selectedAt !== null);
   const chosen = quotes.find((quote) => quote.selectedAt !== null && quote.premiumMinor !== null) ?? null;
+  const issued = boundPolicy(chosen, result);
   // Past its expiry the API refuses a selection (routes/dist.ts returns 409), so
   // the button says so up front rather than letting the click find out.
   const expired = requestExpired(request.expiresAt, loaded.now);
@@ -788,7 +798,14 @@ export default function QuoteCompare() {
             // approval (CLAUDE.md §4).
             <p className="font-ui text-12 text-subtle">{L("selectConsequence")}</p>
           ) : null}
-          {chosen && loaded.can.bind && result?.done !== "done.bind" ? (
+          {issued && result?.done !== "done.bind" ? (
+            <p role="status" className="font-ui text-13 text-text">
+              {L("bound")}{" "}
+              <Link to={`/axis/policies/${issued}`} className="text-accent underline underline-offset-4">
+                {L("openPolicy")}
+              </Link>
+            </p>
+          ) : chosen && loaded.can.bind && result?.done !== "done.bind" ? (
             <BindPanel
               quote={chosen}
               customer={request.customerId}

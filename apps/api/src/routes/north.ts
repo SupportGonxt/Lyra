@@ -9,6 +9,7 @@ import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateBriefing } from "../engines/narrator.js";
 import { runSnapshotter } from "../engines/north-snapshotter.js";
+import { pushMetricValues } from "../engines/north-metric-push.js";
 import { approveBoardpack, assembleBoardpackSections, distributeBoardpack } from "../engines/north-boardpack.js";
 import { toPdf } from "../engines/export/pdf.js";
 import { pushToActor } from "../engines/realtime.js";
@@ -58,6 +59,17 @@ northRoutes.post("/boardpacks/:id/approve", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "north:boardpacks:approve", { tenantId: ctx.tenantId, module: "north" });
   return c.json(await approveBoardpack(ctx, c.req.param("id")));
+});
+
+// docs/30 NORTH 3: numbers from outside Lyra, for a metric nothing here computes.
+northRoutes.post("/metrics/:key/values", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:metrics:write", { tenantId: ctx.tenantId, module: "north" });
+  const input = await body(
+    c,
+    z.object({ values: z.array(z.object({ period: z.string().min(7).max(10), value: z.number().int() })).min(1).max(400) })
+  );
+  return c.json(await pushMetricValues(ctx, c.req.param("key"), input.values));
 });
 
 northRoutes.post("/boardpacks/:id/distribute", async (c) => {

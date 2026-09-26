@@ -2930,6 +2930,7 @@ export interface Operations {
   "GET /v1/north/metrics/{id}": Op<{ id: string }, never, never, NorthMetrics>;
   "PATCH /v1/north/metrics/{id}": Op<{ id: string }, never, NorthMetrics, NorthMetrics>;
   "DELETE /v1/north/metrics/{id}": Op<{ id: string }, never, never, void>;
+  "POST /v1/north/metrics/{key}/values": Op<{ key: string }, never, never, Record<string, unknown>>;
   "GET /v1/north/scenarios": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthScenarios>>;
   "POST /v1/north/scenarios": Op<never, never, NorthScenarios, NorthScenarios>;
   "GET /v1/north/scenarios/{id}": Op<{ id: string }, never, never, NorthScenarios>;
@@ -3719,6 +3720,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/north/metrics/{id}": { tag: "north", summary: "Fetch one metric", permission: "north:metrics:read", public: false },
   "PATCH /v1/north/metrics/{id}": { tag: "north", summary: "Update a metric", permission: "north:metrics:write", public: false },
   "DELETE /v1/north/metrics/{id}": { tag: "north", summary: "Soft-delete a metric", permission: "north:metrics:write", public: false },
+  "POST /v1/north/metrics/{key}/values": { tag: "north", summary: "Push grand-total values for a metric the snapshotter does not compute (docs/30 NORTH 3)", permission: "north:metrics:write", public: false },
   "GET /v1/north/scenarios": { tag: "north", summary: "List scenarios", permission: "north:scenarios:read", public: false },
   "POST /v1/north/scenarios": { tag: "north", summary: "Create a scenario", permission: "north:scenarios:run", public: false },
   "GET /v1/north/scenarios/{id}": { tag: "north", summary: "Fetch one scenario", permission: "north:scenarios:read", public: false },
