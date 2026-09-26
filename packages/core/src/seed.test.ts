@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, schema } from "@lyra/db";
-import { ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames, syncSeedJourneyCooldowns } from "./seed.js";
+import { ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames, syncSeedJourneyGraphs } from "./seed.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
 import { TENANT_ROLE_KEYS, isInternalRole, permissionsForRole } from "./rbac.js";
 import type { CoreDb } from "./context.js";
@@ -276,6 +276,11 @@ describe("seed", () => {
       const graph = JSON.parse(j.graphJson) as Record<string, unknown>;
       expect(graph.cooldownDays, j.key).toBeGreaterThan(0);
       delete graph.cooldownDays;
+      delete graph.subject;
+      // The name it was seeded with before orbit-partner-quotes.ts emitted anything.
+      graph.nodes = (graph.nodes as { type: string; event?: string }[]).map((n) =>
+        n.type === "wait_for" ? { ...n, event: "orbit.partner.quote" } : n
+      );
       await db.update(schema.orbitJourneys).set({ graphJson: JSON.stringify(graph) }).where(eq(schema.orbitJourneys.id, j.id));
     }
     await db.insert(schema.orbitJourneys).values({
@@ -290,15 +295,22 @@ describe("seed", () => {
       createdAt: 1
     });
 
-    const fixed = await syncSeedJourneyCooldowns(db, tenantId);
+    const fixed = await syncSeedJourneyGraphs(db, tenantId);
     expect([...fixed].sort()).toEqual(journeys.map((j) => j.id).sort());
     for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
-      const cooldown = (JSON.parse(j.graphJson) as { cooldownDays?: number }).cooldownDays;
+      const graph = JSON.parse(j.graphJson) as { cooldownDays?: number; subject?: string };
       // An authored journey's cap is its author's to set.
-      if (j.id === "jrn_own") expect(cooldown).toBeUndefined();
-      else expect(cooldown, j.key).toBe(30);
+      if (j.id === "jrn_own") expect(graph.cooldownDays).toBeUndefined();
+      else expect(graph.cooldownDays, j.key).toBe(30);
+      expect(graph.subject, j.key).toBe(j.key === "broker_activation" ? "partner" : undefined);
     }
-    expect(await syncSeedJourneyCooldowns(db, tenantId)).toEqual([]);
+    expect(await syncSeedJourneyGraphs(db, tenantId)).toEqual([]);
+
+    const renamed = await syncSeedEventNames(db, tenantId);
+    const broker = journeys.find((j) => j.key === "broker_activation")!;
+    expect(renamed.journeys).toContain(broker.id);
+    const [after] = await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.id, broker.id));
+    expect(after!.graphJson).toContain('"event":"orbit.partner.quoted"');
   });
 
   /**

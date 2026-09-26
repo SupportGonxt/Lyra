@@ -2617,7 +2617,9 @@ export const SEED_EVENT_RENAMES: Readonly<Record<string, string>> = {
   // The document chase begins when ORBIT asks the customer for a document.
   "orbit.document.missing": "orbit.conversation.document",
   // A partner moving up the onboarding ladder (onboarding.ts advancePartner).
-  "dist.partner.approved": "orbit.partner.stage_changed"
+  "dist.partner.approved": "orbit.partner.stage_changed",
+  // Was only ever an audit action; orbit-partner-quotes.ts now emits this.
+  "orbit.partner.quote": "orbit.partner.quoted"
 };
 
 /** The journey keys the seed writes (seed/orbit.ts). Only these are ours to repair. */
@@ -2629,28 +2631,38 @@ const SEED_JOURNEY_KEYS = new Set([
   "broker_activation"
 ]);
 
+/** Seeded journeys that follow a partner rather than a customer. */
+const SEED_PARTNER_JOURNEYS = new Set(["broker_activation"]);
+
 /**
- * Give a tenant's seeded journeys the frequency cap they were seeded without
- * (docs/30 ORBIT gap 1). `triggerJourney` refuses a graph with no
- * `cooldownDays` (ORB-051), so without this a tenant seeded before the fix
- * could never enrol anybody in a seeded journey. Only seeded keys, only when
- * the cap is missing: an authored journey's cap is its author's. Idempotent.
- * Returns the ids it changed.
+ * Give a tenant's seeded journeys what they were seeded without (docs/30 ORBIT
+ * gap 1): the frequency cap `triggerJourney` requires (ORB-051), and — for the
+ * partner journey — `subject: "partner"`, without which it waits for a
+ * customer that partner events never name. Only seeded keys, only what is
+ * missing: an authored journey is its author's. Idempotent. Returns the ids it
+ * changed.
  */
-export async function syncSeedJourneyCooldowns(db: CoreDb, tenantId: string): Promise<string[]> {
+export async function syncSeedJourneyGraphs(db: CoreDb, tenantId: string): Promise<string[]> {
   const changed: string[] = [];
   for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
     if (!SEED_JOURNEY_KEYS.has(j.key)) continue;
-    let graph: { cooldownDays?: unknown };
+    let graph: { cooldownDays?: unknown; subject?: unknown };
     try {
       graph = JSON.parse(j.graphJson) as typeof graph;
     } catch {
       continue; // not ours to repair
     }
-    if (typeof graph.cooldownDays === "number" && graph.cooldownDays > 0) continue;
+    const capped = typeof graph.cooldownDays === "number" && graph.cooldownDays > 0;
+    const subjectRight = !SEED_PARTNER_JOURNEYS.has(j.key) || graph.subject === "partner";
+    if (capped && subjectRight) continue;
+    const next = {
+      ...graph,
+      ...(capped ? {} : { cooldownDays: SEED_JOURNEY_COOLDOWN_DAYS }),
+      ...(subjectRight ? {} : { subject: "partner" })
+    };
     await db
       .update(schema.orbitJourneys)
-      .set({ graphJson: JSON.stringify({ ...graph, cooldownDays: SEED_JOURNEY_COOLDOWN_DAYS }) })
+      .set({ graphJson: JSON.stringify(next) })
       .where(and(eq(schema.orbitJourneys.tenantId, tenantId), eq(schema.orbitJourneys.id, j.id)));
     changed.push(j.id);
   }
@@ -2670,7 +2682,7 @@ export async function syncSeedEventNames(
   const rename = (name: string): string => SEED_EVENT_RENAMES[name] ?? name;
   const journeys: string[] = [];
   for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
-    let graph: { nodes?: { type?: string; on?: unknown }[] };
+    let graph: { nodes?: { type?: string; on?: unknown; event?: unknown }[] };
     try {
       graph = JSON.parse(j.graphJson) as typeof graph;
     } catch {
@@ -2680,6 +2692,11 @@ export async function syncSeedEventNames(
     for (const node of graph.nodes ?? []) {
       if (node.type === "trigger" && typeof node.on === "string" && rename(node.on) !== node.on) {
         node.on = rename(node.on);
+        changed = true;
+      }
+      // A wait_for names an event the same way a trigger does.
+      if (node.type === "wait_for" && typeof node.event === "string" && rename(node.event) !== node.event) {
+        node.event = rename(node.event);
         changed = true;
       }
     }

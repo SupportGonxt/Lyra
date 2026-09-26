@@ -791,9 +791,10 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
    * a run to sit on one, not a real production flow. */
   // ORB-051: every journey carries a frequency cap — `triggerJourney` refuses a
   // graph without one, so a seeded journey missing it could never enrol anyone.
-  const graph = (nodes: { key: string; type: string; [k: string]: unknown }[]): string =>
+  const graph = (nodes: { key: string; type: string; [k: string]: unknown }[], extra: Record<string, unknown> = {}): string =>
     JSON.stringify({
       cooldownDays: SEED_JOURNEY_COOLDOWN_DAYS,
+      ...extra,
       nodes,
       edges: nodes.slice(0, -1).map((n, i) => ({ from: n.key, to: nodes[i + 1]!.key }))
     });
@@ -905,13 +906,17 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
       key: "broker_activation",
       version: 1,
       nameJson: JSON.stringify({ en: "Partner activation", ar: "تفعيل الشريك" }),
-      graphJson: graph([
-        { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
-        { key: "sandbox_keys", type: "task", team: "partners" },
-        { key: "first_quote", type: "wait_for", event: "orbit.partner.quote" },
-        { key: "go_live", type: "task", team: "partners" },
-        { key: "end", type: "end" }
-      ]),
+      // Follows a partner, not a customer: runs are keyed by partner_id.
+      graphJson: graph(
+        [
+          { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
+          { key: "sandbox_keys", type: "task", team: "partners" },
+          { key: "first_quote", type: "wait_for", event: "orbit.partner.quoted", timeoutDays: 30 },
+          { key: "go_live", type: "task", team: "partners" },
+          { key: "end", type: "end" }
+        ],
+        { subject: "partner" }
+      ),
       status: "active",
       createdBy: ctx.users["orbit.partners"]!,
       createdAt: now - 200 * DAY

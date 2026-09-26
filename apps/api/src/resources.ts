@@ -710,7 +710,30 @@ export const ORBIT = register(
       });
     }
   }),
-  r("journeys", schema.orbitJourneys, "jrn", "orbit", rw("orbit:journeys"), { actorColumns: ["createdBy"] }),
+  r("journeys", schema.orbitJourneys, "jrn", "orbit", rw("orbit:journeys"), {
+    actorColumns: ["createdBy"],
+    // ORB-051: a frequency cap is an unremovable floor, and triggerJourney
+    // refuses a graph without one. Refusing it here too means a journey can
+    // never be active and unrunnable — which is what put every seeded journey
+    // into a consumer that failed on every matching event.
+    beforeWrite: (_ctx, values, existing) => {
+      const status = "status" in values ? values.status : existing?.status;
+      if (status !== "active") return values;
+      const raw = "graphJson" in values ? values.graphJson : existing?.graphJson;
+      let cooldown: unknown;
+      try {
+        cooldown = (JSON.parse(String(raw)) as { cooldownDays?: unknown }).cooldownDays;
+      } catch {
+        cooldown = undefined;
+      }
+      if (typeof cooldown !== "number" || !(cooldown > 0)) {
+        throw badRequest("an active journey needs graph.cooldownDays, a positive number of days (ORB-051)", {
+          graphJson: "cooldownDays required to activate"
+        });
+      }
+      return values;
+    }
+  }),
   r("journey-runs", schema.orbitJourneyRuns, "jrr", "orbit", ro("orbit:journeys:read")),
   // No generic `update`: stage/status/sandboxFlag/goLiveAt are advancePartner()'s
   // (blockingSteps() + dist.partner_activate on "live") — a raw PATCH would let

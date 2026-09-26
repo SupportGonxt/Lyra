@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, recordConsent, type Ctx, type Envelope } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
+import { BY_MODULE } from "../resources.js";
 import { advanceJourneyRuns, onJourneyEvent, triggerJourney } from "./orbit-journeys.js";
 
 // docs/30 ORBIT gap 1: both active seeded journeys halted with
@@ -369,5 +370,161 @@ describe("advanceJourneyRuns — agent", () => {
 
     expect((await run()).state).toBe("done");
     expect(await contextOf()).toMatchObject({ churnScore: 72 });
+  });
+});
+
+/* ---------------------------------------------------------- partner journeys */
+
+describe("partner journeys", () => {
+  const partnerNodes = [
+    { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
+    { key: "keys", type: "task", title: "Issue sandbox keys" },
+    { key: "first_quote", type: "wait_for", event: "orbit.partner.quoted", timeoutDays: 14 },
+    { key: "end", type: "end" }
+  ];
+  const chain = (nodes: { key: string }[]) => nodes.slice(0, -1).map((n, i) => ({ from: n.key, to: nodes[i + 1]!.key }));
+
+  async function seedPartnerJourney(nodes: object[] = partnerNodes): Promise<void> {
+    await ctx.db.insert(schema.orbitJourneys).values({
+      id: "jrn_ptn",
+      tenantId: ctx.tenantId,
+      key: "k_ptn",
+      version: 1,
+      nameJson: JSON.stringify({ en: "Partner activation" }),
+      graphJson: JSON.stringify({ cooldownDays: 30, subject: "partner", nodes, edges: chain(nodes as { key: string }[]) }),
+      status: "active",
+      createdBy: "user:noor",
+      createdAt: ctx.now
+    });
+  }
+
+  async function seedPartner(id: string): Promise<void> {
+    await ctx.db.insert(schema.orbitPartners).values({
+      id,
+      tenantId: ctx.tenantId,
+      name: "Alpha Telco",
+      kind: "telco",
+      createdAt: NOON,
+      updatedAt: NOON
+    } as never);
+  }
+
+  const partnerEvent = (type: string, partnerId: string): Envelope => ({
+    id: `evt_${type}_${partnerId}`,
+    ts: NOON,
+    tenant_id: "t_1",
+    module: "orbit",
+    type,
+    actor: "system:test",
+    subject: partnerId,
+    data: { partnerId },
+    v: 1
+  });
+
+  const partnerRun = async (partnerId: string) =>
+    (await ctx.db.select().from(schema.orbitJourneyRuns).where(eq(schema.orbitJourneyRuns.partnerId, partnerId)))[0];
+
+  it("enrols the partner a partner event names, and walks task → wait_for → end", async () => {
+    await seedPartner("ptn_1");
+    await seedPartnerJourney();
+
+    await onJourneyEvent(ctx, partnerEvent("orbit.partner.stage_changed", "ptn_1"));
+    const enrolled = await partnerRun("ptn_1");
+    expect(enrolled).toBeDefined();
+    expect(enrolled!.customerId).toBeNull();
+
+    await advanceJourneyRuns(ctx);
+    const [task] = await ctx.db.select().from(schema.orbitConversations);
+    expect(task!.customerId).toBeNull();
+    await ctx.db.update(schema.orbitConversations).set({ state: "closed", closedAt: NOON }).where(eq(schema.orbitConversations.id, task!.id));
+
+    await advanceJourneyRuns(at(NOON + 2 * 3_600_000));
+    expect((await partnerRun("ptn_1"))!.node).toBe("first_quote");
+
+    await onJourneyEvent(at(NOON + DAY), partnerEvent("orbit.partner.quoted", "ptn_1"));
+    await advanceJourneyRuns(at(NOON + DAY));
+    expect((await partnerRun("ptn_1"))!.state).toBe("done");
+  });
+
+  it("does not enrol a customer from a customer event into a partner journey", async () => {
+    await seedPartnerJourney();
+    await onJourneyEvent(ctx, envelope("orbit.partner.stage_changed", "cus_1"));
+    expect(await ctx.db.select().from(schema.orbitJourneyRuns)).toHaveLength(0);
+  });
+
+  it("halts a partner run that reaches a customer-facing step", async () => {
+    await seedPartner("ptn_1");
+    await seedPartnerJourney([
+      { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
+      { key: "hello", type: "send", templateKey: "welcome" },
+      { key: "end", type: "end" }
+    ]);
+    await onJourneyEvent(ctx, partnerEvent("orbit.partner.stage_changed", "ptn_1"));
+    await advanceJourneyRuns(ctx, 200, { env: ENV });
+
+    const halted = await partnerRun("ptn_1");
+    expect(halted!.state).toBe("halted");
+    expect(JSON.parse(halted!.contextJson!)).toMatchObject({ haltReason: "not_for_partners" });
+    expect(await ctx.db.select().from(schema.orbitMessages)).toHaveLength(0);
+  });
+});
+
+/* ------------------------------------------- one bad journey, not every journey */
+
+describe("onJourneyEvent isolates each journey", () => {
+  it("enrols the good journey when another journey on the same trigger is refused", async () => {
+    // Written straight to the table, as a journey activated before the
+    // activation check existed would be.
+    await ctx.db.insert(schema.orbitJourneys).values({
+      id: "jrn_bad",
+      tenantId: ctx.tenantId,
+      key: "k_bad",
+      version: 1,
+      nameJson: JSON.stringify({ en: "No cap" }),
+      graphJson: JSON.stringify({ nodes: [{ key: "start", type: "trigger", on: "axis.policy.issued" }], edges: [] }),
+      status: "active",
+      createdBy: "user:noor",
+      createdAt: ctx.now
+    });
+    await seedJourney(
+      "jrn_good",
+      [
+        { key: "start", type: "trigger", on: "axis.policy.issued" },
+        { key: "end", type: "end" }
+      ],
+      [{ from: "start", to: "end" }]
+    );
+
+    await expect(onJourneyEvent(ctx, envelope("axis.policy.issued", "cus_1"))).resolves.toBeUndefined();
+
+    const runs = await ctx.db.select().from(schema.orbitJourneyRuns);
+    expect(runs.map((r) => r.journeyId)).toEqual(["jrn_good"]);
+  });
+});
+
+/* --------------------------------------------- journey activation floor (ORB-051) */
+
+describe("the journeys resource refuses an active journey with no frequency cap", () => {
+  const journeys = BY_MODULE.orbit!.find((r) => r.path === "journeys")!;
+  const graph = (extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ nodes: [{ key: "start", type: "trigger", on: "axis.policy.issued" }], edges: [], ...extra });
+  const write = (values: Record<string, unknown>, existing: Record<string, unknown> | null = null) =>
+    Promise.resolve().then(() => journeys.beforeWrite!(ctx, values, existing, {} as never));
+
+  it("refuses to create one active without cooldownDays, naming the field", async () => {
+    await expect(write({ status: "active", graphJson: graph() })).rejects.toMatchObject({
+      status: 400,
+      extras: { errors: { graphJson: expect.any(String) } }
+    });
+  });
+
+  it("refuses to activate a stored draft that has none, and allows it once the cap is set", async () => {
+    const draft = { status: "draft", graphJson: graph() };
+    await expect(write({ status: "active" }, draft)).rejects.toMatchObject({ status: 400 });
+    await expect(write({ status: "active", graphJson: graph({ cooldownDays: 14 }) }, draft)).resolves.toBeTruthy();
+  });
+
+  it("leaves a draft alone: a cap is only required to go live", async () => {
+    await expect(write({ status: "draft", graphJson: graph() })).resolves.toBeTruthy();
   });
 });

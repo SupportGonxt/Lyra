@@ -45,6 +45,11 @@ interface JourneyGraph {
    * migration for one integer. Absent/0 = no cap.
    */
   cooldownDays?: number;
+  /**
+   * Who a run follows: a customer (the default) or a partner. Also freeform
+   * graph data rather than a column, for the same reason as `cooldownDays`.
+   */
+  subject?: "customer" | "partner";
 }
 
 const DAY_MS = 86_400_000;
@@ -54,7 +59,8 @@ function parseGraph(raw: string): JourneyGraph {
   return {
     nodes: g.nodes ?? [],
     edges: g.edges ?? [],
-    ...(g.cooldownDays === undefined ? {} : { cooldownDays: g.cooldownDays })
+    ...(g.cooldownDays === undefined ? {} : { cooldownDays: g.cooldownDays }),
+    ...(g.subject === "partner" ? { subject: "partner" as const } : {})
   };
 }
 
@@ -120,8 +126,13 @@ export async function triggerJourney(
   const skippedConsent: string[] = [];
   const skippedCooldown: string[] = [];
 
+  // A partner journey follows partners: consent is a customer's, so there is
+  // no consent floor to check, and the run is keyed by partner_id.
+  const partner = graph.subject === "partner";
+  const subjectColumn = partner ? schema.orbitJourneyRuns.partnerId : schema.orbitJourneyRuns.customerId;
+
   for (const customerId of customerIds) {
-    if (await consentWithdrawn(ctx, customerId)) {
+    if (!partner && (await consentWithdrawn(ctx, customerId))) {
       skippedConsent.push(customerId);
       continue;
     }
@@ -133,7 +144,7 @@ export async function triggerJourney(
         and(
           eq(schema.orbitJourneyRuns.tenantId, ctx.tenantId),
           eq(schema.orbitJourneyRuns.journeyId, journeyId),
-          eq(schema.orbitJourneyRuns.customerId, customerId)
+          eq(subjectColumn, customerId)
         )
       );
 
@@ -151,7 +162,7 @@ export async function triggerJourney(
         id: newId("jrun", ctx.now),
         tenantId: ctx.tenantId,
         journeyId,
-        customerId,
+        ...(partner ? { partnerId: customerId } : { customerId }),
         node,
         state: "running",
         contextJson: null,
@@ -173,7 +184,7 @@ export async function triggerJourney(
       module: "orbit",
       type: "orbit.journey.triggered",
       subject: journeyId,
-      data: { journeyId, customerIds: triggered }
+      data: partner ? { journeyId, partnerIds: triggered } : { journeyId, customerIds: triggered }
     });
   }
 
@@ -380,10 +391,15 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200, deps: AdvanceDep
       graphs.set(runRow.journeyId, graph);
     }
 
-    const [customer] = await ctx.db
-      .select()
-      .from(schema.customers)
-      .where(and(eq(schema.customers.tenantId, ctx.tenantId), eq(schema.customers.id, runRow.customerId)));
+    const [customer] = runRow.customerId
+      ? await ctx.db
+          .select()
+          .from(schema.customers)
+          .where(and(eq(schema.customers.tenantId, ctx.tenantId), eq(schema.customers.id, runRow.customerId)))
+      : [];
+    // A partner run has nobody who consented to hear from us: every
+    // customer-facing step halts rather than guessing an address.
+    const customerId = runRow.customerId;
 
     const context: RunContext = runRow.contextJson ? (JSON.parse(runRow.contextJson) as RunContext) : {};
     let node = runRow.node;
@@ -440,7 +456,12 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200, deps: AdvanceDep
       }
 
       if (current.type === "send" || current.type === "message") {
-        if (await consentWithdrawn(ctx, runRow.customerId)) {
+        if (!customerId) {
+          await halt(ctx, runRow.id, context, "not_for_partners");
+          result.halted++;
+          break;
+        }
+        if (await consentWithdrawn(ctx, customerId)) {
           await halt(ctx, runRow.id, context, "consent_withdrawn");
           result.halted++;
           break;
@@ -502,7 +523,12 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200, deps: AdvanceDep
       }
 
       if (current.type === "survey") {
-        if (await consentWithdrawn(ctx, runRow.customerId)) {
+        if (!customerId) {
+          await halt(ctx, runRow.id, context, "not_for_partners");
+          result.halted++;
+          break;
+        }
+        if (await consentWithdrawn(ctx, customerId)) {
           await halt(ctx, runRow.id, context, "consent_withdrawn");
           result.halted++;
           break;
@@ -536,6 +562,11 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200, deps: AdvanceDep
       }
 
       if (current.type === "agent") {
+        if (!customerId) {
+          await halt(ctx, runRow.id, context, "not_for_partners");
+          result.halted++;
+          break;
+        }
         const agentKey = typeof current.agent === "string" ? current.agent : "";
         // No approval named: an assessment, not a message. Nothing is drafted or
         // sent, so no model is asked — the renewal agent's churn score is the one
@@ -546,7 +577,7 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200, deps: AdvanceDep
             result.halted++;
             break;
           }
-          context.churnScore = await latestChurnScore(ctx, runRow.customerId);
+          context.churnScore = await latestChurnScore(ctx, customerId);
           const to = nextNode(graph, node);
           if (!to) {
             await finish(ctx, runRow.id, context, node);
@@ -578,7 +609,7 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200, deps: AdvanceDep
           continue;
         }
 
-        if (await consentWithdrawn(ctx, runRow.customerId)) {
+        if (await consentWithdrawn(ctx, customerId)) {
           await halt(ctx, runRow.id, context, "consent_withdrawn");
           result.halted++;
           break;
@@ -855,20 +886,25 @@ async function raiseTask(ctx: Ctx, runRow: RunRow, node: JourneyNode): Promise<s
  * wrong id the first time a module's subject is not a customer.
  */
 export async function onJourneyEvent(ctx: Ctx, event: Envelope): Promise<void> {
-  const customerId = (event.data as { customerId?: unknown } | undefined)?.customerId;
-  if (typeof customerId !== "string" || !customerId) return;
+  const data = (event.data ?? {}) as { customerId?: unknown; partnerId?: unknown };
+  const customerId = typeof data.customerId === "string" && data.customerId ? data.customerId : null;
+  const partnerId = typeof data.partnerId === "string" && data.partnerId ? data.partnerId : null;
+  if (!customerId && !partnerId) return;
 
-  // A run parked on `wait_for` this event, for this customer, wakes now: the
-  // next advance takes its `event` edge. Only this customer's runs are read,
-  // so another customer's event can never move it.
+  // A run parked on `wait_for` this event, for this subject, wakes now: the
+  // next advance takes its `event` edge. Only this subject's runs are read, so
+  // another customer's or partner's event can never move it.
   const waiting = await ctx.db
     .select()
     .from(schema.orbitJourneyRuns)
     .where(
       and(
         eq(schema.orbitJourneyRuns.tenantId, ctx.tenantId),
-        eq(schema.orbitJourneyRuns.customerId, customerId),
-        eq(schema.orbitJourneyRuns.state, "waiting")
+        eq(schema.orbitJourneyRuns.state, "waiting"),
+        or(
+          customerId ? eq(schema.orbitJourneyRuns.customerId, customerId) : undefined,
+          partnerId ? eq(schema.orbitJourneyRuns.partnerId, partnerId) : undefined
+        )
       )
     );
   for (const runRow of waiting) {
@@ -894,6 +930,19 @@ export async function onJourneyEvent(ctx: Ctx, event: Envelope): Promise<void> {
       continue;
     }
     if (!graph.nodes.some((n) => n.type === "trigger" && n.on === event.type)) continue;
-    await triggerJourney(ctx, journey.id, [customerId]);
+    const subjectId = graph.subject === "partner" ? partnerId : customerId;
+    if (!subjectId) continue;
+    // One journey the engine refuses (a graph written before the activation
+    // check, say) must not stop every other journey on the same event — nor
+    // fail the event's consumer, which would retry it into the dead letters.
+    try {
+      await triggerJourney(ctx, journey.id, [subjectId]);
+    } catch (err) {
+      await audit(ctx, {
+        action: "orbit.journey.trigger_refused",
+        subjectRef: journey.id,
+        after: { event: event.type, reason: err instanceof Error ? err.message.slice(0, 200) : "error" }
+      });
+    }
   }
 }

@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import { permissionsForRole, seed, type Ctx } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
-import { JOURNEY_NODE_TYPES, advanceJourneyRuns, triggerJourney } from "./orbit-journeys.js";
+import { JOURNEY_NODE_TYPES, advanceJourneyRuns, onJourneyEvent, triggerJourney } from "./orbit-journeys.js";
 
 // docs/30 ORBIT gap 1. Both active seeded journeys halted with
 // `unknown_node_type`: the seed authored node types the executor never knew,
@@ -68,23 +68,23 @@ describe("seeded journeys", () => {
     expect(unknown).toEqual([]);
   });
 
-  it("run every active customer journey from trigger to end", async () => {
-    const all = await ctx.db
+  it("run every active journey from trigger to end — customers and partners alike", async () => {
+    const active = await ctx.db
       .select()
       .from(schema.orbitJourneys)
       .where(and(eq(schema.orbitJourneys.tenantId, ctx.tenantId), eq(schema.orbitJourneys.status, "active")));
-    // Partner activation enrols partners, and runs are keyed by customer: it
-    // cannot start until partner-keyed runs are specified (docs/27, docs/30).
-    // Named here so a second exclusion cannot slip in unremarked.
-    const PARTNER_JOURNEYS = ["broker_activation"];
-    const active = all.filter((j) => !PARTNER_JOURNEYS.includes(j.key));
-    expect(active.map((j) => j.key).sort()).toEqual(["onboarding_new_policy", "renewal_45d"]);
+    expect(active.map((j) => j.key).sort()).toEqual(["broker_activation", "onboarding_new_policy", "renewal_45d"]);
 
     // A clean slate: the seed parks historical runs mid-graph for the runs tab.
     await ctx.db.delete(schema.orbitJourneyRuns);
     const [customer] = await ctx.db.select().from(schema.customers).where(eq(schema.customers.tenantId, ctx.tenantId)).limit(1);
     const customerId = customer!.id;
-    for (const journey of active) await triggerJourney(ctx, journey.id, [customerId]);
+    const [partner] = await ctx.db.select().from(schema.orbitPartners).where(eq(schema.orbitPartners.tenantId, ctx.tenantId)).limit(1);
+    const partnerId = partner!.id;
+    for (const journey of active) {
+      const subject = (JSON.parse(journey.graphJson) as { subject?: string }).subject;
+      await triggerJourney(ctx, journey.id, [subject === "partner" ? partnerId : customerId]);
+    }
 
     const stub = makeStub({ replies: ["Your cover is coming up for renewal. Reply here and we will prepare your terms."] });
     const gateway = new Gateway({ env: {}, providers: { "workers-ai": stub, anthropic: stub, "openai-compat": stub } });
@@ -94,6 +94,20 @@ describe("seeded journeys", () => {
     // exactly what the inbox would see.
     for (let day = 0; day <= 20; day++) {
       const now = NOON + day * DAY;
+      // The partner's first quote lands on day 3 (orbit-partner-quotes.ts emits this).
+      if (day === 3) {
+        await onJourneyEvent({ ...ctx, now }, {
+          id: "evt_quoted",
+          ts: now,
+          tenant_id: ctx.tenantId,
+          module: "orbit",
+          type: "orbit.partner.quoted",
+          actor: "system:test",
+          subject: partnerId,
+          data: { partnerId },
+          v: 1
+        });
+      }
       await advanceJourneyRuns({ ...ctx, now }, 200, { env: ENV, gateway });
 
       const drafts = (await ctx.db.select().from(schema.orbitMessages)).filter(

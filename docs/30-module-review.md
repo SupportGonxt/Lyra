@@ -78,7 +78,12 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
    - executors for `wait_for` (an event wakes the run, with `event`/`timeout` edges and a 30-day ceiling), `survey` (the rating link for the run's own conversation) and `agent` (a pending draft a person sends, eval `orbit-journey-draft`; with no approval step, the renewal churn score);
    - seeded cooldowns, with `syncSeedJourneyCooldowns` backfilling them on resync;
    - a guard that every seeded node type has an executor, and a test that walks both active journeys end to end (`orbit-journey-seeded.test.ts`).
-   Partner activation still cannot start: runs are keyed by customer, and partner-keyed runs need a spec.
+   **Partners too, 2026-09-26.**
+   - A graph with `subject: "partner"` follows a partner. Runs gained `partner_id` in migration 0037, the first table rebuild, with a test that it keeps existing runs.
+   - Partner events now carry `partnerId`, and a partner quote emits `orbit.partner.quoted`, so partner activation runs end to end.
+   - A partner run halts at any customer-facing step (`not_for_partners`).
+   - A journey without a cap can no longer be activated (the journeys resource's `beforeWrite`).
+   - `onJourneyEvent` isolates each journey, so one refused graph no longer fails the consumer for every other journey on the same event.
 2. ~~Save-desk outcomes emit `orbit.renewal.accepted`/`lost`.~~ **Fixed** 2026-09-23 (renewal outcome events: offered/accepted/lost).
 3. Real-time AI replies on inbound, sent within the agent's autonomy.
 4. Web chat channel (a `ChannelAdapter` plus a portal route).

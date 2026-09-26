@@ -1792,3 +1792,4 @@ describe("J-CO1 a regulator asks", () => {
     for (const row of spend.data) expect(row.module).toBeTruthy();
   });
 });
+

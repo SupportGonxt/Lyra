@@ -698,11 +698,13 @@ describe("seedOrbit — graph() helper via orbit_journeys", () => {
     const nodes = [
       { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
       { key: "sandbox_keys", type: "task", team: "partners" },
-      { key: "first_quote", type: "wait_for", event: "orbit.partner.quote" },
+      { key: "first_quote", type: "wait_for", event: "orbit.partner.quoted", timeoutDays: 30 },
       { key: "go_live", type: "task", team: "partners" },
       { key: "end", type: "end" }
     ];
     const parsed = JSON.parse(row.graphJson);
+    // Runs follow the partner (orbit-journeys.ts): partner events name no customer.
+    expect(parsed.subject).toBe("partner");
     expect(parsed.nodes).toEqual(nodes);
     expect(parsed.edges).toEqual(expectedEdges(nodes));
     expect(parsed.edges).toHaveLength(4);

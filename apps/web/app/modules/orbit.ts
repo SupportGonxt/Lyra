@@ -573,13 +573,15 @@ export const orbit: WorkspaceSpec = {
       key: "journey-runs",
       api: "/v1/orbit/journey-runs",
       read: "orbit:journeys:read",
-      // Where each customer stands in a graph. The scheduler owns every column.
+      // Where each customer — or, on a partner journey, each partner — stands
+      // in a graph. The scheduler owns every column.
       sort: "nextAt",
       order: "asc",
       filters: [{ name: "state", options: ["running", "waiting", "done", "halted"] }],
       columns: [
         { name: "journeyId", type: "text" },
         { name: "customerId", type: "text" },
+        { name: "partnerId", type: "text" },
         { name: "node", type: "text" },
         { name: "state", type: "text", badge: true },
         { name: "nextAt", type: "datetime", sortable: true },
