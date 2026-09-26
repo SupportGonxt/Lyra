@@ -160,9 +160,18 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     // The inbox is the only endpoint that answers "waiting for THIS actor": it
     // keeps the rows whose policy names a permission this actor holds. The CRUD
     // list would hand back every pending row in the tenant instead.
-    const inbox = await soft(api<{ approvals: ApprovalRow[] }>("/v1/me/inbox", { env, request }));
+    // F60: the queue pages — `cursor` is the inbox's own keyset, handed back
+    // as-is. The first page is the inbox's default page, which is exactly what
+    // the home tile counts, so the number it prints is the list this opens.
+    const inbox = await soft(
+      api<{ approvals: ApprovalRow[]; cursor?: string | null }>(
+        `/v1/me/inbox${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+        { env, request }
+      )
+    );
     readable = inbox !== null;
     rows = inbox?.approvals ?? [];
+    next = inbox?.cursor ?? null;
   } else if (canReadDecided) {
     const page = await soft(
       api<{ data: ApprovalRow[]; cursor?: string }>(

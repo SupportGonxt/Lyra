@@ -18,7 +18,8 @@ const DEMO_TOTP_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
 
 const PEOPLE: Record<string, string> = {
   "axis.agent": "layla.hassan",
-  "north.exec": "hala.zayed"
+  "north.exec": "hala.zayed",
+  "tenant.admin": "demo"
 };
 
 let env: Env;
@@ -173,5 +174,26 @@ describe("GET /v1/me/inbox", () => {
     const after = await call("north.exec", "GET", "/v1/me/inbox");
     expect(after.status).toBe(200);
     expect(after.body.counts.clearedToday).toBe(baseline + 1);
+  });
+});
+
+// F60: the pending queue stopped at 100 rows. It pages now, and walking the
+// pages visits every decidable row exactly once.
+describe("GET /v1/me/inbox paging", () => {
+  it("pages the approvals by cursor without repeating or skipping a row", async () => {
+    const all = await call("tenant.admin", "GET", "/v1/me/inbox");
+    const ids: string[] = all.body.approvals.map((a: { id: string }) => a.id);
+    expect(ids.length).toBeGreaterThan(2); // enough rows that limit=2 must page
+    const walked: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 50; page++) {
+      const res: { status: number; body: any } = await call("tenant.admin", "GET", `/v1/me/inbox?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      expect(res.status).toBe(200);
+      walked.push(...res.body.approvals.map((a: { id: string }) => a.id));
+      cursor = res.body.cursor;
+      if (!cursor) break;
+    }
+    expect(walked).toEqual(ids);
+    expect((await call("tenant.admin", "GET", "/v1/me/inbox?cursor=nonsense")).status).toBe(400);
   });
 });

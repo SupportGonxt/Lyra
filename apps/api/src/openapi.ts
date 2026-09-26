@@ -468,6 +468,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/core/security-posture", summary: "MFA enrolment and session posture for the tenant's people, against the estate-wide floor", permission: "core:settings:read", tag: "core" },
   // Reuses the real delivery path with a hand-built envelope, same signature
   // scheme production events use (routes/core.ts developer console tester).
+  { method: "post", path: "/v1/core/event-dlq/{id}/replay", summary: "Replay a dead-lettered event: back to pending for the consumer that gave up on it, once (docs/09)", permission: "admin:dlq:replay", tag: "core" },
   { method: "post", path: "/v1/core/webhooks/{id}/test", summary: "Send a signed test delivery to a webhook, without a queued event behind it", permission: "core:webhooks:read", tag: "core" },
 
   // NORTH explorer and data health (routes/north.ts). Explorer reads a fixed

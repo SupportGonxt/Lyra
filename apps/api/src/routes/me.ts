@@ -206,7 +206,23 @@ meRoutes.get("/inbox", async (c) => {
   // filter every approval out and leave the queue permanently empty. A delegate
   // holding no permission of their own still needs this row to show up here —
   // otherwise `decide()` would accept a decision the inbox never offered.
-  const pending = await pendingApprovals(ctx);
+  // F60: the queue pages by keyset (requestedAt, id) instead of stopping at a
+  // cap. The cursor is the last *raw* row read, so a page the permission filter
+  // thinned out still hands on to the next one.
+  const limit = Math.min(Math.max(Number(c.req.query("limit") ?? 100) || 100, 1), 100);
+  const rawCursor = c.req.query("cursor");
+  let after: { requestedAt: number; id: string } | undefined;
+  if (rawCursor) {
+    const dot = rawCursor.indexOf(".");
+    const requestedAt = Number(rawCursor.slice(0, dot));
+    if (dot < 1 || !Number.isSafeInteger(requestedAt) || !rawCursor.slice(dot + 1)) {
+      throw badRequest("cursor is not one this endpoint issued", { cursor: "invalid" });
+    }
+    after = { requestedAt, id: rawCursor.slice(dot + 1) };
+  }
+  const pending = await pendingApprovals(ctx, undefined, limit, after);
+  const last = pending.at(-1);
+  const cursor = pending.length === limit && last ? `${last.requestedAt}.${last.id}` : null;
   const decidable = await Promise.all(
     pending.map(async (a) => {
       const p = APPROVAL_POLICIES[a.policyKey];
@@ -253,6 +269,7 @@ meRoutes.get("/inbox", async (c) => {
     );
   return c.json({
     approvals,
+    cursor,
     notifications,
     counts: {
       approvals: approvals.length,

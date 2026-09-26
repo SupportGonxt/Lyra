@@ -218,6 +218,13 @@ export const LABELS: Record<string, Record<string, string>> = {
     exportSubmit: "Build the bundle",
     exported: "The bundle is ready.",
     copilotTitle: "Ask the case copilot",
+    slaPredict: "Will it miss its SLA?",
+    slaLikely: "{p}% likely to miss its SLA — {left}",
+    slaHoursLeft: "{h} h left",
+    slaDueNow: "due now",
+    slaClear: "No sign this case will miss its SLA",
+    slaNone: "No prediction right now",
+    slaWhyNone: "Nothing in this case's history stood out.",
     copilotPlaceholder: "Ask a question about this case…",
     copilotSubmit: "Ask",
     copilotEmpty: "Ask a question and the answer will appear here, grounded in this case's own facts.",
@@ -300,6 +307,13 @@ export const LABELS: Record<string, Record<string, string>> = {
     exportSubmit: "إنشاء الحزمة",
     exported: "الحزمة جاهزة.",
     copilotTitle: "اسأل مساعد الحالة",
+    slaPredict: "هل ستفوّت اتفاقية الخدمة؟",
+    slaLikely: "احتمال {p}٪ أن تفوّت اتفاقية الخدمة — {left}",
+    slaHoursLeft: "متبقٍ {h} ساعة",
+    slaDueNow: "مستحقة الآن",
+    slaClear: "لا مؤشر على أن هذه الحالة ستفوّت اتفاقية الخدمة",
+    slaNone: "لا توقع في الوقت الحالي",
+    slaWhyNone: "لم يبرز شيء في سجل هذه الحالة.",
     copilotPlaceholder: "اطرح سؤالًا حول هذه الحالة…",
     copilotSubmit: "اسأل",
     copilotEmpty: "اطرح سؤالًا وستظهر الإجابة هنا، مستندة إلى وقائع هذه الحالة.",
@@ -512,7 +526,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     bundleId: null as string | null,
     answer: null as string | null,
     confidence: null as number | null,
-    mismatches: null as number[] | null
+    mismatches: null as number[] | null,
+    sla: null as SlaPrediction | null
   };
   // The loader mints one key per page load, but the hidden field carrying it
   // is shared by four forms (move/verify/export/copilot). Suffixing with the
@@ -554,11 +569,37 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       );
       return { ...nothing, done: "answered", answer: result.answer, confidence: result.confidence, mismatches: result.mismatches };
     }
+    if (intent === "sla-predict") {
+      // Ambient and read-only (the engine writes nothing): a failed call
+      // answers { predicted: false } and reads as "no prediction right now".
+      const result = await api<SlaPrediction | { predicted: false }>(`/v1/axis/cases/${id}/sla-predict`, {
+        env,
+        request,
+        method: "POST",
+        ...headers
+      });
+      return { ...nothing, done: "predicted", sla: "breachProbability" in result ? result : null };
+    }
     return { ...nothing, problem: { title: "unknown intent", status: 400 } };
   } catch (error) {
     if (error instanceof ApiError) return { ...nothing, problem: error.problem };
     throw error;
   }
+}
+
+/** POST /v1/axis/cases/:id/sla-predict — mirrors SlaBreachPrediction (apps/api/src/engines/axis-sla-sentinel.ts). */
+export interface SlaPrediction {
+  breachProbability: number;
+  hoursToBreach: number | null;
+  driver: { feature: string; detail: string; evidenceRef: string } | null;
+}
+
+/** docs/30 AXIS 4: the prediction as one sentence beside the due date. */
+export function slaOutlook(l: (key: string, vars?: Record<string, string>) => string, sla: SlaPrediction | null): string {
+  if (!sla) return l("slaNone");
+  if (sla.breachProbability <= 0) return l("slaClear");
+  const left = sla.hoursToBreach === null ? "" : sla.hoursToBreach <= 0 ? l("slaDueNow") : l("slaHoursLeft", { h: String(Math.round(sla.hoursToBreach)) });
+  return l("slaLikely", { p: String(Math.round(sla.breachProbability)), left }).replace(/ — $/, "");
 }
 
 /* --------------------------------------------------------------- component */
@@ -710,6 +751,24 @@ export default function CaseDetail() {
           />
           <Stat label={l("risk")} value={<span className="font-mono text-13">{workItem.riskScore ?? "—"}</span>} />
         </div>
+        {loaded.may.copilot && workItem.slaDueAt ? (
+          // docs/30 AXIS 4, docs/15 §4: a quiet line under the due date, not a
+          // modal. The ✦ badge carries the one driver the model had evidence for.
+          <Form method="post" replace className="flex flex-wrap items-center gap-2 font-ui text-12 text-muted">
+            <input type="hidden" name="intent" value="sla-predict" />
+            <input type="hidden" name="idempotencyKey" value={loaded.idempotencyKey} />
+            {result?.done === "predicted" ? (
+              <>
+                <AgentBadge why={result.sla?.driver?.detail ?? l("slaWhyNone")} />
+                <span>{slaOutlook(l, result.sla)}</span>
+              </>
+            ) : (
+              <Button type="submit" variant="ghost" size="sm" disabled={busy}>
+                {l("slaPredict")}
+              </Button>
+            )}
+          </Form>
+        ) : null}
         <Facts>
           <Entry term={l("kind")}>{tag(l, "kind", workItem.kind)}</Entry>
           <Entry term={l("priority")}>{tag(l, "priority", workItem.priority)}</Entry>

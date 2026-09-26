@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson } from "@lyra/db";
 import { audit, chainFor, verifyChain } from "./audit.js";
-import { consume, emit, markPublishFailed, MAX_ATTEMPTS, pendingOutbox, type Envelope } from "./events.js";
+import { consume, emit, markPublished, markPublishFailed, MAX_ATTEMPTS, pendingOutbox, replayDead, type Envelope } from "./events.js";
 import { assertChannel, assertPurpose, recordConsent } from "./consent.js";
 import { decide, gate } from "./approvals.js";
 import { IDEMPOTENCY_TTL_MS, pruneIdempotency, withIdempotency } from "./idempotency.js";
@@ -137,6 +137,29 @@ describe("events", () => {
     expect(result).toBe("dead");
     const dlq = await client.execute("SELECT * FROM core_event_dlq");
     expect(dlq.rows).toHaveLength(1);
+  });
+
+  // docs/30 Admin 4: the DLQ promised admin replay (docs/09) and had no replay.
+  // A replay re-queues the event and clears only the dead consumer's mark, so
+  // that consumer runs again and every consumer that already succeeded skips it.
+  it("replays a dead consumer once: the event drains again and only that consumer re-runs", async () => {
+    const envelope: Envelope = await emit(ctx, { module: "orbit", type: "orbit.msg.in", data: {} });
+    await markPublished(ctx.db, [envelope.id], ctx.now);
+    await consume(ctx.db, envelope, "ok.consumer", async () => {}, ctx.now);
+    for (let i = 0; i < MAX_ATTEMPTS; i++) await consume(ctx.db, envelope, "axis", async () => { throw new Error("nope"); }, ctx.now);
+    const [dead] = (await client.execute("SELECT id FROM core_event_dlq")).rows;
+
+    await replayDead(ctx.db, ctx.tenantId, String(dead!["id"]), ctx.now + 1);
+    expect((await pendingOutbox(ctx.db, 10, ctx.now + 2)).map((e) => e.id)).toEqual([envelope.id]);
+    let ran = 0;
+    expect(await consume(ctx.db, envelope, "axis", async () => { ran++; }, ctx.now + 3)).toBe("processed");
+    expect(await consume(ctx.db, envelope, "ok.consumer", async () => { ran += 10; }, ctx.now + 3)).toBe("duplicate");
+    expect(ran).toBe(1);
+
+    const [after] = (await client.execute("SELECT replayed_at FROM core_event_dlq")).rows;
+    expect(after!["replayed_at"]).toBe(ctx.now + 1);
+    await expect(replayDead(ctx.db, ctx.tenantId, String(dead!["id"]), ctx.now + 4)).rejects.toMatchObject({ status: 409 });
+    await expect(replayDead(ctx.db, "other_tenant", String(dead!["id"]), ctx.now + 4)).rejects.toMatchObject({ status: 404 });
   });
 });
 
