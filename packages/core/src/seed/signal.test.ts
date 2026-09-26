@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { schema } from "@lyra/db";
 import type { CoreDb } from "../context.js";
 import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
-import { seedSignal } from "./signal.js";
+import { SEED_CREATIVE_COPY, seedSignal } from "./signal.js";
 
 // Same DB harness as ../seed.test.ts and analytics.test.ts: an in-memory
 // libSQL db with the real migrations replayed, one extra ".." because this
@@ -368,7 +368,7 @@ describe("seedSignal: creatives", () => {
     const campaignIdByName = new Map(campaigns.map((c) => [c.name, c.id]));
     const byRef = new Map(rows.map((c) => [c.contentRef, c]));
 
-    const searchEnA = byRef.get("signal/creatives/motor-search/en-a.json")!;
+    const searchEnA = byRef.get(SEED_CREATIVE_COPY["signal/creatives/motor-search/en-a.json"]!)!;
     expect(searchEnA.campaignId).toBe(campaignIdByName.get("Motor — always-on search"));
     expect(searchEnA.kind).toBe("ad");
     expect(searchEnA.locale).toBe("en");
@@ -386,13 +386,13 @@ describe("seedSignal: creatives", () => {
 
     // Arabic outperforms English here — the finding the concluded landing-page
     // experiment acted on.
-    const searchArA = byRef.get("signal/creatives/motor-search/ar-a.json")!;
+    const searchArA = byRef.get(SEED_CREATIVE_COPY["signal/creatives/motor-search/ar-a.json"]!)!;
     expect(searchArA.locale).toBe("ar");
     expect(searchArA.complianceStatus).toBe("passed");
     expect(JSON.parse(searchArA.performanceJson!)).toEqual({ impressions: 18_640, clicks: 906, ctrBps: 486, binds: 54 });
 
     // Flagged: never served, no performance and no attribution touch names it.
-    const searchEnB = byRef.get("signal/creatives/motor-search/en-b.json")!;
+    const searchEnB = byRef.get(SEED_CREATIVE_COPY["signal/creatives/motor-search/en-b.json"]!)!;
     expect(searchEnB.complianceStatus).toBe("flagged");
     expect(searchEnB.performanceJson).toBeNull();
     expect(searchEnB.createdAt).toBe(NOW - 7 * DAY);
@@ -403,7 +403,7 @@ describe("seedSignal: creatives", () => {
     expect(enBNotes.findings[0].rule).toBe("comparison_claim_requires_source");
 
     // Blocked in the hard lane — a promise of acceptance no aggregator can make.
-    const brandArBlocked = byRef.get("signal/creatives/december-brand/ar-guarantee.json")!;
+    const brandArBlocked = byRef.get(SEED_CREATIVE_COPY["signal/creatives/december-brand/ar-guarantee.json"]!)!;
     expect(brandArBlocked.campaignId).toBe(campaignIdByName.get("December brand — social"));
     expect(brandArBlocked.complianceStatus).toBe("blocked");
     expect(brandArBlocked.performanceJson).toBeNull();
@@ -414,7 +414,7 @@ describe("seedSignal: creatives", () => {
     expect(blockedNotes.findings[0].rule).toBe("no_guarantee_of_cover");
 
     // The social post whose weak numbers cost the brand campaign its budget.
-    const brandSocialEn = byRef.get("signal/creatives/december-brand/en-social.json")!;
+    const brandSocialEn = byRef.get(SEED_CREATIVE_COPY["signal/creatives/december-brand/en-social.json"]!)!;
     expect(brandSocialEn.kind).toBe("social");
     expect(brandSocialEn.complianceStatus).toBe("passed");
     expect(brandSocialEn.generatedBy).toBe("human");
@@ -427,7 +427,7 @@ describe("seedSignal: creatives", () => {
       binds: 15
     });
 
-    const lpEn = byRef.get("signal/creatives/motor-lp/en.mdx")!;
+    const lpEn = byRef.get(SEED_CREATIVE_COPY["signal/creatives/motor-lp/en.mdx"]!)!;
     expect(lpEn.kind).toBe("lp");
     expect(lpEn.variantGroup).toBe("motor-lp-arabic-first");
     expect(lpEn.generatedBy).toBe("human");
@@ -436,7 +436,7 @@ describe("seedSignal: creatives", () => {
 
     // Authored in Arabic, not translated — the whole point of the experiment
     // it belongs to.
-    const lpAr = byRef.get("signal/creatives/motor-lp/ar.mdx")!;
+    const lpAr = byRef.get(SEED_CREATIVE_COPY["signal/creatives/motor-lp/ar.mdx"]!)!;
     expect(lpAr.locale).toBe("ar");
     expect(lpAr.generatedBy).toBe("ai");
     expect(lpAr.createdAt).toBe(NOW - 32 * DAY);
@@ -448,7 +448,7 @@ describe("seedSignal: creatives", () => {
     );
 
     // Pending review — why the renewal campaign is scheduled, not live.
-    const renewalEmailAr = byRef.get("signal/creatives/renewal-nudge/ar-email.mjml")!;
+    const renewalEmailAr = byRef.get(SEED_CREATIVE_COPY["signal/creatives/renewal-nudge/ar-email.mjml"]!)!;
     expect(renewalEmailAr.campaignId).toBe(campaignIdByName.get("Renewal nudge — 45 days out"));
     expect(renewalEmailAr.kind).toBe("email");
     expect(renewalEmailAr.complianceStatus).toBe("pending");
@@ -458,7 +458,7 @@ describe("seedSignal: creatives", () => {
 
     // No stored consent record, so the script declares "no likeness" rather
     // than leaving the question open.
-    const summerScriptEn = byRef.get("signal/creatives/summer-travel/en-script.md")!;
+    const summerScriptEn = byRef.get(SEED_CREATIVE_COPY["signal/creatives/summer-travel/en-script.md"]!)!;
     expect(summerScriptEn.campaignId).toBe(campaignIdByName.get("Summer travel — early planning"));
     expect(summerScriptEn.kind).toBe("video_script");
     expect(summerScriptEn.complianceStatus).toBe("pending");
@@ -837,7 +837,7 @@ describe("seedSignal: attribution events", () => {
     const campaigns = await db.select().from(schema.signalCampaigns);
     const creatives = await db.select().from(schema.signalCreatives);
     const brandDecId = campaigns.find((c) => c.name === "December brand — social")!.id;
-    const brandSocialEnId = creatives.find((c) => c.contentRef === "signal/creatives/december-brand/en-social.json")!.id;
+    const brandSocialEnId = creatives.find((c) => c.contentRef === SEED_CREATIVE_COPY["signal/creatives/december-brand/en-social.json"])!.id;
     for (const touch of dropoff) {
       expect(touch.campaignId).toBe(brandDecId);
       expect(touch.creativeId).toBe(brandSocialEnId);

@@ -9,6 +9,7 @@ import {
   emit,
   ensureDemoAdmin,
   ensureSeedPeople,
+  syncSeedCreativeCopy,
   syncSeedEventNames,
   backfillProspects,
   syncSeedJourneyGraphs,
@@ -642,7 +643,11 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // Eighth (ADR-0091): SIGNAL's prospects arrive by event from now on; the book
   // before this deploy never announced itself, so it is read once here.
   const prospects = await backfillProspects(database as unknown as CoreDb, tenantId, Date.now());
-  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs, prospects });
+  // Ninth: seeded creatives held file keys where the words belong, so the
+  // studio headlined every demo design with a path. The seed writes the copy
+  // now; this repairs a tenant seeded before.
+  const creatives = await syncSeedCreativeCopy(database as unknown as CoreDb, tenantId);
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs, prospects, creatives });
 });
 
 /**

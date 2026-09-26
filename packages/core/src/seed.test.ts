@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, schema } from "@lyra/db";
 import { PROSPECT_CHURN_FLOOR } from "./prospects.js";
-import { backfillProspects, ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames, syncSeedJourneyGraphs } from "./seed.js";
+import { backfillProspects, ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedCreativeCopy, syncSeedEventNames, syncSeedJourneyGraphs } from "./seed.js";
+import { SEED_CREATIVE_COPY } from "./seed/signal.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
 import { TENANT_ROLE_KEYS, isInternalRole, permissionsForRole } from "./rbac.js";
 import type { CoreDb } from "./context.js";
@@ -226,6 +227,26 @@ describe("seed", () => {
 
     // A second run touches nothing — every address is already taken.
     expect((await ensureSeedPeople(db, tenantId)).created).toEqual([]);
+  });
+
+  /**
+   * The studio renders a creative's contentRef as the words of the ad, which is
+   * what every generated creative holds. The seeded ones held file keys no
+   * bucket ever had (`signal/creatives/motor-search/en-a.json`), so the demo's
+   * designs were headlined with a path. The seed now writes the copy; a tenant
+   * seeded before the fix gets it from the resync seam.
+   */
+  it("seeds creatives with their words, and rewrites the old file keys a deployed tenant still holds", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    const rows = () => db.select().from(schema.signalCreatives).where(eq(schema.signalCreatives.tenantId, tenantId));
+    expect((await rows()).filter((r) => r.contentRef.startsWith("signal/creatives/"))).toEqual([]);
+
+    const [key, copy] = Object.entries(SEED_CREATIVE_COPY)[0]!;
+    const victim = (await rows()).find((r) => r.contentRef === copy)!;
+    await db.update(schema.signalCreatives).set({ contentRef: key }).where(eq(schema.signalCreatives.id, victim.id));
+    expect(await syncSeedCreativeCopy(db, tenantId)).toEqual([victim.id]);
+    expect((await rows()).find((r) => r.id === victim.id)!.contentRef).toBe(copy);
+    expect(await syncSeedCreativeCopy(db, tenantId)).toEqual([]);
   });
 
   /**
