@@ -1,6 +1,6 @@
 import { and, count, eq, like } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { AppError, audit, badRequest, conflict, emit, gate, hashObject, notFound, require_, scoped, type Ctx } from "@lyra/core";
+import { AppError, audit, badRequest, can, conflict, emit, gate, hashObject, notFound, require_, scoped, type Actor, type Ctx, type Permission } from "@lyra/core";
 import { promptInstant, verdictFor, type Message, type ToolCall, type ToolDef } from "@lyra/model-gateway";
 import { isInstantKey } from "../http.js";
 import { endorsePolicy } from "./axis-endorse.js";
@@ -209,27 +209,16 @@ async function startQuote(ctx: Ctx, args: Record<string, unknown>): Promise<unkn
   if (!customerId) throw badRequest("start_quote needs customerId");
   require_(ctx.actor, "axis:cases:create", { tenantId: ctx.tenantId, module: "axis" });
 
+  // CLAUDE.md rule 6: ORBIT asks and AXIS opens the case (engines/axis-orbit-intake.ts).
+  // The id is minted here so the model can name the case before AXIS has heard.
   const caseId = newId("cas", ctx.now);
-  // ponytail: id() is already unique per tenant, so the case reuses it as its
-  // human-facing ref too. Swap in a real short-code generator (none exists
-  // yet — seed.ts hardcodes its one ref) if agents start surfacing refs to
-  // customers directly.
-  const row = {
-    id: caseId,
-    tenantId: ctx.tenantId,
-    ref: caseId,
-    kind: "quote",
-    customerId,
-    productLine: str(args.productLine) ?? null,
-    channelId: str(args.channelId) ?? null,
-    status: "intake",
-    ownerRef: `${ctx.actor.kind}:${ctx.actor.id}`,
-    source: "agent",
-    createdAt: ctx.now,
-    updatedAt: ctx.now
-  };
-  await ctx.db.insert(schema.axisCases).values(row);
-  return row;
+  await emit(ctx, {
+    module: "orbit",
+    type: "orbit.quote.requested",
+    subject: caseId,
+    data: { caseId, customerId, productLine: str(args.productLine) ?? null, channelId: str(args.channelId) ?? null }
+  });
+  return { caseId, status: "requested" };
 }
 
 async function createEndorsementRequest(ctx: Ctx, args: Record<string, unknown>): Promise<unknown> {
@@ -316,22 +305,9 @@ async function sendDocument(ctx: Ctx, args: Record<string, unknown>): Promise<un
     .set({ lastMessageAt: ctx.now, updatedAt: ctx.now })
     .where(scoped(ctx, schema.orbitConversations, eq(schema.orbitConversations.id, conversationId)));
 
-  let taskId: string | null = null;
+  // The chase task is AXIS's to raise, on hearing the event below (rule 6).
   const caseId = str(args.caseId);
-  if (mode === "collect" && caseId) {
-    taskId = newId("tsk", ctx.now);
-    await ctx.db.insert(schema.axisTasks).values({
-      id: taskId,
-      tenantId: ctx.tenantId,
-      caseId,
-      type: "document_collect",
-      titleKey: `axis.task.document_collect.${docType}`,
-      state: "open",
-      createdBy: `${ctx.actor.kind}:${ctx.actor.id}`,
-      createdAt: ctx.now,
-      updatedAt: ctx.now
-    });
-  }
+  const taskId = mode === "collect" && caseId ? newId("tsk", ctx.now) : null;
 
   await audit(ctx, {
     action: "orbit.document.requested",
@@ -342,7 +318,7 @@ async function sendDocument(ctx: Ctx, args: Record<string, unknown>): Promise<un
     module: "orbit",
     type: "orbit.conversation.document",
     subject: conversationId,
-    data: { conversationId, customerId: conversation.customerId, mode, docType, taskId }
+    data: { conversationId, customerId: conversation.customerId, mode, docType, caseId: caseId ?? null, taskId }
   });
   return { conversationId, mode, docType, taskId };
 }
@@ -687,7 +663,19 @@ export async function executeOrbitToolCalls(
  * — because nobody had filled the field in. Absent config now means the
  * read-only subset; reaching a consequential tool takes an explicit listing.
  */
-export function orbitToolsFor(agent: { toolsJson: string | null }): ToolDef[] {
+/** The permission each handler requires of the person the agent acts for. */
+export const TOOL_PERMISSION: Record<string, Permission> = {
+  fetch_policy: "axis:policies:read",
+  start_quote: "axis:cases:create",
+  create_endorsement_request: "axis:policies:endorse",
+  send_document: "orbit:conversations:reply",
+  make_renewal_offer: "orbit:renewals:update",
+  fnol_guidance: "orbit:conversations:read",
+  book_callback: "orbit:conversations:assign",
+  human_handover: "orbit:handover:write"
+};
+
+export function orbitToolsFor(agent: { toolsJson: string | null }, actor?: Actor): ToolDef[] {
   let allow: string[] | null = null;
   if (agent.toolsJson) {
     try {
@@ -698,5 +686,8 @@ export function orbitToolsFor(agent: { toolsJson: string | null }): ToolDef[] {
       allow = [];
     }
   }
-  return ORBIT_TOOL_DEFS.filter((t) => (allow ? allow.includes(t.name) : !t.consequential));
+  // @accept:SA: a tool the person may not run is never offered — on an
+  // ORBIT-only tenant that is every AXIS tool, since entitledGrants removed them.
+  const runnable = (name: string) => !actor || can(actor, TOOL_PERMISSION[name]!, { tenantId: actor.tenantId });
+  return ORBIT_TOOL_DEFS.filter((t) => (allow ? allow.includes(t.name) : !t.consequential) && runnable(t.name));
 }

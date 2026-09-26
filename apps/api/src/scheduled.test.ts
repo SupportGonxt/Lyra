@@ -41,13 +41,17 @@ beforeEach(async () => {
   vi.mocked(sweepRenewals).mockClear();
 });
 
+// Every provisioned tenant carries what it bought (seed.ts); one that bought
+// nothing has every module stood down, on the clock as at its routes.
+const ALL = JSON.stringify({ modules: ["axis", "orbit", "signal", "scout", "north"] });
+
 describe("scheduled tick", () => {
   it("keeps sweeping the remaining tenants when one tenant's tick throws", async () => {
     const now = Date.now();
     await client.execute({
-      sql: `insert into core_tenants (id, slug, name, status, created_at, updated_at)
-            values ('t_bad','bad','Bad',?,?,?), ('t_good','good','Good',?,?,?)`,
-      args: ["active", now, now, "active", now, now]
+      sql: `insert into core_tenants (id, slug, name, status, entitlements_json, created_at, updated_at)
+            values ('t_bad','bad','Bad',?,?,?,?), ('t_good','good','Good',?,?,?,?)`,
+      args: ["active", ALL, now, now, "active", ALL, now, now]
     });
 
     let tail: Promise<unknown> = Promise.resolve();
@@ -66,9 +70,9 @@ describe("scheduled tick", () => {
   it("does not run a module's sweeps for a tenant that switched it off (ADR-0087)", async () => {
     const now = Date.now();
     await client.execute({
-      sql: `insert into core_tenants (id, slug, name, status, policy_json, created_at, updated_at)
-            values ('t_off','off','Off','active',?,?,?), ('t_on','on','On','active',?,?,?)`,
-      args: [JSON.stringify({ moduleConfig: { orbit: { enabled: false } } }), now, now, "{}", now, now]
+      sql: `insert into core_tenants (id, slug, name, status, policy_json, entitlements_json, created_at, updated_at)
+            values ('t_off','off','Off','active',?,?,?,?), ('t_on','on','On','active',?,?,?,?)`,
+      args: [JSON.stringify({ moduleConfig: { orbit: { enabled: false } } }), ALL, now, now, "{}", ALL, now, now]
     });
 
     let tail: Promise<unknown> = Promise.resolve();

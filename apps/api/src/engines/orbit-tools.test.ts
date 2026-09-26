@@ -8,7 +8,8 @@ import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
 import { changeSetHashOf } from "./axis-endorse.js";
-import { executeOrbitToolCalls, ORBIT_TOOL_DEFS, orbitToolsFor, runOrbitTool } from "./orbit-tools.js";
+import { onQuoteRequested } from "./axis-orbit-intake.js";
+import { executeOrbitToolCalls, ORBIT_TOOL_DEFS, orbitToolsFor, runOrbitTool, TOOL_PERMISSION } from "./orbit-tools.js";
 
 // docs/15. ORBIT's agent acts through these handlers, not raw SQL in the AI
 // route — so the registry is tested on its own, no HTTP, no model gateway.
@@ -131,20 +132,24 @@ describe("fetch_policy", () => {
 });
 
 describe("start_quote", () => {
-  it("opens an intake case, not a bind — no money moves yet", async () => {
+  // CLAUDE.md rule 6, docs/30 ORBIT 5: ORBIT asks, AXIS opens the case. The
+  // tool writes no AXIS table; the case exists once AXIS hears the request.
+  it("asks AXIS for an intake case by event and writes no AXIS row itself", async () => {
     const result = (await runOrbitTool(ctx, "start_quote", {
       customerId: "cus_1",
       productLine: "motor"
-    })) as { id: string; kind: string; status: string; source: string };
-    expect(result.kind).toBe("quote");
-    expect(result.status).toBe("intake");
-    expect(result.source).toBe("agent");
+    })) as { caseId: string; status: string };
+    expect(result.status).toBe("requested");
+    expect(await ctx.db.select().from(schema.axisCases).where(eq(schema.axisCases.id, result.caseId))).toEqual([]);
 
-    const rows = await ctx.db
+    const [event] = await ctx.db.select().from(schema.eventOutbox).where(eq(schema.eventOutbox.type, "orbit.quote.requested"));
+    const envelope = JSON.parse(event!.envelopeJson);
+    await onQuoteRequested(ctx, envelope);
+    const [row] = await ctx.db
       .select()
       .from(schema.axisCases)
-      .where(and(eq(schema.axisCases.tenantId, ctx.tenantId), eq(schema.axisCases.id, result.id)));
-    expect(rows).toHaveLength(1);
+      .where(and(eq(schema.axisCases.tenantId, ctx.tenantId), eq(schema.axisCases.id, result.caseId)));
+    expect(row).toMatchObject({ kind: "quote", status: "intake", source: "agent", customerId: "cus_1", productLine: "motor" });
   });
 
   it("is not consequential — no approval required", () => {
@@ -529,6 +534,21 @@ describe("orbitToolsFor", () => {
     expect(orbitToolsFor({ toolsJson: JSON.stringify(["create_endorsement_request"]) }).map((t) => t.name)).toEqual([
       "create_endorsement_request"
     ]);
+  });
+
+  // @accept:SA — an ORBIT-only tenant's grants carry no axis:* permission
+  // (entitledGrants), so a policy tool offered to its agent could only fail.
+  it("offers only the tools the acting person could run — none of AXIS's without AXIS", () => {
+    const orbitOnly = { kind: "user" as const, id: "u_1", tenantId: "t_1", grants: [{ roleKey: "orbit.agent", permissions: ["orbit:*:*"] as never }] };
+    const names = orbitToolsFor({ toolsJson: JSON.stringify(ORBIT_TOOL_DEFS.map((t) => t.name)) }, orbitOnly).map((t) => t.name);
+    expect(names).not.toContain("fetch_policy");
+    expect(names).not.toContain("start_quote");
+    expect(names).not.toContain("create_endorsement_request");
+    expect(names).toContain("human_handover");
+  });
+
+  it("names a permission for every tool, so none is offered unchecked", () => {
+    expect(ORBIT_TOOL_DEFS.filter((t) => !TOOL_PERMISSION[t.name]).map((t) => t.name)).toEqual([]);
   });
 
   it("filters to the agent's allowlist", () => {

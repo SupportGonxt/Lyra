@@ -160,7 +160,7 @@ aiRoutes.post("/runs", async (c) => {
     // evals/agent-loop). Each round is its own `gateway.complete`, so every one
     // is separately budgeted, scrubbed, guardrailed and audited — there is no
     // "loop call" that escapes the front door.
-    const tools = agent.module === "orbit" ? orbitToolsFor(agent) : [];
+    const tools = agent.module === "orbit" ? orbitToolsFor(agent, ctx.actor) : [];
     const allowed = new Set(tools.map((t) => t.name));
     const turns: Message[] = [...messages];
     const usage = { tokensIn: 0, tokensOut: 0, costMicro: 0 };

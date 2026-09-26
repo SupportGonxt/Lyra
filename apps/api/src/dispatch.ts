@@ -11,6 +11,7 @@ import {
   type Ctx,
   type Envelope
 } from "@lyra/core";
+import { onDocumentRequested, onQuoteRequested } from "./engines/axis-orbit-intake.js";
 import { onFinancingLapseDue } from "./engines/axis-lifecycle.js";
 import { onConsentUpdated } from "./engines/signal-suppression.js";
 import { onBindIssued } from "./engines/signal-attribution.js";
@@ -79,6 +80,13 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // map when a third one makes the list unwieldy, not before.
       if (event.type === "core.consent.updated") {
         await consume(ctx.db, event, "signal.suppression", (e) => onConsentUpdated(ctx, e), ctx.now);
+      }
+      // docs/30 ORBIT 5: ORBIT asks, AXIS writes its own rows (rule 6).
+      if (event.type === "orbit.quote.requested" && on("axis")) {
+        await consume(ctx.db, event, "axis.orbit.quote", (e) => onQuoteRequested(ctx, e), ctx.now);
+      }
+      if (event.type === "orbit.conversation.document" && on("axis")) {
+        await consume(ctx.db, event, "axis.orbit.document", (e) => onDocumentRequested(ctx, e), ctx.now);
       }
       if (event.type === "ledger.financing.lapse_due" && on("axis")) {
         await consume(ctx.db, event, "axis.lifecycle", (e) => onFinancingLapseDue(ctx, e), ctx.now);
