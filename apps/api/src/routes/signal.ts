@@ -1,5 +1,6 @@
 import { prospectCounts } from "../engines/signal-prospects.js";
 import { responseRollup } from "../engines/signal-responses.js";
+import { importSpend } from "../engines/signal-spend-import.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { require_, audit, badRequest, emit, notFound, type Ctx } from "@lyra/core";
@@ -314,6 +315,24 @@ signalRoutes.get("/attribution/funnel", async (c) => {
   const since = Number(c.req.query("since") ?? ctx.now - 30 * DAY_MS);
   const until = Number(c.req.query("until") ?? ctx.now);
   return c.json({ data: await funnelByCampaign(ctx, since, until) });
+});
+
+// docs/30 SIGNAL gap 1: spend actuals from an ad-platform export. Per-line
+// honest like the case import; a day already held is corrected, not doubled.
+signalRoutes.post("/spend/import", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });
+  let csv: string;
+  if ((c.req.header("content-type") ?? "").includes("multipart/form-data")) {
+    const file = (await c.req.formData()).get("file");
+    if (!(file instanceof File)) throw badRequest('attach the CSV as a "file" field');
+    csv = await file.text();
+  } else {
+    const input = (await c.req.json()) as { csv?: unknown };
+    if (typeof input.csv !== "string" || !input.csv) throw badRequest("body must carry a csv string");
+    csv = input.csv;
+  }
+  return c.json(await importSpend(ctx, csv), 201);
 });
 
 // ADR-0091: what came back from sends, per campaign (broad), audience (niche)

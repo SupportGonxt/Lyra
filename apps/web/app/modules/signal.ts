@@ -579,7 +579,27 @@ export const signal: WorkspaceSpec = {
         { name: "conversions", type: "number" },
         { name: "source", type: "text", badge: true },
         { name: "ts", type: "datetime", sortable: true }
-      ]
+      ],
+      create: "signal:spend:write",
+      update: "signal:spend:write",
+      fields: [
+        { name: "day", type: "text", required: true },
+        { name: "channel", type: "text", required: true },
+        { name: "campaignId", type: "text" },
+        { name: "amountMinor", type: "money", required: true },
+        { name: "currency", type: "text", required: true },
+        { name: "impressions", type: "number" },
+        { name: "clicks", type: "number" },
+        { name: "conversions", type: "number" }
+      ],
+      editable: [
+        { name: "amountMinor", type: "money" },
+        { name: "impressions", type: "number" },
+        { name: "clicks", type: "number" },
+        { name: "conversions", type: "number" }
+      ],
+      // docs/30 SIGNAL gap 1: an ad-platform export, per-line honest.
+      import: { api: "/v1/signal/spend/import", permission: "signal:spend:write", required: ["day", "channel", "amountMinor", "currency"] }
     }
   ]
 };

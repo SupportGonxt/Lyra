@@ -904,7 +904,13 @@ export const SIGNAL = register(
   r("attribution-events", schema.signalAttributionEvents, "atr", "signal", ro("signal:attribution:read"), {
     immutable: true
   }),
-  r("spend", schema.signalSpend, "spd", "signal", ro("signal:spend:read"), {
+  // Writable since docs/30 SIGNAL gap 1: a table only a demo tick could fill
+  // left the autopilot's CAC and every response rate with no denominator.
+  r("spend", schema.signalSpend, "spd", "signal", {
+    read: "signal:spend:read",
+    create: "signal:spend:write",
+    update: "signal:spend:write"
+  }, {
     // F62 groundwork: spend lands on the bus as signal.spend.recorded, so
     // NORTH's snapshotter can eventually consume the event instead of
     // querying this module's table directly (CLAUDE.md rule 6).

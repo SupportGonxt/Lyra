@@ -283,3 +283,15 @@ describe("role catalogue", () => {
     expect(agent).not.toContain("signal:campaigns:read");
   });
 });
+
+// Spend actuals are what the autopilot's CAC and every response rate divide by;
+// a table only a demo tick could write was a seam with no writer (docs/30).
+describe("signal:spend:write", () => {
+  it("is a declared permission held by the growth lead and the admin, not the marketer", () => {
+    expect(PERMISSIONS).toContain("signal:spend:write");
+    const holds = (role: string) => can({ kind: "user", id: "u", tenantId: "t", grants: [{ roleKey: role, permissions: permissionsForRole(role) }] }, "signal:spend:write", { tenantId: "t" });
+    expect(holds("signal.lead")).toBe(true);
+    expect(holds("signal.admin")).toBe(true);
+    expect(holds("signal.marketer")).toBe(false);
+  });
+});

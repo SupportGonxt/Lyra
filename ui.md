@@ -795,7 +795,7 @@ reaches the page. No modal, no auto-run, no toast.
 | `attribution-events` | `/v1/signal/attribution-events` | `signal:attribution:read` |  |  |  |  |  |
 | `prospects` | `/v1/signal/prospects` | `signal:audiences:read` |  |  |  |  |  |
 | `responses` | `/v1/signal/responses` | `signal:campaigns:read` |  |  |  |  |  |
-| `spend` | `/v1/signal/spend` | `signal:spend:read` |  |  |  |  |  |
+| `spend` | `/v1/signal/spend` | `signal:spend:read` | ✓ | ✓ |  |  |  |
 
 
 ---

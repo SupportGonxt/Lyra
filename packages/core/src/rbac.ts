@@ -189,7 +189,7 @@ export const PERMISSIONS = [
   "signal:autopilot:pause", "signal:autopilot:run",
   "signal:aeo:read", "signal:aeo:write",
   "signal:attribution:read",
-  "signal:spend:read",
+  "signal:spend:read", "signal:spend:write",
   // Acquisition outreach (engines/signal-outreach.ts): reading the ledger is a
   // read; sending to a person is its own grant and gates on signal.outreach_send.
   "signal:outreach:read", "signal:outreach:send",
@@ -525,7 +525,7 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "signal:creatives:generate", "signal:creatives:publish",
     "signal:experiments:create", "signal:experiments:decide",
     "signal:budget_moves:approve", "signal:budget_moves:reverse", "signal:autopilot:pause", "signal:autopilot:run", "signal:aeo:write",
-    "signal:outreach:send",
+    "signal:outreach:send", "signal:spend:write",
     "core:consents:read", "core:search:read", "core:approvals:read", "core:approvals:decide",
     "core:files:read", "core:files:create",
     "ledger:txns:read", "analytics:reports:read", "analytics:reports:run",
