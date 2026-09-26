@@ -516,7 +516,7 @@ const HAND_WRITTEN: Op[] = [
   // both are public by shape (mw.ts `/v1/portal/*`).
   { method: "get", path: "/v1/portal/{tenantSlug}/site", summary: "A tenant's public storefront: brand and active products", tag: "portal", public: true },
   { method: "post", path: "/v1/portal/{tenantSlug}/leads", summary: "Submit a quote lead from the public storefront; rate-limited per email", tag: "portal", requestBody: true, public: true },
-  { method: "post", path: "/v1/portal/{tenantSlug}/track", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP", tag: "portal", requestBody: true, public: true },
+  { method: "post", path: "/v1/portal/{tenantSlug}/track", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP. A lead or bind must be signed (ADR-0092): x-lyra-key-id (a tenant webhook id), x-lyra-timestamp, x-lyra-signature v1=HMAC-SHA256(secret, `${timestamp}.${body}`); a replayed eventId is answered 200 with duplicate: true", tag: "portal", requestBody: true, public: true },
   // J-C1 self-serve. The visitor has no session, so the one-time token from the
   // lead response is the credential on all three (ADR-0043).
   { method: "get", path: "/v1/portal/{tenantSlug}/quote-requests/{id}", summary: "Re-open a self-serve comparison with the one-time token", tag: "portal", public: true },

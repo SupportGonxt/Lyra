@@ -3,7 +3,7 @@ import { and, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, BrandJson, EntitlementsJson, PolicyJson } from "@lyra/db";
 import { audit, badRequest, conflict, emit, notFound, recordConsent, sha256Hex, timingSafeEqual } from "@lyra/core";
-import { body } from "../http.js";
+import { body, parse } from "../http.js";
 import { readUpload } from "../upload.js";
 import { verifyTurnstile } from "../turnstile.js";
 import { ctxFor, db as rawDb, throttle } from "../auth.js";
@@ -20,6 +20,7 @@ import {
 import { runShop } from "../engines/shop.js";
 import { quoterFor } from "../engines/dist-quoter.js";
 import { recordTouch } from "../engines/signal-attribution.js";
+import { recordSignedConversion, verifyTrackSignature } from "../engines/signal-track.js";
 import type { App, Env } from "../env.js";
 
 // The public comparison site (yallacompare-style). No session exists at all —
@@ -1170,9 +1171,32 @@ const TrackBody = z
   })
   .strict();
 
+// docs/30 SIGNAL gap 2, ADR-0092: a lead or a sale reported from a partner's
+// own site. A claim about money, so it must be signed with one of the tenant's
+// webhook keys (engines/signal-track.ts); unsigned, /track stays anonymous.
+const SignedTrackBody = z
+  .object({
+    touchType: z.enum(["lead", "bind"]),
+    eventId: z.string().min(1).max(128),
+    channel: z.string().min(1).max(64),
+    campaignId: z.string().max(64).optional(),
+    customerId: z.string().max(64).optional(),
+    valueMinor: z.number().int().nonnegative().optional(),
+    currency: z.string().regex(/^[A-Z]{3}$/).optional()
+  })
+  .strict();
+
 portalRoutes.post("/:tenantSlug/track", async (c) => {
   const now = Date.now();
-  const input = await body(c, TrackBody);
+  const raw = await c.req.text();
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw badRequest("request body is not valid JSON");
+  }
+  const signature = c.req.header("x-lyra-signature");
+  const input = signature ? null : parse(TrackBody, json);
   const ip = c.req.header("cf-connecting-ip");
   if (ip) await throttle(c.env, `portal-track-ip:${ip}`, TRACK_MAX, TRACK_WINDOW_SEC);
 
@@ -1180,12 +1204,17 @@ portalRoutes.post("/:tenantSlug/track", async (c) => {
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
   const ctx = await portalCtx(c, tenant.id, now, "portal-track");
 
+  if (signature) {
+    await verifyTrackSignature(ctx, { keyId: c.req.header("x-lyra-key-id") ?? "", timestamp: c.req.header("x-lyra-timestamp") ?? "", signature }, raw);
+    const out = await recordSignedConversion(ctx, parse(SignedTrackBody, json));
+    return c.json({ id: out.id, duplicate: out.duplicate }, out.duplicate ? 200 : 201);
+  }
   const id = await recordTouch(ctx, {
-    touchType: input.touchType,
-    channel: input.channel,
-    campaignId: input.campaignId ?? null,
-    creativeId: input.creativeId ?? null,
-    anonId: input.anonId
+    touchType: input!.touchType,
+    channel: input!.channel,
+    campaignId: input!.campaignId ?? null,
+    creativeId: input!.creativeId ?? null,
+    anonId: input!.anonId
   });
   return c.json({ id }, 201);
 });
