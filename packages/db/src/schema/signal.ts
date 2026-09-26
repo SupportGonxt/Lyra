@@ -66,6 +66,8 @@ export const creatives = sqliteTable(
     performanceJson: text("performance_json"),
     generatedBy: text("generated_by").notNull().default("human"), // human|ai
     aiAuditId: text("ai_audit_id"),
+    /** DesignJson: the studio layout and canvas edits (ST2). Null = the default layout. */
+    designJson: text("design_json"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull()
   },

@@ -143,6 +143,8 @@ export interface CreativeRow {
   performanceJson: unknown;
   generatedBy: string;
   aiAuditId: string | null;
+  /** DesignJson (packages/db/src/json.ts), hydrated by crud.ts; null = the default layout. */
+  designJson?: unknown;
   createdAt: number;
 }
 
@@ -1311,6 +1313,14 @@ const LABELS: Record<string, Record<string, string>> = {
     "studio.format.email": "Email header",
     "studio.ctaDefault": "Find out more",
     "studio.svg": "Download SVG",
+    "studio.edit": "Edit",
+    "studio.canvasElement": "Element to adjust",
+    "studio.canvasHint": "Drag an element, or select it and use the arrow keys (Shift for bigger steps), + and − to resize, 0 to put it back.",
+    "studio.canvasSize": "Size",
+    "studio.save": "Save design",
+    "studio.reset": "Reset this size",
+    "studio.done": "Done",
+    "studio.saved": "Design saved.",
     "studio.png": "Download PNG",
     "studio.contrast": "The {slot} is hard to read on your brand colour ({ratio}:1; it needs {required}:1). Pick another layout or adjust the colour.",
     "studio.slot.headline": "headline",
@@ -1912,6 +1922,14 @@ const LABELS: Record<string, Record<string, string>> = {
     "studio.format.email": "ترويسة بريد",
     "studio.ctaDefault": "اعرف المزيد",
     "studio.svg": "تنزيل SVG",
+    "studio.edit": "تعديل",
+    "studio.canvasElement": "العنصر المراد ضبطه",
+    "studio.canvasHint": "اسحب العنصر، أو حدده واستخدم مفاتيح الأسهم (مع Shift لخطوات أكبر)، و+ و− لتغيير الحجم، و0 لإعادته.",
+    "studio.canvasSize": "الحجم",
+    "studio.save": "حفظ التصميم",
+    "studio.reset": "إعادة هذا المقاس",
+    "studio.done": "تم",
+    "studio.saved": "حُفظ التصميم.",
     "studio.png": "تنزيل PNG",
     "studio.contrast": "يصعب قراءة {slot} على لون هويتك ({ratio}:1، والمطلوب {required}:1). اختر تخطيطًا آخر أو عدّل اللون.",
     "studio.slot.headline": "العنوان",

@@ -1,0 +1,1 @@
+ALTER TABLE `signal_creatives` ADD `design_json` text;

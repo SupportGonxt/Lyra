@@ -10,7 +10,13 @@
  * Google Fonts family (docs/02 §9) with a system fallback.
  */
 
-import { esc, wrap } from "./post-card.js";
+import { esc, wrap as wrapWords } from "./post-card.js";
+
+/** Greedy wrap that also breaks a word longer than a line (a URL, a long compound) instead of running it off the frame. */
+function wrap(text: string, perLine: number, maxLines: number): string[] {
+  const words = text.split(/\s+/).flatMap((word) => (word.length <= perLine ? [word] : word.match(new RegExp(`.{1,${perLine}}`, "gu")) ?? [word]));
+  return wrapWords(words.join(" "), perLine, maxLines);
+}
 
 /** Every size the studio lays out, in pixels. */
 export const FORMATS = {
@@ -54,6 +60,17 @@ export interface DesignBrand {
   logoHref?: string | undefined;
 }
 
+/** The elements a designer can move and resize. */
+export const DESIGN_SLOTS = ["headline", "body", "kicker", "cta", "brand"] as const;
+export type DesignSlot = (typeof DESIGN_SLOTS)[number];
+
+/** A nudge from the layout's own placement: pixels in the frame, and a size factor. */
+export interface DesignEdit {
+  dx: number;
+  dy: number;
+  scale: number;
+}
+
 export interface DesignInput {
   template: DesignTemplate;
   format: DesignFormat;
@@ -64,6 +81,8 @@ export interface DesignInput {
   imageHref?: string | undefined;
   brand: DesignBrand;
   locale?: string | undefined;
+  /** Canvas edits per element (ST2); the layout's placement when absent. */
+  edits?: Partial<Record<DesignSlot, DesignEdit>> | undefined;
 }
 
 interface Scheme {
@@ -154,6 +173,18 @@ export function designSvg(input: DesignInput): string {
 
   const text = (x: number, y: number, cls: string, value: string, extra = "") =>
     `<text x="${Math.round(x)}" y="${Math.round(y)}" class="${cls}"${extra}>${esc(value)}</text>`;
+  // One group per element, so the editor grabs a whole headline, not a line of
+  // it. An edit moves the group and scales it about its own origin, clamped to
+  // the frame and to half-to-double size.
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : 0));
+  const slot = (name: DesignSlot, ox: number, oy: number, inner: string, attrs = "") => {
+    const e = input.edits?.[name];
+    if (!inner) return "";
+    const t = e
+      ? ` transform="translate(${Math.round(clamp(e.dx, -w, w))} ${Math.round(clamp(e.dy, -h, h))}) translate(${Math.round(ox)} ${Math.round(oy)}) scale(${clamp(e.scale || 1, 0.5, 2)}) translate(${-Math.round(ox)} ${-Math.round(oy)})"`
+      : "";
+    return `<g data-slot="${name}"${attrs}${t}>${inner}</g>`;
+  };
   const pill = (x: number, y: number, size: number, label: string, alignEnd: boolean) => {
     const pw = Math.round(label.length * size * 0.58 + size * 1.6);
     const ph = Math.round(size * 2);
@@ -189,12 +220,11 @@ text { font-family: ${family}; }
     const start = rtl ? w - pad : pad;
     parts.push(style(size, 0, 0, ctaSize, Math.round(size * 0.7)));
     parts.push(`<rect width="${w}" height="${h}" fill="${s.ground}"/>`);
-    parts.push(logo(start, (h - h * 0.5) / 2, h * 0.5, rtl));
     const nameX = rtl ? start - (input.brand.logoHref ? h * 0.6 : 0) : start + (input.brand.logoHref ? h * 0.6 : 0);
-    parts.push(`<g text-anchor="${anchor}">${text(nameX, h * 0.6, "brand", input.brand.name)}</g>`);
+    parts.push(slot("brand", start, h / 2, logo(start, (h - h * 0.5) / 2, h * 0.5, rtl) + text(nameX, h * 0.6, "brand", input.brand.name), ` text-anchor="${anchor}"`));
     const headX = rtl ? start - brandW - pad : start + brandW + pad;
-    parts.push(`<g text-anchor="${anchor}">${text(headX, h * 0.62, "head", line ?? "")}</g>`);
-    if (cta) parts.push(pill(rtl ? pad : w - pad, (h - ctaSize * 2) / 2, ctaSize, cta, !rtl));
+    parts.push(slot("headline", headX, h / 2, text(headX, h * 0.62, "head", line ?? ""), ` text-anchor="${anchor}"`));
+    if (cta) parts.push(slot("cta", rtl ? pad : w - pad, h / 2, pill(rtl ? pad : w - pad, (h - ctaSize * 2) / 2, ctaSize, cta, !rtl)));
   } else {
     const pad = Math.round(88 * u);
     const size = headlineSize(input.headline.length, u) * (input.template === "offer" ? 1.4 : 1);
@@ -260,15 +290,14 @@ text { font-family: ${family}; }
     const floor = brandTop ? h - pad * 0.6 : h - pad * 0.8 - brandSize * 1.8;
     if (top + block > floor) top = Math.max(headSize + kickerSize + pad * 0.6, floor - block);
     const bodyTop = top + headLines.length * lead + 44 * u;
-    const g: string[] = [];
     // The quote mark is the quote layout's kicker; both would collide.
-    if (input.kicker && input.template !== "quote") g.push(text(x, top - headSize - 6 * u, "kicker", input.kicker));
-    headLines.forEach((line, i) => g.push(text(x, top + i * lead, "head", line)));
-    bodyLines.forEach((line, i) => g.push(text(x, bodyTop + i * bodySize * 1.4, "body", line)));
-    parts.push(`<g text-anchor="${anchor}">${g.join("")}</g>`);
-
+    if (input.kicker && input.template !== "quote") {
+      parts.push(slot("kicker", x, top - headSize, text(x, top - headSize - 6 * u, "kicker", input.kicker), ` text-anchor="${anchor}"`));
+    }
+    parts.push(slot("headline", x, top, headLines.map((line, i) => text(x, top + i * lead, "head", line)).join(""), ` text-anchor="${anchor}"`));
+    parts.push(slot("body", x, bodyTop, bodyLines.map((line, i) => text(x, bodyTop + i * bodySize * 1.4, "body", line)).join(""), ` text-anchor="${anchor}"`));
     const afterBody = bodyTop + bodyLines.length * bodySize * 1.4 + 24 * u;
-    if (input.cta) parts.push(pill(x, afterBody, ctaSize, input.cta, rtl));
+    if (input.cta) parts.push(slot("cta", x, afterBody, pill(x, afterBody, ctaSize, input.cta, rtl)));
 
     // The brand sits on the foot of the text column with its mark — or, on a
     // wide frame, in the top corner opposite the copy's start.
@@ -276,9 +305,10 @@ text { font-family: ${family}; }
     const bx = brandTop ? (rtl ? pad : w - pad) : x;
     const bEnd = brandTop ? !rtl : rtl;
     const markSize = brandSize * 1.6;
-    parts.push(logo(bx, footY - markSize * 0.8, markSize, bEnd));
     const nameX = input.brand.logoHref ? (bEnd ? bx - markSize - 16 * u : bx + markSize + 16 * u) : bx;
-    parts.push(`<g text-anchor="${brandTop ? "end" : "start"}">${text(nameX, footY, "brand", input.brand.name)}</g>`);
+    parts.push(
+      slot("brand", bx, footY, logo(bx, footY - markSize * 0.8, markSize, bEnd) + text(nameX, footY, "brand", input.brand.name), ` text-anchor="${brandTop ? "end" : "start"}"`)
+    );
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(input.headline)}" direction="${rtl ? "rtl" : "ltr"}">
