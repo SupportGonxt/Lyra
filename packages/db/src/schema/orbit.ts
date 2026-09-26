@@ -154,7 +154,10 @@ export const journeyRuns = sqliteTable(
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
     journeyId: text("journey_id").notNull(),
-    customerId: text("customer_id").notNull(),
+    // Exactly one of these names the run's subject: a customer, or — for a
+    // journey whose graph says `subject: "partner"` — a partner.
+    customerId: text("customer_id"),
+    partnerId: text("partner_id"),
     node: text("node").notNull(),
     state: text("state").notNull().default("running"), // running|waiting|done|halted
     contextJson: text("context_json"),
@@ -164,7 +167,8 @@ export const journeyRuns = sqliteTable(
   },
   (t) => [
     index("orbit_journey_runs_due_idx").on(t.tenantId, t.state, t.nextAt),
-    uniqueIndex("orbit_journey_runs_uq").on(t.tenantId, t.journeyId, t.customerId)
+    uniqueIndex("orbit_journey_runs_uq").on(t.tenantId, t.journeyId, t.customerId),
+    uniqueIndex("orbit_journey_runs_partner_uq").on(t.tenantId, t.journeyId, t.partnerId)
   ]
 );
 

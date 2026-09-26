@@ -197,6 +197,8 @@ export const outreach = sqliteTable(
     state: text("state").notNull().default("pending_approval"), // pending_approval|sent|failed|converted
     approvedBy: text("approved_by").notNull(), // auto|pending|user:<id>
     externalRef: text("external_ref"), // provider-side message id on send
+    /** The ORBIT conversation the send went into — how a reply finds its campaign. */
+    conversationId: text("conversation_id"),
     convertedRef: text("converted_ref"), // the policy id the loop closed on
     aiAuditId: text("ai_audit_id"),
     ts: integer("ts").notNull(),
@@ -205,6 +207,63 @@ export const outreach = sqliteTable(
   (t) => [
     index("signal_outreach_tenant_idx").on(t.tenantId, t.ts),
     index("signal_outreach_campaign_idx").on(t.tenantId, t.campaignId, t.state),
-    index("signal_outreach_customer_idx").on(t.tenantId, t.customerId, t.ts)
+    index("signal_outreach_customer_idx").on(t.tenantId, t.customerId, t.ts),
+    index("signal_outreach_conversation_idx").on(t.tenantId, t.conversationId, t.ts),
+    index("signal_outreach_ext_idx").on(t.tenantId, t.externalRef)
+  ]
+);
+
+/**
+ * One identified person SIGNAL has a reason to talk to (engines/signal-prospects.ts).
+ * Filled from other modules' events, never by reading their tables (CLAUDE.md
+ * rule 6, ADR-0091). Recording a prospect is not permission to contact one:
+ * outreach still runs consent, quiet hours, the weekly cap and the approval gate.
+ * `reason` quote_expired|churn_risk|no_policy; `state`
+ * open|contacted|responded|converted|suppressed.
+ */
+export const prospects = sqliteTable(
+  "signal_prospects",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    customerId: text("customer_id").notNull(),
+    reason: text("reason").notNull(),
+    /** What the model may say about why: the event's own facts, nothing more. */
+    evidenceJson: text("evidence_json").notNull().default("{}"),
+    score: integer("score").notNull().default(0), // 0-100
+    state: text("state").notNull().default("open"),
+    sourceRef: text("source_ref"), // the row the event was about
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("signal_prospects_uq").on(t.tenantId, t.customerId, t.reason),
+    index("signal_prospects_reason_idx").on(t.tenantId, t.reason, t.state, t.score)
+  ]
+);
+
+/**
+ * What came back, at every scale at once: each row names its campaign (broad),
+ * audience (niche) and person (individual), so one table rolls up three ways.
+ * `kind` delivered|read|replied|lead|bind|opted_out.
+ */
+export const responses = sqliteTable(
+  "signal_responses",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    campaignId: text("campaign_id"),
+    audienceId: text("audience_id"),
+    customerId: text("customer_id"),
+    outreachId: text("outreach_id"),
+    kind: text("kind").notNull(),
+    ref: text("ref"), // the message, policy or consent it came from
+    ts: integer("ts").notNull()
+  },
+  (t) => [
+    // One of each kind per send: a redelivered receipt must not count twice.
+    uniqueIndex("signal_responses_uq").on(t.tenantId, t.outreachId, t.kind),
+    index("signal_responses_campaign_idx").on(t.tenantId, t.campaignId, t.ts),
+    index("signal_responses_customer_idx").on(t.tenantId, t.customerId, t.ts)
   ]
 );

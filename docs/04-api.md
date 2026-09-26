@@ -82,6 +82,7 @@ ai.budget.threshold                       platform.key.rotated
 dist.referral.qualified                   dist.referral.settled
 ledger.recon.completed                    ledger.settlement.approved|paid
 compliance.disclosure.presented
+dist.quote.expired                        orbit.message.received|status
 ```
 Envelope: `{id, ts, tenant_id, module, type, actor, subject, data, v:1}`.
 

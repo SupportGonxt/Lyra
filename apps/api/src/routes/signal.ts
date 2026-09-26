@@ -1,6 +1,8 @@
+import { prospectCounts } from "../engines/signal-prospects.js";
+import { responseRollup } from "../engines/signal-responses.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { require_, audit, emit, notFound, type Ctx } from "@lyra/core";
+import { require_, audit, badRequest, emit, notFound, type Ctx } from "@lyra/core";
 import { schema, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
 import { z } from "zod";
 import { body } from "../http.js";
@@ -133,7 +135,8 @@ signalRoutes.post("/campaigns/:id/plan", async (c) => {
     coverage: null,
     competitionScore: null,
     bookSize,
-    audience: await planAudience(ctx, audienceId)
+    audience: await planAudience(ctx, audienceId),
+    prospects: await prospectCounts(ctx)
   });
 
   await ctx.db
@@ -311,6 +314,19 @@ signalRoutes.get("/attribution/funnel", async (c) => {
   const since = Number(c.req.query("since") ?? ctx.now - 30 * DAY_MS);
   const until = Number(c.req.query("until") ?? ctx.now);
   return c.json({ data: await funnelByCampaign(ctx, since, until) });
+});
+
+// ADR-0091: what came back from sends, per campaign (broad), audience (niche)
+// or person (individual) — one table, three groupings.
+signalRoutes.get("/responses/rollup", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:campaigns:read", { tenantId: ctx.tenantId, module: "signal" });
+  const level = c.req.query("level") ?? "campaign";
+  if (level !== "campaign" && level !== "audience" && level !== "customer") {
+    throw badRequest("level must be campaign, audience or customer", { level: "unknown level" });
+  }
+  const since = Number(c.req.query("since") ?? ctx.now - 30 * DAY_MS);
+  return c.json({ data: await responseRollup(ctx, level, since) });
 });
 
 /**

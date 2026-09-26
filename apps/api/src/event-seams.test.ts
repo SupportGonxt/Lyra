@@ -245,15 +245,17 @@ describe("the emitted-event registry the guard reads", () => {
 describe("seeded event names are events the code emits", () => {
   const emitted = emittedTypes();
 
-  it("every seeded journey trigger", async () => {
+  it("every seeded journey trigger and wait_for", async () => {
     const journeys = await database.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId));
     expect(journeys.length).toBeGreaterThan(0);
     const leftover: string[] = [];
     for (const j of journeys) {
-      const graph = JSON.parse(j.graphJson) as { nodes?: { type?: string; on?: string }[] };
+      const graph = JSON.parse(j.graphJson) as { nodes?: { type?: string; on?: string; event?: string }[] };
       for (const node of graph.nodes ?? []) {
-        if (node.type !== "trigger") continue;
-        const on = node.on ?? "<none>";
+        // A `wait_for` names an event the same way a trigger does: one nothing
+        // emits parks the run until its ceiling, every time.
+        if (node.type !== "trigger" && node.type !== "wait_for") continue;
+        const on = (node.type === "trigger" ? node.on : node.event) ?? "<none>";
         if (matches(emitted, on) || EXCLUDED[on]) continue;
         leftover.push(`${j.key} v${j.version}: ${on}`);
       }

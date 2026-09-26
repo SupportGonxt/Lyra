@@ -294,7 +294,8 @@ export async function advancePartner(ctx: Ctx, partnerId: string): Promise<{ sta
     module: "orbit",
     type: to === "live" ? "orbit.partner.went_live" : "orbit.partner.stage_changed",
     subject: partnerId,
-    data: { from, to }
+    // partnerId in the payload is what a partner journey enrols (orbit-journeys.ts).
+    data: { partnerId, from, to }
   });
   return { stage: to, blocking: [] };
 }

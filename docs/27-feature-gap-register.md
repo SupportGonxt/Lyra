@@ -1350,10 +1350,17 @@ Skipped, with reasons (findings, not fixed):
   `data.customerId`, and partner events carry none. So `broker_activation` now
   names a real event and still never starts. Journeys enrol customers only.
   Enrolling a partner needs a spec decision, not a rename.
+  **Closed 2026-09-26:** a graph declares `subject: "partner"`, runs carry
+  `partner_id` (migration 0037), and partner events carry `partnerId`
+  (docs/30 ORBIT gap 1).
 - **Seeded journey node types the executor does not know.** `message`, `agent`,
   `survey` and `wait_for` (including `wait_for: orbit.partner.quote`, which
   nothing emits) are outside the vocabulary in `orbit-journeys.ts:185-194`. The
   guard checks triggers and subscriptions only.
+  **Closed 2026-09-26** (docs/30 ORBIT gap 1): all four now have executors, and
+  `orbit-journey-seeded.test.ts` fails on any seeded node type without one.
+  `orbit.partner.quote` is still never emitted, which matters only once partner
+  journeys can enrol.
 - **Seeded DLQ history** (`seed/platform.ts`) still carries a
   `ledger.settlement.posted` envelope. It is a record of a past failure, not a
   subscription, so it was left as written.

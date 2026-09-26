@@ -189,7 +189,14 @@ export async function sweepRenewals(ctx: Ctx, wf?: Workflow<RenewalWorkflowParam
       module: "orbit",
       type: "orbit.renewal.due",
       subject: row.id,
-      data: { policyRef: row.policyRef, customerId: row.customerId, expiryAt: row.expiryAt, strategy: row.strategy }
+      data: {
+        policyRef: row.policyRef,
+        customerId: row.customerId,
+        expiryAt: row.expiryAt,
+        strategy: row.strategy,
+        // SIGNAL's churn-risk prospects (ADR-0091) hear the score here.
+        churnScore: row.churnScore
+      }
     });
   }
   if (wf) {

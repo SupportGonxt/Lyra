@@ -33,6 +33,24 @@ export const signal: WorkspaceSpec = {
       "aeo-pages": "Answer pages",
       "attribution-events": "Attribution",
       spend: "Spend",
+      prospects: "Prospects",
+      responses: "Responses",
+      score: "Score",
+      evidenceJson: "Why",
+      sourceRef: "From",
+      outreachId: "Send",
+      quote_expired: "Quote expired",
+      churn_risk: "Churn risk",
+      no_policy: "No cover yet",
+      open: "Open",
+      contacted: "Contacted",
+      responded: "Responded",
+      converted: "Converted",
+      suppressed: "Suppressed",
+      delivered: "Delivered",
+      read: "Read",
+      replied: "Replied",
+      opted_out: "Opted out",
 
       name: "Name",
       sizeCached: "Size",
@@ -148,6 +166,24 @@ export const signal: WorkspaceSpec = {
       "aeo-pages": "صفحات الإجابات",
       "attribution-events": "الإسناد",
       spend: "الإنفاق",
+      prospects: "العملاء المرتقبون",
+      responses: "الاستجابات",
+      score: "الدرجة",
+      evidenceJson: "السبب",
+      sourceRef: "المصدر",
+      outreachId: "الرسالة",
+      quote_expired: "انتهى عرض السعر",
+      churn_risk: "خطر عدم التجديد",
+      no_policy: "لا تغطية بعد",
+      open: "مفتوح",
+      contacted: "تم التواصل",
+      responded: "استجاب",
+      converted: "تحوّل",
+      suppressed: "محجوب",
+      delivered: "وصلت",
+      read: "قُرئت",
+      replied: "رد",
+      opted_out: "ألغى الاشتراك",
 
       name: "الاسم",
       sizeCached: "الحجم",
@@ -484,6 +520,42 @@ export const signal: WorkspaceSpec = {
         { name: "channel", type: "text" },
         { name: "campaignId", type: "text" },
         { name: "valueMinor", type: "money", currencyFrom: "currency" },
+        { name: "ts", type: "datetime", sortable: true }
+      ]
+    },
+    {
+      // ADR-0091: identified people other modules told SIGNAL about. Written by
+      // events only; a prospect is a reason to talk, never permission to.
+      key: "prospects",
+      api: "/v1/signal/prospects",
+      read: "signal:audiences:read",
+      sort: "updatedAt",
+      filters: [
+        { name: "reason", options: ["quote_expired", "no_policy", "churn_risk"] },
+        { name: "state", options: ["open", "contacted", "responded", "converted", "suppressed"] }
+      ],
+      columns: [
+        { name: "customerId", type: "text" },
+        { name: "reason", type: "text", badge: true },
+        { name: "score", type: "number", sortable: true },
+        { name: "state", type: "text", badge: true },
+        { name: "evidenceJson", type: "json" },
+        { name: "updatedAt", type: "datetime", sortable: true }
+      ]
+    },
+    {
+      // What came back from sends; each row carries campaign, audience and
+      // person, so the cockpit rolls it up at all three scales.
+      key: "responses",
+      api: "/v1/signal/responses",
+      read: "signal:campaigns:read",
+      sort: "ts",
+      filters: [{ name: "kind", options: ["lead", "delivered", "read", "replied", "bind", "opted_out"] }],
+      columns: [
+        { name: "campaignId", type: "text" },
+        { name: "audienceId", type: "text" },
+        { name: "customerId", type: "text" },
+        { name: "kind", type: "text", badge: true },
         { name: "ts", type: "datetime", sortable: true }
       ]
     },

@@ -1,4 +1,5 @@
 export * from "./rbac.js";
+export * from "./prospects.js";
 export * from "./errors.js";
 export * from "./flags.js";
 export * from "./crypto.js";

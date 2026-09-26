@@ -12,6 +12,7 @@ import {
 } from "@lyra/db";
 import { ROLES, TENANT_ROLE_KEYS, isInternalRole, requiresMfa } from "./rbac.js";
 import { hashPassword } from "./password.js";
+import { PROSPECT_CHURN_FLOOR } from "./prospects.js";
 import { splitCommission } from "./commission.js";
 import type { CoreDb } from "./context.js";
 import { seedAdmin } from "./seed/admin.js";
@@ -21,7 +22,7 @@ import { seedCompliance } from "./seed/compliance.js";
 import { seedLedger } from "./seed/ledger.js";
 import { seedOnboarding } from "./seed/onboarding.js";
 import { dayKey, dayStart, monthKey, monthName, monthStart, quarterKey } from "./seed/period.js";
-import { seedOrbit } from "./seed/orbit.js";
+import { SEED_JOURNEY_COOLDOWN_DAYS, seedOrbit } from "./seed/orbit.js";
 import { seedPlatform } from "./seed/platform.js";
 import { seedScout } from "./seed/scout.js";
 import { seedSettlement } from "./seed/settlement.js";
@@ -2617,8 +2618,104 @@ export const SEED_EVENT_RENAMES: Readonly<Record<string, string>> = {
   // The document chase begins when ORBIT asks the customer for a document.
   "orbit.document.missing": "orbit.conversation.document",
   // A partner moving up the onboarding ladder (onboarding.ts advancePartner).
-  "dist.partner.approved": "orbit.partner.stage_changed"
+  "dist.partner.approved": "orbit.partner.stage_changed",
+  // Was only ever an audit action; orbit-partner-quotes.ts now emits this.
+  "orbit.partner.quote": "orbit.partner.quoted"
 };
+
+/** The journey keys the seed writes (seed/orbit.ts). Only these are ours to repair. */
+const SEED_JOURNEY_KEYS = new Set([
+  "renewal_45d",
+  "onboarding_new_policy",
+  "document_chase",
+  "winback_lapsed",
+  "broker_activation"
+]);
+
+/** Seeded journeys that follow a partner rather than a customer. */
+const SEED_PARTNER_JOURNEYS = new Set(["broker_activation"]);
+
+/**
+ * Give a tenant's seeded journeys what they were seeded without (docs/30 ORBIT
+ * gap 1): the frequency cap `triggerJourney` requires (ORB-051), and — for the
+ * partner journey — `subject: "partner"`, without which it waits for a
+ * customer that partner events never name. Only seeded keys, only what is
+ * missing: an authored journey is its author's. Idempotent. Returns the ids it
+ * changed.
+ */
+export async function syncSeedJourneyGraphs(db: CoreDb, tenantId: string): Promise<string[]> {
+  const changed: string[] = [];
+  for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
+    if (!SEED_JOURNEY_KEYS.has(j.key)) continue;
+    let graph: { cooldownDays?: unknown; subject?: unknown };
+    try {
+      graph = JSON.parse(j.graphJson) as typeof graph;
+    } catch {
+      continue; // not ours to repair
+    }
+    const capped = typeof graph.cooldownDays === "number" && graph.cooldownDays > 0;
+    const subjectRight = !SEED_PARTNER_JOURNEYS.has(j.key) || graph.subject === "partner";
+    if (capped && subjectRight) continue;
+    const next = {
+      ...graph,
+      ...(capped ? {} : { cooldownDays: SEED_JOURNEY_COOLDOWN_DAYS }),
+      ...(subjectRight ? {} : { subject: "partner" })
+    };
+    await db
+      .update(schema.orbitJourneys)
+      .set({ graphJson: JSON.stringify(next) })
+      .where(and(eq(schema.orbitJourneys.tenantId, tenantId), eq(schema.orbitJourneys.id, j.id)));
+    changed.push(j.id);
+  }
+  return changed;
+}
+
+/**
+ * ADR-0091. SIGNAL learns of prospects by event from the day it listens; the
+ * book before that day never announced itself. This reads it once — customers
+ * holding no contract, comparisons that lapsed, renewals at churn risk — into
+ * `signal_prospects`, the same rows the events write. Existing rows are left
+ * as they are (their state is SIGNAL's). Idempotent. Returns rows created.
+ */
+export async function backfillProspects(db: CoreDb, tenantId: string, now: number): Promise<number> {
+  const rows: { customerId: string; reason: string; score: number; evidenceJson: string; sourceRef: string | null }[] = [];
+  const holders = new Set(
+    (await db.select({ c: schema.axisPolicies.customerId }).from(schema.axisPolicies).where(eq(schema.axisPolicies.tenantId, tenantId))).map((r) => r.c)
+  );
+  for (const c of await db
+    .select({ id: schema.customers.id })
+    .from(schema.customers)
+    .where(and(eq(schema.customers.tenantId, tenantId), isNull(schema.customers.deletedAt)))) {
+    if (!holders.has(c.id)) rows.push({ customerId: c.id, reason: "no_policy", score: 30, evidenceJson: "{}", sourceRef: null });
+  }
+  for (const q of await db
+    .select()
+    .from(schema.distQuoteRequests)
+    .where(and(eq(schema.distQuoteRequests.tenantId, tenantId), eq(schema.distQuoteRequests.state, "expired")))) {
+    if (!q.customerId) continue;
+    rows.push({
+      customerId: q.customerId,
+      reason: "quote_expired",
+      score: 70,
+      evidenceJson: JSON.stringify({ productId: q.productId, expiredAt: q.expiresAt ?? q.updatedAt }),
+      sourceRef: q.id
+    });
+  }
+  for (const r of await db.select().from(schema.orbitRenewals).where(eq(schema.orbitRenewals.tenantId, tenantId))) {
+    if (r.churnScore === null || r.churnScore < PROSPECT_CHURN_FLOOR || r.state === "accepted" || r.state === "lost") continue;
+    rows.push({ customerId: r.customerId, reason: "churn_risk", score: r.churnScore, evidenceJson: JSON.stringify({ expiryAt: r.expiryAt }), sourceRef: r.policyRef });
+  }
+  let created = 0;
+  for (const r of rows) {
+    const done = await db
+      .insert(schema.signalProspects)
+      .values({ id: id("psp", now), tenantId, ...r, state: "open", createdAt: now, updatedAt: now })
+      .onConflictDoNothing()
+      .returning({ id: schema.signalProspects.id });
+    created += done.length;
+  }
+  return created;
+}
 
 /**
  * Rewrite the seeded dead event names a tenant still holds — journey trigger
@@ -2633,7 +2730,7 @@ export async function syncSeedEventNames(
   const rename = (name: string): string => SEED_EVENT_RENAMES[name] ?? name;
   const journeys: string[] = [];
   for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
-    let graph: { nodes?: { type?: string; on?: unknown }[] };
+    let graph: { nodes?: { type?: string; on?: unknown; event?: unknown }[] };
     try {
       graph = JSON.parse(j.graphJson) as typeof graph;
     } catch {
@@ -2643,6 +2740,11 @@ export async function syncSeedEventNames(
     for (const node of graph.nodes ?? []) {
       if (node.type === "trigger" && typeof node.on === "string" && rename(node.on) !== node.on) {
         node.on = rename(node.on);
+        changed = true;
+      }
+      // A wait_for names an event the same way a trigger does.
+      if (node.type === "wait_for" && typeof node.event === "string" && rename(node.event) !== node.event) {
+        node.event = rename(node.event);
         changed = true;
       }
     }

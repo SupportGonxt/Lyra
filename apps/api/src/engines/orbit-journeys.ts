@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import {
   audit,
@@ -11,7 +11,12 @@ import {
   type Ctx,
   type Envelope
 } from "@lyra/core";
+import type { Gateway } from "@lyra/model-gateway";
+import type { Env } from "../env.js";
+import { portalLink } from "../portal-link.js";
 import { must } from "../rows.js";
+import { findAgent } from "./ai-agent.js";
+import { draftJourneyOutreach } from "./orbit-draft.js";
 import { routeConversation } from "./orbit-routing.js";
 
 // docs/05 §Journeys — "consent & quiet-hours & frequency caps baked in as
@@ -40,6 +45,11 @@ interface JourneyGraph {
    * migration for one integer. Absent/0 = no cap.
    */
   cooldownDays?: number;
+  /**
+   * Who a run follows: a customer (the default) or a partner. Also freeform
+   * graph data rather than a column, for the same reason as `cooldownDays`.
+   */
+  subject?: "customer" | "partner";
 }
 
 const DAY_MS = 86_400_000;
@@ -49,7 +59,8 @@ function parseGraph(raw: string): JourneyGraph {
   return {
     nodes: g.nodes ?? [],
     edges: g.edges ?? [],
-    ...(g.cooldownDays === undefined ? {} : { cooldownDays: g.cooldownDays })
+    ...(g.cooldownDays === undefined ? {} : { cooldownDays: g.cooldownDays }),
+    ...(g.subject === "partner" ? { subject: "partner" as const } : {})
   };
 }
 
@@ -115,8 +126,13 @@ export async function triggerJourney(
   const skippedConsent: string[] = [];
   const skippedCooldown: string[] = [];
 
+  // A partner journey follows partners: consent is a customer's, so there is
+  // no consent floor to check, and the run is keyed by partner_id.
+  const partner = graph.subject === "partner";
+  const subjectColumn = partner ? schema.orbitJourneyRuns.partnerId : schema.orbitJourneyRuns.customerId;
+
   for (const customerId of customerIds) {
-    if (await consentWithdrawn(ctx, customerId)) {
+    if (!partner && (await consentWithdrawn(ctx, customerId))) {
       skippedConsent.push(customerId);
       continue;
     }
@@ -128,7 +144,7 @@ export async function triggerJourney(
         and(
           eq(schema.orbitJourneyRuns.tenantId, ctx.tenantId),
           eq(schema.orbitJourneyRuns.journeyId, journeyId),
-          eq(schema.orbitJourneyRuns.customerId, customerId)
+          eq(subjectColumn, customerId)
         )
       );
 
@@ -146,7 +162,7 @@ export async function triggerJourney(
         id: newId("jrun", ctx.now),
         tenantId: ctx.tenantId,
         journeyId,
-        customerId,
+        ...(partner ? { partnerId: customerId } : { customerId }),
         node,
         state: "running",
         contextJson: null,
@@ -168,7 +184,7 @@ export async function triggerJourney(
       module: "orbit",
       type: "orbit.journey.triggered",
       subject: journeyId,
-      data: { journeyId, customerIds: triggered }
+      data: partner ? { journeyId, partnerIds: triggered } : { journeyId, customerIds: triggered }
     });
   }
 
@@ -188,13 +204,50 @@ export async function triggerJourney(
 //   { key, type: "trigger", on: "<event type>" }   entry; `on` is what
 //                                                  onJourneyEvent matches
 //   { key, type: "wait",   minutes | hours | days } park until elapsed
-//   { key, type: "send",   channel?, templateKey, body? } one transcript turn
+//   { key, type: "wait_for", event, timeoutDays? }  park until `event` arrives for
+//                                                  this customer; edges `event`/`timeout`
+//   { key, type: "send" | "message", channel?, templateKey, body? } one transcript turn
+//   { key, type: "survey", channel?, body? }        a turn carrying the rating link
+//                                                  for the run's own conversation
+//   { key, type: "agent",  agent, approval? }       with `approval`: a pending AI draft
+//                                                  a person sends or lets expire; without:
+//                                                  the agent's assessment into context
 //   { key, type: "branch", on: "attribute"|"context", attribute|contextKey, equals }
 //   { key, type: "task",   title, skills?, slaPolicyKey?, intent? } human work
 //   { key, type: "end" }                            terminal
 //
 // Edges are `{ from, to, when? }`. A branch node takes the edge whose `when` is
-// `"true"`/`"false"` for its own result, falling back to an unlabelled edge.
+// `"true"`/`"false"` for its own result, a wait_for node `"event"`/`"timeout"`,
+// each falling back to an unlabelled edge.
+
+/** Every node type the executor below runs. A seeded or authored graph naming anything else halts. */
+export const JOURNEY_NODE_TYPES = [
+  "trigger",
+  "wait",
+  "wait_for",
+  "send",
+  "message",
+  "survey",
+  "agent",
+  "branch",
+  "task",
+  "end"
+] as const;
+
+/** What a sweep needs beyond the database: the link key for surveys, the model for drafts. */
+export interface AdvanceDeps {
+  env?: Pick<Env, "FIELD_KEY" | "APP_ORIGIN"> | undefined;
+  gateway?: Gateway | undefined;
+}
+
+/** How long a `wait_for` with no `timeoutDays` waits before halting: an event that never comes must not hold a run forever. */
+const WAIT_FOR_CEILING_DAYS = 30;
+
+/** How long a pending journey draft waits for a person before the run carries on without it. */
+const DRAFT_WAIT_MS = 7 * 86_400_000;
+
+/** A journey draft is customer-facing the moment it is sent (packages/model-gateway purposes). */
+const DRAFT_PURPOSE = "orbit.journey.draft";
 
 /** Ceiling on node transitions for one run in one tick. A graph that cycles halts rather than spinning the sweep. */
 const MAX_STEPS = 25;
@@ -218,6 +271,18 @@ interface RunContext {
   taskConversationId?: string;
   /** The conversation `send` nodes write their turns to; one per run. */
   conversationId?: string;
+  /** The wait_for node this run is parked on, the event it waits for, and whether that event came. */
+  waitForNode?: string;
+  waitForEvent?: string;
+  waitForHit?: boolean;
+  /** The agent node whose pending draft this run waits on, the draft, and when it was written. */
+  draftNode?: string;
+  draftMessageId?: string;
+  draftAt?: number;
+  /** How the last draft ended: sent by a person, the conversation closed, or nobody acted. */
+  draftOutcome?: "sent" | "closed" | "expired";
+  /** The renewal agent's churn score (orbit_renewals.churn_score), when an assessment node read one. */
+  churnScore?: number | null;
   /** Why a halted run halted. Shown on the journey-runs tab; never cleared. */
   haltReason?: string;
   [k: string]: unknown;
@@ -242,7 +307,7 @@ function waitMs(node: JourneyNode): number {
 }
 
 /** The edge out of `key`, preferring the one labelled for a branch result. */
-function nextNode(graph: JourneyGraph, key: string, when?: "true" | "false"): string | null {
+function nextNode(graph: JourneyGraph, key: string, when?: string): string | null {
   const out = graph.edges.filter((e) => e.from === key);
   if (when) {
     const labelled = out.find((e) => (e as { when?: string }).when === when);
@@ -277,7 +342,7 @@ function branchResult(node: JourneyNode, customer: CustomerRow | undefined, cont
  * sequence) and quiet hours defer a send rather than dropping it. The frequency
  * cap is `triggerJourney`'s cooldown above.
  */
-export async function advanceJourneyRuns(ctx: Ctx, limit = 200): Promise<AdvanceResult> {
+export async function advanceJourneyRuns(ctx: Ctx, limit = 200, deps: AdvanceDeps = {}): Promise<AdvanceResult> {
   const result: AdvanceResult = {
     advanced: 0,
     sent: 0,
@@ -326,10 +391,15 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200): Promise<Advance
       graphs.set(runRow.journeyId, graph);
     }
 
-    const [customer] = await ctx.db
-      .select()
-      .from(schema.customers)
-      .where(and(eq(schema.customers.tenantId, ctx.tenantId), eq(schema.customers.id, runRow.customerId)));
+    const [customer] = runRow.customerId
+      ? await ctx.db
+          .select()
+          .from(schema.customers)
+          .where(and(eq(schema.customers.tenantId, ctx.tenantId), eq(schema.customers.id, runRow.customerId)))
+      : [];
+    // A partner run has nobody who consented to hear from us: every
+    // customer-facing step halts rather than guessing an address.
+    const customerId = runRow.customerId;
 
     const context: RunContext = runRow.contextJson ? (JSON.parse(runRow.contextJson) as RunContext) : {};
     let node = runRow.node;
@@ -386,7 +456,12 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200): Promise<Advance
       }
 
       if (current.type === "send" || current.type === "message") {
-        if (await consentWithdrawn(ctx, runRow.customerId)) {
+        if (!customerId) {
+          await halt(ctx, runRow.id, context, "not_for_partners");
+          result.halted++;
+          break;
+        }
+        if (await consentWithdrawn(ctx, customerId)) {
           await halt(ctx, runRow.id, context, "consent_withdrawn");
           result.halted++;
           break;
@@ -411,6 +486,164 @@ export async function advanceJourneyRuns(ctx: Ctx, limit = 200): Promise<Advance
         }
         node = to;
         continue;
+      }
+
+      if (current.type === "wait_for") {
+        if (context.waitForNode === node) {
+          const hit = context.waitForHit === true;
+          delete context.waitForNode;
+          delete context.waitForEvent;
+          delete context.waitForHit;
+          if (!hit && typeof current.timeoutDays !== "number") {
+            await halt(ctx, runRow.id, context, "wait_for_expired");
+            result.halted++;
+            break;
+          }
+          const to = nextNode(graph, node, hit ? "event" : "timeout");
+          if (!to) {
+            await finish(ctx, runRow.id, context, node);
+            result.completed++;
+            break;
+          }
+          node = to;
+          continue;
+        }
+        if (typeof current.event !== "string" || !current.event) {
+          await halt(ctx, runRow.id, context, "node_invalid");
+          result.halted++;
+          break;
+        }
+        const days =
+          typeof current.timeoutDays === "number" && current.timeoutDays > 0 ? current.timeoutDays : WAIT_FOR_CEILING_DAYS;
+        context.waitForNode = node;
+        context.waitForEvent = current.event;
+        await park(ctx, runRow.id, context, node, ctx.now + days * DAY_MS);
+        result.waiting++;
+        break;
+      }
+
+      if (current.type === "survey") {
+        if (!customerId) {
+          await halt(ctx, runRow.id, context, "not_for_partners");
+          result.halted++;
+          break;
+        }
+        if (await consentWithdrawn(ctx, customerId)) {
+          await halt(ctx, runRow.id, context, "consent_withdrawn");
+          result.halted++;
+          break;
+        }
+        const env = deps.env;
+        if (!env?.FIELD_KEY || !env.APP_ORIGIN) {
+          await halt(ctx, runRow.id, context, "survey_unavailable");
+          result.halted++;
+          break;
+        }
+        if (inQuietHours(ctx.now, ctx.policy.timezone)) {
+          await park(ctx, runRow.id, context, node, nextOpenAt(ctx.now, ctx.policy.timezone));
+          result.deferredQuietHours++;
+          result.waiting++;
+          break;
+        }
+        // The rating page rates a conversation, so the link names the run's own.
+        const conversationId = await ensureConversation(ctx, runRow, context, current, customer);
+        const url = await portalLink(ctx, env, "feedback", conversationId);
+        const body = typeof current.body === "string" ? current.body : node;
+        await sendJourneyTurn(ctx, runRow, context, { ...current, body: `${body}\n${url}` }, customer);
+        result.sent++;
+        const to = nextNode(graph, node);
+        if (!to) {
+          await finish(ctx, runRow.id, context, node);
+          result.completed++;
+          break;
+        }
+        node = to;
+        continue;
+      }
+
+      if (current.type === "agent") {
+        if (!customerId) {
+          await halt(ctx, runRow.id, context, "not_for_partners");
+          result.halted++;
+          break;
+        }
+        const agentKey = typeof current.agent === "string" ? current.agent : "";
+        // No approval named: an assessment, not a message. Nothing is drafted or
+        // sent, so no model is asked — the renewal agent's churn score is the one
+        // the renewal sweep already computed (engines/renewals.ts).
+        if (typeof current.approval !== "string") {
+          if (agentKey !== "renewal") {
+            await halt(ctx, runRow.id, context, "agent_unsupported");
+            result.halted++;
+            break;
+          }
+          context.churnScore = await latestChurnScore(ctx, customerId);
+          const to = nextNode(graph, node);
+          if (!to) {
+            await finish(ctx, runRow.id, context, node);
+            result.completed++;
+            break;
+          }
+          node = to;
+          continue;
+        }
+
+        if (context.draftNode === node) {
+          const outcome = await draftOutcome(ctx, context);
+          if (!outcome && ctx.now < (context.draftAt ?? 0) + DRAFT_WAIT_MS) {
+            await park(ctx, runRow.id, context, node, ctx.now + TASK_POLL_MS);
+            result.waiting++;
+            break;
+          }
+          context.draftOutcome = outcome ?? "expired";
+          delete context.draftNode;
+          delete context.draftMessageId;
+          delete context.draftAt;
+          const to = nextNode(graph, node);
+          if (!to) {
+            await finish(ctx, runRow.id, context, node);
+            result.completed++;
+            break;
+          }
+          node = to;
+          continue;
+        }
+
+        if (await consentWithdrawn(ctx, customerId)) {
+          await halt(ctx, runRow.id, context, "consent_withdrawn");
+          result.halted++;
+          break;
+        }
+        const agent = deps.gateway ? await findAgent(ctx, agentKey) : null;
+        if (!deps.gateway || !agent || agent.status !== "active") {
+          await halt(ctx, runRow.id, context, "agent_unavailable");
+          result.halted++;
+          break;
+        }
+        // Draft only (CLAUDE.md rules 4 and 11): the conversation view's
+        // approve/discard is the only way this text reaches the customer.
+        const conversationId = await ensureConversation(ctx, runRow, context, current, customer);
+        const [conversation] = await ctx.db
+          .select()
+          .from(schema.orbitConversations)
+          .where(and(eq(schema.orbitConversations.tenantId, ctx.tenantId), eq(schema.orbitConversations.id, conversationId)));
+        const score = typeof context.churnScore === "number" ? `, churn score ${context.churnScore}` : "";
+        const messageId = await draftJourneyOutreach(ctx, deps.gateway, agent, conversation!, {
+          key: node,
+          purpose: DRAFT_PURPOSE,
+          lines: [`Journey step ${node}: ${agentKey} outreach${score}.`]
+        });
+        if (!messageId) {
+          await halt(ctx, runRow.id, context, "draft_refused");
+          result.halted++;
+          break;
+        }
+        context.draftNode = node;
+        context.draftMessageId = messageId;
+        context.draftAt = ctx.now;
+        await park(ctx, runRow.id, context, node, ctx.now + TASK_POLL_MS);
+        result.waiting++;
+        break;
       }
 
       if (current.type === "task") {
@@ -500,22 +733,7 @@ async function sendJourneyTurn(
   customer: CustomerRow | undefined
 ): Promise<void> {
   const channel = typeof node.channel === "string" ? node.channel : "email";
-  if (!context.conversationId) {
-    const conversationId = newId("cnv", ctx.now);
-    await ctx.db.insert(schema.orbitConversations).values({
-      id: conversationId,
-      tenantId: ctx.tenantId,
-      customerId: runRow.customerId,
-      channel,
-      state: "bot",
-      lang: customer?.locale === "ar" ? "ar" : "en",
-      intent: "journey",
-      lastMessageAt: ctx.now,
-      createdAt: ctx.now,
-      updatedAt: ctx.now
-    });
-    context.conversationId = conversationId;
-  }
+  const conversationId = await ensureConversation(ctx, runRow, context, node, customer);
 
   const templateKey = typeof node.templateKey === "string" ? node.templateKey : node.key;
   const body = typeof node.body === "string" ? node.body : templateKey;
@@ -523,7 +741,7 @@ async function sendJourneyTurn(
   await ctx.db.insert(schema.orbitMessages).values({
     id: messageId,
     tenantId: ctx.tenantId,
-    conversationId: context.conversationId,
+    conversationId: conversationId,
     role: "agent_ai",
     modality: "text",
     content: body,
@@ -535,7 +753,7 @@ async function sendJourneyTurn(
     .where(
       and(
         eq(schema.orbitConversations.tenantId, ctx.tenantId),
-        eq(schema.orbitConversations.id, context.conversationId)
+        eq(schema.orbitConversations.id, conversationId)
       )
     );
 
@@ -548,13 +766,78 @@ async function sendJourneyTurn(
       runId: runRow.id,
       journeyId: runRow.journeyId,
       customerId: runRow.customerId,
-      conversationId: context.conversationId,
+      conversationId: conversationId,
       messageId,
       node: node.key,
       channel,
       templateKey
     }
   });
+}
+
+/** The one conversation a run writes its turns and drafts to, created on first use. */
+async function ensureConversation(
+  ctx: Ctx,
+  runRow: RunRow,
+  context: RunContext,
+  node: JourneyNode,
+  customer: CustomerRow | undefined
+): Promise<string> {
+  if (context.conversationId) return context.conversationId;
+  const conversationId = newId("cnv", ctx.now);
+  await ctx.db.insert(schema.orbitConversations).values({
+    id: conversationId,
+    tenantId: ctx.tenantId,
+    customerId: runRow.customerId,
+    channel: typeof node.channel === "string" ? node.channel : "email",
+    state: "bot",
+    lang: customer?.locale === "ar" ? "ar" : "en",
+    intent: "journey",
+    lastMessageAt: ctx.now,
+    createdAt: ctx.now,
+    updatedAt: ctx.now
+  });
+  context.conversationId = conversationId;
+  return conversationId;
+}
+
+/** The churn score the renewal sweep stored on this customer's newest renewal, if any. */
+async function latestChurnScore(ctx: Ctx, customerId: string): Promise<number | null> {
+  const [renewal] = await ctx.db
+    .select({ churnScore: schema.orbitRenewals.churnScore })
+    .from(schema.orbitRenewals)
+    .where(and(eq(schema.orbitRenewals.tenantId, ctx.tenantId), eq(schema.orbitRenewals.customerId, customerId)))
+    .orderBy(desc(schema.orbitRenewals.createdAt))
+    .limit(1);
+  return renewal?.churnScore ?? null;
+}
+
+/**
+ * Whether a person has acted on the run's pending draft. Approving posts the
+ * text again as a queued message (routes/conversation.tsx) and discarding
+ * never reaches the server, so "sent" is any delivered-or-queued turn after
+ * the draft, and a closed conversation ends the wait too.
+ */
+async function draftOutcome(ctx: Ctx, context: RunContext): Promise<"sent" | "closed" | null> {
+  const conversationId = context.conversationId ?? "";
+  const after = await ctx.db
+    .select({ id: schema.orbitMessages.id })
+    .from(schema.orbitMessages)
+    .where(
+      and(
+        eq(schema.orbitMessages.tenantId, ctx.tenantId),
+        eq(schema.orbitMessages.conversationId, conversationId),
+        gt(schema.orbitMessages.ts, context.draftAt ?? 0),
+        isNotNull(schema.orbitMessages.deliveryStatus)
+      )
+    )
+    .limit(1);
+  if (after.length) return "sent";
+  const [conversation] = await ctx.db
+    .select({ state: schema.orbitConversations.state })
+    .from(schema.orbitConversations)
+    .where(and(eq(schema.orbitConversations.tenantId, ctx.tenantId), eq(schema.orbitConversations.id, conversationId)));
+  return conversation?.state === "closed" ? "closed" : null;
 }
 
 /**
@@ -603,8 +886,36 @@ async function raiseTask(ctx: Ctx, runRow: RunRow, node: JourneyNode): Promise<s
  * wrong id the first time a module's subject is not a customer.
  */
 export async function onJourneyEvent(ctx: Ctx, event: Envelope): Promise<void> {
-  const customerId = (event.data as { customerId?: unknown } | undefined)?.customerId;
-  if (typeof customerId !== "string" || !customerId) return;
+  const data = (event.data ?? {}) as { customerId?: unknown; partnerId?: unknown };
+  const customerId = typeof data.customerId === "string" && data.customerId ? data.customerId : null;
+  const partnerId = typeof data.partnerId === "string" && data.partnerId ? data.partnerId : null;
+  if (!customerId && !partnerId) return;
+
+  // A run parked on `wait_for` this event, for this subject, wakes now: the
+  // next advance takes its `event` edge. Only this subject's runs are read, so
+  // another customer's or partner's event can never move it.
+  const waiting = await ctx.db
+    .select()
+    .from(schema.orbitJourneyRuns)
+    .where(
+      and(
+        eq(schema.orbitJourneyRuns.tenantId, ctx.tenantId),
+        eq(schema.orbitJourneyRuns.state, "waiting"),
+        or(
+          customerId ? eq(schema.orbitJourneyRuns.customerId, customerId) : undefined,
+          partnerId ? eq(schema.orbitJourneyRuns.partnerId, partnerId) : undefined
+        )
+      )
+    );
+  for (const runRow of waiting) {
+    const context: RunContext = runRow.contextJson ? (JSON.parse(runRow.contextJson) as RunContext) : {};
+    if (context.waitForEvent !== event.type || context.waitForNode !== runRow.node) continue;
+    context.waitForHit = true;
+    await ctx.db
+      .update(schema.orbitJourneyRuns)
+      .set({ contextJson: JSON.stringify(context), nextAt: ctx.now, updatedAt: ctx.now })
+      .where(and(eq(schema.orbitJourneyRuns.tenantId, ctx.tenantId), eq(schema.orbitJourneyRuns.id, runRow.id)));
+  }
 
   const journeys = await ctx.db
     .select()
@@ -619,6 +930,19 @@ export async function onJourneyEvent(ctx: Ctx, event: Envelope): Promise<void> {
       continue;
     }
     if (!graph.nodes.some((n) => n.type === "trigger" && n.on === event.type)) continue;
-    await triggerJourney(ctx, journey.id, [customerId]);
+    const subjectId = graph.subject === "partner" ? partnerId : customerId;
+    if (!subjectId) continue;
+    // One journey the engine refuses (a graph written before the activation
+    // check, say) must not stop every other journey on the same event — nor
+    // fail the event's consumer, which would retry it into the dead letters.
+    try {
+      await triggerJourney(ctx, journey.id, [subjectId]);
+    } catch (err) {
+      await audit(ctx, {
+        action: "orbit.journey.trigger_refused",
+        subjectRef: journey.id,
+        after: { event: event.type, reason: err instanceof Error ? err.message.slice(0, 200) : "error" }
+      });
+    }
   }
 }

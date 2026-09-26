@@ -4,6 +4,9 @@ import { canonicalJson, sha256Hex } from "../crypto.js";
 import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
 import { dayName } from "./period.js";
 
+/** The frequency cap every seeded journey carries (ORB-051), and the one the resync backfills. */
+export const SEED_JOURNEY_COOLDOWN_DAYS = 30;
+
 // ORBIT is the service side of the same story the core seed tells: Rania Haddad
 // bought motor cover on Cedar's row through the web channel, and last year's
 // policy is still inside the renewal window. Everything here is one of the two
@@ -786,8 +789,12 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
   /* ---- journeys ----------------------------------------------------------
    * Graphs are deliberately small: enough nodes for the canvas to draw and for
    * a run to sit on one, not a real production flow. */
-  const graph = (nodes: { key: string; type: string; [k: string]: unknown }[]): string =>
+  // ORB-051: every journey carries a frequency cap — `triggerJourney` refuses a
+  // graph without one, so a seeded journey missing it could never enrol anyone.
+  const graph = (nodes: { key: string; type: string; [k: string]: unknown }[], extra: Record<string, unknown> = {}): string =>
     JSON.stringify({
+      cooldownDays: SEED_JOURNEY_COOLDOWN_DAYS,
+      ...extra,
       nodes,
       edges: nodes.slice(0, -1).map((n, i) => ({ from: n.key, to: nodes[i + 1]!.key }))
     });
@@ -899,13 +906,17 @@ export async function seedOrbit(ctx: SeedContext): Promise<void> {
       key: "broker_activation",
       version: 1,
       nameJson: JSON.stringify({ en: "Partner activation", ar: "تفعيل الشريك" }),
-      graphJson: graph([
-        { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
-        { key: "sandbox_keys", type: "task", team: "partners" },
-        { key: "first_quote", type: "wait_for", event: "orbit.partner.quote" },
-        { key: "go_live", type: "task", team: "partners" },
-        { key: "end", type: "end" }
-      ]),
+      // Follows a partner, not a customer: runs are keyed by partner_id.
+      graphJson: graph(
+        [
+          { key: "start", type: "trigger", on: "orbit.partner.stage_changed" },
+          { key: "sandbox_keys", type: "task", team: "partners" },
+          { key: "first_quote", type: "wait_for", event: "orbit.partner.quoted", timeoutDays: 30 },
+          { key: "go_live", type: "task", team: "partners" },
+          { key: "end", type: "end" }
+        ],
+        { subject: "partner" }
+      ),
       status: "active",
       createdBy: ctx.users["orbit.partners"]!,
       createdAt: now - 200 * DAY

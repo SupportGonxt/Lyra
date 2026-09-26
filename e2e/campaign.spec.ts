@@ -58,7 +58,7 @@ test("J-M1 a growth lead authors an audience and campaign, then launches it (aut
   await page.getByLabel("Name*", { exact: true }).fill(audienceName);
   await page
     .getByLabel("Definition*", { exact: true })
-    .fill(JSON.stringify({ segment: "renewals", withinDays: 30 }));
+    .fill(JSON.stringify({ all: [{ field: "tagsJson", op: "contains", value: "renewals" }] }));
   await page.getByRole("button", { name: "Create", exact: true }).click();
 
   const audienceRow = page.getByRole("row", { name: new RegExp(audienceName) });

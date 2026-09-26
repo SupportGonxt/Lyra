@@ -1,5 +1,5 @@
 import { id as newId, schema } from "@lyra/db";
-import { audit, conflict, sha256Hex, type Ctx } from "@lyra/core";
+import { audit, conflict, emit, sha256Hex, type Ctx } from "@lyra/core";
 import { must } from "../rows.js";
 
 // docs/05 §Partner & Embedded Platform — "sandbox with mock quotes". A partner
@@ -84,6 +84,13 @@ export async function requestPartnerQuote(
     action: "orbit.partner.quote",
     subjectRef: partnerId,
     after: { id, mode: sandbox ? "sandbox" : "live", synthetic: sandbox, quotedPremiumMinor }
+  });
+  // A partner journey waits for its first quote (seed/orbit.ts broker_activation).
+  await emit(ctx, {
+    module: "orbit",
+    type: "orbit.partner.quoted",
+    subject: partnerId,
+    data: { partnerId, txnId: id, mode: sandbox ? "sandbox" : "live" }
   });
 
   return {

@@ -27,7 +27,7 @@ of route files driven by declarative specs in [apps/web/app/modules/](apps/web/a
 - [module.tsx](apps/web/app/routes/module.tsx) — `/:module` and `/:module/:resource`, the tabbed list
 - [record.tsx](apps/web/app/routes/record.tsx) — `/:module/:resource/:id`, the single record
 
-Adding a resource adds a `ResourceSpec` entry, not a route. 133 resource tabs
+Adding a resource adds a `ResourceSpec` entry, not a route. 135 resource tabs
 across 10 workspaces render this way. §7 is the full table.
 
 **Bespoke.** A screen that is genuinely its own thing — a quote comparison, a
@@ -570,7 +570,7 @@ multiplier in ppm (FX 18.5 is `18500000`, never 1850%), `measure` is a number
 whose unit is a sibling column (NORTH stores money, basis points, milliseconds and
 counts in one `value`), `money` is minor units.
 
-### 7.1 The 133 resource tabs
+### 7.1 The 135 resource tabs
 
 
 #### `/admin` — 35 tabs
@@ -782,7 +782,7 @@ reaches the page. No modal, no auto-run, no toast.
 | `scout-experiments` | `/v1/scout/scout-experiments` | `scout:experiments:read` | ✓ | ✓ |  |  |  |
 | `data-products` | `/v1/scout/data-products` | `scout:data_products:read` | ✓ | ✓ |  |  |  |
 
-#### `/signal` — 8 tabs
+#### `/signal` — 10 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
@@ -793,6 +793,8 @@ reaches the page. No modal, no auto-run, no toast.
 | `budget-moves` | `/v1/signal/budget-moves` | `signal:budget_moves:read` |  | ✓ |  |  |  |
 | `aeo-pages` | `/v1/signal/aeo-pages` | `signal:aeo:read` | ✓ | ✓ | ✓ |  |  |
 | `attribution-events` | `/v1/signal/attribution-events` | `signal:attribution:read` |  |  |  |  |  |
+| `prospects` | `/v1/signal/prospects` | `signal:audiences:read` |  |  |  |  |  |
+| `responses` | `/v1/signal/responses` | `signal:campaigns:read` |  |  |  |  |  |
 | `spend` | `/v1/signal/spend` | `signal:spend:read` |  |  |  |  |  |
 
 

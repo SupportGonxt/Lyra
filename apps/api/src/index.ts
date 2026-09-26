@@ -21,6 +21,7 @@ import { runAcquisitionSweep } from "./engines/signal-outreach.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
 import { sweepAiDrift } from "./engines/ai-drift.js";
 import { expireDelegations } from "./engines/staff.js";
+import { expireQuoteRequests } from "./engines/dist-quote-expiry.js";
 import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions, switchedOff } from "./auth.js";
 import { mountAll } from "./crud.js";
 import { BY_MODULE } from "./resources.js";
@@ -256,7 +257,7 @@ export default {
             // task has closed or whose quiet-hours deferral has lifted. After
             // sweepRouting, because a `task` node raises a conversation this
             // tick that the next tick's routing sweep should see.
-            if (on("orbit")) await advanceJourneyRuns(ctx);
+            if (on("orbit")) await advanceJourneyRuns(ctx, 200, { env, gateway: gatewayFor(env) });
             await sweepBilling(ctx);
             if (on("signal")) await runBudgetAutopilot(ctx);
             // Acquisition outreach (engines/signal-outreach.ts): draft →
@@ -264,6 +265,9 @@ export default {
             // and the weekly frequency cap are enforced inside the sweep; the
             // tick is just the clock that runs it.
             if (on("signal")) await runAcquisitionSweep(ctx, gatewayFor(env));
+            // A comparison past its validity lapses and says so; SIGNAL hears it
+            // as a prospect (ADR-0091) on the next drain.
+            if (on("dist")) await expireQuoteRequests(ctx);
             await runDueSchedules(ctx, env.FILES, env.BROWSER);
             // A delegation that has run out must stop showing as active, or every
             // admin screen lies about who currently holds the authority to approve.

@@ -73,7 +73,17 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 5. Reinsurance treaties and cessions (missing).
 
 ### ORBIT · Conversations
-1. ~~Seeded journeys fire~~ — **fixed** 2026-09-23: seeded trigger names are renamed to emitted events on resync (`syncSeedEventNames`), guarded by `event-seams.test.ts`. The `wait_for` node is still open.
+1. ~~Seeded journeys fire~~ — **fixed** 2026-09-23: seeded trigger names are renamed to emitted events on resync (`syncSeedEventNames`), guarded by `event-seams.test.ts`.
+   **And run, 2026-09-26.** Both active seeded journeys still halted at the first node the executor did not know (renewal v2 on `agent`, onboarding on `survey`). Underneath that, no seeded journey carried the `cooldownDays` that `triggerJourney` requires (ORB-051), so none could enrol anybody, and every event matching a seeded trigger failed its `orbit.journeys` consumer. Fixed:
+   - executors for `wait_for` (an event wakes the run, with `event`/`timeout` edges and a 30-day ceiling), `survey` (the rating link for the run's own conversation) and `agent` (a pending draft a person sends, eval `orbit-journey-draft`; with no approval step, the renewal churn score);
+   - seeded cooldowns, with `syncSeedJourneyCooldowns` backfilling them on resync;
+   - a guard that every seeded node type has an executor, and a test that walks both active journeys end to end (`orbit-journey-seeded.test.ts`).
+   **Partners too, 2026-09-26.**
+   - A graph with `subject: "partner"` follows a partner. Runs gained `partner_id` in migration 0037, the first table rebuild, with a test that it keeps existing runs.
+   - Partner events now carry `partnerId`, and a partner quote emits `orbit.partner.quoted`, so partner activation runs end to end.
+   - A partner run halts at any customer-facing step (`not_for_partners`).
+   - A journey without a cap can no longer be activated (the journeys resource's `beforeWrite`).
+   - `onJourneyEvent` isolates each journey, so one refused graph no longer fails the consumer for every other journey on the same event.
 2. ~~Save-desk outcomes emit `orbit.renewal.accepted`/`lost`.~~ **Fixed** 2026-09-23 (renewal outcome events: offered/accepted/lost).
 3. Real-time AI replies on inbound, sent within the agent's autonomy.
 4. Web chat channel (a `ChannelAdapter` plus a portal route).
@@ -82,7 +92,8 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### SIGNAL · Marketing
 1. Writable spend with CSV import (unblocks the autopilot and `signal.spend.recorded`).
 2. Standalone conversions: signed `lead`/`bind` touches on `/track`.
-3. Full audience rules with a builder instead of raw JSON; lift the 500 cap.
+3. Full audience rules with a builder instead of raw JSON. *500 cap lifted and unrunnable rules refused on write (ADR-0091); a visual builder remains.*
+6. *Done (ADR-0091): marketing at three scales — `signal_prospects` from DIST/ORBIT/core events, prospect-sourced niche audiences, drafts written from the person's own reason behind `checkOutreachDraft`, and `signal_responses` rolled up per campaign, audience and person.*
 4. Experiment engine: compute probability-to-beat-control; emit `signal.experiment.concluded`, `campaign.launched`, `creative.flagged`.
 5. Ad-platform seam (`core/seams.ts`) with Google/Meta adapters — channels are allowed (CLAUDE.md §13).
 

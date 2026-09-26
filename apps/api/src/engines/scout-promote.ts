@@ -1,3 +1,4 @@
+import { prospectCounts } from "./signal-prospects.js";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import {
@@ -152,7 +153,8 @@ export async function promoteWhitespace(
     coverage: ev.coverage,
     competitionScore: ev.competitionScore,
     bookSize: await bookSize(ctx),
-    audience: audience?.proposal ?? null
+    audience: audience?.proposal ?? null,
+    prospects: await prospectCounts(ctx)
   };
   const planned = await planCampaign(ctx, gateway, planEv);
 
