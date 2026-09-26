@@ -12,7 +12,7 @@ import {
   TOTP_STEP_SEC
 } from "@lyra/core";
 import { app } from "./index.js";
-import { switchedOff } from "./auth.js";
+import { scheduledConfig, switchedOff } from "./auth.js";
 import { openapi } from "./openapi.js";
 import type { Env } from "./env.js";
 
@@ -141,4 +141,16 @@ describe.each(GATED_MODULES.map((m) => [m]))("%s alone @accept:SA", (module) => 
 it("the scheduler stands down every module a solo tenant did not buy @accept:SA", async () => {
   const off = await soloIn("orbit", () => switchedOff(env, tenantId));
   expect([...off].sort()).toEqual(["axis", "north", "scout", "signal"]);
+});
+
+// The nightly tick ran every tenant on policy *defaults* plus its module
+// switches, so a paused autopilot still moved money, quiet hours were reckoned
+// in UTC and every tenant was insurance-retail. It must run on the tenant's own.
+it("the scheduler runs a tenant on its own policy, not the defaults", async () => {
+  await database.update(schema.tenants).set({ policyJson: JSON.stringify({ timezone: "Asia/Dubai", currency: "AED", domainPack: "insurance-gulf", signalAutopilotPaused: true }) }).where(eq(schema.tenants.id, tenantId));
+  const { policy, entitlements } = await soloIn("signal", () => scheduledConfig(env, tenantId));
+  expect(policy).toMatchObject({ timezone: "Asia/Dubai", currency: "AED", domainPack: "insurance-gulf", signalAutopilotPaused: true });
+  expect(entitlements.modules).toEqual(["signal"]);
+  expect(policy.moduleConfig?.axis?.enabled).toBe(false);
+  expect(policy.moduleConfig?.signal?.enabled ?? true).toBe(true);
 });

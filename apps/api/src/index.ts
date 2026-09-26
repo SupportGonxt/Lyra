@@ -24,7 +24,7 @@ import { expireDelegations } from "./engines/staff.js";
 import { notifyUrgentWatch, runWatch } from "./engines/scout-watch.js";
 import { nightlyBriefing } from "./engines/narrator.js";
 import { expireQuoteRequests } from "./engines/dist-quote-expiry.js";
-import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions, switchedOff } from "./auth.js";
+import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions, scheduledConfig } from "./auth.js";
 import { mountAll } from "./crud.js";
 import { BY_MODULE } from "./resources.js";
 import { gatewayFor, onError, rememberStopped, withContext, withCors, withHeaders } from "./mw.js";
@@ -231,13 +231,12 @@ export default {
                 tenantId,
                 locale: "en",
                 actor: { kind: "system", id: "scheduler", tenantId, grants: [] },
-                // Defaults, plus the modules this tenant switched off (ADR-0087):
-                // their sweeps and consumers stand down with their routes. The
-                // outbox, billing and platform jobs are the platform, not a module.
-                policy: PolicyJson.parse({
-                  moduleConfig: Object.fromEntries([...(await switchedOff(env, tenantId))].map((m) => [m, { enabled: false }]))
-                }),
-                entitlements: EntitlementsJson.parse({})
+                // The tenant's own policy — its pause switches, timezone,
+                // currency, auto-approvals — with every module it did not buy
+                // or switched off forced off (ADR-0087): their sweeps and
+                // consumers stand down with their routes. The outbox, billing
+                // and platform jobs are the platform, not a module.
+                ...(await scheduledConfig(env, tenantId))
               },
               now
             );
