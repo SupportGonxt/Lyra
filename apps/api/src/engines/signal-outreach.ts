@@ -566,6 +566,19 @@ export interface Delivered {
   conversationId: string | null;
 }
 
+/** The person's own address on a channel: the first email, or a phone as a WhatsApp id (digits only). */
+async function addressOn(ctx: Ctx, channel: OutreachChannel, customerId: string): Promise<string | null> {
+  const [person] = await ctx.db
+    .select({ emailsJson: schema.customers.emailsJson, phonesJson: schema.customers.phonesJson })
+    .from(schema.customers)
+    .where(and(eq(schema.customers.tenantId, ctx.tenantId), eq(schema.customers.id, customerId)))
+    .limit(1);
+  const first = (json: string | null | undefined) => (JSON.parse(json ?? "[]") as unknown[]).find((v): v is string => typeof v === "string") ?? null;
+  if (channel === "email") return first(person?.emailsJson)?.toLowerCase() ?? null;
+  if (channel === "whatsapp") return first(person?.phonesJson)?.replace(/\D/g, "") || null;
+  return null;
+}
+
 async function deliverInline(ctx: Ctx, channel: OutreachChannel, customerId: string, text: string): Promise<Delivered | null> {
   // Runtime consent check — the pick-time read is advisory, this is the gate.
   await assertChannel(ctx, customerId, channel, { marketing: true });
@@ -581,28 +594,57 @@ async function deliverInline(ctx: Ctx, channel: OutreachChannel, customerId: str
     )
     .limit(1);
   if (!connector) return null;
-  // Real provider hand-off rides the existing adapter seam via dispatch —
-  // imported lazily to keep this module's import graph free of ORBIT internals.
-  const identity = await ctx.db
-    .select()
+  // ADR-0093: first contact. The person need not have written in: their handle
+  // on this connector is the one already known, else their own address on the
+  // channel, and the conversation a reply will land in is opened here.
+  const [known] = await ctx.db
+    .select({ handle: schema.orbitChannelIdentities.handle })
     .from(schema.orbitChannelIdentities)
-    .where(and(eq(schema.orbitChannelIdentities.tenantId, ctx.tenantId), eq(schema.orbitChannelIdentities.customerId, customerId)))
-    .orderBy(desc(schema.orbitChannelIdentities.createdAt))
+    .where(
+      and(
+        eq(schema.orbitChannelIdentities.tenantId, ctx.tenantId),
+        eq(schema.orbitChannelIdentities.connectorId, connector.id),
+        eq(schema.orbitChannelIdentities.customerId, customerId)
+      )
+    )
     .limit(1);
-  if (!identity[0]) return null;
+  const handle = known?.handle ?? (await addressOn(ctx, channel, customerId));
+  if (!handle) return null;
+  if (!known) {
+    await ctx.db
+      .insert(schema.orbitChannelIdentities)
+      .values({ id: newId("cid", ctx.now), tenantId: ctx.tenantId, connectorId: connector.id, handle, customerId, createdAt: ctx.now })
+      .onConflictDoNothing();
+  }
   const { dispatchOutbound } = await import("./orbit-channel-outbound.js");
-  const [conversation] = await ctx.db
+  let [conversation] = await ctx.db
     .select()
     .from(schema.orbitConversations)
     .where(
       and(
         eq(schema.orbitConversations.tenantId, ctx.tenantId),
         eq(schema.orbitConversations.connectorId, connector.id),
-        eq(schema.orbitConversations.externalRef, identity[0].handle)
+        eq(schema.orbitConversations.externalRef, handle)
       )
     )
     .orderBy(desc(schema.orbitConversations.updatedAt))
     .limit(1);
+  if (!conversation) {
+    const row = {
+      id: newId("cnv", ctx.now),
+      tenantId: ctx.tenantId,
+      customerId,
+      channel: connector.transport,
+      externalRef: handle,
+      connectorId: connector.id,
+      state: "bot",
+      lastMessageAt: ctx.now,
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    };
+    await ctx.db.insert(schema.orbitConversations).values(row);
+    [conversation] = await ctx.db.select().from(schema.orbitConversations).where(eq(schema.orbitConversations.id, row.id));
+  }
   if (!conversation) return null;
   const sent = await dispatchOutbound(ctx, (ctx as Ctx & { env?: unknown }).env as never, conversation, connector, text);
   return { externalRef: sent.externalRef, conversationId: conversation.id };

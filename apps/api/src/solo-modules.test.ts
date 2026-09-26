@@ -73,7 +73,8 @@ beforeAll(async () => {
   env = {
     DB_CLIENT: database,
     ENVIRONMENT: "development",
-    APP_ORIGIN: "http://localhost:5173"
+    APP_ORIGIN: "http://localhost:5173",
+    FIELD_KEY: "solo-suite-field-key-0123456789abcdef"
   } as unknown as Env;
 
   const login = await call("POST", "/v1/auth/login", {
@@ -161,4 +162,20 @@ it("a SIGNAL-only tenant can import the people it markets to @accept:SA", async 
   const out = await soloIn("signal", () => call("POST", "/v1/core/customers/import", { csv: "name,email,tags\nSolo Prospect,solo@x.test,motor\n" }));
   expect(out.status).toBe(201);
   expect(out.body).toMatchObject({ created: 1, errors: [] });
+});
+
+// ADR-0093: a channel is the platform's, so a module bought alone can configure
+// the account it sends through, and the secrets never come back out.
+it("a SIGNAL-only tenant configures a channel on the platform route @accept:SA", async () => {
+  const out = await soloIn("signal", () =>
+    call("POST", "/v1/core/channel-connectors", {
+      provider: "mailgun-email",
+      transport: "email",
+      label: "Marketing mail",
+      secretsJson: { apiKey: "key-solo-secret" },
+      configJson: { domain: "mg.example.test" }
+    })
+  );
+  expect(out.status).toBe(201);
+  expect(JSON.stringify(out.body)).not.toContain("key-solo-secret");
 });

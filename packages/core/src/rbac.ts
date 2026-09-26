@@ -61,6 +61,8 @@ export const PERMISSIONS = [
   "core:teams:read", "core:teams:write",
   "core:customers:read", "core:customers:create", "core:customers:update", "core:customers:delete",
   "core:consents:read", "core:consents:create",
+  // ADR-0093: the accounts messages go out on belong to the platform.
+  "core:channels:read", "core:channels:write",
   "core:products:read", "core:products:write",
   "core:providers:read", "core:providers:write",
   "core:files:read", "core:files:create", "core:files:delete",
@@ -500,7 +502,7 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "core:notes:read", "core:notes:write"
   ],
   "orbit.admin": [
-    "orbit:*:*", "ai:suggestions:read", "core:customers:*", "core:pii:view", "core:consents:*",
+    "orbit:*:*", "ai:suggestions:read", "core:customers:*", "core:pii:view", "core:consents:*", "core:channels:*",
     "core:approvals:read", "core:approvals:decide", "core:files:*",
     "axis:policies:read", "axis:cases:read",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
@@ -526,7 +528,7 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "signal:experiments:create", "signal:experiments:decide",
     "signal:budget_moves:approve", "signal:budget_moves:reverse", "signal:autopilot:pause", "signal:autopilot:run", "signal:aeo:write",
     "signal:outreach:send", "signal:spend:write",
-    "core:consents:read", "core:search:read", "core:approvals:read", "core:approvals:decide",
+    "core:channels:read", "core:consents:read", "core:search:read", "core:approvals:read", "core:approvals:decide",
     "core:files:read", "core:files:create",
     "ledger:txns:read", "analytics:reports:read", "analytics:reports:run",
     "analytics:exports:create", "analytics:exports:download",

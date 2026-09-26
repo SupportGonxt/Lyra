@@ -55,6 +55,42 @@ const r = (
   extra: Partial<Resource> = {}
 ): Resource => ({ path, table, idPrefix, module, perms, ...extra });
 
+/** ADR-0093: one connector table, served to ORBIT and to the platform with the same sealing. */
+const CONNECTOR_OPTIONS: Partial<Resource> = {
+  secretColumns: ["secretsJson"],
+  // Mirrors axis.documents' extractionJson precedent: the client posts
+  // plaintext secrets in the real secretsJson column (crud.ts's strict
+  // per-column schema has no room for a synthetic `secrets` field) and this
+  // seals every value before it lands in SQLite.
+  //
+  // Both wire forms have to come through here. crud.ts's `*Json` shape
+  // accepts an object, an array or a string, and `serialize` stringifies the
+  // object straight into the column — so skipping the non-string case (the
+  // idiomatic one for this CRUD layer) stored access tokens in cleartext with
+  // a 201 and no warning. Non-string *values* are refused rather than stored:
+  // `ConnectorSecrets` is Record<string, string>, and sealFields only seals
+  // strings, so a nested value would travel through unsealed just as quietly.
+  beforeWrite: async (_ctx, values, _existing, env) => {
+    const raw = values.secretsJson;
+    if (raw === undefined) return values;
+    let parsed: unknown = raw;
+    if (typeof raw === "string") {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        throw badRequest("secretsJson is not valid JSON");
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw badRequest("secretsJson must be an object of provider secrets");
+    }
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.some(([, v]) => typeof v !== "string")) throw badRequest("secretsJson values must be strings");
+    const sealed = await sealFields(fieldKey(env), Object.fromEntries(entries), entries.map(([k]) => k));
+    return { ...values, secretsJson: JSON.stringify(sealed) };
+  }
+};
+
 /** read/create/update/delete off one permission stem, the common case. */
 const rcud = (stem: string) => ({
   read: `${stem}:read`,
@@ -176,6 +212,14 @@ export const CORE = register(
     }
   }),
   r("teams", schema.teams, "tm", "core", rw("core:teams"), { searchable: ["name"] }),
+  // ADR-0093: channels are the platform's. The account a message goes out on
+  // is configured once, whichever module sends — a SIGNAL-only tenant included.
+  r("channel-connectors", schema.orbitChannelConnectors, "ccn", "core", {
+    read: "core:channels:read",
+    create: "core:channels:write",
+    update: "core:channels:write",
+    remove: "core:channels:write"
+  }, CONNECTOR_OPTIONS),
   r("customers", schema.customers, "cu", "core", rcud("core:customers"), {
     searchable: ["nameJson", "emailsJson", "phonesJson"],
     pii: CUSTOMER_PII
@@ -783,40 +827,7 @@ export const ORBIT = register(
     create: "orbit:channels:write",
     update: "orbit:channels:write",
     remove: "orbit:channels:write"
-  }, {
-    secretColumns: ["secretsJson"],
-    // Mirrors axis.documents' extractionJson precedent: the client posts
-    // plaintext secrets in the real secretsJson column (crud.ts's strict
-    // per-column schema has no room for a synthetic `secrets` field) and this
-    // seals every value before it lands in SQLite.
-    //
-    // Both wire forms have to come through here. crud.ts's `*Json` shape
-    // accepts an object, an array or a string, and `serialize` stringifies the
-    // object straight into the column — so skipping the non-string case (the
-    // idiomatic one for this CRUD layer) stored access tokens in cleartext with
-    // a 201 and no warning. Non-string *values* are refused rather than stored:
-    // `ConnectorSecrets` is Record<string, string>, and sealFields only seals
-    // strings, so a nested value would travel through unsealed just as quietly.
-    beforeWrite: async (_ctx, values, _existing, env) => {
-      const raw = values.secretsJson;
-      if (raw === undefined) return values;
-      let parsed: unknown = raw;
-      if (typeof raw === "string") {
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          throw badRequest("secretsJson is not valid JSON");
-        }
-      }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw badRequest("secretsJson must be an object of provider secrets");
-      }
-      const entries = Object.entries(parsed as Record<string, unknown>);
-      if (entries.some(([, v]) => typeof v !== "string")) throw badRequest("secretsJson values must be strings");
-      const sealed = await sealFields(fieldKey(env), Object.fromEntries(entries), entries.map(([k]) => k));
-      return { ...values, secretsJson: JSON.stringify(sealed) };
-    }
-  })
+  }, CONNECTOR_OPTIONS)
 );
 
 /* ------------------------------------------------------------------ signal */

@@ -179,6 +179,7 @@ describe("secret columns never reach a read response", () => {
   it("covers the credential tables", () => {
     expect(declaring().map(({ module, r }) => `${module}/${r.path}`).sort()).toEqual([
       "core/api-keys",
+      "core/channel-connectors",
       "core/users",
       "core/webhooks",
       "orbit/channel-connectors"
@@ -190,7 +191,8 @@ describe("secret columns never reach a read response", () => {
   )) {
     it(`${module}/${r.path}: list and record hide ${(r.secretColumns ?? []).join(", ")}`, async () => {
       // No "secret"/"hash" in the id: the assertions below are substring checks.
-      const rowId = `${r.idPrefix}_leakcheck`;
+      // Per module: ADR-0093 serves one connector table through two resources.
+      const rowId = `${r.idPrefix}_leakcheck${module}`;
       const marker = "SECRET-MARKER-DO-NOT-LEAK";
       await ctx.db.insert(r.table).values(fillerRow(r, rowId, marker) as never);
 
