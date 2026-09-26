@@ -14,10 +14,10 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260811.1",
+    "@cloudflare/workers-types": "^5.20260923.1",
     "@lyra/config": "workspace:*",
     "@types/node": "^22",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vitest": "^3.2.7"
   }
