@@ -10,6 +10,7 @@ import {
   ensureDemoAdmin,
   ensureSeedPeople,
   syncSeedEventNames,
+  syncSeedJourneyCooldowns,
   entitledGrants,
   GATED_MODULES,
   moduleEnabled,
@@ -617,7 +618,10 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // no code emits (docs/27, 2026-09-23). The seed is fixed; this is how a
   // tenant provisioned before the fix gets the live names.
   const events = await syncSeedEventNames(database as unknown as CoreDb, tenantId);
-  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events });
+  // Seventh: seeded journeys were written without the frequency cap
+  // triggerJourney requires (ORB-051), so none could enrol anybody.
+  const journeyCooldowns = await syncSeedJourneyCooldowns(database as unknown as CoreDb, tenantId);
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyCooldowns });
 });
 
 /**

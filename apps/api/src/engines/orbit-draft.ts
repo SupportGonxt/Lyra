@@ -69,7 +69,7 @@ export async function sweepConversationDrafts(ctx: Ctx, gateway: Gateway): Promi
 }
 
 type Conversation = typeof schema.orbitConversations.$inferSelect;
-type Agent = NonNullable<Awaited<ReturnType<typeof findAgent>>>;
+export type Agent = NonNullable<Awaited<ReturnType<typeof findAgent>>>;
 
 async function draftReply(ctx: Ctx, gateway: Gateway, agent: Agent, conv: Conversation): Promise<boolean> {
   const history = await ctx.db
@@ -89,57 +89,106 @@ async function draftReply(ctx: Ctx, gateway: Gateway, agent: Agent, conv: Conver
   const locale = conv.lang === "ar" ? "ar" : "en";
   const lctx: Ctx = { ...ctx, locale };
   const contextLines = await buildContext(lctx, conv, history);
+  const drafted = await writeDraft(lctx, gateway, agent, conv, {
+    purpose: PURPOSE,
+    trigger: "schedule",
+    instruction:
+      "Draft the next reply to this customer using only the context lines below. " +
+      "Do not state a number that is not in the context. Never say a message, payment or " +
+      `change has been made — you are drafting for a human to approve. Reply in ${locale}.`,
+    contextLines,
+    userContent: newest.content
+  });
+  return drafted !== null;
+}
 
-  const runId = newId("air", ctx.now);
-  await ctx.db.insert(schema.aiRuns).values({
+/**
+ * A journey `agent` node's proactive outreach (engines/orbit-journeys.ts).
+ * Same gate, same run record and same pending-draft row as a reply — the
+ * conversation view's approve/discard is the only way it reaches the customer.
+ * Returns the draft's message id, or null when the gate refused it.
+ */
+export async function draftJourneyOutreach(
+  ctx: Ctx,
+  gateway: Gateway,
+  agent: Agent,
+  conv: Conversation,
+  step: { key: string; purpose: string; lines: readonly string[] }
+): Promise<string | null> {
+  const locale = conv.lang === "ar" ? "ar" : "en";
+  const lctx: Ctx = { ...ctx, locale };
+  const contextLines = [...(await buildContext(lctx, conv, [])), ...step.lines];
+  return writeDraft(lctx, gateway, agent, conv, {
+    purpose: step.purpose,
+    trigger: "schedule",
+    instruction:
+      `Draft an outreach message to this customer for journey step ${step.key}, using only the context ` +
+      "lines below. Do not state a number, date or discount that is not in the context. Never say a " +
+      `message, payment or change has been made — you are drafting for a human to approve. Write in ${locale}.`,
+    contextLines,
+    userContent: `Draft the message for step ${step.key}.`
+  });
+}
+
+interface DraftRequest {
+  purpose: string;
+  trigger: string;
+  instruction: string;
+  contextLines: string[];
+  userContent: string;
+}
+
+/** The one path a draft takes: an ai_runs row, the model, the groundedness gate, a pending message. */
+async function writeDraft(
+  lctx: Ctx,
+  gateway: Gateway,
+  agent: Agent,
+  conv: Conversation,
+  req: DraftRequest
+): Promise<string | null> {
+  const runId = newId("air", lctx.now);
+  await lctx.db.insert(schema.aiRuns).values({
     id: runId,
-    tenantId: ctx.tenantId,
+    tenantId: lctx.tenantId,
     agentKey: agent.key,
     module: "orbit",
-    purpose: PURPOSE,
+    purpose: req.purpose,
     subjectRef: conv.id,
     actorRef: "system:scheduler",
     autonomyLevel: agent.autonomyLevel,
-    trigger: "schedule",
+    trigger: req.trigger,
     state: "running",
     inputHash: "",
-    startedAt: ctx.now
+    startedAt: lctx.now
   });
 
   try {
     const prompt = await activePrompt(lctx, agent.promptRef);
     const result = await gateway.complete(lctx, {
       module: "orbit",
-      purpose: PURPOSE,
+      purpose: req.purpose,
       tier: agent.tier as "fast" | "standard" | "reasoning",
       subjectRef: conv.id,
-      locale,
+      locale: lctx.locale,
       messages: [
-        {
-          role: "system",
-          content:
-            `${prompt}\n\n` +
-            "Draft the next reply to this customer using only the context lines below. " +
-            "Do not state a number that is not in the context. Never say a message, payment or " +
-            `change has been made — you are drafting for a human to approve. Reply in ${locale}.\n\n` +
-            contextLines.join("\n")
-        },
-        { role: "user", content: newest.content }
+        { role: "system", content: `${prompt}\n\n${req.instruction}\n\n${req.contextLines.join("\n")}` },
+        { role: "user", content: req.userContent }
       ]
     });
 
-    // The runtime half of the eval gate (packages/model-gateway/evals/orbit-draft):
-    // a reply quoting a premium nobody quoted is worse than no reply, because a
-    // busy human approves what reads plausibly. Ungrounded drafts are recorded
-    // as refused runs and never reach the inbox.
-    const groundedness = verifyGroundedness(result.text, contextLines);
+    // The runtime half of the eval gate (packages/model-gateway/evals/orbit-draft,
+    // orbit-journey-draft): a message quoting a premium nobody quoted is worse
+    // than none, because a busy human approves what reads plausibly. Ungrounded
+    // drafts are recorded as refused runs and never reach the inbox.
+    const groundedness = verifyGroundedness(result.text, req.contextLines);
     const text = result.text.trim();
     const ok = groundedness.ok && text.length > 0;
+    const messageId = newId("omg", lctx.now);
 
     if (ok) {
-      await ctx.db.insert(schema.orbitMessages).values({
-        id: newId("omg", ctx.now),
-        tenantId: ctx.tenantId,
+      await lctx.db.insert(schema.orbitMessages).values({
+        id: messageId,
+        tenantId: lctx.tenantId,
         conversationId: conv.id,
         role: "agent_ai",
         modality: "text",
@@ -151,11 +200,11 @@ async function draftReply(ctx: Ctx, gateway: Gateway, agent: Agent, conv: Conver
         // conversation view reads. Approving sets it to `queued`.
         deliveryStatus: null,
         externalRef: null,
-        ts: ctx.now
+        ts: lctx.now
       } as never);
     }
 
-    await ctx.db
+    await lctx.db
       .update(schema.aiRuns)
       .set({
         state: ok ? "succeeded" : "refused",
@@ -172,20 +221,20 @@ async function draftReply(ctx: Ctx, gateway: Gateway, agent: Agent, conv: Conver
         tokensOut: result.usage.tokensOut,
         costMicro: result.usage.costMicro,
         latencyMs: result.latencyMs,
-        endedAt: ctx.now
+        endedAt: lctx.now
       })
-      .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
+      .where(and(eq(schema.aiRuns.tenantId, lctx.tenantId), eq(schema.aiRuns.id, runId)));
 
-    return ok;
+    return ok ? messageId : null;
   } catch (err) {
-    await ctx.db
+    await lctx.db
       .update(schema.aiRuns)
       .set({
         state: "failed",
         errorCode: err instanceof Error ? err.message.slice(0, 120) : "error",
-        endedAt: ctx.now
+        endedAt: lctx.now
       })
-      .where(and(eq(schema.aiRuns.tenantId, ctx.tenantId), eq(schema.aiRuns.id, runId)));
+      .where(and(eq(schema.aiRuns.tenantId, lctx.tenantId), eq(schema.aiRuns.id, runId)));
     throw err;
   }
 }

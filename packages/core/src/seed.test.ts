@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, schema } from "@lyra/db";
-import { ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames } from "./seed.js";
+import { ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames, syncSeedJourneyCooldowns } from "./seed.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
 import { TENANT_ROLE_KEYS, isInternalRole, permissionsForRole } from "./rbac.js";
 import type { CoreDb } from "./context.js";
@@ -260,6 +260,45 @@ describe("seed", () => {
     expect(JSON.parse(hook!.eventTypesJson)).toEqual(["ledger.settlement.approved", "ledger.recon.completed", "tenant.own.event"]);
 
     expect(await syncSeedEventNames(db, tenantId)).toEqual({ journeys: [], webhooks: [] });
+  });
+
+  /**
+   * docs/30 ORBIT gap 1. The seeded journeys carried no `cooldownDays`, and
+   * `triggerJourney` refuses a graph without one (ORB-051: the frequency cap is
+   * an unremovable floor) — so no seeded journey could ever enrol anybody, and
+   * every event matching a seeded trigger failed its consumer. The seed is
+   * fixed; this is how a tenant seeded before the fix gets the cap.
+   */
+  it("gives a deployed tenant's seeded journeys the cooldown they lacked, and leaves an authored journey alone", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    const journeys = await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId));
+    for (const j of journeys) {
+      const graph = JSON.parse(j.graphJson) as Record<string, unknown>;
+      expect(graph.cooldownDays, j.key).toBeGreaterThan(0);
+      delete graph.cooldownDays;
+      await db.update(schema.orbitJourneys).set({ graphJson: JSON.stringify(graph) }).where(eq(schema.orbitJourneys.id, j.id));
+    }
+    await db.insert(schema.orbitJourneys).values({
+      id: "jrn_own",
+      tenantId,
+      key: "tenant_own",
+      version: 1,
+      nameJson: JSON.stringify({ en: "Own" }),
+      graphJson: JSON.stringify({ nodes: [], edges: [] }),
+      status: "draft",
+      createdBy: "user:x",
+      createdAt: 1
+    });
+
+    const fixed = await syncSeedJourneyCooldowns(db, tenantId);
+    expect([...fixed].sort()).toEqual(journeys.map((j) => j.id).sort());
+    for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
+      const cooldown = (JSON.parse(j.graphJson) as { cooldownDays?: number }).cooldownDays;
+      // An authored journey's cap is its author's to set.
+      if (j.id === "jrn_own") expect(cooldown).toBeUndefined();
+      else expect(cooldown, j.key).toBe(30);
+    }
+    expect(await syncSeedJourneyCooldowns(db, tenantId)).toEqual([]);
   });
 
   /**

@@ -2,12 +2,12 @@ import { Hono, type Context } from "hono";
 import { and, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, BrandJson, EntitlementsJson, PolicyJson } from "@lyra/db";
-import { audit, badRequest, conflict, emit, hmacHex, notFound, recordConsent, sha256Hex, timingSafeEqual } from "@lyra/core";
+import { audit, badRequest, conflict, emit, notFound, recordConsent, sha256Hex, timingSafeEqual } from "@lyra/core";
 import { body } from "../http.js";
 import { readUpload } from "../upload.js";
 import { verifyTurnstile } from "../turnstile.js";
 import { ctxFor, db as rawDb, throttle } from "../auth.js";
-import { fieldKey } from "../env.js";
+import { portalLinkToken, type PortalLinkKind } from "../portal-link.js";
 import {
   clampToCriteria,
   criteriaFor,
@@ -966,18 +966,8 @@ portalRoutes.post("/:tenantSlug/privacy-requests", async (c) => {
 // refuse a second write. Add a token-hash column the day a tenant needs to kill
 // one link early.
 
-export type PortalLinkKind = "renewal" | "feedback";
-
-/** The credential in a renewal/feedback link. Staff read it back via
- *  `GET /v1/orbit/portal-links/:kind/:id` (routes/orbit.ts) to send it. */
-export async function portalLinkToken(
-  env: Pick<Env, "FIELD_KEY">
-  , kind: PortalLinkKind
-  , tenantId: string
-  , rowId: string
-): Promise<string> {
-  return hmacHex(fieldKey(env), `portal-link.v1:${kind}:${tenantId}:${rowId}`);
-}
+// The token and the whole link live in ../portal-link.ts, where the staff
+// route and the journey `survey` node mint them too.
 
 /**
  * Wrong token, token for another tenant's row, and unknown id all answer

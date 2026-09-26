@@ -45,6 +45,8 @@ export const PURPOSES: Record<string, PurposeDef> = {
   "orbit.conversation.reply": { module: "orbit", customerFacing: true },
   "orbit.renewal.draft_reply": { module: "orbit", customerFacing: true },
   "orbit.renewal.draft_outreach": { module: "orbit", customerFacing: true },
+  // A journey `agent` node's pending outreach draft (apps/api engines/orbit-journeys.ts).
+  "orbit.journey.draft": { module: "orbit", customerFacing: true },
   "renewal.outreach_draft": { module: "orbit", customerFacing: true },
   "orbit.message.embed": { module: "orbit", customerFacing: false },
   "orbit.message.recall": { module: "orbit", customerFacing: false },

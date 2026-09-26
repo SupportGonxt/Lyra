@@ -21,7 +21,7 @@ import { seedCompliance } from "./seed/compliance.js";
 import { seedLedger } from "./seed/ledger.js";
 import { seedOnboarding } from "./seed/onboarding.js";
 import { dayKey, dayStart, monthKey, monthName, monthStart, quarterKey } from "./seed/period.js";
-import { seedOrbit } from "./seed/orbit.js";
+import { SEED_JOURNEY_COOLDOWN_DAYS, seedOrbit } from "./seed/orbit.js";
 import { seedPlatform } from "./seed/platform.js";
 import { seedScout } from "./seed/scout.js";
 import { seedSettlement } from "./seed/settlement.js";
@@ -2619,6 +2619,43 @@ export const SEED_EVENT_RENAMES: Readonly<Record<string, string>> = {
   // A partner moving up the onboarding ladder (onboarding.ts advancePartner).
   "dist.partner.approved": "orbit.partner.stage_changed"
 };
+
+/** The journey keys the seed writes (seed/orbit.ts). Only these are ours to repair. */
+const SEED_JOURNEY_KEYS = new Set([
+  "renewal_45d",
+  "onboarding_new_policy",
+  "document_chase",
+  "winback_lapsed",
+  "broker_activation"
+]);
+
+/**
+ * Give a tenant's seeded journeys the frequency cap they were seeded without
+ * (docs/30 ORBIT gap 1). `triggerJourney` refuses a graph with no
+ * `cooldownDays` (ORB-051), so without this a tenant seeded before the fix
+ * could never enrol anybody in a seeded journey. Only seeded keys, only when
+ * the cap is missing: an authored journey's cap is its author's. Idempotent.
+ * Returns the ids it changed.
+ */
+export async function syncSeedJourneyCooldowns(db: CoreDb, tenantId: string): Promise<string[]> {
+  const changed: string[] = [];
+  for (const j of await db.select().from(schema.orbitJourneys).where(eq(schema.orbitJourneys.tenantId, tenantId))) {
+    if (!SEED_JOURNEY_KEYS.has(j.key)) continue;
+    let graph: { cooldownDays?: unknown };
+    try {
+      graph = JSON.parse(j.graphJson) as typeof graph;
+    } catch {
+      continue; // not ours to repair
+    }
+    if (typeof graph.cooldownDays === "number" && graph.cooldownDays > 0) continue;
+    await db
+      .update(schema.orbitJourneys)
+      .set({ graphJson: JSON.stringify({ ...graph, cooldownDays: SEED_JOURNEY_COOLDOWN_DAYS }) })
+      .where(and(eq(schema.orbitJourneys.tenantId, tenantId), eq(schema.orbitJourneys.id, j.id)));
+    changed.push(j.id);
+  }
+  return changed;
+}
 
 /**
  * Rewrite the seeded dead event names a tenant still holds — journey trigger

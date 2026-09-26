@@ -73,7 +73,12 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 5. Reinsurance treaties and cessions (missing).
 
 ### ORBIT · Conversations
-1. ~~Seeded journeys fire~~ — **fixed** 2026-09-23: seeded trigger names are renamed to emitted events on resync (`syncSeedEventNames`), guarded by `event-seams.test.ts`. The `wait_for` node is still open.
+1. ~~Seeded journeys fire~~ — **fixed** 2026-09-23: seeded trigger names are renamed to emitted events on resync (`syncSeedEventNames`), guarded by `event-seams.test.ts`.
+   **And run, 2026-09-26.** Both active seeded journeys still halted at the first node the executor did not know (renewal v2 on `agent`, onboarding on `survey`). Underneath that, no seeded journey carried the `cooldownDays` that `triggerJourney` requires (ORB-051), so none could enrol anybody, and every event matching a seeded trigger failed its `orbit.journeys` consumer. Fixed:
+   - executors for `wait_for` (an event wakes the run, with `event`/`timeout` edges and a 30-day ceiling), `survey` (the rating link for the run's own conversation) and `agent` (a pending draft a person sends, eval `orbit-journey-draft`; with no approval step, the renewal churn score);
+   - seeded cooldowns, with `syncSeedJourneyCooldowns` backfilling them on resync;
+   - a guard that every seeded node type has an executor, and a test that walks both active journeys end to end (`orbit-journey-seeded.test.ts`).
+   Partner activation still cannot start: runs are keyed by customer, and partner-keyed runs need a spec.
 2. ~~Save-desk outcomes emit `orbit.renewal.accepted`/`lost`.~~ **Fixed** 2026-09-23 (renewal outcome events: offered/accepted/lost).
 3. Real-time AI replies on inbound, sent within the agent's autonomy.
 4. Web chat channel (a `ChannelAdapter` plus a portal route).

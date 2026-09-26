@@ -21,6 +21,7 @@ const REGISTERED: [purpose: string, module: string, customerFacing: boolean][] =
   ["orbit.conversation.reply", "orbit", true],
   ["orbit.renewal.draft_reply", "orbit", true],
   ["orbit.renewal.draft_outreach", "orbit", true],
+  ["orbit.journey.draft", "orbit", true],
   ["renewal.outreach_draft", "orbit", true],
   ["orbit.message.embed", "orbit", false],
   ["orbit.message.recall", "orbit", false],

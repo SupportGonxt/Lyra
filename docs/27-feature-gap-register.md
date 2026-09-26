@@ -1354,6 +1354,10 @@ Skipped, with reasons (findings, not fixed):
   `survey` and `wait_for` (including `wait_for: orbit.partner.quote`, which
   nothing emits) are outside the vocabulary in `orbit-journeys.ts:185-194`. The
   guard checks triggers and subscriptions only.
+  **Closed 2026-09-26** (docs/30 ORBIT gap 1): all four now have executors, and
+  `orbit-journey-seeded.test.ts` fails on any seeded node type without one.
+  `orbit.partner.quote` is still never emitted, which matters only once partner
+  journeys can enrol.
 - **Seeded DLQ history** (`seed/platform.ts`) still carries a
   `ledger.settlement.posted` envelope. It is a record of a past failure, not a
   subscription, so it was left as written.

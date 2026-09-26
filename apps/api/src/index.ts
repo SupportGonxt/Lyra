@@ -256,7 +256,7 @@ export default {
             // task has closed or whose quiet-hours deferral has lifted. After
             // sweepRouting, because a `task` node raises a conversation this
             // tick that the next tick's routing sweep should see.
-            if (on("orbit")) await advanceJourneyRuns(ctx);
+            if (on("orbit")) await advanceJourneyRuns(ctx, 200, { env, gateway: gatewayFor(env) });
             await sweepBilling(ctx);
             if (on("signal")) await runBudgetAutopilot(ctx);
             // Acquisition outreach (engines/signal-outreach.ts): draft →

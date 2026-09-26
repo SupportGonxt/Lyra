@@ -1527,6 +1527,9 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   "axis-vision": scoreAxisVision,
   "axis-copilot": scoreGroundedness,
   "orbit-draft": scoreGroundedness,
+  // A journey's `agent` node drafts proactive outreach (engines/orbit-journeys.ts)
+  // under the same rule as a reply: no number the context lines did not give it.
+  "orbit-journey-draft": scoreGroundedness,
   "axis-fnol-triage": scoreFnolTriage,
   "axis-reserve": scoreReserve,
   "axis-fraud": scoreFraud,
