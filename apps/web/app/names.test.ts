@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { who } from "./names";
+import { refsIn, who } from "./names";
 
 // The home screen's activity feed and approval strips read
 // `ai_budget:signal` and `settlements:cedar-2512` to a tenant admin: /v1/names
@@ -30,5 +30,13 @@ describe("who", () => {
   it("leaves a plain string alone", () => {
     expect(who("Cedar Motor Plus", {})).toBe("Cedar Motor Plus");
     expect(who(null, {})).toBeNull();
+  });
+});
+
+describe("refsIn", () => {
+  // docs/30 Analytics 4: a report grouped by channel printed the channel's id.
+  it("collects every ref-shaped value, whichever column it sits in, and nothing else", () => {
+    const rows = [{ channelId: "chn_01J8Z3K4Q5R6S7T8V9W0X1Y2Z3", gwp: 120, label: "Motor" }];
+    expect(refsIn(rows)).toEqual(["chn_01J8Z3K4Q5R6S7T8V9W0X1Y2Z3"]);
   });
 });

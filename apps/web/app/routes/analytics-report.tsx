@@ -7,12 +7,14 @@ import {
   type LoaderFunctionArgs
 } from "react-router";
 import { Badge, Button, DateTime, EmptyState, Field, Select, Table, type Column } from "@lyra/ui";
-import { ApiError, api, fetchMe } from "../api.server";
+import { ApiError, api, fetchMe, names } from "../api.server";
+import type { DatasetInfo } from "../analytics-def";
 import { Cell, FieldInput, toneFor } from "../components/fields";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { asJson } from "../json.js";
 import { bodyFrom, type FieldSpec, type Row } from "../modules/spec";
+import { refsIn } from "../names";
 import { labelsFrom } from "./detail-kit";
 import { Problem } from "./module";
 import { useShellData } from "./workspace";
@@ -310,6 +312,11 @@ function textIn(bag: Record<string, string>, locale: string, fallback: string): 
   return bag[locale] ?? bag.en ?? fallback;
 }
 
+/** The registry's own words for a dataset's measures and splits (GET /v1/analytics/datasets). */
+export function fieldLabels(ds: DatasetInfo | undefined): Record<string, string> {
+  return Object.fromEntries([...(ds?.dimensions ?? []), ...(ds?.metrics ?? [])].map((f) => [f.key, f.label]));
+}
+
 export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
   const reportId = params.id ?? "";
@@ -323,7 +330,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     export: held.has(PERM.export),
     download: held.has(PERM.download)
   };
-  const shut = { reportId, may, apiOrigin: env.API_ORIGIN, report: null, runs: [] as RunRow[] };
+  const shut = { reportId, may, apiOrigin: env.API_ORIGIN, report: null, runs: [] as RunRow[], fields: {} as Record<string, string> };
   if (!held.has(PERM.read)) return shut;
 
   let row: ReportRow;
@@ -348,12 +355,18 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     throw error;
   });
 
+  const report = reportOf(row);
+  // Labels are a nicety: a reader the catalogue refuses still gets the report.
+  const catalogue = await api<{ data: DatasetInfo[] }>("/v1/analytics/datasets", { env, request }).catch(() => ({ data: [] }));
+  const fields = fieldLabels(catalogue.data.find((d) => d.key === report.definition.dataset));
+
   return {
     reportId,
     may,
     apiOrigin: env.API_ORIGIN,
-    report: reportOf(row),
-    runs: runs.data
+    report,
+    runs: runs.data,
+    fields
   };
 }
 
@@ -372,7 +385,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
         method: "POST",
         body: { ...overrides, totals: true }
       });
-      return { problem: null, ran, exported: null };
+      // docs/30 Analytics 4: a split by channel or owner reads as names, not ids.
+      return { problem: null, ran, exported: null, resolved: await names(refsIn(ran.rows), { env, request }) };
     }
     if (intent === "export") {
       const format = String(form.get("format") ?? "");
@@ -415,6 +429,7 @@ export default function AnalyticsReport() {
   const description = textIn(report.description, locale, "");
   const definition = report.definition;
   const ran = result?.ran ?? null;
+  const resolved = result && "resolved" in result ? result.resolved : {};
   const exported = result?.exported ?? null;
   const runs = loaded.runs;
   const lastRun = runs[0] ?? null;
@@ -436,6 +451,7 @@ export default function AnalyticsReport() {
         row={row}
         locale={locale}
         label={l}
+        resolved={resolved}
       />
     )
   }));
@@ -539,8 +555,8 @@ export default function AnalyticsReport() {
         {(
           [
             ["dataset", definition.dataset ?? "—"],
-            ["metrics", (definition.metrics ?? []).map((key) => l(key)).join(", ") || "—"],
-            ["dimensions", (definition.dimensions ?? []).map((key) => l(key)).join(", ") || "—"]
+            ["metrics", (definition.metrics ?? []).map((key) => loaded.fields[key] ?? l(key)).join(", ") || "—"],
+            ["dimensions", (definition.dimensions ?? []).map((key) => loaded.fields[key] ?? l(key)).join(", ") || "—"]
           ] as const
         ).map(([key, value]) => (
           <div key={key} className="flex flex-col gap-1">

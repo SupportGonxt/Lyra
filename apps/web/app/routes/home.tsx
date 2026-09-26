@@ -106,6 +106,7 @@ const LABELS: Record<string, Record<string, string>> = {
       "A data-subject request arrived and needs verification",
     "notice.north.alert.triggered": "A metric crossed an alert threshold",
     "notice.scout.watch.alert": "The market watch flagged something urgent",
+    "notice.north.boardpack.distributed": "A board pack was sent to you",
 
     "activity.title": "Your recent activity",
     "activity.label": "Your recent activity",
@@ -185,6 +186,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "notice.compliance.dsar.created": "وصل طلب من صاحب بيانات ويحتاج إلى تحقق",
     "notice.north.alert.triggered": "تجاوز مؤشر حدّ التنبيه",
     "notice.scout.watch.alert": "رصد مراقب السوق أمرًا عاجلًا",
+    "notice.north.boardpack.distributed": "أُرسلت إليك حزمة مجلس",
 
     "activity.title": "نشاطك الأخير",
     "activity.label": "نشاطك الأخير",

@@ -10,8 +10,9 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
-import { Button, EmptyState, Input, Panel, Select, Table, type Column, isOpaqueRef } from "@lyra/ui";
+import { Button, EmptyState, Input, Panel, Select, Table, type Column } from "@lyra/ui";
 import { ApiError, api, asRouteError, fetchMe, names } from "../api.server";
+import { refsIn } from "../names";
 // rejectedBy runs in the component, not the loader: importing it from the
 // .server module pulls that module into the client bundle (api-error.ts exists
 // for exactly this, see its header).
@@ -128,13 +129,6 @@ function resolve(params: { module?: string; resource?: string }): {
   const tab = tabOf(spec, params.resource);
   if (!tab) throw data("resource", { status: 404 });
   return { spec, tab };
-}
-
-/** Every ref-shaped string in the page, whichever column it happens to sit in. */
-function refsIn(rows: readonly Row[]): string[] {
-  return rows.flatMap((row) =>
-    Object.values(row).filter((value): value is string => typeof value === "string" && isOpaqueRef(value))
-  );
 }
 
 export async function loader({ request, params, context }: LoaderFunctionArgs) {

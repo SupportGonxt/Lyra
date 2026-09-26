@@ -30,9 +30,9 @@ import {
 // Assembly is one POST — the API joins the latest exec briefing, the period's
 // snapshots and the open decision log, renders a PDF and stores it
 // (apps/api/src/routes/north.ts). It lands on `review`, never `final`: rule 4
-// says distribution is the consequential step, and no approval or
-// distribution route exists yet (ADR-0017). The screen says so rather than
-// offering a button that would do nothing.
+// says distribution is the consequential step. Approve and distribute are the
+// record actions on the board packs tab (docs/30 NORTH 5); this screen reads
+// what they wrote — who approved it and the distribution log.
 
 /* --------------------------------------------------------------- constants */
 
@@ -66,7 +66,7 @@ const LABELS: Labels = {
     "assemble.packTitle.hint": "What the board will see on the cover.",
     "assemble.submit": "Assemble",
     "assemble.note":
-      "Assembly renders the PDF and leaves the pack in review. Nothing distributes it — that step needs an approval route this build does not have yet.",
+      "Assembly renders the PDF and leaves the pack in review. Open it from the board packs tab to approve it, then send it to the board.",
     "list.caption": "Every board pack in this tenant, most recent period first",
     "list.period": "Period",
     "list.packTitle": "Title",
@@ -113,7 +113,7 @@ const LABELS: Labels = {
     "assemble.packTitle.hint": "ما سيراه المجلس على الغلاف.",
     "assemble.submit": "جمِّع",
     "assemble.note":
-      "التجميع يُخرج ملف PDF ويترك الحزمة قيد المراجعة. لا شيء يوزّعها — تلك الخطوة تحتاج مسار موافقة غير موجود في هذه النسخة.",
+      "التجميع يُخرج ملف PDF ويترك الحزمة قيد المراجعة. افتحها من تبويب حزم المجلس لاعتمادها، ثم أرسلها إلى المجلس.",
     "list.caption": "كل حزم مجلس الإدارة في هذه المؤسسة، الأحدث فترةً أولاً",
     "list.period": "الفترة",
     "list.packTitle": "العنوان",

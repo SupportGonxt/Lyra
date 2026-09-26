@@ -186,6 +186,17 @@ describe("AXIS bind (docs/27 F4)", () => {
     expect(docs.some((e) => e.envelopeJson.includes(out.policy.id))).toBe(true);
   });
 
+  it("the comparison names the policy a bound quote became, so a revisit cannot bind twice", async () => {
+    const { responseId } = await selectedQuote();
+    const [row] = await database.select().from(schema.distQuoteResponses).where(eq(schema.distQuoteResponses.id, responseId));
+    const before = ok(await call("GET", `/v1/dist/quote-requests/${row!.requestId}/comparison`));
+    expect(before.quotes.every((q: any) => q.policyId === null)).toBe(true);
+    const start = Date.now();
+    const out = ok(await call("POST", `/v1/axis/quote-responses/${responseId}/bind`, { policyNo: "POL-BIND-CMP", startAt: start, endAt: start + 365 * DAY }), 201);
+    const after = ok(await call("GET", `/v1/dist/quote-requests/${row!.requestId}/comparison`));
+    expect(after.quotes.find((q: any) => q.id === responseId).policyId).toBe(out.policy.id);
+  });
+
   it("is idempotent under a replayed idempotency key", async () => {
     const { responseId } = await selectedQuote();
     const start = Date.now();

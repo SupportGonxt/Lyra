@@ -691,7 +691,7 @@ const revenuePerCustomer: Compute = async (ctx, p) => {
  * absent — its "assessed should have paid" side has no matching schema
  * field anywhere, so there's nothing to compute without guessing.
  */
-const REGISTRY: Record<string, Compute> = {
+export const REGISTRY: Record<string, Compute> = {
   policies_issued: policiesIssued,
   quote_to_bind_rate: quoteToBindRate,
   panel_response_rate: panelResponseRate,

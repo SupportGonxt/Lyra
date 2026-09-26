@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
 import type { Env } from "../env";
-import { action, labeller, requestExpired } from "./quote-compare";
+import { action, boundPolicy, labeller, requestExpired } from "./quote-compare";
 
 describe("requestExpired", () => {
   it("is false when the request never expires", () => {
@@ -15,6 +15,19 @@ describe("requestExpired", () => {
   it("is true at and after the expiry", () => {
     expect(requestExpired(1_000, 1_000)).toBe(true);
     expect(requestExpired(1_000, 2_000)).toBe(true);
+  });
+});
+
+describe("boundPolicy", () => {
+  // docs/30 Distribution 5: after a reload the action result is gone, so the
+  // comparison's own policyId is what keeps the bind panel from coming back.
+  it("reads the policy the comparison says the chosen quote became", () => {
+    expect(boundPolicy({ policyId: "pol_1" }, undefined)).toBe("pol_1");
+  });
+  it("prefers the bind that just happened, and is null for an unbound quote", () => {
+    expect(boundPolicy({ policyId: null }, { policyId: "pol_2" })).toBe("pol_2");
+    expect(boundPolicy({ policyId: null }, undefined)).toBeNull();
+    expect(boundPolicy(null, undefined)).toBeNull();
   });
 });
 

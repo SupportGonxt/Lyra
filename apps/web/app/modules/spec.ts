@@ -423,7 +423,7 @@ export const REF_SOURCES: Record<string, { api: string; label: string; prefix?: 
 };
 
 /** JSON columns that are a list of strings — typed as "a, b, c". */
-const LIST_JSON = new Set(["tagsJson", "emailsJson", "phonesJson", "skillsJson", "eventTypesJson"]);
+const LIST_JSON = new Set(["tagsJson", "emailsJson", "phonesJson", "skillsJson", "eventTypesJson", "recipients"]);
 /** JSON columns that hold one string per language — `{ en, ar }`. */
 const LOCALIZED_JSON = /^(name|title|label|description)Json$/;
 /** The languages a localised field is written in (docs CLAUDE.md §7). */

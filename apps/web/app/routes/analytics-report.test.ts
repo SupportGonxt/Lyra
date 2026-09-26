@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reportOf, reportStatus, type ReportRow } from "./analytics-report";
+import { fieldLabels, reportOf, reportStatus, type ReportRow } from "./analytics-report";
 
 // `GET /v1/analytics/reports/:id` is hand-written, so its `*Json` columns are
 // never hydrated by crud.ts — but `reportView()` in apps/api/src/routes/analytics.ts
@@ -60,5 +60,20 @@ describe("reportStatus", () => {
 
   it("says never run when there is no history at all", () => {
     expect(reportStatus(false, false, false, null)).toBe("neverRun");
+  });
+});
+
+describe("fieldLabels", () => {
+  // docs/30 Analytics 4: the definition summary printed `gwp` and `line`.
+  it("names measures and splits the way the dataset registry does", () => {
+    const ds = {
+      key: "quotes",
+      module: "dist",
+      timeColumn: "createdAt",
+      dimensions: [{ key: "line", label: "Product line", kind: "text", pii: false }],
+      metrics: [{ key: "gwp", label: "Written premium", kind: "money", agg: "sum" }]
+    };
+    expect(fieldLabels(ds)).toEqual({ line: "Product line", gwp: "Written premium" });
+    expect(fieldLabels(undefined)).toEqual({});
   });
 });

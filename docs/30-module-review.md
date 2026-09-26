@@ -107,9 +107,9 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### NORTH · Insight
 1. ~~Schedule the brief; emit `north.briefing.published`.~~ **Fixed** 2026-09-26: `nightlyBriefing` drafts yesterday's exec brief after the snapshot, once per date; publishing stays a person's act (only a verified brief, stamped who and when), and that transition alone emits `north.briefing.published`.
 2. ~~Deliver `north.alert.triggered`.~~ **Fixed** 2026-09-23: `engines/north-alert-notify.ts`, consumed in `dispatch.ts`.
-3. Metric push API — makes NORTH usable standalone on imported data.
+3. ~~Metric push API.~~ **Fixed** 2026-09-26: `POST /v1/north/metrics/{key}/values` (`north:metrics:write`) writes grand-total snapshots for a metric the snapshotter does not compute (a registered one answers 409, so two writers never fight); a changed value drops its verification.
 4. Scenario engine (the what-if screen stores a question and nothing computes it).
-5. Board-pack approval and distribution log.
+5. ~~Board-pack approval and distribution log.~~ **Fixed** 2026-09-26: approve (review → final, `north:boardpacks:approve`) and distribute (`north:boardpacks:distribute`) — each named person notified once, each send logged with who and when, `north.boardpack.distributed` emitted.
 
 ### Ledger
 1. ~~Remove the duplicate settlement emits.~~ **Fixed** 2026-09-23: each settlement transition emits once.
@@ -123,7 +123,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. ~~Fix the dead seeded triggers and webhook subscriptions.~~ **Fixed** 2026-09-23 (`syncSeedEventNames`, `event-seams.test.ts`).
 3. ~~Expose commission tiers (`structureJson`) in the rates form.~~ **Fixed** 2026-09-23: the field is on the rates form, and the API validates it strictly (`CommissionStructureJson`, `packages/core/src/commission.ts`) before the rate-change approval — the engine reads a malformed structure as flat, so it must be refused on write (`dist.test.ts` "commission-rate structures are validated on write").
 4. ~~Referral qualify/settle desk.~~ **Fixed** 2026-09-26: `/distribution/referrals` — qualify and settle with an idempotency key per referral, the referral ledger read from its REFERRAL-QUAL/SETL transactions.
-5. Select → bind handoff.
+5. ~~Select → bind handoff.~~ **Fixed** 2026-09-26: the comparison names the policy a bound quote became (`policyId`), so the compare screen shows it on every revisit instead of offering a bind the API refuses.
 
 ### Compliance
 1. ~~Admin consent writes go through `recordConsent` so suppression fires.~~ **Fixed** 2026-09-23: `announceConsent` is the single emitter.
@@ -136,7 +136,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 1. ~~Dashboard schedules refused at creation until delivery supports them.~~ **Fixed** 2026-09-23 (`assertDeliverableSchedule`).
 2. ~~Schedule create screen.~~ **Fixed** 2026-09-26: `/analytics/schedules/new` schedules a saved report with the builder's own body (named cadence, file, recipients), under the report's own names.
 3. ~~Report builder and natural-language questions.~~ **Fixed** 2026-09-23 (ADR-0088): `/analytics/builder`, `POST /v1/analytics/ask` (eval-first), AI datasets and `/admin/ai/analytics`.
-4. Readable dimension labels.
+4. ~~Readable dimension labels.~~ **Fixed** 2026-09-26: report and builder results resolve ref-shaped values through `/v1/names`, and the report summary names measures and splits from the dataset registry.
 5. Dashboard tile editor with filters.
 
 ### Admin / Platform

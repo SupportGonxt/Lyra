@@ -1,4 +1,4 @@
-import { shortRef } from "@lyra/ui";
+import { isOpaqueRef, shortRef } from "@lyra/ui";
 import { humanise } from "./modules/spec";
 
 // The client half of /v1/names. The fetch lives in api.server.ts (server only);
@@ -27,4 +27,11 @@ export function who(ref: string | null | undefined, resolved: Names): string | n
   // `commission-rates:new:<sha256 of the body>`. The digest is what stops a
   // retry raising a second approval — nobody reads it.
   return /^new:[0-9a-f]{16,}$/i.test(key) ? `New ${scope.toLowerCase()}` : `${scope} ${key}`;
+}
+
+/** Every ref-shaped string in a page of rows, whichever column it happens to sit in. */
+export function refsIn(rows: ReadonlyArray<Readonly<Record<string, unknown>>>): string[] {
+  return rows.flatMap((row) =>
+    Object.values(row).filter((value): value is string => typeof value === "string" && isOpaqueRef(value))
+  );
 }
