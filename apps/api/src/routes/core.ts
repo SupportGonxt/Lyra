@@ -23,7 +23,8 @@ import {
 } from "@lyra/core";
 import { LOGIN_MAX, LOGIN_WINDOW_SEC, MFA_MAX, SESSION_TTL_MS } from "../auth.js";
 import { deliver } from "../dispatch.js";
-import { body, created, InstantMs } from "../http.js";
+import { body, created, csvBody, InstantMs } from "../http.js";
+import { importCustomers } from "../engines/customer-import.js";
 import { must } from "../rows.js";
 import type { App } from "../env.js";
 
@@ -55,6 +56,14 @@ const KeyBody = z
 
 /** 32 bytes of CSPRNG, base32 for the alphabet auth.ts can slice a prefix out of. */
 const SECRET_BYTES = 32;
+
+// @accept:SA: people from a CSV, so a module bought alone has someone to work
+// with. Per-line honest; a known address merges, never doubles.
+coreRoutes.post("/customers/import", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "core:customers:create", { tenantId: ctx.tenantId, module: "core" });
+  return c.json(await importCustomers(ctx, await csvBody(c)), 201);
+});
 
 coreRoutes.post("/api-keys", async (c) => {
   const ctx = ctxOf(c);

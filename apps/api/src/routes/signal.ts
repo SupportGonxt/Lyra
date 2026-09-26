@@ -6,7 +6,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { require_, audit, badRequest, emit, notFound, type Ctx } from "@lyra/core";
 import { schema, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
 import { z } from "zod";
-import { body } from "../http.js";
+import { body, csvBody } from "../http.js";
 import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateCreativeImage, generateCreatives } from "../engines/signal-creative.js";
@@ -322,16 +322,7 @@ signalRoutes.get("/attribution/funnel", async (c) => {
 signalRoutes.post("/spend/import", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });
-  let csv: string;
-  if ((c.req.header("content-type") ?? "").includes("multipart/form-data")) {
-    const file = (await c.req.formData()).get("file");
-    if (!(file instanceof File)) throw badRequest('attach the CSV as a "file" field');
-    csv = await file.text();
-  } else {
-    const input = (await c.req.json()) as { csv?: unknown };
-    if (typeof input.csv !== "string" || !input.csv) throw badRequest("body must carry a csv string");
-    csv = input.csv;
-  }
+  const csv = await csvBody(c);
   return c.json(await importSpend(ctx, csv), 201);
 });
 

@@ -38,7 +38,7 @@ import {
   visionExtractionMessages,
   visionExtractionSchema
 } from "@lyra/model-gateway";
-import { body, InstantMs } from "../http.js";
+import { body, csvBody, InstantMs } from "../http.js";
 import { readUpload } from "../upload.js";
 import { must } from "../rows.js";
 import { EndorseBody, changeSetHashOf, endorsePolicy, priceEndorsement } from "../engines/axis-endorse.js";
@@ -1599,18 +1599,7 @@ axisRoutes.post("/bordereaux/:id/reconcile", async (c) => {
 axisRoutes.post("/cases/import", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "axis:cases:create", { tenantId: ctx.tenantId, module: "axis" });
-  const contentType = c.req.header("content-type") ?? "";
-  let csvText: string;
-  if (contentType.includes("multipart/form-data")) {
-    const form = await c.req.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) throw badRequest("attach the CSV as a \"file\" field");
-    csvText = await file.text();
-  } else {
-    const input = (await c.req.json()) as { csv?: unknown };
-    if (typeof input.csv !== "string" || !input.csv) throw badRequest("body must carry a csv string");
-    csvText = input.csv;
-  }
+  const csvText = await csvBody(c);
   const result = await importCases(ctx, csvText);
   return c.json(result, 201);
 });

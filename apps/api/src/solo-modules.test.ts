@@ -154,3 +154,11 @@ it("the scheduler runs a tenant on its own policy, not the defaults", async () =
   expect(policy.moduleConfig?.axis?.enabled).toBe(false);
   expect(policy.moduleConfig?.signal?.enabled ?? true).toBe(true);
 });
+
+// A module bought alone needs people to work on; the platform's import is open
+// to it whichever module that is.
+it("a SIGNAL-only tenant can import the people it markets to @accept:SA", async () => {
+  const out = await soloIn("signal", () => call("POST", "/v1/core/customers/import", { csv: "name,email,tags\nSolo Prospect,solo@x.test,motor\n" }));
+  expect(out.status).toBe(201);
+  expect(out.body).toMatchObject({ created: 1, errors: [] });
+});

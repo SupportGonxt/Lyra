@@ -2647,6 +2647,7 @@ export interface Operations {
   "GET /v1/core/consents/{id}": Op<{ id: string }, never, never, CoreConsents>;
   "GET /v1/core/customers": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreCustomers>>;
   "POST /v1/core/customers": Op<never, never, CoreCustomers, CoreCustomers>;
+  "POST /v1/core/customers/import": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/core/customers/{id}": Op<{ id: string }, never, never, CoreCustomers>;
   "PATCH /v1/core/customers/{id}": Op<{ id: string }, never, CoreCustomers, CoreCustomers>;
   "DELETE /v1/core/customers/{id}": Op<{ id: string }, never, never, void>;
@@ -3437,6 +3438,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/consents/{id}": { tag: "core", summary: "Fetch one consent", permission: "core:consents:read", public: false },
   "GET /v1/core/customers": { tag: "core", summary: "List customers", permission: "core:customers:read", public: false },
   "POST /v1/core/customers": { tag: "core", summary: "Create a customer", permission: "core:customers:create", public: false },
+  "POST /v1/core/customers/import": { tag: "core", summary: "Bulk-import customers from CSV (name required; email, phone, locale, type, tags). Per-line honest; a known email merges tags. Consent is never imported", permission: "core:customers:create", public: false },
   "GET /v1/core/customers/{id}": { tag: "core", summary: "Fetch one customer", permission: "core:customers:read", public: false },
   "PATCH /v1/core/customers/{id}": { tag: "core", summary: "Update a customer", permission: "core:customers:update", public: false },
   "DELETE /v1/core/customers/{id}": { tag: "core", summary: "Soft-delete a customer", permission: "core:customers:delete", public: false },
