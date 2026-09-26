@@ -45,8 +45,9 @@ regexes = ['''REPLACE_ME[A-Z0-9_]*''']
 
 # Fixed demo values: the seed's fake tenant API keys, the scrubber's synthetic
 # AWS token and JWT (the test exists to prove they get redacted), the
-# field-crypto test key, the webhook-signature fixture, and a metric named
-# `*_key`. Matched as exact literals, not patterns.
+# field-crypto test key, the webhook-signature fixture, a metric named
+# `*_key`, the streaming eval's fake leaked key (the case proves the redactor
+# catches it). Matched as exact literals, not patterns.
 [[allowlists]]
 description = "Synthetic fixtures and seed demo data"
 regexes = [
@@ -56,5 +57,16 @@ regexes = [
   '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.''',
   '''s0me-32-byte-ish-secret-from-wrangler''',
   '''whsec_ABC123''',
-  '''quote_latency_p95'''
+  '''quote_latency_p95''',
+  '''abcdefgh12345678'''
 ]
+
+# The same prose heuristic as docs/, in a code comment: scout-ingest.ts
+# describes "scraping, news/regulatory" feeds.
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Prose in the scout ingest header comment"
+condition = "AND"
+paths = ['''^apps/api/src/engines/scout-ingest\.ts$''']
+regexTarget = "line"
+regexes = ['''scraping, news/regulatory''']
