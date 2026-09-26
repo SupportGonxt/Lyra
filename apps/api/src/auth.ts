@@ -10,6 +10,7 @@ import {
   ensureDemoAdmin,
   ensureSeedPeople,
   syncSeedEventNames,
+  backfillProspects,
   syncSeedJourneyGraphs,
   entitledGrants,
   GATED_MODULES,
@@ -621,7 +622,10 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // Seventh: seeded journeys lacked the frequency cap triggerJourney requires
   // (ORB-051), and the partner journey its partner subject.
   const journeyGraphs = await syncSeedJourneyGraphs(database as unknown as CoreDb, tenantId);
-  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs });
+  // Eighth (ADR-0091): SIGNAL's prospects arrive by event from now on; the book
+  // before this deploy never announced itself, so it is read once here.
+  const prospects = await backfillProspects(database as unknown as CoreDb, tenantId, Date.now());
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs, prospects });
 });
 
 /**

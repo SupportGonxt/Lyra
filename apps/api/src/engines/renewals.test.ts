@@ -213,6 +213,8 @@ describe("sweepRenewals term dedupe", () => {
     expect(envelope.subject).toBe(row!.id);
     // customerId is what a journey trigger enrols (orbit-journeys.ts onJourneyEvent).
     expect(envelope.data).toMatchObject({ policyRef: "pol_1", customerId: "cu_1", expiryAt: ctx.now + 20 * DAY });
+    // SIGNAL's churn-risk prospects hear the score here, not by reading ORBIT (ADR-0091).
+    expect(envelope.data.churnScore).toBe(row!.churnScore);
   });
 });
 

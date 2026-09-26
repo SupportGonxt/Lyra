@@ -166,6 +166,8 @@ async function findOrCreateCustomer(
   };
   await ctx.db.insert(schema.customers).values(customerRow);
   await audit(ctx, { action: "core.customers.create", subjectRef: `customers:${customerRow.id}`, after: customerRow });
+  // The same announcement CRUD makes: SIGNAL records a new person as a prospect (ADR-0091).
+  await emit(ctx, { module: "core", type: "core.customers.created", subject: customerRow.id, data: { id: customerRow.id } });
   return customerRow.id;
 }
 
@@ -419,6 +421,7 @@ portalRoutes.post("/:tenantSlug/registrations", async (c) => {
       deletedAt: null,
       ...fields
     });
+    await emit(ctx, { module: "core", type: "core.customers.created", subject: customerId, data: { id: customerId } });
   }
 
   const consent = await recordConsent(ctx, {

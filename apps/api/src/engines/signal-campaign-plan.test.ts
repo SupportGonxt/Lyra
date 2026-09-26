@@ -339,6 +339,27 @@ describe("POST /campaigns/:id/plan", () => {
     expect(events.some((e) => e.type === "signal.campaign.planned")).toBe(true);
   });
 
+  // ADR-0091: the broad brief argues from the people other modules reported,
+  // counted — never from a person.
+  it("argues from the prospects SIGNAL holds, as counts", async () => {
+    const id = await campaign();
+    for (const [n, reason] of [[1, "quote_expired"], [2, "quote_expired"], [3, "no_policy"]] as const) {
+      await ctx.db.insert(schema.signalProspects).values({
+        id: `psp_plan_${n}`,
+        tenantId,
+        customerId: `cus_plan_${n}`,
+        reason,
+        createdAt: ctx.now,
+        updatedAt: ctx.now
+      });
+    }
+    const { stub, gw } = gatewayWith({ replies: [AUDIENCE, PLAN] });
+    await post(app(actorWith("u_marketer", ["signal:campaigns:update"]), gw), `/campaigns/${id}/plan`, { subject: "marine cover" });
+    expect(userPrompt(stub, 1)).toContain("Identified people whose quote expired without being taken up: 2");
+    expect(userPrompt(stub, 1)).toMatch(/Identified people known to us who hold no .+ yet: 1/);
+    expect(userPrompt(stub, 1)).not.toContain("cus_plan_");
+  });
+
   it("keeps a pool the campaign already has instead of proposing another", async () => {
     const first = await campaign();
     const seedCall = gatewayWith({ replies: [AUDIENCE, PLAN] });

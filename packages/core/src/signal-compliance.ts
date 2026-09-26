@@ -1,3 +1,4 @@
+import { verifyGroundedness } from "./narrator-verify.js";
 // docs/modules/signal.md §2.1/§8 Compliance Pre-flight (CLAUDE.md rule 11's
 // inspectable "why"): every generated creative gets checked before it can be
 // marked review-ready. Pure and DB-free like momentum.ts/narrator-verify.ts so
@@ -57,4 +58,18 @@ export function checkCompliance(text: string): ComplianceResult {
     if (m) findings.push({ rule: b.rule, excerpt: m[0], note: b.note });
   }
   return findings.length ? { status: "flagged", findings } : { status: "passed", findings: [] };
+}
+
+/**
+ * The gate a personal acquisition draft passes before it can be queued
+ * (ADR-0091, evals/outreach-draft): every number it states — a date, a price, a
+ * percentage — must be in the evidence it was written from, and it must pass the
+ * same pre-flight every creative does. Either failing drops the draft.
+ */
+export function checkOutreachDraft(text: string, evidenceLines: string[]): { ok: boolean; why: string | null } {
+  const grounded = verifyGroundedness(text, evidenceLines);
+  if (!grounded.ok) return { ok: false, why: `states ${grounded.mismatches.join(", ")}, which the evidence does not` };
+  const compliance = checkCompliance(text);
+  if (compliance.status === "flagged") return { ok: false, why: compliance.findings[0]!.note };
+  return { ok: true, why: null };
 }

@@ -122,6 +122,11 @@ export interface CampaignPlanEvidence {
   bookSize: number;
   /** The proposed pool. Null when the tenant has nothing above the k-anonymity floor. */
   audience: PlanAudience | null;
+  /**
+   * ADR-0091: identified people SIGNAL holds a reason for, counted per reason
+   * (quote_expired, no_policy, churn_risk). Counts only — never a person.
+   */
+  prospects?: Partial<Record<string, number>> | null;
 }
 
 /** JSON schema handed to `ModelRequest.responseSchema`. */
@@ -173,6 +178,7 @@ export function campaignPlanEvidenceLines(ev: CampaignPlanEvidence, nouns: Promp
     ...(ev.coverage === null ? [] : [`Share of the book already holding this line (%): ${ev.coverage}`]),
     ...(ev.competitionScore === null ? [] : [`Competitive pressure score (0-100): ${ev.competitionScore}`]),
     `Customers in the book: ${ev.bookSize}`,
+    ...prospectLines(ev.prospects, nouns),
     `Spend buys ${nouns.contracts}; every figure below counts customers, not ${nouns.contracts}.`,
     ...(a
       ? [
@@ -184,6 +190,18 @@ export function campaignPlanEvidenceLines(ev: CampaignPlanEvidence, nouns: Promp
         ]
       : ["No audience pool has been proposed yet; plan for the whole book."])
   ];
+}
+
+function prospectLines(prospects: CampaignPlanEvidence["prospects"], nouns: PromptNouns): string[] {
+  if (!prospects) return [];
+  const said: Record<string, string> = {
+    quote_expired: "people whose quote expired without being taken up",
+    no_policy: `people known to us who hold no ${nouns.contract} yet`,
+    churn_risk: "customers at risk of not renewing (reached by retention journeys, not this campaign)"
+  };
+  return Object.entries(prospects)
+    .filter(([reason, n]) => said[reason] && typeof n === "number" && n > 0)
+    .map(([reason, n]) => `Identified ${said[reason]}: ${n}`);
 }
 
 export function campaignPlanMessages(

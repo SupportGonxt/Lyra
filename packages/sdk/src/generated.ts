@@ -1931,7 +1931,8 @@ export interface OrbitJourneyRuns {
   id?: string;
   tenantId?: string;
   journeyId: string;
-  customerId: string;
+  customerId?: string;
+  partnerId?: string;
   node: string;
   state?: string;
   contextJson?: string;
@@ -2310,10 +2311,36 @@ export interface SignalOutreach {
   state?: string;
   approvedBy: string;
   externalRef?: string;
+  conversationId?: string;
   convertedRef?: string;
   aiAuditId?: string;
   ts: number;
   updatedAt?: number;
+}
+
+export interface SignalProspects {
+  id?: string;
+  tenantId?: string;
+  customerId: string;
+  reason: string;
+  evidenceJson?: string;
+  score?: number;
+  state?: string;
+  sourceRef?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface SignalResponses {
+  id?: string;
+  tenantId?: string;
+  campaignId?: string;
+  audienceId?: string;
+  customerId?: string;
+  outreachId?: string;
+  kind: string;
+  ref?: string;
+  ts: number;
 }
 
 export interface SignalSignalExperiments {
@@ -3106,6 +3133,11 @@ export interface Operations {
   "GET /v1/signal/outreach": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalOutreach>>;
   "POST /v1/signal/outreach/run": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach/{id}": Op<{ id: string }, never, never, SignalOutreach>;
+  "GET /v1/signal/prospects": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalProspects>>;
+  "GET /v1/signal/prospects/{id}": Op<{ id: string }, never, never, SignalProspects>;
+  "GET /v1/signal/responses": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalResponses>>;
+  "GET /v1/signal/responses/rollup": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/signal/responses/{id}": Op<{ id: string }, never, never, SignalResponses>;
   "GET /v1/signal/signal-experiments": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalSignalExperiments>>;
   "POST /v1/signal/signal-experiments": Op<never, never, SignalSignalExperiments, SignalSignalExperiments>;
   "GET /v1/signal/signal-experiments/{id}": Op<{ id: string }, never, never, SignalSignalExperiments>;
@@ -3884,6 +3916,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/signal/outreach": { tag: "signal", summary: "List outreach", permission: "signal:outreach:read", public: false },
   "POST /v1/signal/outreach/run": { tag: "signal", summary: "Run the acquisition outreach sweep now — draft, consent-gate, approval-gate, send, and record the lead touch (also runs on the nightly tick)", permission: "signal:outreach:send", public: false },
   "GET /v1/signal/outreach/{id}": { tag: "signal", summary: "Fetch one outreach", permission: "signal:outreach:read", public: false },
+  "GET /v1/signal/prospects": { tag: "signal", summary: "List prospects", permission: "signal:audiences:read", public: false },
+  "GET /v1/signal/prospects/{id}": { tag: "signal", summary: "Fetch one prospect", permission: "signal:audiences:read", public: false },
+  "GET /v1/signal/responses": { tag: "signal", summary: "List responses", permission: "signal:campaigns:read", public: false },
+  "GET /v1/signal/responses/rollup": { tag: "signal", summary: "Responses to outreach (delivered, read, replied, lead, bind, opted out) counted per campaign, audience or person: ?level=campaign|audience|customer&since=", permission: "signal:campaigns:read", public: false },
+  "GET /v1/signal/responses/{id}": { tag: "signal", summary: "Fetch one respons", permission: "signal:campaigns:read", public: false },
   "GET /v1/signal/signal-experiments": { tag: "signal", summary: "List signal-experiments", permission: "signal:experiments:read", public: false },
   "POST /v1/signal/signal-experiments": { tag: "signal", summary: "Create a signal experiment", permission: "signal:experiments:create", public: false },
   "GET /v1/signal/signal-experiments/{id}": { tag: "signal", summary: "Fetch one signal experiment", permission: "signal:experiments:read", public: false },

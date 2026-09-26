@@ -3,7 +3,7 @@ import { id as newId, schema } from "@lyra/db";
 import {
   assertChannel,
   audit,
-  checkCompliance,
+  checkOutreachDraft,
   emit,
   gate,
   inQuietHours,
@@ -12,6 +12,8 @@ import {
 } from "@lyra/core";
 import { promptNouns, type Gateway, type PromptNouns } from "@lyra/model-gateway";
 import { recordTouch } from "./signal-attribution.js";
+import { markProspectsContacted } from "./signal-prospects.js";
+import { recordResponse } from "./signal-responses.js";
 
 // The send half of the publish loop (docs/27: "Content generation without the
 // publish loop it advertises"). SIGNAL could draft compliant ar/en creative but
@@ -88,22 +90,23 @@ export async function recipientsFor(ctx: Ctx, campaign: OutreachCampaign): Promi
   const members = await audienceMemberIds(ctx, campaign.audienceId);
   if (!members.length) return [];
 
-  // One query for every member's latest consent instead of one per member:
-  // the max(ts) subquery picks each customer's newest row and the outer
-  // select fetches them in a single round trip.
-  const consents = await ctx.db
-    .select()
-    .from(schema.consents)
-    .where(
-      and(
-        eq(schema.consents.tenantId, ctx.tenantId),
-        inArray(
-          schema.consents.customerId,
-          members
-        ),
-        sql`${schema.consents.ts} = (select max(c2.ts) from ${schema.consents} c2 where c2.customer_id = ${schema.consents.customerId} and c2.tenant_id = ${schema.consents.tenantId})`
-      )
+  // Every member's latest consent, in chunks: D1 binds at most 100 parameters
+  // per statement, and the max(ts) subquery picks each customer's newest row.
+  const consents: (typeof schema.consents.$inferSelect)[] = [];
+  for (let i = 0; i < members.length; i += CHUNK) {
+    consents.push(
+      ...(await ctx.db
+        .select()
+        .from(schema.consents)
+        .where(
+          and(
+            eq(schema.consents.tenantId, ctx.tenantId),
+            inArray(schema.consents.customerId, members.slice(i, i + CHUNK)),
+            sql`${schema.consents.ts} = (select max(c2.ts) from ${schema.consents} c2 where c2.customer_id = ${schema.consents.customerId} and c2.tenant_id = ${schema.consents.tenantId})`
+          )
+        ))
     );
+  }
   const consentByCustomer = new Map(consents.map((c) => [c.customerId, c]));
 
   const out: Recipient[] = [];
@@ -129,9 +132,42 @@ export async function recipientsFor(ctx: Ctx, campaign: OutreachCampaign): Promi
   return out;
 }
 
-/** Resolve an audience definition's member ids. The seed grammar is a rule tree
- *  over customer tags/attributes; unknown shapes resolve to nobody rather than
- *  to everybody — fail closed on targeting. */
+const CHUNK = 90;
+const PAGE = 500;
+
+type Leaf = { field: string; op: string; value: unknown };
+
+/** Reasons outreach may act on. Churn risk is a renewal, and renewals are ORBIT's journeys. */
+const OUTREACH_REASONS = ["quote_expired", "no_policy"];
+
+/**
+ * Why the resolver cannot run this rule, or null when it can. An unrunnable
+ * rule used to resolve to nobody at send time, silently; now it is refused
+ * when a person writes it (ADR-0091).
+ */
+export function audienceRuleProblem(def: unknown): string | null {
+  const leaves = collectLeaves(def);
+  if (!leaves.length) return "no rule: add a tag or a prospect reason";
+  for (const l of leaves) {
+    if (l.field === "tagsJson" && l.op === "contains" && typeof l.value === "string") continue;
+    if (l.field === "prospect.score" && l.op === "gte" && typeof l.value === "number") continue;
+    if (l.field === "prospect.reason" && l.op === "eq") {
+      if (l.value === "churn_risk") return "churn risk is reached by ORBIT's renewal journeys, not by acquisition outreach";
+      if (OUTREACH_REASONS.includes(l.value as string)) continue;
+    }
+    // Suppression's own rule: it excludes, it is never sent to.
+    if (l.field === "consent.marketing" && l.op === "eq" && l.value === false) continue;
+    return `cannot resolve ${l.field} ${l.op}`;
+  }
+  if (leaves.some((l) => l.field === "prospect.score") && !leaves.some((l) => l.field === "prospect.reason")) {
+    return "a prospect score needs a prospect reason";
+  }
+  return null;
+}
+
+/** Resolve an audience definition's member ids: tag leaves over customers,
+ *  prospect leaves over SIGNAL's own prospects, intersected under `all` and
+ *  joined under `any`. Anything else resolves to nobody — fail closed. */
 async function audienceMemberIds(ctx: Ctx, audienceId: string): Promise<string[]> {
   const [audience] = await ctx.db
     .select()
@@ -145,23 +181,64 @@ async function audienceMemberIds(ctx: Ctx, audienceId: string): Promise<string[]
   } catch {
     return [];
   }
+  if (audienceRuleProblem(def) !== null) return [];
   const leaves = collectLeaves(def);
-  if (!leaves.length) return [];
+  const any = Array.isArray((def as { any?: unknown }).any);
 
-  // Only tag-based leaves resolve today: {field: "tagsJson", op: "contains",
-  // value}. Attribute-tree grammar beyond tags is the resolver's job when one
-  // exists; until then an unresolvable leaf yields nobody, never everyone.
-  const tagLeaf = leaves.find((l) => l.field === "tagsJson" && l.op === "contains" && typeof l.value === "string");
-  if (!tagLeaf) return [];
-  const rows = await ctx.db
-    .select({ id: schema.customers.id })
-    .from(schema.customers)
-    .where(and(eq(schema.customers.tenantId, ctx.tenantId), sql`${schema.customers.tagsJson} like ${`%${tagLeaf.value}%`}`))
-    .limit(500);
-  return rows.map((r) => r.id);
+  const sets: Set<string>[] = [];
+  for (const tag of leaves.filter((l) => l.field === "tagsJson")) {
+    sets.push(
+      await paged((offset) =>
+        ctx.db
+          .select({ id: schema.customers.id })
+          .from(schema.customers)
+          .where(and(eq(schema.customers.tenantId, ctx.tenantId), isNull(schema.customers.deletedAt), sql`${schema.customers.tagsJson} like ${`%${tag.value}%`}`))
+          .orderBy(schema.customers.id)
+          .limit(PAGE)
+          .offset(offset)
+      )
+    );
+  }
+  const reason = leaves.find((l) => l.field === "prospect.reason");
+  if (reason) {
+    const floor = leaves.find((l) => l.field === "prospect.score")?.value as number | undefined;
+    sets.push(
+      await paged((offset) =>
+        ctx.db
+          .select({ id: schema.signalProspects.customerId })
+          .from(schema.signalProspects)
+          .where(
+            and(
+              eq(schema.signalProspects.tenantId, ctx.tenantId),
+              eq(schema.signalProspects.reason, reason.value as string),
+              inArray(schema.signalProspects.state, ["open", "contacted"]),
+              floor === undefined ? undefined : gte(schema.signalProspects.score, floor)
+            )
+          )
+          .orderBy(schema.signalProspects.customerId)
+          .limit(PAGE)
+          .offset(offset)
+      )
+    );
+  }
+  if (!sets.length) return [];
+  const [first, ...rest] = sets;
+  const out = any
+    ? new Set(sets.flatMap((x) => [...x]))
+    : new Set([...first!].filter((id) => rest.every((x) => x.has(id))));
+  return [...out];
 }
 
-function collectLeaves(node: unknown): Array<{ field: string; op: string; value: unknown }> {
+async function paged(page: (offset: number) => Promise<{ id: string }[]>): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let offset = 0; ; offset += PAGE) {
+    const rows = await page(offset);
+    for (const r of rows) out.add(r.id);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+function collectLeaves(node: unknown): Leaf[] {
   if (!node || typeof node !== "object") return [];
   const o = node as Record<string, unknown>;
   if (typeof o.field === "string" && typeof o.op === "string") {
@@ -232,10 +309,12 @@ export async function draftOutreach(
   const locale: "en" | "ar" = customer?.locale === "ar" || ctx.locale === "ar" ? "ar" : "en";
   const name = firstName(customer?.nameJson);
 
+  const why = await prospectReason(ctx, recipient.customerId, nouns);
   const evidenceLines = [
     `Campaign: ${campaign.name}`,
     `Approved copy to personalise: ${creativeText}`,
     `Recipient first name: ${name ?? "unknown"}`,
+    ...(why ? [`Why this person: ${why}`] : []),
     `Channel: ${recipient.channel}`,
     `Language: ${locale === "ar" ? "Arabic" : "English"}`
   ];
@@ -253,6 +332,7 @@ export async function draftOutreach(
           content:
             `You write one short ${recipient.channel} acquisition message for a ${nouns.domain} brand, in ${locale === "ar" ? "Arabic" : "English"}, addressed to ${name ?? "the recipient"} by first name. ` +
             "Personalise the approved copy below — do not invent prices, discounts, deadlines or coverage promises. " +
+            "If a reason is given for writing to this person, acknowledge it plainly and state no fact beyond it. " +
             "No superlatives against the market, no guarantees of acceptance. Under 90 words. Reply with the message text only."
         },
         { role: "user", content: evidenceLines.join("\n") }
@@ -265,8 +345,8 @@ export async function draftOutreach(
     // evidence lacked) and the same compliance classifier every creative
     // passes. Either failing drops the draft — a bad message is not a smaller
     // message.
-    const compliance = checkCompliance(text);
-    if (compliance.status === "flagged") {
+    const gateResult = checkOutreachDraft(text, evidenceLines);
+    if (!gateResult.ok) {
       return {
         customerId: recipient.customerId,
         channel: recipient.channel,
@@ -287,6 +367,31 @@ export async function draftOutreach(
   } catch {
     return null;
   }
+}
+
+/**
+ * The one fact about this person the model may use (ADR-0091): the newest
+ * reason SIGNAL holds for them, in words, with its date. Nothing else from the
+ * prospect row — and nobody else's — reaches the prompt.
+ */
+async function prospectReason(ctx: Ctx, customerId: string, nouns: PromptNouns): Promise<string | null> {
+  const [p] = await ctx.db
+    .select({ reason: schema.signalProspects.reason, evidenceJson: schema.signalProspects.evidenceJson })
+    .from(schema.signalProspects)
+    .where(
+      and(
+        eq(schema.signalProspects.tenantId, ctx.tenantId),
+        eq(schema.signalProspects.customerId, customerId),
+        inArray(schema.signalProspects.reason, OUTREACH_REASONS),
+        inArray(schema.signalProspects.state, ["open", "contacted"])
+      )
+    )
+    .orderBy(desc(schema.signalProspects.score))
+    .limit(1);
+  if (!p) return null;
+  if (p.reason === "no_policy") return `they are known to us but hold no ${nouns.contract} yet`;
+  const at = (JSON.parse(p.evidenceJson) as { expiredAt?: number }).expiredAt;
+  return `their quote expired${typeof at === "number" ? ` on ${new Date(at).toISOString().slice(0, 10)}` : ""} without being taken up`;
 }
 
 function firstName(nameJson: string | undefined | null): string | null {
@@ -326,7 +431,10 @@ export interface SendOutcome {
 export async function runAcquisitionSweep(
   ctx: Ctx,
   gateway: Gateway,
-  opts: { deliver?: (channel: OutreachChannel, to: string, text: string) => Promise<string | null>; limit?: number } = {}
+  opts: {
+    deliver?: (channel: OutreachChannel, to: string, text: string) => Promise<Delivered | string | null>;
+    limit?: number;
+  } = {}
 ): Promise<SendOutcome> {
   const outcome: SendOutcome = { sent: 0, pendingApproval: 0, skippedQuietHours: 0, skippedCap: 0, droppedFlagged: 0 };
   if (inQuietHours(ctx.now, ctx.policy.timezone)) return outcome;
@@ -394,10 +502,12 @@ export async function runAcquisitionSweep(
       // orbit-channel-outbound: a failed delivery must not leave a row
       // claiming "sent".
       let externalRef: string | null = null;
+      let conversationId: string | null = null;
       if (approvedBy !== "pending") {
-        externalRef = opts.deliver
+        const out = opts.deliver
           ? await opts.deliver(drafted.channel, recipient.customerId, drafted.text)
           : await deliverInline(ctx, drafted.channel, recipient.customerId, drafted.text);
+        ({ externalRef, conversationId } = typeof out === "string" ? { externalRef: out, conversationId: null } : (out ?? { externalRef: null, conversationId: null }));
       }
 
       await ctx.db.insert(schema.signalOutreach).values({
@@ -411,6 +521,7 @@ export async function runAcquisitionSweep(
         state: approvedBy === "pending" ? "pending_approval" : externalRef ? "sent" : "failed",
         approvedBy,
         externalRef,
+        conversationId,
         aiAuditId: drafted.aiAuditId,
         ts: ctx.now
       });
@@ -431,6 +542,10 @@ export async function runAcquisitionSweep(
         campaignId: campaign.id,
         customerId: recipient.customerId
       });
+      // ADR-0091: the send is the denominator every scale's rates divide by.
+      const [sentRow] = await ctx.db.select().from(schema.signalOutreach).where(eq(schema.signalOutreach.id, outreachId));
+      await recordResponse(ctx, sentRow!, "lead");
+      await markProspectsContacted(ctx, recipient.customerId);
       outcome.sent++;
     }
   }
@@ -445,7 +560,13 @@ export async function runAcquisitionSweep(
  * honestly as `failed` rather than pretending. A tenant that wires a real
  * provider passes `deliver` and the loop closes end-to-end.
  */
-async function deliverInline(ctx: Ctx, channel: OutreachChannel, customerId: string, text: string): Promise<string | null> {
+export interface Delivered {
+  externalRef: string | null;
+  /** The ORBIT conversation it went into — how a reply finds this send. */
+  conversationId: string | null;
+}
+
+async function deliverInline(ctx: Ctx, channel: OutreachChannel, customerId: string, text: string): Promise<Delivered | null> {
   // Runtime consent check — the pick-time read is advisory, this is the gate.
   await assertChannel(ctx, customerId, channel, { marketing: true });
   const [connector] = await ctx.db
@@ -484,7 +605,7 @@ async function deliverInline(ctx: Ctx, channel: OutreachChannel, customerId: str
     .limit(1);
   if (!conversation) return null;
   const sent = await dispatchOutbound(ctx, (ctx as Ctx & { env?: unknown }).env as never, conversation, connector, text);
-  return sent.externalRef;
+  return { externalRef: sent.externalRef, conversationId: conversation.id };
 }
 
 /**
@@ -528,6 +649,7 @@ export async function onLeadConverted(ctx: Ctx, customerId: string, policyId: st
     .update(schema.signalOutreach)
     .set({ state: "converted", convertedRef: policyId, updatedAt: ctx.now })
     .where(eq(schema.signalOutreach.id, outreach.id));
+  await recordResponse(ctx, outreach, "bind", policyId);
 
   await emit(ctx, {
     module: "signal",

@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, schema } from "@lyra/db";
-import { ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames, syncSeedJourneyGraphs } from "./seed.js";
+import { PROSPECT_CHURN_FLOOR } from "./prospects.js";
+import { backfillProspects, ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedEventNames, syncSeedJourneyGraphs } from "./seed.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
 import { TENANT_ROLE_KEYS, isInternalRole, permissionsForRole } from "./rbac.js";
 import type { CoreDb } from "./context.js";
@@ -260,6 +261,37 @@ describe("seed", () => {
     expect(JSON.parse(hook!.eventTypesJson)).toEqual(["ledger.settlement.approved", "ledger.recon.completed", "tenant.own.event"]);
 
     expect(await syncSeedEventNames(db, tenantId)).toEqual({ journeys: [], webhooks: [] });
+  });
+
+  /**
+   * ADR-0091. Prospects arrive by event from the day SIGNAL starts listening;
+   * a tenant's book before that day never announced itself. The backfill reads
+   * it once — who holds no contract, whose quote lapsed, whose renewal is at
+   * risk — and is what a seeded tenant starts with too.
+   */
+  it("backfills prospects from the book as it stands, once", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    const [holder] = await db.select().from(schema.axisPolicies).where(eq(schema.axisPolicies.tenantId, tenantId)).limit(1);
+    const person = (id: string) => ({ id, tenantId, nameJson: "{}", createdAt: 1, updatedAt: 1 });
+    await db.insert(schema.customers).values([person("cus_bare"), person("cus_lapsed"), { ...person("cus_gone"), deletedAt: 2 }]);
+    await db.insert(schema.distQuoteRequests).values({
+      id: "qr_lapsed", tenantId, customerId: "cus_lapsed", channelId: "ch", productId: "prd", inputsJson: "{}", currency: "AED", state: "expired", expiresAt: 5, createdAt: 1, updatedAt: 6
+    });
+    const renewal = (id: string, churnScore: number, state = "scheduled") => ({
+      id, tenantId, policyRef: holder!.id, customerId: holder!.customerId, expiryAt: churnScore, churnScore, strategy: "control", state, createdAt: 1, updatedAt: 1
+    });
+    await db.insert(schema.orbitRenewals).values([
+      renewal("rnw_hot", PROSPECT_CHURN_FLOOR + 5),
+      renewal("rnw_cool", PROSPECT_CHURN_FLOOR - 5),
+      renewal("rnw_done", 95, "accepted")
+    ]);
+
+    expect(await backfillProspects(db, tenantId, 10)).toBe(4);
+    const rows = await db.select().from(schema.signalProspects).where(eq(schema.signalProspects.tenantId, tenantId));
+    expect(rows.map((r) => `${r.customerId}:${r.reason}`).sort()).toEqual(
+      ["cus_bare:no_policy", "cus_lapsed:no_policy", "cus_lapsed:quote_expired", `${holder!.customerId}:churn_risk`].sort()
+    );
+    expect(await backfillProspects(db, tenantId, 11)).toBe(0);
   });
 
   /**

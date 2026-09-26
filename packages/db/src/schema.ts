@@ -109,7 +109,9 @@ export {
   aeoPages as signalAeoPages,
   attributionEvents as signalAttributionEvents,
   spend as signalSpend,
-  outreach as signalOutreach
+  outreach as signalOutreach,
+  prospects as signalProspects,
+  responses as signalResponses
 } from "./schema/signal.js";
 
 export {

@@ -955,7 +955,7 @@ describe("J-M1 a campaign in a day", () => {
     const audience = ok(
       await call("signal.lead", "POST", "/v1/signal/audiences", {
         name: "Motor renewals, 30 days",
-        definitionJson: JSON.stringify({ segment: "renewals", withinDays: 30 })
+        definitionJson: JSON.stringify({ all: [{ field: "tagsJson", op: "contains", value: "renewals" }] })
       }),
       201
     );

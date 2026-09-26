@@ -163,6 +163,24 @@ describe("processChannelEvents", () => {
     const [message] = await ctx.db.select().from(schema.orbitMessages).where(eq(schema.orbitMessages.externalRef, "wamid.1"));
     expect(message!.deliveryStatus).toBe("delivered");
   });
+
+  // ADR-0091: SIGNAL credits replies and receipts to its sends from these two
+  // events — the only way it hears of either without reading ORBIT's tables.
+  it("announces each new customer message and each receipt, and not a redelivery", async () => {
+    const msg = { kind: "message" as const, message: { externalRef: "wamid.1", handle: "97150", text: "Hi", modality: "text" as const, sentAt: now } };
+    await processChannelEvents(ctx, connector, [msg]);
+    await processChannelEvents(ctx, connector, [msg]);
+    await processChannelEvents(ctx, connector, [{ kind: "status", receipt: { externalRef: "wamid.out", status: "read", at: now + 500 } }]);
+
+    const events = (await ctx.db.select().from(schema.eventOutbox)).map((e) => JSON.parse(e.envelopeJson));
+    const [conversation] = await ctx.db.select().from(schema.orbitConversations);
+    expect(events.filter((e) => e.type === "orbit.message.received").map((e) => e.data)).toEqual([
+      { conversationId: conversation!.id, customerId: conversation!.customerId, messageId: expect.any(String) }
+    ]);
+    // A stranger writing in is a new person SIGNAL may talk to, announced the way CRUD announces one.
+    expect(events.filter((e) => e.type === "core.customers.created").map((e) => e.data)).toEqual([{ id: conversation!.customerId }]);
+    expect(events.filter((e) => e.type === "orbit.message.status").map((e) => e.data)).toEqual([{ externalRef: "wamid.out", status: "read" }]);
+  });
 });
 
 describe("processChannelEvents routing", () => {

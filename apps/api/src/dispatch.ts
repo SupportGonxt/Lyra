@@ -15,6 +15,8 @@ import { onFinancingLapseDue } from "./engines/axis-lifecycle.js";
 import { onConsentUpdated } from "./engines/signal-suppression.js";
 import { onBindIssued } from "./engines/signal-attribution.js";
 import { onLeadConverted } from "./engines/signal-outreach.js";
+import { onProspectSignal } from "./engines/signal-prospects.js";
+import { onResponseSignal } from "./engines/signal-responses.js";
 import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
 import { onDsarUpdated } from "./engines/compliance-erasure.js";
@@ -29,6 +31,9 @@ import { onAccrualDecided, onPolicyIssuedAccrue } from "./engines/commission-acc
 /** Exponential, capped. A subscriber that is down for an hour is not our problem. */
 const BACKOFF_MS = [0, 30_000, 5 * 60_000, 30 * 60_000, 2 * 3600_000, 6 * 3600_000];
 const MAX_ATTEMPTS = BACKOFF_MS.length;
+
+const PROSPECT_EVENTS = new Set(["dist.quote.expired", "orbit.renewal.due", "core.customers.created", "axis.policy.issued", "core.consent.updated"]);
+const RESPONSE_EVENTS = new Set(["orbit.message.status", "orbit.message.received", "core.consent.updated"]);
 
 export interface DrainResult {
   published: number;
@@ -88,6 +93,16 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
           const data = e.data as { customerId?: string; policyId?: string };
           if (data.customerId && data.policyId) await onLeadConverted(ctx, data.customerId, data.policyId);
         }, ctx.now);
+      }
+      // ADR-0091: marketing's three scales hear the rest of the system here.
+      // Prospects are who SIGNAL has a reason to talk to; responses are what came
+      // back from a send. Consent withdrawal reaches both even with SIGNAL off,
+      // for the same reason suppression does.
+      if (PROSPECT_EVENTS.has(event.type) && (on("signal") || event.type === "core.consent.updated")) {
+        await consume(ctx.db, event, "signal.prospects", (e) => onProspectSignal(ctx, e), ctx.now);
+      }
+      if (RESPONSE_EVENTS.has(event.type) && (on("signal") || event.type === "core.consent.updated")) {
+        await consume(ctx.db, event, "signal.responses", (e) => onResponseSignal(ctx, e), ctx.now);
       }
       // ...and it opens Distribution's side: the channel's commission accrues
       // through the same gate and unique index as the manual route

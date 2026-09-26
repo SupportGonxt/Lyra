@@ -26,6 +26,7 @@ import { gatewayFor } from "./mw.js";
 import { embedUpsert } from "./engines/vectorize.js";
 import { assertCanGrant, bundleOf } from "./engines/staff.js";
 import { onExperimentConcluded } from "./engines/scout-validate.js";
+import { audienceRuleProblem } from "./engines/signal-outreach.js";
 import { must } from "./rows.js";
 import {
   assertDeliverableSchedule,
@@ -841,7 +842,28 @@ export const SIGNAL = register(
     read: "signal:audiences:read",
     create: "signal:audiences:create",
     update: "signal:audiences:create"
-  }, { actorColumns: ["createdBy"] }),
+  }, {
+    actorColumns: ["createdBy"],
+    // ADR-0091: a rule outreach cannot resolve used to reach nobody at send
+    // time, silently. Refused when a person writes one; rules already stored
+    // are left alone until someone edits the rule itself.
+    beforeWrite: (_ctx, values, existing) => {
+      if (!("definitionJson" in values)) return values;
+      let def: unknown;
+      try {
+        def = JSON.parse(String(values.definitionJson));
+      } catch {
+        throw badRequest("definitionJson is not JSON", { definitionJson: "not JSON" });
+      }
+      // An edit form posts every field back: the stored rule, unchanged, is not a new rule.
+      if (existing && sameJson(existing.definitionJson, def)) return values;
+      const problem = audienceRuleProblem(def);
+      if (problem) throw badRequest(`this audience cannot be reached: ${problem}`, { definitionJson: problem });
+      return values;
+    }
+  }),
+  r("prospects", schema.signalProspects, "psp", "signal", ro("signal:audiences:read")),
+  r("responses", schema.signalResponses, "rsp", "signal", ro("signal:campaigns:read")),
   r("campaigns", schema.signalCampaigns, "cmp", "signal", {
     read: "signal:campaigns:read",
     create: "signal:campaigns:create",
@@ -1357,3 +1379,11 @@ export const BY_MODULE: Record<string, Resource[]> = {
   compliance: COMPLIANCE,
   analytics: ANALYTICS
 };
+
+function sameJson(stored: unknown, parsed: unknown): boolean {
+  try {
+    return JSON.stringify(JSON.parse(String(stored))) === JSON.stringify(parsed);
+  } catch {
+    return false;
+  }
+}

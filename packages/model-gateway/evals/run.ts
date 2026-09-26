@@ -22,6 +22,7 @@ import {
   verifyGroundedness,
   recallable,
   checkCompliance as checkSignalCompliance,
+  checkOutreachDraft,
   PROTECTED_AXES,
   type BriefingSnapshot,
   type ReportDefinition
@@ -1156,6 +1157,19 @@ async function scoreGroundedness(dir: string): Promise<Metric[]> {
   ];
 }
 
+async function scoreOutreachDraft(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<GroundednessCase>(dir);
+  const thresholds = await loadThresholds<GroundednessThresholds>(dir);
+  const violations = cases.filter((c) => !c.expectOk);
+  const clean = cases.filter((c) => c.expectOk);
+  const caught = violations.filter((c) => !checkOutreachDraft(c.text, c.contextLines).ok).length;
+  const falseFlags = clean.filter((c) => !checkOutreachDraft(c.text, c.contextLines).ok).length;
+  return [
+    metric("recall", violations.length ? caught / violations.length : 1, { min: thresholds.recallMin }),
+    metric("falsePositiveRate", clean.length ? falseFlags / clean.length : 0, { max: thresholds.falsePositiveMax })
+  ];
+}
+
 interface WhitespaceBriefCase {
   id: string;
   evidence: WhitespaceEvidence;
@@ -1530,6 +1544,9 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   // A journey's `agent` node drafts proactive outreach (engines/orbit-journeys.ts)
   // under the same rule as a reply: no number the context lines did not give it.
   "orbit-journey-draft": scoreGroundedness,
+  // ADR-0091: a personal acquisition draft is gated on groundedness AND the
+  // SIGNAL compliance pre-flight — the one function the outreach engine runs.
+  "outreach-draft": scoreOutreachDraft,
   "axis-fnol-triage": scoreFnolTriage,
   "axis-reserve": scoreReserve,
   "axis-fraud": scoreFraud,

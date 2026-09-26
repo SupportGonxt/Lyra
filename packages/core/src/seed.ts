@@ -12,6 +12,7 @@ import {
 } from "@lyra/db";
 import { ROLES, TENANT_ROLE_KEYS, isInternalRole, requiresMfa } from "./rbac.js";
 import { hashPassword } from "./password.js";
+import { PROSPECT_CHURN_FLOOR } from "./prospects.js";
 import { splitCommission } from "./commission.js";
 import type { CoreDb } from "./context.js";
 import { seedAdmin } from "./seed/admin.js";
@@ -2667,6 +2668,53 @@ export async function syncSeedJourneyGraphs(db: CoreDb, tenantId: string): Promi
     changed.push(j.id);
   }
   return changed;
+}
+
+/**
+ * ADR-0091. SIGNAL learns of prospects by event from the day it listens; the
+ * book before that day never announced itself. This reads it once — customers
+ * holding no contract, comparisons that lapsed, renewals at churn risk — into
+ * `signal_prospects`, the same rows the events write. Existing rows are left
+ * as they are (their state is SIGNAL's). Idempotent. Returns rows created.
+ */
+export async function backfillProspects(db: CoreDb, tenantId: string, now: number): Promise<number> {
+  const rows: { customerId: string; reason: string; score: number; evidenceJson: string; sourceRef: string | null }[] = [];
+  const holders = new Set(
+    (await db.select({ c: schema.axisPolicies.customerId }).from(schema.axisPolicies).where(eq(schema.axisPolicies.tenantId, tenantId))).map((r) => r.c)
+  );
+  for (const c of await db
+    .select({ id: schema.customers.id })
+    .from(schema.customers)
+    .where(and(eq(schema.customers.tenantId, tenantId), isNull(schema.customers.deletedAt)))) {
+    if (!holders.has(c.id)) rows.push({ customerId: c.id, reason: "no_policy", score: 30, evidenceJson: "{}", sourceRef: null });
+  }
+  for (const q of await db
+    .select()
+    .from(schema.distQuoteRequests)
+    .where(and(eq(schema.distQuoteRequests.tenantId, tenantId), eq(schema.distQuoteRequests.state, "expired")))) {
+    if (!q.customerId) continue;
+    rows.push({
+      customerId: q.customerId,
+      reason: "quote_expired",
+      score: 70,
+      evidenceJson: JSON.stringify({ productId: q.productId, expiredAt: q.expiresAt ?? q.updatedAt }),
+      sourceRef: q.id
+    });
+  }
+  for (const r of await db.select().from(schema.orbitRenewals).where(eq(schema.orbitRenewals.tenantId, tenantId))) {
+    if (r.churnScore === null || r.churnScore < PROSPECT_CHURN_FLOOR || r.state === "accepted" || r.state === "lost") continue;
+    rows.push({ customerId: r.customerId, reason: "churn_risk", score: r.churnScore, evidenceJson: JSON.stringify({ expiryAt: r.expiryAt }), sourceRef: r.policyRef });
+  }
+  let created = 0;
+  for (const r of rows) {
+    const done = await db
+      .insert(schema.signalProspects)
+      .values({ id: id("psp", now), tenantId, ...r, state: "open", createdAt: now, updatedAt: now })
+      .onConflictDoNothing()
+      .returning({ id: schema.signalProspects.id });
+    created += done.length;
+  }
+  return created;
 }
 
 /**

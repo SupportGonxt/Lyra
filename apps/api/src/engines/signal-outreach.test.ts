@@ -7,8 +7,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import { permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
-import { acquisitionCampaigns, inQuietHours, onLeadConverted, runAcquisitionSweep } from "./signal-outreach.js";
+import { acquisitionCampaigns, audienceRuleProblem, inQuietHours, onLeadConverted, recipientsFor, runAcquisitionSweep } from "./signal-outreach.js";
 import { recordTouch } from "./signal-attribution.js";
+import { BY_MODULE } from "../resources.js";
 
 // The send half of the publish loop. These tests pin the three guarantees the
 // rest of the loop stands on: nothing is sent without consent AND approval,
@@ -260,6 +261,9 @@ describe("onLeadConverted", () => {
     const [row] = await ctx.db.select().from(schema.signalOutreach).where(eq(schema.signalOutreach.id, "otr_1"));
     expect(row?.state).toBe("converted");
     expect(row?.convertedRef).toBe("pol_9");
+    // ADR-0091: the bind is a response on the send, at every scale.
+    const responses = await ctx.db.select().from(schema.signalResponses);
+    expect(responses.map((r) => [r.kind, r.outreachId, r.ref])).toEqual([["bind", "otr_1", "pol_9"]]);
   });
 
   it("returns false when no outreach send exists — organic binds get no credit", async () => {
@@ -281,3 +285,128 @@ describe("acquisitionCampaigns", () => {
 });
 
 const DAY = 86_400_000;
+
+// ADR-0091: the niche and the individual. An audience can name a prospect
+// reason other modules reported; the draft is written from that person's own
+// reason, and the send is recorded as a response and against the prospect.
+describe("prospect-sourced audiences", () => {
+  async function prospectAudience(rule: unknown): Promise<string> {
+    const campaignId = await seedCampaign();
+    await ctx.db
+      .update(schema.signalAudiences)
+      .set({ definitionJson: JSON.stringify(rule) })
+      .where(eq(schema.signalAudiences.id, "aud_1"));
+    await ctx.db.insert(schema.signalProspects).values({
+      id: "psp_1",
+      tenantId: "t_1",
+      customerId: "cus_1",
+      reason: "quote_expired",
+      evidenceJson: JSON.stringify({ productId: "prd_motor", expiredAt: ctx.now - 86_400_000 }),
+      score: 70,
+      state: "open",
+      sourceRef: "qr_1",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    });
+    return campaignId;
+  }
+
+  it("reaches the people a reason names, writes from their reason, and records the send three ways", async () => {
+    await prospectAudience({ all: [{ field: "prospect.reason", op: "eq", value: "quote_expired" }] });
+    const stub = makeStub();
+    const gateway = new Gateway({ env: {}, providers: { "workers-ai": stub, anthropic: stub, "openai-compat": stub } });
+    const outcome = await runAcquisitionSweep(ctx, gateway, {
+      deliver: async () => ({ externalRef: "wamid.p", conversationId: "cnv_9" })
+    });
+    expect(outcome.sent).toBe(1);
+
+    const evidence = stub.calls[0]!.messages.find((m) => m.role === "user")!.content;
+    expect(evidence).toMatch(/Why this person: their quote expired/);
+    const [row] = await ctx.db.select().from(schema.signalOutreach);
+    expect(row).toMatchObject({ externalRef: "wamid.p", conversationId: "cnv_9" });
+    const [response] = await ctx.db.select().from(schema.signalResponses);
+    expect(response).toMatchObject({ kind: "lead", campaignId: row!.campaignId, audienceId: "aud_1", customerId: "cus_1", outreachId: row!.id });
+    const [prospect] = await ctx.db.select().from(schema.signalProspects);
+    expect(prospect!.state).toBe("contacted");
+  });
+
+  it("honours a score floor and skips people no longer open", async () => {
+    await prospectAudience({ all: [{ field: "prospect.reason", op: "eq", value: "quote_expired" }, { field: "prospect.score", op: "gte", value: 80 }] });
+    expect(await recipientsFor(ctx, { id: "cmp_1", name: "x", audienceId: "aud_1" })).toEqual([]);
+    await ctx.db.update(schema.signalAudiences).set({ definitionJson: JSON.stringify({ all: [{ field: "prospect.reason", op: "eq", value: "quote_expired" }] }) });
+    await ctx.db.update(schema.signalProspects).set({ state: "converted" });
+    expect(await recipientsFor(ctx, { id: "cmp_1", name: "x", audienceId: "aud_1" })).toEqual([]);
+  });
+
+  it("resolves beyond the old 500 cap", async () => {
+    await seedCampaign();
+    const rows = Array.from({ length: 620 }, (_, i) => i);
+    for (let i = 0; i < rows.length; i += 50) {
+      const chunk = rows.slice(i, i + 50);
+      await ctx.db.insert(schema.customers).values(
+        chunk.map((k) => ({ id: `cus_bulk_${k}`, tenantId: "t_1", nameJson: "{}", tagsJson: JSON.stringify(["prospect"]), createdAt: ctx.now, updatedAt: ctx.now }))
+      );
+      await ctx.db.insert(schema.consents).values(
+        chunk.map((k) => ({
+          id: `con_bulk_${k}`,
+          tenantId: "t_1",
+          customerId: `cus_bulk_${k}`,
+          purposesJson: JSON.stringify({ marketing: true }),
+          channelOptinsJson: JSON.stringify({ whatsapp: true }),
+          source: "portal",
+          ts: ctx.now
+        }))
+      );
+    }
+    expect(await recipientsFor(ctx, { id: "cmp_1", name: "x", audienceId: "aud_1" })).toHaveLength(621);
+  });
+});
+
+describe("the personal draft gate (evals/outreach-draft)", () => {
+  it("drops a draft that states a number its evidence never gave", async () => {
+    await seedCampaign();
+    const stub = makeStub({ replies: ["Come back this week and take 20% off."] });
+    const gateway = new Gateway({ env: {}, providers: { "workers-ai": stub, anthropic: stub, "openai-compat": stub } });
+    const outcome = await runAcquisitionSweep(ctx, gateway, { deliver: async () => "x" });
+    expect(outcome).toMatchObject({ sent: 0, droppedFlagged: 1 });
+    expect(await ctx.db.select().from(schema.signalOutreach)).toEqual([]);
+  });
+});
+
+describe("audienceRuleProblem", () => {
+  it("accepts the shapes the resolver runs", () => {
+    expect(audienceRuleProblem({ all: [{ field: "tagsJson", op: "contains", value: "vip" }] })).toBeNull();
+    expect(audienceRuleProblem({ all: [{ field: "prospect.reason", op: "eq", value: "no_policy" }, { field: "prospect.score", op: "gte", value: 50 }] })).toBeNull();
+  });
+
+  it("names the leaf it cannot run, instead of resolving to nobody at send time", () => {
+    expect(audienceRuleProblem({ all: [{ field: "policy.status", op: "eq", value: "active" }] })).toMatch(/policy\.status/);
+    expect(audienceRuleProblem({ any: [] })).toMatch(/no rule/);
+  });
+
+  it("refuses churn risk: renewal outreach belongs to ORBIT's journeys", () => {
+    expect(audienceRuleProblem({ all: [{ field: "prospect.reason", op: "eq", value: "churn_risk" }] })).toMatch(/ORBIT/);
+  });
+});
+
+describe("the audiences resource refuses a rule outreach cannot run", () => {
+  const audiences = BY_MODULE.signal!.find((r) => r.path === "audiences")!;
+  const write = (values: Record<string, unknown>, existing: Record<string, unknown> | null = null) =>
+    Promise.resolve().then(() => audiences.beforeWrite!(ctx, values, existing, {} as never));
+
+  it("names the field on create", async () => {
+    await expect(write({ name: "x", definitionJson: JSON.stringify({ all: [{ field: "policy.status", op: "eq", value: "active" }] }) })).rejects.toMatchObject({
+      status: 400,
+      extras: { errors: { definitionJson: expect.stringMatching(/policy\.status/) } }
+    });
+    await expect(write({ name: "x", definitionJson: JSON.stringify({ all: [{ field: "prospect.reason", op: "eq", value: "no_policy" }] }) })).resolves.toBeTruthy();
+  });
+
+  it("leaves a stored rule alone when an edit does not change it", async () => {
+    const stored = { definitionJson: JSON.stringify({ all: [{ field: "policy.status", op: "eq", value: "x" }] }) };
+    await expect(write({ name: "renamed" }, stored)).resolves.toBeTruthy();
+    // The edit form posts it back, re-serialised.
+    await expect(write({ name: "renamed", definitionJson: JSON.stringify(JSON.parse(stored.definitionJson), null, 2) }, stored)).resolves.toBeTruthy();
+    await expect(write({ definitionJson: JSON.stringify({ all: [{ field: "policy.status", op: "eq", value: "y" }] }) }, stored)).rejects.toMatchObject({ status: 400 });
+  });
+});

@@ -1,6 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
-import { recordConsent, type Ctx, type InboundEvent } from "@lyra/core";
+import { emit, recordConsent, type Ctx, type InboundEvent } from "@lyra/core";
 import { isUniqueViolation } from "../crud.js";
 import { adapterFor } from "./orbit-channel-adapters.js";
 import { routeConversation } from "./orbit-routing.js";
@@ -37,6 +37,7 @@ async function getOrCreateConversation(
       createdAt: ctx.now,
       updatedAt: ctx.now
     });
+    await emit(ctx, { module: "core", type: "core.customers.created", subject: customerId, data: { id: customerId } });
     await ctx.db.insert(schema.orbitChannelIdentities).values({
       id: id("cid", ctx.now),
       tenantId: ctx.tenantId,
@@ -135,14 +136,22 @@ export async function processChannelEvents(
         .update(schema.orbitMessages)
         .set({ deliveryStatus: event.receipt.status })
         .where(and(eq(schema.orbitMessages.tenantId, ctx.tenantId), eq(schema.orbitMessages.externalRef, event.receipt.externalRef)));
+      // ADR-0091: SIGNAL credits delivered/read to its sends from this.
+      await emit(ctx, {
+        module: "orbit",
+        type: "orbit.message.status",
+        subject: event.receipt.externalRef,
+        data: { externalRef: event.receipt.externalRef, status: event.receipt.status }
+      });
       processed++;
       continue;
     }
 
     const conversation = await getOrCreateConversation(ctx, connector, event.message.handle, event.message.displayName);
+    const messageId = id("msg", ctx.now);
     try {
       await ctx.db.insert(schema.orbitMessages).values({
-        id: id("msg", ctx.now),
+        id: messageId,
         tenantId: ctx.tenantId,
         conversationId: conversation.id,
         role: "customer",
@@ -156,6 +165,13 @@ export async function processChannelEvents(
         .update(schema.orbitConversations)
         .set({ lastMessageAt: event.message.sentAt, updatedAt: ctx.now })
         .where(eq(schema.orbitConversations.id, conversation.id));
+      // After the insert, so a redelivery (unique violation above) announces nothing.
+      await emit(ctx, {
+        module: "orbit",
+        type: "orbit.message.received",
+        subject: messageId,
+        data: { conversationId: conversation.id, customerId: conversation.customerId, messageId }
+      });
       processed++;
       // Language + sentiment annotation (engines/orbit-signal.ts). Runs after
       // the message is durable; a failure leaves the previous signal standing.
