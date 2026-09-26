@@ -26,7 +26,7 @@ import { SEED_JOURNEY_COOLDOWN_DAYS, seedOrbit } from "./seed/orbit.js";
 import { seedPlatform } from "./seed/platform.js";
 import { seedScout } from "./seed/scout.js";
 import { seedSettlement } from "./seed/settlement.js";
-import { seedSignal } from "./seed/signal.js";
+import { SEED_CREATIVE_COPY, seedSignal } from "./seed/signal.js";
 import { seedStaff } from "./seed/staff.js";
 import type { SeedContext } from "./seed/context.js";
 
@@ -2717,6 +2717,25 @@ export async function backfillProspects(db: CoreDb, tenantId: string, now: numbe
     created += done.length;
   }
   return created;
+}
+
+/**
+ * Replace the file keys a tenant seeded before the fix still holds as its
+ * creatives' contentRef with the words they stood for (SEED_CREATIVE_COPY).
+ * Only those exact keys move; a creative a tenant wrote is left alone.
+ * Idempotent. Returns the ids it changed.
+ */
+export async function syncSeedCreativeCopy(db: CoreDb, tenantId: string): Promise<string[]> {
+  const changed: string[] = [];
+  for (const [key, copy] of Object.entries(SEED_CREATIVE_COPY)) {
+    const rows = await db
+      .update(schema.signalCreatives)
+      .set({ contentRef: copy })
+      .where(and(eq(schema.signalCreatives.tenantId, tenantId), eq(schema.signalCreatives.contentRef, key)))
+      .returning({ id: schema.signalCreatives.id });
+    changed.push(...rows.map((r) => r.id));
+  }
+  return changed;
 }
 
 /**

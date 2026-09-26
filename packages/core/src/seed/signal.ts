@@ -19,6 +19,25 @@ import { dayName, monthKey, monthName } from "./period.js";
 // The ad networks appear as channels a campaign buys — never as a third-party
 // management suite sitting between the operator and the work.
 
+/**
+ * The words of each seeded creative, keyed by the file key the seed used to
+ * write in their place. contentRef holds the copy inline — what every
+ * generated creative holds and what the studio renders — and the keys pointed
+ * at a bucket that never existed. The keys stay only so the resync seam
+ * (seed.ts syncSeedCreativeCopy) can find and repair a tenant seeded before.
+ */
+export const SEED_CREATIVE_COPY: Readonly<Record<string, string>> = {
+  "signal/creatives/motor-search/en-a.json": "Compare 12 insurers in one go.\nMotor cover quoted in minutes, and bound before your coffee cools.",
+  "signal/creatives/motor-search/ar-a.json": "قارن بين ١٢ شركة تأمين دفعة واحدة.\nعروض تأمين المركبات خلال دقائق، والإصدار قبل أن تبرد قهوتك.",
+  "signal/creatives/motor-search/en-b.json": "Get the cheapest motor cover in the UAE.\nQuotes from our panel in minutes.",
+  "signal/creatives/december-brand/ar-guarantee.json": "قبول مضمون مهما كان سجلك.\nتأمين مركبتك يبدأ اليوم.",
+  "signal/creatives/december-brand/en-social.json": "December on the road, covered.\nRenew or switch your motor cover before the holidays in three taps.",
+  "signal/creatives/motor-lp/en.mdx": "Motor cover, compared properly.\nTwelve insurers, one form, and a real person when you need one.",
+  "signal/creatives/motor-lp/ar.mdx": "تأمين المركبات، بمقارنة حقيقية.\nاثنتا عشرة شركة، نموذج واحد، وشخص حقيقي حين تحتاجه.",
+  "signal/creatives/renewal-nudge/ar-email.mjml": "تنتهي وثيقتك خلال ٤٥ يومًا.\nراجع تغطيتك الآن وجدّدها بنقرة واحدة دون أي انقطاع.",
+  "signal/creatives/summer-travel/en-script.md": "Summer, sorted.\nA suitcase zips shut. Travel cover that meets your Schengen visa, in minutes.",
+};
+
 export async function seedSignal(ctx: SeedContext): Promise<void> {
   const { db, tenantId, now } = ctx;
 
@@ -424,7 +443,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       campaignId: campaigns.motorSearch,
       kind: "ad",
       locale: "en",
-      contentRef: "signal/creatives/motor-search/en-a.json",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/motor-search/en-a.json"]!,
       variantGroup: "motor-search-headline",
       complianceStatus: "passed",
       complianceNotesJson: JSON.stringify({
@@ -446,7 +465,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       locale: "ar",
       // Arabic outperforms English here, which is the finding the concluded
       // landing-page experiment below acted on.
-      contentRef: "signal/creatives/motor-search/ar-a.json",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/motor-search/ar-a.json"]!,
       variantGroup: "motor-search-headline",
       complianceStatus: "passed",
       complianceNotesJson: JSON.stringify({
@@ -469,7 +488,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       // Flagged, so it never served: `performanceJson` is null and no
       // attribution touch names it. A comparison claim like "cheapest" needs a
       // source, and the draft had none.
-      contentRef: "signal/creatives/motor-search/en-b.json",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/motor-search/en-b.json"]!,
       variantGroup: "motor-search-headline",
       complianceStatus: "flagged",
       complianceNotesJson: JSON.stringify({
@@ -498,7 +517,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       // Blocked in the hard lane: a promise of acceptance is a cover
       // guarantee, which no aggregator can make on an underwriter's behalf.
       // The row stays so the demo shows a refusal, not just a clean queue.
-      contentRef: "signal/creatives/december-brand/ar-guarantee.json",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/december-brand/ar-guarantee.json"]!,
       variantGroup: "december-brand",
       complianceStatus: "blocked",
       complianceNotesJson: JSON.stringify({
@@ -527,7 +546,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       locale: "en",
       // The social post whose weak numbers are the reason the brand campaign
       // lost its budget to search.
-      contentRef: "signal/creatives/december-brand/en-social.json",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/december-brand/en-social.json"]!,
       variantGroup: "december-brand",
       complianceStatus: "passed",
       complianceNotesJson: JSON.stringify({ checkedAt: now - 61 * DAY, checkedBy: complianceOfficer, claims: [] }),
@@ -543,7 +562,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       campaignId: campaigns.motorSearch,
       kind: "lp",
       locale: "en",
-      contentRef: "signal/creatives/motor-lp/en.mdx",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/motor-lp/en.mdx"]!,
       variantGroup: "motor-lp-arabic-first",
       complianceStatus: "passed",
       complianceNotesJson: JSON.stringify({ checkedAt: now - 96 * DAY, checkedBy: complianceOfficer, claims: [] }),
@@ -561,7 +580,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       locale: "ar",
       // Written in Arabic rather than translated from the English page, which
       // is the whole point of the experiment it belongs to.
-      contentRef: "signal/creatives/motor-lp/ar.mdx",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/motor-lp/ar.mdx"]!,
       variantGroup: "motor-lp-arabic-first",
       complianceStatus: "passed",
       complianceNotesJson: JSON.stringify({
@@ -583,7 +602,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       kind: "email",
       locale: "ar",
       // Pending review is why the renewal campaign is scheduled and not live.
-      contentRef: "signal/creatives/renewal-nudge/ar-email.mjml",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/renewal-nudge/ar-email.mjml"]!,
       variantGroup: "renewal-45",
       complianceStatus: "pending",
       complianceNotesJson: null,
@@ -602,7 +621,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       // The likeness declaration is recorded up front. A synthetic likeness of
       // a real person would need a stored consent record; this tenant holds
       // none, so the script uses an illustrated character and says so.
-      contentRef: "signal/creatives/summer-travel/en-script.md",
+      contentRef: SEED_CREATIVE_COPY["signal/creatives/summer-travel/en-script.md"]!,
       variantGroup: "summer-travel",
       complianceStatus: "pending",
       complianceNotesJson: JSON.stringify({
