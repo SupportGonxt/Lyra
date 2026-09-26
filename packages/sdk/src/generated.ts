@@ -2656,6 +2656,7 @@ export interface Operations {
   "GET /v1/core/delegations/{id}": Op<{ id: string }, never, never, CoreDelegations>;
   "GET /v1/core/event-dlq": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreEventDlq>>;
   "GET /v1/core/event-dlq/{id}": Op<{ id: string }, never, never, CoreEventDlq>;
+  "POST /v1/core/event-dlq/{id}/replay": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/core/files": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreFiles>>;
   "POST /v1/core/files": Op<never, never, CoreFiles, CoreFiles>;
   "GET /v1/core/files/{id}": Op<{ id: string }, never, never, CoreFiles>;
@@ -3442,6 +3443,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/delegations/{id}": { tag: "core", summary: "Fetch one delegation", permission: "core:delegations:read", public: false },
   "GET /v1/core/event-dlq": { tag: "core", summary: "List event-dlq", permission: "admin:dlq:read", public: false },
   "GET /v1/core/event-dlq/{id}": { tag: "core", summary: "Fetch one event dlq", permission: "admin:dlq:read", public: false },
+  "POST /v1/core/event-dlq/{id}/replay": { tag: "core", summary: "Replay a dead-lettered event: back to pending for the consumer that gave up on it, once (docs/09)", permission: "admin:dlq:replay", public: false },
   "GET /v1/core/files": { tag: "core", summary: "List files", permission: "core:files:read", public: false },
   "POST /v1/core/files": { tag: "core", summary: "Create a file", permission: "core:files:create", public: false },
   "GET /v1/core/files/{id}": { tag: "core", summary: "Fetch one file", permission: "core:files:read", public: false },
