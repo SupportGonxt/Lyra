@@ -21,6 +21,7 @@ import {
   Input,
   Select,
   Table,
+  contrastRatio,
   type Column
 } from "@lyra/ui";
 import { ApiError, api, clearedSessionCookie, fetchMe, type Problem as ProblemBody } from "../api.server";
@@ -2201,24 +2202,6 @@ function isHex(value: string): boolean {
 function normaliseHex(value: string): string {
   const trimmed = value.trim();
   return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-}
-
-/** WCAG 2.2 relative luminance. Six-digit hex only — see `isHex`. */
-function luminance(value: string): number | null {
-  if (!isHex(value)) return null;
-  const int = Number.parseInt(normaliseHex(value).slice(1), 16);
-  const channels = [(int >> 16) & 255, (int >> 8) & 255, int & 255].map((raw) => {
-    const s = raw / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
-}
-
-function contrastRatio(a: string, b: string): number | null {
-  const la = luminance(a);
-  const lb = luminance(b);
-  if (la === null || lb === null) return null;
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
 function contrastMessage(label: (key: string) => string, ratio: number | null): string {

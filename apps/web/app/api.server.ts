@@ -148,6 +148,8 @@ export interface Brand {
   name?: string;
   logo?: { light?: string; dark?: string; mark?: string };
   palette?: { accent?: string; accentHover?: string; accentContrast?: string };
+  /** BrandJson.font: the face a design names (packages/ui/src/design.ts). */
+  font?: string;
 }
 
 export interface Me {

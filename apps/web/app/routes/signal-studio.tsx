@@ -28,11 +28,14 @@ import {
   Stat,
   Table,
   Textarea,
-  POST_RATIOS,
-  postCardSvg,
+  FORMATS,
+  TEMPLATES,
+  designFindings,
+  designSvg,
   type BadgeTone,
   type Column,
-  type PostRatio
+  type DesignFormat,
+  type DesignTemplate
 } from "@lyra/ui";
 import { ApiError, api, directory } from "../api.server";
 import { cloudflare } from "../context";
@@ -380,15 +383,15 @@ function toneOf(status: string): BadgeTone {
 }
 
 /**
- * The variant as the thing a marketer actually posts.
+ * The variant as the thing a marketer actually publishes — every size at once.
  *
- * The studio wrote the words and stopped there, so "social" copy lived as a
- * paragraph in a form field and someone rebuilt the post by hand in another
- * tool. The preview and the download are the same SVG bytes
- * (packages/ui/src/post-card.ts), so what is on screen is what lands on disk.
- * ponytail: SVG, not PNG — the browser rasterises it and nothing new ships.
+ * One cleared variant becomes a full set: each network's feed and story frame,
+ * a link card, two ad slots and an email header, in whichever layout the
+ * marketer picks, all from the tenant's own brand (CLAUDE.md §5). The preview,
+ * the SVG and the PNG are the same bytes (packages/ui/src/design.ts); the PNG is
+ * rasterised by the browser, so nothing new ships.
  */
-function PostArt({
+function DesignSet({
   copy,
   kicker,
   contentLocale,
@@ -398,58 +401,94 @@ function PostArt({
   copy: string;
   kicker: string;
   contentLocale: string;
-  brand?: { name?: string; palette?: { accent?: string; accentContrast?: string } } | null | undefined;
+  brand?: { name?: string; font?: string; logo?: { mark?: string }; palette?: { accent?: string; accentContrast?: string } } | null | undefined;
   l: (key: string, vars?: Record<string, string>) => string;
 }) {
-  const [ratio, setRatio] = useState<PostRatio>("square");
+  const [template, setTemplate] = useState<DesignTemplate>("spotlight");
   const { headline, body } = splitCopy(copy);
-  const svg = postCardSvg({
+  const mark = brand?.logo?.mark;
+  const input = {
+    template,
     headline,
     body,
     kicker,
-    brandName: brand?.name ?? "",
-    accent: brand?.palette?.accent,
-    accentContrast: brand?.palette?.accentContrast,
+    cta: l("studio.ctaDefault"),
     locale: contentLocale,
-    ratio
-  });
-  const href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  const box = POST_RATIOS[ratio];
+    brand: {
+      name: brand?.name ?? "",
+      accent: brand?.palette?.accent,
+      accentContrast: brand?.palette?.accentContrast,
+      font: brand?.font,
+      // An image inside an SVG shown through <img> may not fetch: only an
+      // inlined mark renders, so a linked one is left out rather than broken.
+      logoHref: mark?.startsWith("data:") ? mark : undefined
+    }
+  };
+  const findings = designFindings(input);
+  const stem = (brand?.name ?? "post").toLowerCase().replace(/\W+/g, "-");
 
   return (
-    <figure className="flex flex-col gap-2">
-      <figcaption className="eyebrow">
-        {l("studio.art")}
-      </figcaption>
-      <img
-        src={href}
-        width={box.w}
-        height={box.h}
-        alt={l("studio.artHint")}
-        className="w-full max-w-[260px] rounded-lg border border-border"
-      />
-      <div className="flex items-center gap-2">
+    <figure className="flex flex-col gap-3">
+      <figcaption className="flex flex-wrap items-center justify-between gap-2">
+        <span className="eyebrow">{l("studio.art")}</span>
         <Select
-          value={ratio}
-          onValueChange={(next) => setRatio(next as PostRatio)}
+          value={template}
+          onValueChange={(next) => setTemplate(next as DesignTemplate)}
           size="sm"
-          aria-label={l("studio.art")}
-          options={[
-            { value: "square", label: l("studio.square") },
-            { value: "portrait", label: l("studio.portrait") },
-            { value: "story", label: l("studio.story") }
-          ]}
+          aria-label={l("studio.template")}
+          options={TEMPLATES.map((t) => ({ value: t, label: l(`studio.template.${t}`) }))}
         />
-        <a
-          href={href}
-          download={`${(brand?.name ?? "post").toLowerCase().replace(/\W+/g, "-")}-${ratio}.svg`}
-          className="font-ui text-12 text-accent underline-offset-2 hover:underline"
-        >
-          {l("studio.download")}
-        </a>
-      </div>
+      </figcaption>
+      {findings.length ? (
+        <ul role="alert" className="flex flex-col gap-1 font-ui text-12 text-danger">
+          {findings.map((f) => (
+            <li key={f.slot}>
+              {l("studio.contrast", { slot: l(`studio.slot.${f.slot}`), ratio: String(f.ratio), required: String(f.required) })}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {(Object.keys(FORMATS) as DesignFormat[]).map((format) => {
+          const { w, h } = FORMATS[format];
+          const svg = designSvg({ ...input, format });
+          const href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+          const name = `${stem}-${template}-${format}`;
+          return (
+            <li key={format} className="flex flex-col gap-1">
+              <img src={href} width={w} height={h} alt={l("studio.artHint")} className="h-auto w-full rounded-md border border-border" />
+              <span className="font-ui text-12 text-muted">
+                {l(`studio.format.${format}`)} · {w}×{h}
+              </span>
+              <span className="flex gap-3 font-ui text-12">
+                <a href={href} download={`${name}.svg`} className="text-accent underline-offset-2 hover:underline">
+                  {l("studio.svg")}
+                </a>
+                <button type="button" onClick={() => void downloadPng(href, w, h, `${name}.png`)} className="text-accent underline-offset-2 hover:underline">
+                  {l("studio.png")}
+                </button>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </figure>
   );
+}
+
+/** The browser rasterises the same SVG at its native size; no image library ships. */
+async function downloadPng(svgHref: string, w: number, h: number, filename: string): Promise<void> {
+  const img = new Image();
+  img.src = svgHref;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
+  const link = document.createElement("a");
+  link.href = canvas.toDataURL("image/png");
+  link.download = filename;
+  link.click();
 }
 
 export default function CampaignStudio() {
@@ -927,7 +966,7 @@ export default function CampaignStudio() {
                             </div>
                           ) : null}
                         </Form>
-                        <PostArt
+                        <DesignSet
                           copy={creative.contentRef}
                           kicker={campaign.name}
                           contentLocale={creative.locale}

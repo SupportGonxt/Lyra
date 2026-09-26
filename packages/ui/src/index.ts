@@ -13,4 +13,5 @@ export * from "./ai.js";
 export * from "./text.js";
 export * from "./horizon.js";
 export * from "./post-card.js";
+export * from "./design.js";
 export * from "./sections/index.js";
