@@ -56,9 +56,9 @@ test("J-M1 a growth lead authors an audience and campaign, then launches it (aut
   await goto(page, "/signal/audiences");
   await page.locator("summary", { hasText: "New" }).click();
   await page.getByLabel("Name*", { exact: true }).fill(audienceName);
-  await page
-    .getByLabel("Definition*", { exact: true })
-    .fill(JSON.stringify({ all: [{ field: "tagsJson", op: "contains", value: "renewals" }] }));
+  // The rule builder (docs/30 SIGNAL gap 3): one row, "Tagged renewals".
+  await chooseOption(page, "Condition 1", "Tagged");
+  await page.getByLabel("Value 1", { exact: true }).fill("renewals");
   await page.getByRole("button", { name: "Create", exact: true }).click();
 
   const audienceRow = page.getByRole("row", { name: new RegExp(audienceName) });

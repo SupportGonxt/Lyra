@@ -11,6 +11,7 @@
 // own vocabulary, and the domain pack may rename every noun in it (CLAUDE.md
 // §14), so nothing here is ever an English literal in a component.
 
+import { ruleFromForm } from "./audience-rule";
 import { instantOf } from "@lyra/ui";
 import type { Screen } from "@lyra/ui";
 import { pseudoText, translator } from "../i18n";
@@ -54,6 +55,8 @@ export interface FieldSpec {
   required?: boolean;
   /** Sits beside the input as help text, via its own label key. */
   hintKey?: string;
+  /** A friendlier input for a `json` field whose shape is known (modules/audience-rule.ts). */
+  editor?: "audienceRule";
 }
 
 export interface ColumnSpec {
@@ -426,10 +429,11 @@ const LOCALIZED_JSON = /^(name|title|label|description)Json$/;
 /** The languages a localised field is written in (docs CLAUDE.md §7). */
 export const FIELD_LOCALES = ["en", "ar"] as const;
 
-export type FormKind = FieldType | "ref" | "localized" | "list";
+export type FormKind = FieldType | "ref" | "localized" | "list" | "rule";
 
 /** How a declared field is asked for: its type, or a friendlier input for a storage shape. */
 export function formKind(field: FieldSpec): FormKind {
+  if (field.editor === "audienceRule") return "rule";
   if (field.type === "json" && LOCALIZED_JSON.test(field.name)) return "localized";
   if (field.type === "json" && LIST_JSON.has(field.name)) return "list";
   if (field.type === "text" && field.name in REF_SOURCES) return "ref";
@@ -464,6 +468,14 @@ export function bodyFrom(fields: readonly FieldSpec[], form: FormData): Row {
       else if (form.get(field.name) !== null && String(form.get(field.name)).trim()) {
         out[field.name] = JSON.parse(String(form.get(field.name))) as unknown;
       }
+      continue;
+    }
+    if (kind === "rule") {
+      // The JSON view (a stored rule the builder cannot show) posts the field
+      // itself; the builder posts rows.
+      const raw = form.get(field.name);
+      const rule = raw !== null && String(raw).trim() ? (JSON.parse(String(raw)) as unknown) : ruleFromForm(form, field.name);
+      if (rule) out[field.name] = rule;
       continue;
     }
     if (kind === "list") {

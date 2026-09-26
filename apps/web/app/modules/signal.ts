@@ -310,12 +310,12 @@ export const signal: WorkspaceSpec = {
       ],
       fields: [
         { name: "name", type: "text", required: true },
-        { name: "definitionJson", type: "json", required: true },
+        { name: "definitionJson", type: "json", required: true, editor: "audienceRule" },
         { name: "refreshPolicy", type: "select", options: ["manual", "hourly", "daily"] },
         { name: "consentPurposes", type: "text" }
       ],
       editable: [
-        { name: "definitionJson", type: "json" },
+        { name: "definitionJson", type: "json", editor: "audienceRule" },
         { name: "refreshPolicy", type: "select", options: ["manual", "hourly", "daily"] },
         { name: "consentPurposes", type: "text" }
       ]

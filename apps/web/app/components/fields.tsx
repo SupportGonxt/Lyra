@@ -11,6 +11,7 @@ import {
   Textarea,
   type BadgeTone
 } from "@lyra/ui";
+import { RULE_REASONS, RULE_WHAT, ruleRows } from "../modules/audience-rule";
 import type { ColumnSpec, FieldSpec, Row } from "../modules/spec";
 import { who, type Names } from "../names";
 import { FIELD_LOCALES, formKind, humanise, inputValue, localizedValue, optionLabel, optionWords } from "../modules/spec";
@@ -210,7 +211,10 @@ export function FieldInput({
   return (
     <Field
       label={label(field.name)}
-      required={field.required ?? false}
+      // The rule builder's rows are each optional; an empty rule is the API's
+      // to refuse (audienceRuleProblem), and a required Field would mark every
+      // blank row required and block the submit.
+      required={kind === "rule" ? false : (field.required ?? false)}
       {...(hint ? { hint } : {})}
       {...(error ? { error } : {})}
     >
@@ -240,6 +244,8 @@ export function FieldInput({
           placeholder={label("field.pick")}
           {...(field.required ? { required: true } : {})}
         />
+      ) : kind === "rule" ? (
+        <RuleBuilder name={field.name} stored={row?.[field.name]} fallback={value} label={label} disabled={disabled ?? false} />
       ) : kind === "list" ? (
         <Input {...common} defaultValue={value} />
       ) : field.type === "select" ? (
@@ -321,7 +327,7 @@ function hintFor(field: FieldSpec, label: (key: string) => string): string | und
   if (field.hintKey) return label(field.hintKey);
   const kind = formKind(field);
   if (kind === "list") return label("field.hint.list");
-  if (kind === "localized" || kind === "ref") return undefined;
+  if (kind === "localized" || kind === "ref" || kind === "rule") return undefined;
   if (field.type === "json" || field.type === "rate" || field.type === "ratio") {
     return label(`field.hint.${field.type}`);
   }
@@ -410,4 +416,72 @@ function safeParse(text: string): unknown {
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * docs/30 SIGNAL gap 3: an audience rule as rows (modules/audience-rule.ts).
+ * No client script — each row is a what/value pair the action assembles; a
+ * stored rule the rows cannot show stays in its JSON box, untouched.
+ */
+function RuleBuilder({
+  name,
+  stored,
+  fallback,
+  label,
+  disabled
+}: {
+  name: string;
+  stored: unknown;
+  fallback: string;
+  label: (key: string) => string;
+  disabled: boolean;
+}) {
+  const view = ruleRows(stored);
+  const off = disabled ? { disabled: true } : {};
+  if (!view) {
+    return <Textarea name={name} rows={6} defaultValue={fallback} className="font-mono text-12" {...off} />;
+  }
+  const reasons = `${name}-reasons`;
+  return (
+    <div className="flex flex-col gap-2">
+      <Select
+        name={`${name}.join`}
+        aria-label={label("rule.join")}
+        defaultValue={view.join}
+        options={[
+          { value: "all", label: label("rule.join.all") },
+          { value: "any", label: label("rule.join.any") }
+        ]}
+        {...off}
+      />
+      <datalist id={reasons}>
+        {RULE_REASONS.map((reason) => (
+          <option key={reason} value={reason}>
+            {label(reason)}
+          </option>
+        ))}
+      </datalist>
+      {view.rows.map((row, i) => (
+        <div key={i} className="grid gap-2 sm:grid-cols-2">
+          <Select
+            name={`${name}.${i}.what`}
+            aria-label={`${label("rule.what")} ${i + 1}`}
+            defaultValue={row.what}
+            options={[
+              { value: "", label: label("rule.what.none") },
+              ...RULE_WHAT.map((what) => ({ value: what, label: label(`rule.what.${what}`) }))
+            ]}
+            {...off}
+          />
+          <Input
+            name={`${name}.${i}.value`}
+            aria-label={`${label("rule.value")} ${i + 1}`}
+            defaultValue={row.value}
+            list={reasons}
+            {...off}
+          />
+        </div>
+      ))}
+    </div>
+  );
 }
