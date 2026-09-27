@@ -246,6 +246,10 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/ledger/reports/pnl", summary: "Profit and loss for a period", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/balance-sheet", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/cash-flow", summary: "Statement of cash flows (IFRS, IAS 7 indirect) for a window", permission: "ledger:journals:read", tag: "ledger" },
+  // ADR-0104. Also needs `ledger:journals:read`: the plan is its own grant, the
+  // actuals are the journal's. One row per account and currency, never summed
+  // across currencies; a null budget means none was set, not zero.
+  { method: "get", path: "/v1/ledger/reports/budget-vs-actual", summary: "Budget against posted actuals for one month, per account and currency", permission: "ledger:budgets:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/aged", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/commission", summary: "Commission earned, clawed back and payable by channel", permission: "ledger:journals:read", tag: "ledger" },
   { method: "get", path: "/v1/ledger/reports/client-money", summary: "Client money sufficiency: what is held against what is owed", permission: "ledger:client_money:read", tag: "ledger" },

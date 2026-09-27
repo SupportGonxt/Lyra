@@ -840,7 +840,8 @@ Same shape as the cx-judge and CREATOR-SPEND findings above: built and wired
 before this register entry, which never caught up.* No bordereaux, inbound or outbound
 — zero hits in code *or* docs. Chart of accounts is a hard-coded TypeScript
 constant, so a tenant cannot add an account without a deploy. No budget vs
-actual, no cash-flow statement, no fixed assets or operating-expense accounts.
+actual (*closed 2026-09-27, ADR-0104: `ledger_budgets` and
+`/ledger/reports/budget-vs-actual`*), no cash-flow statement, no fixed assets or operating-expense accounts.
 Dead code in the money path: `closeRun` (`recon.ts:382-390`) has no callers —
 *closed, see below, `POST /v1/ledger/recon/runs/:id/close` is the caller.*
 `CREATOR-SPEND` (`recipes.ts:398`) has no matching `TXN_TYPES` entry and is

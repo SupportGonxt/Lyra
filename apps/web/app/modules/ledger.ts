@@ -16,6 +16,9 @@ export const ledger: WorkspaceSpec = {
     { href: "/ledger/reports/pnl", labelKey: "report.pnl", permission: "ledger:journals:read" },
     { href: "/ledger/reports/balance-sheet", labelKey: "report.balance-sheet", permission: "ledger:journals:read" },
     { href: "/ledger/reports/cash-flow", labelKey: "report.cash-flow", permission: "ledger:journals:read" },
+    // Also needs ledger:journals:read, which every holder of this one has; the
+    // screen checks both and says which is missing.
+    { href: "/ledger/reports/budget-vs-actual", labelKey: "report.budget-vs-actual", permission: "ledger:budgets:read" },
     { href: "/ledger/reports/aged", labelKey: "report.aged", permission: "ledger:journals:read" },
     { href: "/ledger/reports/commission", labelKey: "report.commission", permission: "ledger:journals:read" },
     { href: "/ledger/reports/client-money", labelKey: "report.client-money", permission: "ledger:client_money:read" },
@@ -60,6 +63,11 @@ export const ledger: WorkspaceSpec = {
       "fx-rates": "FX rates",
       "tax-rules": "Tax rules",
       settlements: "Settlements",
+      budgets: "Budgets",
+      note: "Note",
+      "hint.budgetAccount": "An account code from the chart of accounts, e.g. 5100",
+      "hint.budgetPeriod": "The month, as YYYY-MM, e.g. 2026-07",
+      "report.budget-vs-actual": "Budget vs actual",
 
       "report.trial-balance": "Trial balance",
       "report.pnl": "Profit and loss",
@@ -412,6 +420,11 @@ export const ledger: WorkspaceSpec = {
       "fx-rates": "أسعار الصرف",
       "tax-rules": "قواعد الضريبة",
       settlements: "التسويات",
+      budgets: "الموازنات",
+      note: "ملاحظة",
+      "hint.budgetAccount": "رقم حساب من دليل الحسابات، مثال 5100",
+      "hint.budgetPeriod": "الشهر بصيغة YYYY-MM، مثال 2026-07",
+      "report.budget-vs-actual": "الموازنة مقابل الفعلي",
 
       "report.trial-balance": "ميزان المراجعة",
       "report.pnl": "الأرباح والخسائر",
@@ -1228,6 +1241,37 @@ export const ledger: WorkspaceSpec = {
         { name: "reverseCharge", type: "boolean" },
         { name: "exempt", type: "boolean" },
         { name: "effectiveTo", type: "date" }
+      ]
+    },
+    {
+      // ADR-0104. A plan per account, month and currency. It moves no money, so
+      // it is edited here like the other config tables — audited, no approval —
+      // and read against the journal on /ledger/reports/budget-vs-actual.
+      key: "budgets",
+      api: "/v1/ledger/budgets",
+      read: "ledger:budgets:read",
+      create: "ledger:budgets:write",
+      update: "ledger:budgets:write",
+      remove: "ledger:budgets:write",
+      sort: "period",
+      columns: [
+        { name: "period", type: "text", sortable: true },
+        { name: "accountCode", type: "text", sortable: true },
+        { name: "currency", type: "text" },
+        { name: "amountMinor", type: "money", currencyFrom: "currency" },
+        { name: "note", type: "text" },
+        { name: "updatedAt", type: "datetime", sortable: true }
+      ],
+      fields: [
+        { name: "accountCode", type: "text", required: true, hintKey: "hint.budgetAccount" },
+        { name: "period", type: "text", required: true, hintKey: "hint.budgetPeriod" },
+        { name: "currency", type: "text", required: true },
+        { name: "amountMinor", type: "money", required: true },
+        { name: "note", type: "textarea" }
+      ],
+      editable: [
+        { name: "amountMinor", type: "money" },
+        { name: "note", type: "textarea" }
       ]
     },
     {

@@ -20,8 +20,10 @@ import {
   isPolicyState,
   kAnonymityFloor,
   scoped,
-  sealFields
+  sealFields,
+  tenantAccount
 } from "@lyra/core";
+import { assertPeriodCode } from "@lyra/ledger";
 import { SENSITIVE_EXTRACTION_FIELDS } from "@lyra/model-gateway";
 import { fieldKey } from "./env.js";
 import { register, type Resource } from "./crud.js";
@@ -1280,6 +1282,24 @@ export const LEDGER = register(
   r("payment-plans", schema.ledgerPaymentPlans, "ppl", "ledger", ro("ledger:payments:read")),
   r("fx-rates", schema.ledgerFxRates, "fx", "ledger", rw("ledger:accounts"), { immutable: true }),
   r("tax-rules", schema.ledgerTaxRules, "tax", "ledger", rw("ledger:accounts")),
+  // ADR-0104. A budget moves no money — it is a plan compared against the
+  // journal, never posted to it — so it takes the config-table shape above:
+  // audited on every write by the generator, no approval gate. The only
+  // invariant is that it names an account this tenant's chart holds, in a real
+  // month and an ISO currency; the merged row is checked so an edit cannot
+  // move a valid budget onto a code that does not exist.
+  r("budgets", schema.ledgerBudgets, "bud", "ledger", rw("ledger:budgets"), {
+    searchable: ["accountCode", "period"],
+    beforeWrite: async (ctx, values, existing) => {
+      const row = { ...(existing ?? {}), ...values };
+      assertPeriodCode(String(row.period));
+      if (!/^[A-Z]{3}$/.test(String(row.currency))) throw badRequest("currency must be an ISO 4217 code, e.g. AED");
+      if (!(await tenantAccount(ctx, String(row.accountCode)))) {
+        throw badRequest(`account ${String(row.accountCode)} is not in this tenant's chart of accounts`);
+      }
+      return values;
+    }
+  }),
   // Read-only for the same reason as payments above: routes/settlement.ts is
   // the sole doorway (run/approve/pay/dispute/reopen, each its own approval).
   // The generic update accepted a client-settable `state`/`netMinor` gated on

@@ -5,6 +5,7 @@ export * from "./preconditions.js";
 export * from "./txn.js";
 export * from "./recipes.js";
 export * from "./reports.js";
+export * from "./budgets.js";
 export * from "./money-map.js";
 export * from "./recon.js";
 export * from "./statements.js";
