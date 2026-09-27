@@ -497,3 +497,25 @@ export const settlements = sqliteTable(
   },
   (t) => [uniqueIndex("ledger_settlements_uq").on(t.tenantId, t.counterpartyKind, t.counterpartyRef, t.period)]
 );
+
+/**
+ * docs/30 Ledger 4, ADR-0104. A plan, not a posting: the expected normal-side
+ * movement of one account in one month, in one currency. Compared against the
+ * posted lines in that same currency only — a budget in AED says nothing about
+ * what an account did in USD, so the two are never summed or converted.
+ */
+export const budgets = sqliteTable(
+  "ledger_budgets",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    accountCode: text("account_code").notNull(),
+    period: text("period").notNull(), // YYYY-MM
+    currency: text("currency").notNull(),
+    amountMinor: integer("amount_minor").notNull(),
+    note: text("note"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [uniqueIndex("ledger_budgets_uq").on(t.tenantId, t.period, t.accountCode, t.currency)]
+);

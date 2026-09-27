@@ -113,6 +113,28 @@ interface CashFlow {
   reconciled: boolean;
 }
 
+/** Mirrors `BudgetVsActualRow` (packages/ledger/src/budgets.ts), ADR-0104. */
+interface BudgetRow {
+  accountCode: string;
+  name: string;
+  type: string;
+  currency: string;
+  /** Null: no budget was set — not a budget of zero. */
+  budgetMinor: number | null;
+  actualMinor: number;
+  varianceMinor: number | null;
+  variancePpm: number | null;
+  favourable: boolean | null;
+}
+
+/** Mirrors `BudgetVsActual` (packages/ledger/src/budgets.ts). */
+interface BudgetVsActual {
+  periodCode: string;
+  from: number;
+  to: number;
+  rows: BudgetRow[];
+}
+
 interface AgedRow {
   counterparty: string;
   currency: string;
@@ -161,6 +183,7 @@ type Report =
   | { key: "pnl"; data: Pnl }
   | { key: "balance-sheet"; data: BalanceSheet }
   | { key: "cash-flow"; data: CashFlow }
+  | { key: "budget-vs-actual"; data: BudgetVsActual }
   | { key: "aged"; data: { data: AgedRow[] } }
   | { key: "commission"; data: { dimension: string; data: CommissionRow[] } }
   | { key: "client-money"; data: { data: ClientMoneyRow[] } }
@@ -173,12 +196,15 @@ type ReportKey = Report["key"];
 /** Read permissions, copied from apps/api/src/routes/ledger.ts §reports. */
 const JOURNALS = "ledger:journals:read";
 const CLIENT_MONEY = "ledger:client_money:read";
+const BUDGETS = "ledger:budgets:read";
 
 /** `date` reads as the end of that day; `from` as its start. */
 type ParamKind = "month" | "date" | "from" | "text";
 
 interface ReportSpec {
   permission: string;
+  /** Further permissions the endpoint also enforces (budget vs actual reads the journal too). */
+  also?: readonly string[];
   /** Exactly the query keys the endpoint reads. Anything else is decoration. */
   params: Array<{ name: string; kind: ParamKind }>;
 }
@@ -201,6 +227,7 @@ const REPORTS: Record<ReportKey, ReportSpec> = {
       { name: "to", kind: "date" }
     ]
   },
+  "budget-vs-actual": { permission: BUDGETS, also: [JOURNALS], params: [{ name: "period", kind: "month" }] },
   aged: {
     permission: JOURNALS,
     params: [
@@ -228,7 +255,7 @@ const REPORTS: Record<ReportKey, ReportSpec> = {
 const ORDER = Object.keys(REPORTS) as ReportKey[];
 
 /** The reports whose rows name an account, and so can drill into one. */
-const LINKED = new Set<ReportKey>(["trial-balance", "pnl", "balance-sheet", "cash-flow"]);
+const LINKED = new Set<ReportKey>(["trial-balance", "pnl", "balance-sheet", "cash-flow", "budget-vs-actual"]);
 
 function isReport(key: string): key is ReportKey {
   return Object.hasOwn(REPORTS, key);
@@ -262,6 +289,22 @@ export const LABELS: Record<string, Record<string, string>> = {
     "report.client-money": "Client money check",
     "report.bordereaux": "Bordereaux",
     "report.cash-flow": "Cash flow",
+    "report.budget-vs-actual": "Budget vs actual",
+    "headline.noBudget": "{name}: no budget is set for {period}.",
+    "headline.offPlan": "{name}: {count} line(s) off plan.",
+    "headline.onPlan": "{name}: every budgeted line is on plan.",
+    "bva.budget": "Budget",
+    "bva.actual": "Actual",
+    "bva.variance": "Variance",
+    "bva.variancePct": "Variance %",
+    "bva.verdict": "Against plan",
+    "bva.favourable": "Favourable",
+    "bva.adverse": "Adverse",
+    "bva.none": "No budget",
+    "bva.note":
+      "Each row is one account in one currency. Actuals are the month's posted lines in that currency, never converted, so an account that moved in two currencies has two rows. A row marked no budget has none set — not a budget of zero.",
+    "bva.empty.title": "Nothing budgeted or posted this month",
+    "bva.empty.body": "Set budgets per account and month under Budgets in the ledger; revenue and expense postings appear here as they land.",
     "headline.cashRose": "{name}: cash rose by {amount}.",
     "headline.cashFell": "{name}: cash fell by {amount}.",
     "param.from": "From",
@@ -381,6 +424,22 @@ export const LABELS: Record<string, Record<string, string>> = {
     "report.commission": "كشف العمولات",
     "report.client-money": "فحص أموال العملاء",
     "report.cash-flow": "التدفقات النقدية",
+    "report.budget-vs-actual": "الموازنة مقابل الفعلي",
+    "headline.noBudget": "{name}: لا توجد موازنة محددة للفترة {period}.",
+    "headline.offPlan": "{name}: {count} بند خارج الخطة.",
+    "headline.onPlan": "{name}: كل البنود ذات الموازنة ضمن الخطة.",
+    "bva.budget": "الموازنة",
+    "bva.actual": "الفعلي",
+    "bva.variance": "الانحراف",
+    "bva.variancePct": "نسبة الانحراف",
+    "bva.verdict": "مقارنة بالخطة",
+    "bva.favourable": "مواتٍ",
+    "bva.adverse": "غير مواتٍ",
+    "bva.none": "بلا موازنة",
+    "bva.note":
+      "كل صف حساب واحد بعملة واحدة. الفعلي هو قيود الشهر المرحّلة بتلك العملة دون تحويل، لذا يظهر الحساب الذي تحرّك بعملتين في صفين. الصف المعلَّم بلا موازنة لم تُحدَّد له موازنة، وليس موازنة صفرية.",
+    "bva.empty.title": "لا موازنة ولا قيود لهذا الشهر",
+    "bva.empty.body": "حدّد الموازنات لكل حساب وشهر من قسم الموازنات في الدفتر؛ وتظهر هنا قيود الإيرادات والمصروفات عند ترحيلها.",
     "headline.cashRose": "{name}: ارتفع النقد بمقدار {amount}.",
     "headline.cashFell": "{name}: انخفض النقد بمقدار {amount}.",
     "param.from": "من",
@@ -531,6 +590,12 @@ export function reportsHeadline(report: Report | null, l: Label, locale: string)
         amount: formatMoney(Math.abs(change), cf.currency, locale)
       });
     }
+    case "budget-vs-actual": {
+      const { rows, periodCode } = report.data;
+      if (!rows.some((row) => row.budgetMinor !== null)) return l("headline.noBudget", { name, period: periodCode });
+      const off = rows.filter((row) => row.favourable === false).length;
+      return off > 0 ? l("headline.offPlan", { name, count: String(off) }) : l("headline.onPlan", { name });
+    }
     case "aged":
       return l("headline.count", { name, count: String(report.data.data.length) });
     case "commission":
@@ -608,8 +673,9 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   // reaches the audit log as a failed read the actor did not intend.
   // A 401 here is the session expiring — the workspace layout owns that redirect.
   const me = await fetchMe(env, request);
-  if (!me.permissions.includes(spec.permission)) {
-    return { key, denied: true as const, permission: spec.permission };
+  const missing = [spec.permission, ...(spec.also ?? [])].find((perm) => !me.permissions.includes(perm));
+  if (missing) {
+    return { key, denied: true as const, permission: missing };
   }
 
   const [payload, accounts] = await Promise.all([
@@ -764,6 +830,8 @@ function ReportView({ report, ...rest }: ViewProps & { report: Report }) {
       return <BalanceSheetView bs={report.data} {...rest} />;
     case "cash-flow":
       return <CashFlowView cf={report.data} {...rest} />;
+    case "budget-vs-actual":
+      return <BudgetView report={report.data} {...rest} />;
     case "aged":
       return <AgedView rows={report.data.data} {...rest} />;
     case "commission":
@@ -1131,6 +1199,82 @@ function CashFlowView({ cf, accounts, locale, l, t }: ViewProps & { cf: CashFlow
           {l("cf.restricted")} {money(cf.restrictedCashMinor)}
         </p>
       ) : null}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------- budget vs actual */
+
+/**
+ * ADR-0104. One row per account and currency, straight from the API — no sum
+ * across rows, because two rows in different currencies do not add. A row
+ * with no budget renders a word, never a zero, in every budget-derived column.
+ */
+function BudgetView({ report, accounts, locale, l, t }: ViewProps & { report: BudgetVsActual }) {
+  const currency = (row: BudgetRow) => row.currency;
+  const none = <span className="text-subtle">{l("bva.none")}</span>;
+  const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1, signDisplay: "exceptZero" });
+  const columns: Array<Column<BudgetRow>> = [
+    {
+      key: "accountCode",
+      header: l("col.account"),
+      render: (row) => <AccountCode code={row.accountCode} accounts={accounts} />
+    },
+    { key: "name", header: l("col.name"), render: (row) => row.name },
+    { key: "currency", header: l("col.currency"), render: (row) => row.currency },
+    {
+      key: "budget",
+      header: l("bva.budget"),
+      numeric: true,
+      render: (row) =>
+        row.budgetMinor === null ? none : <Money amountMinor={row.budgetMinor} currency={row.currency} locale={locale} />
+    },
+    moneyColumn("actual", l("bva.actual"), (row) => row.actualMinor, currency, locale),
+    {
+      key: "variance",
+      header: l("bva.variance"),
+      numeric: true,
+      render: (row) =>
+        row.varianceMinor === null ? none : (
+          <Money amountMinor={row.varianceMinor} currency={row.currency} locale={locale} signed />
+        )
+    },
+    {
+      key: "variancePct",
+      header: l("bva.variancePct"),
+      numeric: true,
+      render: (row) => (row.variancePpm === null ? "—" : percent.format(row.variancePpm / 1_000_000))
+    },
+    {
+      key: "verdict",
+      header: l("bva.verdict"),
+      render: (row) =>
+        row.favourable === null ? null : (
+          <Badge tone={row.favourable ? "success" : "danger"} size="sm" dot>
+            {l(row.favourable ? "bva.favourable" : "bva.adverse")}
+          </Badge>
+        )
+    }
+  ];
+  return (
+    <section className="flex flex-col gap-4">
+      <p className="font-ui text-13 text-subtle">
+        {l("param.period")}: <span className="tabular-nums text-text">{report.periodCode}</span>
+      </p>
+      <p className="max-w-prose font-ui text-13 text-muted">{l("bva.note")}</p>
+      <Table
+        columns={columns}
+        rows={report.rows}
+        rowKey={(row) => `${row.accountCode}|${row.currency}`}
+        caption={`${l("title")} — ${l("report.budget-vs-actual")}`}
+        density="compact"
+        empty={<EmptyState title={l("bva.empty.title")} body={l("bva.empty.body")} />}
+        footer={
+          <span className="font-ui text-12 tabular-nums text-subtle">
+            {t("common.rows", { count: String(report.rows.length) })}
+          </span>
+        }
+      />
     </section>
   );
 }

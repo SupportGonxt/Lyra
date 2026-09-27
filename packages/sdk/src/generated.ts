@@ -1439,6 +1439,18 @@ export interface LedgerAccounts {
   createdAt?: number;
 }
 
+export interface LedgerBudgets {
+  id?: string;
+  tenantId?: string;
+  accountCode: string;
+  period: string;
+  currency: string;
+  amountMinor: number;
+  note?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface LedgerClientMoneyChecks {
   id?: string;
   tenantId?: string;
@@ -2832,6 +2844,11 @@ export interface Operations {
   "PATCH /v1/ledger/accounts/{id}": Op<{ id: string }, never, LedgerAccounts, LedgerAccounts>;
   "DELETE /v1/ledger/accounts/{id}": Op<{ id: string }, never, never, void>;
   "POST /v1/ledger/balances/rebuild": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/ledger/budgets": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerBudgets>>;
+  "POST /v1/ledger/budgets": Op<never, never, LedgerBudgets, LedgerBudgets>;
+  "GET /v1/ledger/budgets/{id}": Op<{ id: string }, never, never, LedgerBudgets>;
+  "PATCH /v1/ledger/budgets/{id}": Op<{ id: string }, never, LedgerBudgets, LedgerBudgets>;
+  "DELETE /v1/ledger/budgets/{id}": Op<{ id: string }, never, never, void>;
   "GET /v1/ledger/client-money-checks": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerClientMoneyChecks>>;
   "GET /v1/ledger/client-money-checks/{id}": Op<{ id: string }, never, never, LedgerClientMoneyChecks>;
   "GET /v1/ledger/fx-rates": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerFxRates>>;
@@ -2872,6 +2889,7 @@ export interface Operations {
   "GET /v1/ledger/reports/aged": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/balance-sheet": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/bordereaux": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/ledger/reports/budget-vs-actual": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/cash-flow": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/chart-of-accounts": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/ledger/reports/client-money": Op<never, never, never, Record<string, unknown>>;
@@ -3647,6 +3665,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/ledger/accounts/{id}": { tag: "ledger", summary: "Update a account", permission: "ledger:accounts:write", public: false },
   "DELETE /v1/ledger/accounts/{id}": { tag: "ledger", summary: "Soft-delete a account", permission: "ledger:accounts:write", public: false },
   "POST /v1/ledger/balances/rebuild": { tag: "ledger", summary: "Rebuild cached balances from the journal lines", permission: "ledger:journals:post", public: false },
+  "GET /v1/ledger/budgets": { tag: "ledger", summary: "List budgets", permission: "ledger:budgets:read", public: false },
+  "POST /v1/ledger/budgets": { tag: "ledger", summary: "Create a budget", permission: "ledger:budgets:write", public: false },
+  "GET /v1/ledger/budgets/{id}": { tag: "ledger", summary: "Fetch one budget", permission: "ledger:budgets:read", public: false },
+  "PATCH /v1/ledger/budgets/{id}": { tag: "ledger", summary: "Update a budget", permission: "ledger:budgets:write", public: false },
+  "DELETE /v1/ledger/budgets/{id}": { tag: "ledger", summary: "Soft-delete a budget", permission: "ledger:budgets:write", public: false },
   "GET /v1/ledger/client-money-checks": { tag: "ledger", summary: "List client-money-checks", permission: "ledger:client_money:read", public: false },
   "GET /v1/ledger/client-money-checks/{id}": { tag: "ledger", summary: "Fetch one client money check", permission: "ledger:client_money:read", public: false },
   "GET /v1/ledger/fx-rates": { tag: "ledger", summary: "List fx-rates", permission: "ledger:accounts:read", public: false },
@@ -3687,6 +3710,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/reports/aged": { tag: "ledger", summary: "Aged receivables or payables by counterparty", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/balance-sheet": { tag: "ledger", summary: "Balance sheet as at a moment", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/bordereaux": { tag: "ledger", summary: "Outbound bordereaux: per-policy premium and commission for a provider and period", permission: "ledger:journals:read", public: false },
+  "GET /v1/ledger/reports/budget-vs-actual": { tag: "ledger", summary: "Budget against posted actuals for one month, per account and currency", permission: "ledger:budgets:read", public: false },
   "GET /v1/ledger/reports/cash-flow": { tag: "ledger", summary: "Statement of cash flows (IFRS, IAS 7 indirect) for a window", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/chart-of-accounts": { tag: "ledger", summary: "The chart of accounts with current balances", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/client-money": { tag: "ledger", summary: "Client money sufficiency: what is held against what is owed", permission: "ledger:client_money:read", public: false },

@@ -288,6 +288,13 @@
       "when": 1790475550974,
       "tag": "0040_first_sasquatch",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1790482905438,
+      "tag": "0041_mature_scourge",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ import {
   agedOpenItems,
   balanceOf,
   balanceSheet,
+  budgetVsActual,
   cashFlowStatement,
   bordereauxRows,
   buildRecipe,
@@ -450,6 +451,20 @@ function cashFlowWindow(ctx: Ctx, q: Query): { from: number; to: number } {
   };
 }
 
+// docs/30 Ledger 4, ADR-0104. The plan is its own grant and the actuals are
+// the journal's, so the report needs both. One month; this month by default.
+function requireBudgetRead(ctx: Ctx): void {
+  for (const perm of ["ledger:budgets:read", "ledger:journals:read"]) {
+    require_(ctx.actor, perm, { tenantId: ctx.tenantId, module: "ledger" });
+  }
+}
+
+ledgerRoutes.get("/reports/budget-vs-actual", async (c) => {
+  const ctx = ctxOf(c);
+  requireBudgetRead(ctx);
+  return c.json(await budgetVsActual(ctx, c.req.query("period") ?? periodCode(ctx.now)));
+});
+
 ledgerRoutes.get("/reports/aged", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "ledger:journals:read", { tenantId: ctx.tenantId, module: "ledger" });
@@ -724,6 +739,41 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
           ],
           currency: cf.currency,
           generatedAt: cf.to
+        }
+      };
+    }
+  },
+  // ADR-0104. One row per account and currency: a multi-currency table, so the
+  // currency is a column and never folded into the money headers.
+  "budget-vs-actual": {
+    permission: "ledger:budgets:read",
+    build: async (ctx, q) => {
+      requireBudgetRead(ctx);
+      const report = await budgetVsActual(ctx, q("period") ?? periodCode(ctx.now));
+      return {
+        table: {
+          title: `Budget vs actual ${report.periodCode}`,
+          columns: [
+            text("accountCode", "Account"),
+            text("name", "Name"),
+            text("currency", "Currency"),
+            money("budgetMinor", "Budget"),
+            money("actualMinor", "Actual"),
+            money("varianceMinor", "Variance"),
+            text("variancePct", "Variance %")
+          ],
+          // No budget is a blank cell, not a zero: the screen says so, and the
+          // file must not quietly turn it into a plan of nothing.
+          rows: report.rows.map((r) => ({
+            accountCode: r.accountCode,
+            name: r.name,
+            currency: r.currency,
+            budgetMinor: r.budgetMinor,
+            actualMinor: r.actualMinor,
+            varianceMinor: r.varianceMinor,
+            variancePct: r.variancePpm === null ? "" : `${(r.variancePpm / 10_000).toFixed(1)}%`
+          })),
+          generatedAt: ctx.now
         }
       };
     }

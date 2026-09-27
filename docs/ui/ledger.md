@@ -297,6 +297,19 @@ shortfall, Status (Badge, dot — danger "Short" / success "Whole"). One
 {currency}", body: "The client bank position is below what is owed to clients.
 This is a reportable breach: escalate it today, before the next remittance run."
 
+*Budget vs actual* (`budget-vs-actual`, ADR-0104). Parameter: `period` (month;
+this month when blank). Needs `ledger:budgets:read` **and**
+`ledger:journals:read` (`ReportSpec.also`); the denied state names whichever is
+missing. One row per account and currency — actuals are the month's posted
+lines in that currency, never converted, and no row is ever summed with
+another. Columns: Account (linked), Name, Currency, Budget, Actual, Variance
+(`signed`), Variance %, Against plan (Badge — success "Favourable" / danger
+"Adverse", income and expense only). A row with no budget prints "No budget" in
+Budget and Variance and "—" in Variance %, never a zero. Headline: "no budget is
+set for {period}", "{n} line(s) off plan" or "every budgeted line is on plan".
+Budgets themselves are the `/ledger/budgets` tab (`ledger:budgets:write` to
+create, edit amount/note, or delete; audited, no approval).
+
 **Account links.** Only `trial-balance`, `pnl` and `balance-sheet` carry account
 links. They resolve through an index built from
 `/v1/ledger/accounts?limit=200&sort=code&order=asc`. On 403 the index is `{}` and

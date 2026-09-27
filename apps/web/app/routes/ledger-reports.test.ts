@@ -150,6 +150,42 @@ describe("cash flow (ADR-0090)", () => {
   });
 });
 
+describe("budget vs actual (ADR-0104)", () => {
+  const l = labelIn("en");
+  // Server shape: packages/ledger/src/budgets.ts `BudgetVsActualRow`.
+  const row = (budgetMinor: number | null, actualMinor: number, favourable: boolean | null) => ({
+    accountCode: "5100",
+    name: "Media Spend",
+    type: "expense",
+    currency: "AED",
+    budgetMinor,
+    actualMinor,
+    varianceMinor: budgetMinor === null ? null : actualMinor - budgetMinor,
+    variancePpm: budgetMinor ? Math.round(((actualMinor - budgetMinor) / budgetMinor) * 1_000_000) : null,
+    favourable
+  });
+  const report = (rows: ReturnType<typeof row>[]) => ({
+    key: "budget-vs-actual" as const,
+    data: { periodCode: "2026-06", from: 0, to: 1, rows }
+  });
+
+  it("says plainly when no budget is set for the month, rather than showing zeros", () => {
+    expect(reportsHeadline(report([row(null, 500, null)]), l, "en")).toBe(
+      "Budget vs actual: no budget is set for 2026-06."
+    );
+  });
+
+  it("counts the lines off plan", () => {
+    expect(reportsHeadline(report([row(100, 150, false), row(100, 50, true), row(null, 1, null)]), l, "en")).toBe(
+      "Budget vs actual: 1 line off plan."
+    );
+  });
+
+  it("says when every budgeted line is on plan", () => {
+    expect(reportsHeadline(report([row(100, 90, true)]), l, "en")).toBe("Budget vs actual: every budgeted line is on plan.");
+  });
+});
+
 describe("ledger-reports labelIn", () => {
   it("translates every English key into Arabic", () => {
     const missing = Object.keys(LABELS.en!).filter((key) => !(key in LABELS.ar!));

@@ -27,7 +27,7 @@ of route files driven by declarative specs in [apps/web/app/modules/](apps/web/a
 - [module.tsx](apps/web/app/routes/module.tsx) — `/:module` and `/:module/:resource`, the tabbed list
 - [record.tsx](apps/web/app/routes/record.tsx) — `/:module/:resource/:id`, the single record
 
-Adding a resource adds a `ResourceSpec` entry, not a route. 136 resource tabs
+Adding a resource adds a `ResourceSpec` entry, not a route. 137 resource tabs
 across 10 workspaces render this way. §7 is the full table.
 
 **Bespoke.** A screen that is genuinely its own thing — a quote comparison, a
@@ -586,7 +586,7 @@ multiplier in ppm (FX 18.5 is `18500000`, never 1850%), `measure` is a number
 whose unit is a sibling column (NORTH stores money, basis points, milliseconds and
 counts in one `value`), `money` is minor units.
 
-### 7.1 The 136 resource tabs
+### 7.1 The 137 resource tabs
 
 
 #### `/admin` — 36 tabs
@@ -756,7 +756,7 @@ reaches the page. No modal, no auto-run, no toast.
 | `commission-entries` | `/v1/dist/commission-entries` | `dist:commissions:read` |  | ✓ |  |  |  |
 | `next-best-offers` | `/v1/dist/next-best-offers` | `dist:offers:read` |  | ✓ |  |  |  |
 
-#### `/ledger` — 20 tabs
+#### `/ledger` — 21 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
@@ -779,6 +779,7 @@ reaches the page. No modal, no auto-run, no toast.
 | `payment-plans` | `/v1/ledger/payment-plans` | `ledger:payments:read` |  |  |  |  |  |
 | `fx-rates` | `/v1/ledger/fx-rates` | `ledger:accounts:read` | ✓ |  |  |  |  |
 | `tax-rules` | `/v1/ledger/tax-rules` | `ledger:accounts:read` | ✓ | ✓ | ✓ |  |  |
+| `budgets` | `/v1/ledger/budgets` | `ledger:budgets:read` | ✓ | ✓ | ✓ |  |  |
 | `settlements` | `/v1/ledger/settlements` | `dist:commissions:read` | ✓ | ✓ |  |  | `/ledger/settlements/{id}` |
 
 #### `/north` — 8 tabs

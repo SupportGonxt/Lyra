@@ -226,6 +226,9 @@ export const PERMISSIONS = [
   "ledger:txns:read", "ledger:txns:create", "ledger:txns:authorize", "ledger:txns:reverse",
   "ledger:journals:read", "ledger:journals:post",
   "ledger:accounts:read", "ledger:accounts:write",
+  // ADR-0104: the plan is its own grant. Reading the journal does not imply
+  // reading next month's targets, and setting them is a controller's act.
+  "ledger:budgets:read", "ledger:budgets:write",
   "ledger:periods:read", "ledger:periods:close",
   "ledger:recon:read", "ledger:recon:run", "ledger:recon:confirm", "ledger:recon:export",
   "ledger:invoices:read", "ledger:invoices:create", "ledger:invoices:approve",
