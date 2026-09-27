@@ -5,10 +5,12 @@ import { id, schema } from "@lyra/db";
 import {
   actorRef,
   AppError,
+  applyDashboardFilters,
   audit,
   badRequest,
   can,
   conflict,
+  DashboardLayoutSchema,
   forbidden,
   gate,
   mask,
@@ -18,8 +20,10 @@ import {
   ReportFilterSchema,
   scoped,
   sha256Hex,
+  unprocessable,
   withIdempotency,
   type Ctx,
+  type DashboardLayout,
   type PiiMap
 } from "@lyra/core";
 import {
@@ -599,23 +603,59 @@ const DashboardBody = z.object({
   key: z.string().min(1).max(64).regex(/^[a-z0-9_.-]+$/),
   module: z.string().min(1).max(32),
   name: z.record(z.string(), z.string()),
-  layout: z.object({
-    tiles: z
-      .array(
-        z.object({
-          key: z.string().min(1).max(64),
-          viz: z.enum(["number", "line", "bar", "table", "donut", "list"]),
-          span: z.number().int().min(1).max(12).default(4),
-          reportId: z.string().optional(),
-          definition: Definition.optional()
-        })
-      )
-      .max(24)
-  }),
+  // One schema for every writer and the renderer (packages/core/src/dashboard-layout.ts).
+  layout: DashboardLayoutSchema,
   scope: z.enum(["tenant", "team", "personal"]).default("tenant"),
   roles: z.array(z.string()).max(30).optional(),
   isDefault: z.boolean().default(false)
 });
+
+/**
+ * docs/30 Analytics 5. A layout as a writer sent it — an object, or the text
+ * generic CRUD stores — held to the schema, then to the registry: every tile
+ * must be one the writer can run (its dataset readable, its measures, splits
+ * and filters real), and every dashboard filter must name a dimension at least
+ * one tile's dataset has. Errors are keyed under `field` the way `Problem.errors`
+ * keys a posted input. Shared by POST /dashboards and the generic PATCH
+ * (resources.ts), so the two doors cannot disagree.
+ */
+export async function checkDashboardLayout(ctx: Ctx, raw: unknown, field: string): Promise<DashboardLayout> {
+  const refuse = (path: string, message: string): never => {
+    const key = path ? `${field}.${path}` : field;
+    throw badRequest(`${key}: ${message}`, { [key]: message });
+  };
+  let value = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      refuse("", "not valid JSON");
+    }
+  }
+  const parsed = DashboardLayoutSchema.safeParse(value);
+  if (!parsed.success) {
+    const errors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) errors[[field, ...issue.path.map(String)].join(".")] = issue.message;
+    throw badRequest("dashboard layout is not valid", errors);
+  }
+  const layout = parsed.data;
+  const filterable = new Set<string>();
+  for (const [i, tile] of layout.tiles.entries()) {
+    const def = tile.definition ?? (JSON.parse((await readableReport(ctx, tile.reportId!)).definitionJson) as ReportDefinition);
+    const ds = requireDataset(ctx, def.dataset);
+    const at = tile.definition ? `tiles.${i}.definition` : `tiles.${i}.reportId`;
+    for (const m of def.metrics) if (!ds.metrics[m]) refuse(at, `unknown measure ${m} on ${def.dataset}`);
+    for (const d of def.dimensions ?? []) if (!ds.dimensions[d]) refuse(at, `unknown dimension ${d} on ${def.dataset}`);
+    for (const f of def.filters ?? []) {
+      if (!ds.dimensions[f.field] && !ds.metrics[f.field]) refuse(at, `unknown filter field ${f.field} on ${def.dataset}`);
+    }
+    for (const d of Object.keys(ds.dimensions)) filterable.add(d);
+  }
+  (layout.filters?.where ?? []).forEach((f, i) => {
+    if (!filterable.has(f.field)) refuse(`filters.where.${i}.field`, `no tile on this dashboard can be filtered by ${f.field}`);
+  });
+  return layout;
+}
 
 analyticsRoutes.get("/dashboards", async (c) => {
   const ctx = c.get("ctx");
@@ -633,9 +673,7 @@ analyticsRoutes.post("/dashboards", async (c) => {
   const ctx = c.get("ctx");
   require_(ctx.actor, "analytics:dashboards:write", { tenantId: ctx.tenantId });
   const input = await body(c, DashboardBody);
-  for (const tile of input.layout.tiles) {
-    if (tile.definition) requireDataset(ctx, tile.definition.dataset);
-  }
+  await checkDashboardLayout(ctx, input.layout, "layout");
   const row = {
     id: id("dsh", ctx.now),
     tenantId: ctx.tenantId,
@@ -664,20 +702,31 @@ analyticsRoutes.get("/dashboards/:id/data", async (c) => {
   // by anyone who can guess its id — a filter that lives only on the list is not
   // a filter at all.
   if (!dashboardVisible(ctx, dash)) throw notFound("dashboard");
-  const layout = JSON.parse(dash.layoutJson) as { tiles: { key: string; reportId?: string; definition?: ReportDefinition }[] };
+  // Held to the same schema it was written under. A row that predates the
+  // write-time check and does not pass it is refused whole, not painted as a
+  // page of blank tiles (docs/30 Analytics 5).
+  let stored: unknown = null;
+  try {
+    stored = JSON.parse(dash.layoutJson);
+  } catch {
+    // falls through to the refusal below
+  }
+  const checked = DashboardLayoutSchema.safeParse(stored);
+  if (!checked.success) throw unprocessable("this dashboard's layout is malformed; open it in the tile editor and save it again");
+  const layout = checked.data;
 
   const tiles = await Promise.all(
     layout.tiles.map(async (tile) => {
       try {
         const def = tile.definition
           ? tile.definition
-          : tile.reportId
-            ? (JSON.parse((await readableReport(ctx, tile.reportId)).definitionJson) as ReportDefinition)
-            : null;
-        if (!def) return { key: tile.key, error: "tile has no definition" };
-        requireDataset(ctx, def.dataset);
-        const table = await runReport(ctx, def, { title: tile.key });
-        return { key: tile.key, table, totals: totalsOf(table) };
+          : (JSON.parse((await readableReport(ctx, tile.reportId!)).definitionJson) as ReportDefinition);
+        const ds = requireDataset(ctx, def.dataset);
+        // The dashboard's filters over the tile's own. A filter this tile's
+        // dataset cannot take is named, not silently dropped.
+        const { definition, unfiltered } = applyDashboardFilters(def, layout.filters, new Set(Object.keys(ds.dimensions)), ctx.now);
+        const table = await runReport(ctx, definition, { title: tile.key });
+        return { key: tile.key, table, totals: totalsOf(table), unfiltered };
       } catch (err) {
         // One dead tile must not blank the dashboard.
         return { key: tile.key, error: err instanceof Error ? err.message : "failed" };

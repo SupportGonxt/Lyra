@@ -47,6 +47,7 @@ export default [
     route("analytics/schedules/new", "routes/analytics-schedule-new.tsx"),
     route("analytics/report/:id", "routes/analytics-report.tsx"),
     route("analytics/dashboard/:id", "routes/analytics-dashboard.tsx"),
+    route("analytics/dashboard/:id/edit", "routes/analytics-dashboard-edit.tsx"),
     route("distribution/quote-requests/:id/compare", "routes/quote-compare.tsx"),
     route("distribution/commission-entries/statement", "routes/commission-statement.tsx"),
     route("distribution/commission-entries/:id/clawback", "routes/commission-clawback.tsx"),

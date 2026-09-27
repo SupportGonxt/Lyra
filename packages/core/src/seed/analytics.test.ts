@@ -7,6 +7,7 @@ import { schema, ulidTime } from "@lyra/db";
 import type { CoreDb } from "../context.js";
 import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
 import { seedAnalytics } from "./analytics.js";
+import { DashboardLayoutSchema } from "../dashboard-layout.js";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "..", "db", "migrations");
 
@@ -301,6 +302,17 @@ describe("seedAnalytics", () => {
     expect(desk.rolesJson).toBeNull();
     expect(desk.isDefault).toBe(false);
     expect(JSON.parse(desk.layoutJson).tiles).toHaveLength(2);
+  });
+
+  // The seed writes the table directly, past the write-time check the API makes,
+  // so it is held to the same schema here: a seeded board the editor would
+  // refuse to save is a board nobody can edit (docs/30 Analytics 5).
+  it("writes only layouts the dashboard schema accepts", async () => {
+    await seedAnalytics(ctx);
+    const dashboards = await db.select().from(schema.dashboards);
+    for (const d of dashboards) {
+      expect(DashboardLayoutSchema.safeParse(JSON.parse(d.layoutJson)).success, d.key).toBe(true);
+    }
   });
 
   it("registers eight report runs across every terminal and in-flight state", async () => {

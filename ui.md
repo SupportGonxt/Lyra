@@ -358,7 +358,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 127 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 128 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -398,6 +398,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/analytics/schedules/new` | [analytics-schedule-new.tsx](apps/web/app/routes/analytics-schedule-new.tsx) |
 | `/analytics/report/:id` | [analytics-report.tsx](apps/web/app/routes/analytics-report.tsx) |
 | `/analytics/dashboard/:id` | [analytics-dashboard.tsx](apps/web/app/routes/analytics-dashboard.tsx) |
+| `/analytics/dashboard/:id/edit` | [analytics-dashboard-edit.tsx](apps/web/app/routes/analytics-dashboard-edit.tsx) |
 | `/distribution/quote-requests/:id/compare` | [quote-compare.tsx](apps/web/app/routes/quote-compare.tsx) |
 | `/distribution/commission-entries/statement` | [commission-statement.tsx](apps/web/app/routes/commission-statement.tsx) |
 | `/distribution/commission-entries/:id/clawback` | [commission-clawback.tsx](apps/web/app/routes/commission-clawback.tsx) |
@@ -656,6 +657,35 @@ so (any 4xx but 401 blanks that panel only); a missing figure is `—`, never 0.
 | `journey-events` | `/v1/analytics/journey-events` | `analytics:reports:read` |  |  |  |  |  |
 
 Tools list: **Build a report** → `/analytics/builder` (`analytics:reports:run`).
+
+**Dashboard** ([analytics-dashboard.tsx](apps/web/app/routes/analytics-dashboard.tsx)).
+One call, `GET /v1/analytics/dashboards/:id/data`, paints every tile on the
+twelve-column grid (`spanClass`, [dashboard-layout.ts](apps/web/app/dashboard-layout.ts)).
+The header reads the dashboard's filters back as phrases (`filterSummary`) and,
+with `analytics:dashboards:write`, links **Edit tiles**. A tile whose dataset
+lacks a dashboard filter field is drawn unfiltered with a quiet note under it
+naming the field (`unfilteredNote`, from the API's per-tile `unfiltered`). A
+stored layout the schema refuses is a 422 the screen shows as "could not be
+built" with its request id — never a page of blank tiles.
+
+**Dashboard tile editor** ([analytics-dashboard-edit.tsx](apps/web/app/routes/analytics-dashboard-edit.tsx),
+[dashboard-editor.tsx](apps/web/app/components/dashboard-editor.tsx), docs/30
+Analytics 5). Needs `analytics:dashboards:read` + `:write`; the dashboard list is
+the gate, as on the dashboard. Tiles are an ordered list — each focusable, with
+Shown as (viz) and Width (1–12 of 12 columns) selects, ↑/↓ buttons and Remove;
+**Alt+ArrowUp/Down** moves the focused tile one place, **Alt+Home/End** to either
+end, focus follows it, and a polite live region says where it landed (nothing
+is drag-only, WCAG 2.2 2.5.7). A dashed preview draws the tiles at their spans
+on the dashboard's own grid. **Add a tile** draws from a saved report
+(`analytics:reports:read`) or a dataset + measure + optional split + time bucket,
+read through the builder's own `defFromParams`/`fitToDataset` (`tileFromChoice`).
+**Filters**: a date range (each tile's own dates / last 7, 30, 90, 365 days /
+fixed dates) and up to three dimension rows in the builder's `f<n>.*` encoding,
+offering only fields some tile's dataset has. Save posts
+`PATCH /v1/analytics/dashboards/:id` `{ layoutJson }` (generic CRUD), whose
+`beforeWrite` runs `checkDashboardLayout` — the schema and the registry the
+module router's POST uses — so a malformed layout is refused, with the API's
+`Problem` shown in place; success returns to the dashboard.
 
 **Report builder** ([analytics-builder.tsx](apps/web/app/routes/analytics-builder.tsx),
 ADR-0088). The first web reader of `GET /v1/analytics/datasets`: dataset →

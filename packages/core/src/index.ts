@@ -47,3 +47,4 @@ export * from "./claims.js";
 export * from "./premium.js";
 export * from "./quiet-hours.js";
 export * from "./report-definition.js";
+export * from "./dashboard-layout.js";

@@ -76,6 +76,7 @@ export const HIDDEN_ROUTES: Record<string, string> = {
     "builds, previews and saves a report, linked from the analytics workspace tools list and from every figure on the AI operations dashboard",
   "/analytics/report/:id": "opens one saved report from the analytics report list",
   "/analytics/dashboard/:id": "opens one dashboard from the analytics dashboard list",
+  "/analytics/dashboard/:id/edit": "opens the tile editor from the Edit tiles link on one dashboard",
   "/distribution/quote-requests/:id/compare": "opens from a single quote request record",
   "/orbit/conversations/:id/thread": "opens from a single conversation record",
   "/distribution/commission-entries/statement":
