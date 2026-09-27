@@ -145,7 +145,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. ~~Audit log filters, search and export.~~ **Fixed** 2026-09-23: `GET /v1/core/audit-log/export` (CSV of the chain with every hash, `core:audit:export`, itself audited; `core-audit-export.test.ts`), search on the audit tab, and an Export CSV button (`ResourceSpec.download`, `/admin/audit-export`).
 3. ~~Approvals pagination (F60).~~ **Fixed** 2026-09-26: `/v1/me/inbox` pages by keyset `(requestedAt, id)`; the approvals screen follows the cursor.
 4. ~~DLQ replay~~ **fixed** 2026-09-26 (`replayDead`, `POST /v1/core/event-dlq/{id}/replay`, a Replay action on the DLQ tab: only the dead consumer re-runs). The platform AI kill switch has its button (2026-09-26): a card on `/platform` that stops all AI with a stated reason and releases through the gated route, never the generic flag toggle.
-5. ~~SCIM provisioning~~ **Fixed** 2026-09-27 (ADR-0096): `/v1/scim/v2` Users and Groups (roles, membership only) for an API key carrying `core:users:*`/`core:roles:*` scopes; deactivation suspends; a Group grant is held to `assertCanGrant`. SAML next, per ADR-0001.
+5. ~~SCIM provisioning~~ **Fixed** 2026-09-27 (ADR-0096): `/v1/scim/v2` Users and Groups (roles, membership only) for an API key carrying `core:users:*`/`core:roles:*` scopes; deactivation suspends; a Group grant is held to `assertCanGrant`. SAML **fixed** the same day (ADR-0097, superseding ADR-0001): xml-crypto verifies, identity is read only from the signed reference, and the comment-truncation, signature-wrapping, entity, SHA-1, replay and audience vectors are tests (`engines/saml.test.ts`).
 
 ## 3. Order of work
 

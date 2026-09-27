@@ -1,6 +1,6 @@
 # ADR-0001 — SAML is a seam, not an implementation
 
-- Status: accepted
+- Status: superseded by ADR-0097 (2026-09-27)
 - Date: 2026-07-30
 - Context: docs/06 §2 (enterprise sign-in), CLAUDE.md §15 (build to the seams)
 

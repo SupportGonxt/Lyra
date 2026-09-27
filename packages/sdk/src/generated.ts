@@ -2500,7 +2500,9 @@ export interface Operations {
   "POST /v1/auth/mfa/enrol/confirm": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/auth/mfa/verify": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/auth/sso/discover": Op<never, never, never, Record<string, unknown>>;
+  "POST /v1/auth/sso/{id}/acs": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/auth/sso/{id}/callback": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "GET /v1/auth/sso/{id}/metadata": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/auth/sso/{id}/start": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/axis/bordereau-lines": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisBordereauLines>>;
   "GET /v1/axis/bordereau-lines/{id}": Op<{ id: string }, never, never, AxisBordereauLines>;
@@ -3312,7 +3314,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/auth/mfa/enrol/confirm": { tag: "auth", summary: "Confirm TOTP enrolment; returns single-use recovery codes once", permission: null, public: true },
   "POST /v1/auth/mfa/verify": { tag: "auth", summary: "Clear the second factor with a TOTP or recovery code", permission: null, public: true },
   "GET /v1/auth/sso/discover": { tag: "auth", summary: "Which identity provider, if any, owns an email domain", permission: null, public: true },
+  "POST /v1/auth/sso/{id}/acs": { tag: "auth", summary: "SAML Assertion Consumer Service: verify the signed Response to this sign-in's AuthnRequest, link or provision, issue a session", permission: null, public: true },
   "GET /v1/auth/sso/{id}/callback": { tag: "auth", summary: "Verify the id_token, link or provision the account, issue a session", permission: null, public: true },
+  "GET /v1/auth/sso/{id}/metadata": { tag: "auth", summary: "SAML service-provider metadata: entity id, ACS, signed assertions required (ADR-0097)", permission: null, public: true },
   "GET /v1/auth/sso/{id}/start": { tag: "auth", summary: "Redirect to the provider's authorization endpoint (OIDC + PKCE)", permission: null, public: true },
   "GET /v1/axis/bordereau-lines": { tag: "axis", summary: "List bordereau-lines", permission: "axis:bordereaux:read", public: false },
   "GET /v1/axis/bordereau-lines/{id}": { tag: "axis", summary: "Fetch one bordereau line", permission: "axis:bordereaux:read", public: false },

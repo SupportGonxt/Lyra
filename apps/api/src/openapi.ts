@@ -40,6 +40,8 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/auth/sso/discover", summary: "Which identity provider, if any, owns an email domain", tag: "auth", public: true },
   { method: "get", path: "/v1/auth/sso/{id}/start", summary: "Redirect to the provider's authorization endpoint (OIDC + PKCE)", tag: "auth", public: true },
   { method: "get", path: "/v1/auth/sso/{id}/callback", summary: "Verify the id_token, link or provision the account, issue a session", tag: "auth", public: true },
+  { method: "get", path: "/v1/auth/sso/{id}/metadata", summary: "SAML service-provider metadata: entity id, ACS, signed assertions required (ADR-0097)", tag: "auth", public: true },
+  { method: "post", path: "/v1/auth/sso/{id}/acs", summary: "SAML Assertion Consumer Service: verify the signed Response to this sign-in's AuthnRequest, link or provision, issue a session", tag: "auth", requestBody: true, public: true },
   // `GET /v1/me` is the whole bootstrap: actor, tenant, roles, permissions,
   // entitlements, policy and the labelled navigation, in one round trip. There
   // is deliberately no separate nav or permissions endpoint to fall out of step

@@ -3,11 +3,13 @@ import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { generateKeyPairSync } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { base64url, seed } from "@lyra/core";
 import { schema, type Db } from "@lyra/db";
 import { app } from "./index.js";
 import type { Env } from "./env.js";
+import { samlFixture } from "./saml-fixture.js";
 
 // docs/06 §2. The whole point of this file is that nothing signs a user in
 // unless the signature, issuer, audience, expiry, nonce and single-use state all
@@ -244,10 +246,10 @@ describe("sso start", () => {
     expect(JSON.parse(kv.store.get(`sso:state:${state}`) ?? "{}").next).toBe("/");
   });
 
-  it("refuses SAML with the reason", async () => {
+  it("refuses a SAML provider that has no SSO URL or signing certificate yet, saying which", async () => {
     const res = await get("/v1/auth/sso/idp_saml/start");
     expect(res.status).toBe(400);
-    expect(await detailOf(res)).toContain("saml");
+    expect(await detailOf(res)).toMatch(/ssoUrl|certificate/);
   });
 });
 
@@ -400,5 +402,101 @@ describe("sso callback", () => {
         .set({ entitlementsJson: before?.entitlementsJson ?? null })
         .where(eq(schema.tenants.id, tenantId));
     }
+  });
+});
+
+/* ------------------------------------------------------------------ SAML */
+
+// ADR-0097: SAML over the same session, linking and provisioning rules as
+// OIDC. The attack vectors live in engines/saml.test.ts; this walks the routes:
+// a request out, a signed answer back once, and a replay refused.
+describe("sso SAML", () => {
+  const SAML_ID = "idp_saml2";
+  const idpKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const acsUrl = `http://api.test/v1/auth/sso/${SAML_ID}/acs`;
+  const spEntityId = `http://api.test/v1/auth/sso/${SAML_ID}/metadata`;
+
+  beforeAll(async () => {
+    const now = Date.now();
+    await database.insert(schema.identityProviders).values({
+      id: SAML_ID,
+      tenantId,
+      kind: "saml",
+      name: "Entra (SAML)",
+      emailDomain: "saml2.example",
+      issuer: "https://sts.saml2.example/",
+      ssoUrl: "https://login.saml2.example/saml2",
+      certificate: idpKeys.publicKey.export({ type: "spki", format: "pem" }).toString(),
+      defaultRoleKey: "customer",
+      enabled: true,
+      createdAt: now,
+      updatedAt: now
+    });
+  });
+
+  async function start(): Promise<{ relayState: string; requestId: string }> {
+    const res = await get(`/v1/auth/sso/${SAML_ID}/start?next=/orbit`);
+    expect(res.status).toBe(302);
+    const url = new URL(res.headers.get("location") ?? "");
+    expect(url.origin + url.pathname).toBe("https://login.saml2.example/saml2");
+    expect(url.searchParams.get("SAMLRequest")).toBeTruthy();
+    const relayState = url.searchParams.get("RelayState") ?? "";
+    const pending = JSON.parse(kv.store.get(`sso:state:${relayState}`) ?? "{}") as { requestId: string; next: string };
+    expect(pending.next).toBe("/orbit");
+    return { relayState, requestId: pending.requestId };
+  }
+
+  const post = (relayState: string, samlResponse: string) =>
+    app.fetch(
+      new Request(`http://api.test/v1/auth/sso/${SAML_ID}/acs`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ SAMLResponse: samlResponse, RelayState: relayState })
+      }),
+      env as never,
+      exec as never
+    );
+
+  const answer = (requestId: string) =>
+    samlFixture({
+      idpIssuer: "https://sts.saml2.example/",
+      spEntityId,
+      acsUrl,
+      requestId,
+      now: Date.now(),
+      privateKey: idpKeys.privateKey.export({ type: "pkcs8", format: "pem" }).toString()
+    });
+
+  it("publishes SP metadata naming the ACS and asking for signed assertions", async () => {
+    const res = await get(`/v1/auth/sso/${SAML_ID}/metadata`);
+    expect(res.status).toBe(200);
+    const xml = await res.text();
+    expect(xml).toContain(`entityID="${spEntityId}"`);
+    expect(xml).toContain(`Location="${acsUrl}"`);
+    expect(xml).toContain('WantAssertionsSigned="true"');
+  });
+
+  it("signs a person in from a signed answer to its own request, once", async () => {
+    const { relayState, requestId } = await start();
+    const fx = answer(requestId);
+    const body = fx.b64(fx.signedResponse({ nameId: "ops@saml2.example", attributes: { email: "ops@saml2.example", displayName: "Ops Person" } }));
+    const res = await post(relayState, body);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("http://localhost:5173/orbit");
+    expect(cookieOf(res)).toContain("=");
+    const [user] = await database.select().from(schema.users).where(eq(schema.users.email, "ops@saml2.example"));
+    expect(user).toMatchObject({ externalId: "ops@saml2.example", authProvider: "saml", name: "Ops Person" });
+
+    // The same answer again: the request it answered is spent.
+    const replay = await post(relayState, body);
+    expect(replay.status).toBe(401);
+  });
+
+  it("refuses an answer to a different request than the one this RelayState started", async () => {
+    const { relayState } = await start();
+    const fx = answer("_not_this_request");
+    const res = await post(relayState, fx.b64(fx.signedResponse()));
+    expect(res.status).toBe(401);
+    expect(await detailOf(res)).toMatch(/InResponseTo/);
   });
 });

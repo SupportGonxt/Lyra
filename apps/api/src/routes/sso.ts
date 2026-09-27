@@ -13,14 +13,16 @@ import {
 } from "@lyra/core";
 import { db, issueSession, tenantConfig } from "../auth.js";
 import type { App, Env } from "../env.js";
+import { authnRequestUrl, spMetadata, verifySamlResponse } from "../engines/saml.js";
 
 // docs/06 §2 — enterprise sign-in. OIDC authorization code + PKCE, id_token
 // verified against the provider's JWKS. Nothing here trusts a claim it did not
 // verify: the signature, the issuer, the audience, the expiry and the nonce all
 // have to line up before a session exists.
 //
-// SAML is a seam, not an implementation — see
-// docs/decisions/ADR-0001-saml-signature-verification.md.
+// SAML 2.0 (ADR-0097, lifting ADR-0001's seam): the HTTP-Redirect AuthnRequest
+// out, the HTTP-POST Response back to /acs, verified in engines/saml.ts, then
+// the same linking, provisioning and session as OIDC.
 
 export const ssoRoutes = new Hono<App>();
 
@@ -33,9 +35,12 @@ type Provider = typeof schema.identityProviders.$inferSelect;
 
 interface Pending {
   providerId: string;
-  nonce: string;
-  verifier: string;
   next: string;
+  /** OIDC */
+  nonce?: string;
+  verifier?: string;
+  /** SAML: the AuthnRequest ID the Response must answer. */
+  requestId?: string;
 }
 
 function kv(env: Env): KVNamespace {
@@ -149,18 +154,16 @@ ssoRoutes.get("/discover", async (c) => {
 
 ssoRoutes.get("/:id/start", async (c) => {
   const provider = await providerById(c.env, c.req.param("id"));
+  if (provider.kind === "saml") return c.redirect(await samlStart(c.env, provider, c.req.url, c.req.query("next")), 302);
   if (provider.kind !== "oidc") throw badRequest(`${provider.kind} sign-in is not enabled`);
   if (!provider.clientId) throw badRequest("provider has no clientId");
 
   const { authorization_endpoint } = await endpoints(c.env, provider);
   const state = randomToken(24);
-  const pending: Pending = {
-    providerId: provider.id,
-    nonce: randomToken(24),
-    // PKCE: the code is useless to anyone who intercepts it without this.
-    verifier: randomToken(48),
-    next: safeNext(c.req.query("next"))
-  };
+  const nonce = randomToken(24);
+  // PKCE: the code is useless to anyone who intercepts it without this.
+  const verifier = randomToken(48);
+  const pending: Pending = { providerId: provider.id, nonce, verifier, next: safeNext(c.req.query("next")) };
   await kv(c.env).put(`sso:state:${state}`, JSON.stringify(pending), {
     expirationTtl: STATE_TTL_SEC
   });
@@ -171,8 +174,8 @@ ssoRoutes.get("/:id/start", async (c) => {
   url.searchParams.set("redirect_uri", redirectUri(c.req.url, provider.id));
   url.searchParams.set("scope", "openid email profile");
   url.searchParams.set("state", state);
-  url.searchParams.set("nonce", pending.nonce);
-  url.searchParams.set("code_challenge", await s256(pending.verifier));
+  url.searchParams.set("nonce", nonce);
+  url.searchParams.set("code_challenge", await s256(verifier));
   url.searchParams.set("code_challenge_method", "S256");
   return c.redirect(url.toString(), 302);
 });
@@ -285,6 +288,7 @@ ssoRoutes.get("/:id/callback", async (c) => {
     ? (c.env as unknown as Record<string, string | undefined>)[provider.clientSecretRef]
     : undefined;
 
+  if (!pending.verifier || !pending.nonce) throw unauthorized("state is not an OIDC sign-in");
   const exchange = await fetch(token_endpoint, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
@@ -447,3 +451,89 @@ async function linkOrCreate(
   });
   return user;
 }
+
+/* --------------------------------------------------------------------- SAML */
+
+const spEntityId = (url: string, id: string) => `${new URL(url).origin}/v1/auth/sso/${id}/metadata`;
+const acsUrl = (url: string, id: string) => `${new URL(url).origin}/v1/auth/sso/${id}/acs`;
+
+/** The `certificate` column holds a PEM, or the bare base64 certificate IdP metadata carries. */
+function pem(certificate: string): string {
+  if (certificate.includes("-----BEGIN")) return certificate;
+  const body = certificate.replace(/\s+/g, "").match(/.{1,64}/g)?.join("\n") ?? "";
+  return `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----\n`;
+}
+
+function samlConfigured(provider: Provider): { ssoUrl: string; certificate: string } {
+  if (!provider.ssoUrl || !provider.certificate) throw badRequest("this SAML provider needs its ssoUrl and signing certificate before anyone can sign in");
+  return { ssoUrl: httpsOnly(provider.ssoUrl, "ssoUrl"), certificate: pem(provider.certificate) };
+}
+
+async function samlStart(env: Env, provider: Provider, url: string, next: string | undefined): Promise<string> {
+  const { ssoUrl } = samlConfigured(provider);
+  const relayState = randomToken(24);
+  const pending: Pending = { providerId: provider.id, requestId: `_${randomToken(20)}`, next: safeNext(next) };
+  await kv(env).put(`sso:state:${relayState}`, JSON.stringify(pending), { expirationTtl: STATE_TTL_SEC });
+  return authnRequestUrl({
+    ssoUrl,
+    requestId: pending.requestId!,
+    spEntityId: spEntityId(url, provider.id),
+    acsUrl: acsUrl(url, provider.id),
+    relayState,
+    now: Date.now()
+  });
+}
+
+/** What an IdP administrator pastes in: entity id, ACS, signed assertions wanted. */
+ssoRoutes.get("/:id/metadata", async (c) => {
+  const provider = await providerById(c.env, c.req.param("id"));
+  if (provider.kind !== "saml") throw notFound(`SAML provider ${provider.id}`);
+  return c.body(spMetadata(spEntityId(c.req.url, provider.id), acsUrl(c.req.url, provider.id)), 200, {
+    "content-type": "application/samlmetadata+xml"
+  });
+});
+
+/** The Assertion Consumer Service: the IdP's browser POST lands here. */
+ssoRoutes.post("/:id/acs", async (c) => {
+  const now = Date.now();
+  const provider = await providerById(c.env, c.req.param("id"));
+  if (provider.kind !== "saml") throw badRequest(`${provider.kind} providers do not post to an ACS`);
+  const { certificate } = samlConfigured(provider);
+
+  const form = await c.req.parseBody();
+  const samlResponse = typeof form.SAMLResponse === "string" ? form.SAMLResponse : "";
+  const relayState = typeof form.RelayState === "string" ? form.RelayState : "";
+  if (!samlResponse || !relayState) throw badRequest("SAMLResponse and RelayState are required");
+
+  const key = `sso:state:${relayState}`;
+  const raw = await kv(c.env).get(key);
+  if (!raw) throw unauthorized("sign-in request expired or was already used");
+  // Single use, as for OIDC: an IdP-initiated or replayed response finds nothing.
+  await kv(c.env).delete(key);
+  const pending = JSON.parse(raw) as Pending;
+  if (pending.providerId !== provider.id || !pending.requestId) throw unauthorized("state belongs to another sign-in");
+
+  const identity = await verifySamlResponse(samlResponse, {
+    certificate,
+    idpIssuer: provider.issuer,
+    spEntityId: spEntityId(c.req.url, provider.id),
+    acsUrl: acsUrl(c.req.url, provider.id),
+    requestId: pending.requestId,
+    now
+  });
+  const user = await linkOrCreate(
+    c.env,
+    provider,
+    {
+      iss: provider.issuer,
+      aud: spEntityId(c.req.url, provider.id),
+      sub: identity.nameId,
+      exp: Math.floor(now / 1000),
+      ...(identity.email ? { email: identity.email } : {}),
+      ...(identity.name ? { name: identity.name } : {})
+    },
+    now
+  );
+  await issueSession(c, db(c.env), user, now, { mfaAsserted: provider.mfaAsserted, via: `sso:${provider.id}` });
+  return c.redirect(`${c.env.APP_ORIGIN ?? ""}${safeNext(pending.next)}`, 302);
+});
