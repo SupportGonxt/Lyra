@@ -1066,6 +1066,15 @@ describe("J-S1 whitespace from the tenant's own book", () => {
     expect(diff.spans.some((s: { type: string }) => s.type !== "equal")).toBe(true);
   });
 
+  it("reads price elasticity per line from the bench, to bench readers only (docs/30 SCOUT 5)", async () => {
+    const got = ok(await call("scout.lead", "GET", "/v1/scout/price-elasticity"));
+    const lines = got.data.map((one: { line: string }) => one.line);
+    expect(lines).toEqual([...lines].sort());
+    expect(lines).toContain("motor");
+    for (const one of got.data) expect(["estimated", "insufficient"]).toContain(one.state);
+    expect((await call("axis.agent", "GET", "/v1/scout/price-elasticity")).status).toBe(403);
+  });
+
   it("resolves nearest signals back to their rows, and only this tenant's", async () => {
     // Ingest writes the vector (resources.ts SCOUT signals beforeWrite) and the
     // seed records the ids the harvester would have written; both leave the

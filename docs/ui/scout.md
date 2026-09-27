@@ -88,7 +88,7 @@ SCOUT-specific chrome (§3):
 | `/scout/radar` | Radar — the whitespace quadrant and dossier | 10.1 |
 | `/scout/whitespace/:id` | Whitespace card — the full case for one theme | 10.2 |
 | `/scout/panel` | Panel intelligence — carriers on price and conversion | 10.3 |
-| `/scout/pricing` | Price benchmarks — our index against the median, by line | 10.4 |
+| `/scout/pricing` | Price benchmarks — our index against the median, and the fitted elasticity, by line | 10.4 |
 | `/scout/experiments` | Experiments — the bounded-test board | 10.5 |
 | `/scout/analytics` | Pricing analytics — elasticity, adequacy, export | 10.6 |
 | `/scout/data-products` | Data products — catalogue, k-monitor, subscribers | 10.7 |
@@ -747,6 +747,23 @@ price over the median of the panel's own responses to the same request. It is
 not an industry price survey."*
 
 **Empty.** *"Nothing priced in this period."*
+
+**How win rate moves with price** (docs/30 SCOUT 5). A third panel, one row per
+line, read from `GET /v1/scout/price-elasticity` (`scout:panel_bench:read`). The
+slope is a volume-weighted log-log fit of win rate on price index across every
+bench cell in the twelve-month window — one point per counterparty × month, cells
+under the k-anonymity floor left out, as the bench list leaves them out
+(`estimateElasticity`, packages/core/src/elasticity.ts). Columns: line, points,
+volume, elasticity with its 95% range ("-2.10 (-3.40 to -0.80)"), and a
+one-word reading: **Dearer loses** / **Dearer still wins** only when the whole
+range sits on one side of zero, **No clear direction** when it crosses zero,
+**Not enough data** under five points (the cell says "2 of the 5 needed"), and
+**Prices too close to compare** when the points sit within about 2% of each
+other. Every line with any visible cell is listed — a thin line is said to be
+thin, not dropped. The panel's note says what the number is not: observed across
+the panel, not a price test. Arithmetic, so no ✦. This is a different number from
+the two-period per-cut ratio on §10.6. **Empty.** *"Nothing on the bench to fit
+yet."*
 
 ### 10.5 Experiments — `/scout/experiments`
 

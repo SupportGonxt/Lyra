@@ -1,6 +1,18 @@
 import { eq, gte } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { buildPanelBench, emit, scoped, type BenchQuote, type BenchRow, type Ctx } from "@lyra/core";
+import {
+  benchPeriod,
+  buildPanelBench,
+  checkKAnonymity,
+  emit,
+  kAnonymityFloor,
+  priceElasticityByLine,
+  scoped,
+  type BenchQuote,
+  type BenchRow,
+  type Ctx,
+  type LineElasticity
+} from "@lyra/core";
 
 // docs/modules/scout.md §2.3 / §3 "Bench Builder | nightly | fast | no". Until
 // now `scout_panel_bench` held seed rows only (docs/27 F51): the screen that
@@ -110,6 +122,33 @@ export async function sweepPanelBench(ctx: Ctx): Promise<BenchSweepReport> {
   }
 
   return { quotes: answers.length, cells: rows.length, created, updated, periods: periodsOf(rows) };
+}
+
+/**
+ * docs/30 SCOUT 5 — per-line price elasticity over the bench cells in the same
+ * twelve-month window the builder covers (`estimateElasticity`,
+ * packages/core/src/elasticity.ts, does the arithmetic).
+ *
+ * Only cells the pricing screen could itself read feed the fit: the generic
+ * panel-bench list hides a cell under the tenant's k-anonymity floor
+ * (resources.ts `rowVisible`), and an aggregate built from hidden cells would
+ * be a way round that gate, however indirect. Every line with any cell is
+ * answered, including the ones with too little to fit — the screen says so
+ * instead of leaving the line out.
+ */
+export async function benchElasticity(ctx: Ctx): Promise<LineElasticity[]> {
+  const floor = kAnonymityFloor(ctx.policy, "scout");
+  const rows = await ctx.db
+    .select({
+      line: schema.scoutPanelBench.line,
+      ourPriceIdx: schema.scoutPanelBench.ourPriceIdx,
+      winRate: schema.scoutPanelBench.winRate,
+      volume: schema.scoutPanelBench.volume
+    })
+    .from(schema.scoutPanelBench)
+    .where(scoped(ctx, schema.scoutPanelBench, gte(schema.scoutPanelBench.period, benchPeriod(ctx.now - BENCH_LOOKBACK_MS))))
+    .limit(BENCH_MAX_QUOTES);
+  return priceElasticityByLine(rows.filter((row) => checkKAnonymity(row.volume, floor).allowed));
 }
 
 const cellKey = (row: { providerId: string; line: string; period: string }): string =>

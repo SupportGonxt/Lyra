@@ -5,6 +5,7 @@ import { cloudflare } from "../context";
 import { who } from "../names";
 import { useScoutSessionData } from "./scout-shell";
 import {
+  ELASTICITY_MIN_OBSERVATIONS,
   K_FLOOR,
   emptyPage,
   indexText,
@@ -17,6 +18,7 @@ import {
   safe,
   type Label,
   type LineBench,
+  type LineElasticity,
   type Loss,
   type Page,
   type PanelRow
@@ -69,7 +71,14 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     { env, request }
   );
 
-  return { period, lines: rollByLine(rows), losses: lost, resolved, kFloor };
+  // docs/30 SCOUT 5: fitted server-side over every period on the bench, not
+  // from the 200 rows above — a fit wants all the history, a table does not.
+  const elasticity = await safe(
+    () => api<{ data: LineElasticity[] }>("/v1/scout/price-elasticity", { env, request }).then((r) => r.data),
+    [] as LineElasticity[]
+  );
+
+  return { period, lines: rollByLine(rows), losses: lost, resolved, kFloor, elasticity };
 }
 
 export default function ScoutPricing() {
@@ -115,6 +124,21 @@ export default function ScoutPricing() {
             rowKey={(loss) => `${loss.providerId}:${loss.line}`}
             rows={loaded.losses}
             columns={lossColumns(l, locale, loaded.resolved)}
+          />
+        )}
+      </Card>
+
+      <Card title={l("price.el.title")} description={l("price.el.note")}>
+        {loaded.elasticity.length === 0 ? (
+          <EmptyState title={l("price.el.empty")} body={l("price.el.empty.body")} className="mt-4" />
+        ) : (
+          <Table
+            className="mt-4"
+            caption={l("price.el.title")}
+            captionHidden
+            rowKey={(row) => row.line}
+            rows={loaded.elasticity}
+            columns={elasticityColumns(l, locale)}
           />
         )}
       </Card>
@@ -188,6 +212,67 @@ export function lossColumns(
       key: "pct",
       header: l("position"),
       render: (loss) => <span className="text-danger">{distance(l, locale, loss.pct)}</span>
+    }
+  ];
+}
+
+/** What a line's fit says, in a word — arithmetic, so no ✦ (CLAUDE.md §11). A
+ *  direction is named only when the whole 95% range sits on one side of zero. */
+export function elasticityReading(row: LineElasticity): { key: string; tone: "warning" | "info" | "neutral" } {
+  if (row.state === "insufficient") {
+    return { key: row.reason === "no-spread" ? "price.el.noSpread" : "price.el.tooFew", tone: "neutral" };
+  }
+  if (!row.clear) return { key: "price.el.unclear", tone: "neutral" };
+  return (row.elasticity ?? 0) < 0
+    ? { key: "price.el.dearerLoses", tone: "warning" }
+    : { key: "price.el.dearerWins", tone: "info" };
+}
+
+const twoPlaces = (value: number, locale: string): string =>
+  value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** The slope with its range, or how far a thin line is from a fit. */
+export function elasticityRange(row: LineElasticity, l: Label, locale: string): string {
+  if (row.elasticity !== null && row.low !== null && row.high !== null) {
+    return l("price.el.range", {
+      e: twoPlaces(row.elasticity, locale),
+      low: twoPlaces(row.low, locale),
+      high: twoPlaces(row.high, locale)
+    });
+  }
+  if (row.reason === "too-few") {
+    return l("price.el.needs", { n: String(row.observations), min: String(ELASTICITY_MIN_OBSERVATIONS) });
+  }
+  return l("none");
+}
+
+export function elasticityColumns(l: Label, locale: string): Array<Column<LineElasticity>> {
+  return [
+    { key: "line", header: l("line"), render: (row) => row.line },
+    {
+      key: "observations",
+      header: l("price.el.cells"),
+      numeric: true,
+      render: (row) => row.observations.toLocaleString(locale)
+    },
+    { key: "volume", header: l("volume"), numeric: true, render: (row) => row.volume.toLocaleString(locale) },
+    {
+      key: "elasticity",
+      header: l("price.el.elasticity"),
+      numeric: true,
+      render: (row) => elasticityRange(row, l, locale)
+    },
+    {
+      key: "reading",
+      header: l("price.el.reading"),
+      render: (row) => {
+        const reading = elasticityReading(row);
+        return (
+          <Badge tone={reading.tone} size="sm">
+            {l(reading.key)}
+          </Badge>
+        );
+      }
     }
   ];
 }

@@ -286,6 +286,25 @@ export function losses(rows: readonly PanelRow[]): Loss[] {
     .sort((a, b) => b.pct - a.pct);
 }
 
+/** Mirrors packages/core/src/elasticity.ts `LineElasticity`, as
+ *  GET /v1/scout/price-elasticity returns it in `data` — fitted per line over
+ *  every bench cell above the k-anonymity floor, not only this period's. */
+export interface LineElasticity {
+  line: string;
+  state: "estimated" | "insufficient";
+  reason: "too-few" | "no-spread" | null;
+  observations: number;
+  volume: number;
+  elasticity: number | null;
+  low: number | null;
+  high: number | null;
+  rSquared: number | null;
+  clear: boolean;
+}
+
+/** packages/core/src/elasticity.ts ELASTICITY_MIN_OBSERVATIONS. */
+export const ELASTICITY_MIN_OBSERVATIONS = 5;
+
 /* ------------------------------------------------------ pricing analytics */
 
 export interface Elasticity {
@@ -623,6 +642,21 @@ export const LABELS: Record<string, Record<string, string>> = {
     "price.allBelow.body": "Nothing is priced above the market, so there is no premium to explain.",
     "price.headlineLosses": "{n} of {lines} lines are losing to the panel this period.",
     "price.headlineCount": "{n} lines are on the bench for this period.",
+    "price.el.title": "How win rate moves with price",
+    "price.el.note":
+      "Fitted across every month on the bench, one point per counterparty and month, weighted by volume. A slope of -2 means a cut priced 1% dearer than another tends to win about 2% less often. Observed across the panel, not tested: cuts differ in more than price.",
+    "price.el.elasticity": "Elasticity (95% range)",
+    "price.el.cells": "Points",
+    "price.el.reading": "Reading",
+    "price.el.range": "{e} ({low} to {high})",
+    "price.el.needs": "{n} of the {min} needed",
+    "price.el.dearerLoses": "Dearer loses",
+    "price.el.dearerWins": "Dearer still wins",
+    "price.el.unclear": "No clear direction",
+    "price.el.tooFew": "Not enough data",
+    "price.el.noSpread": "Prices too close to compare",
+    "price.el.empty": "Nothing on the bench to fit yet.",
+    "price.el.empty.body": "Each line needs at least five counterparty-months above the privacy floor, priced apart from each other. Rebuild the bench from the panel screen once quotes are in.",
 
     /* experiments */
     "xp.title": "Experiments",
@@ -1013,6 +1047,21 @@ export const LABELS: Record<string, Record<string, string>> = {
     "price.allBelow.body": "لا شيء مُسعّر فوق السوق، فلا علاوة تحتاج تفسيراً.",
     "price.headlineLosses": "{n} من أصل {lines} خط أعمال يخسر أمام قائمة الجهات المسعّرة هذه الفترة.",
     "price.headlineCount": "{n} خط أعمال على القائمة لهذه الفترة.",
+    "price.el.title": "كيف يتحرك معدل الفوز مع السعر",
+    "price.el.note":
+      "مُقدَّرة عبر كل الأشهر على القائمة، نقطة لكل جهة وشهر، مرجّحة بالحجم. ميل قدره ‎-2 يعني أن الفئة المسعّرة أغلى بنسبة 1٪ من غيرها تفوز عادةً أقل بنحو 2٪. هذا رصد عبر القائمة وليس اختباراً: الفئات تختلف في أكثر من السعر.",
+    "price.el.elasticity": "المرونة (نطاق 95٪)",
+    "price.el.cells": "النقاط",
+    "price.el.reading": "القراءة",
+    "price.el.range": "{e} (من {low} إلى {high})",
+    "price.el.needs": "{n} من أصل {min} مطلوبة",
+    "price.el.dearerLoses": "الأغلى يخسر",
+    "price.el.dearerWins": "الأغلى ما زال يفوز",
+    "price.el.unclear": "لا اتجاه واضح",
+    "price.el.tooFew": "بيانات غير كافية",
+    "price.el.noSpread": "الأسعار متقاربة جداً للمقارنة",
+    "price.el.empty": "لا شيء على القائمة للتقدير بعد.",
+    "price.el.empty.body": "يحتاج كل خط أعمال إلى خمسة أشهر-جهات على الأقل فوق حد الخصوصية، بأسعار متباعدة. أعد بناء القائمة من شاشة الجهات بعد وصول العروض.",
 
     /* experiments */
     "xp.title": "التجارب",
