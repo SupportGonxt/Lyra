@@ -1,8 +1,8 @@
 import { Hono, type Context } from "hono";
-import { and, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, BrandJson, EntitlementsJson, PolicyJson } from "@lyra/db";
-import { audit, badRequest, conflict, emit, notFound, recordConsent, sha256Hex, timingSafeEqual } from "@lyra/core";
+import { audit, badRequest, conflict, emit, notFound, randomToken, recordConsent, sha256Hex, timingSafeEqual, type Envelope } from "@lyra/core";
 import { body, parse } from "../http.js";
 import { readUpload } from "../upload.js";
 import { verifyTurnstile } from "../turnstile.js";
@@ -21,6 +21,9 @@ import { runShop } from "../engines/shop.js";
 import { quoterFor } from "../engines/dist-quoter.js";
 import { recordTouch } from "../engines/signal-attribution.js";
 import { recordSignedConversion, verifyTrackSignature } from "../engines/signal-track.js";
+import { activeWebchat, webchatAdapter, webchatRequest } from "../engines/orbit-channel-webchat.js";
+import { processChannelEvents } from "../engines/orbit-channel-inbound.js";
+import { inboundHooks, kickAutoReply } from "./channels.js";
 import type { App, Env } from "../env.js";
 
 // The public comparison site (yallacompare-style). No session exists at all —
@@ -69,6 +72,8 @@ portalRoutes.get("/:tenantSlug/site", async (c) => {
 
   return c.json({
     tenant: { name: tenant.name, brand, domainPack },
+    // ADR-0099: whether the storefront may offer its chat door at all.
+    chat: (await activeWebchat(database, tenant.id)) !== null,
     products: productRows.map((p) => ({
       id: p.id,
       line: p.line,
@@ -1217,4 +1222,165 @@ portalRoutes.post("/:tenantSlug/track", async (c) => {
     anonId: input!.anonId
   });
   return c.json({ id }, 201);
+});
+
+// docs/30 ORBIT 4, ADR-0099: web chat from the storefront. A visitor has no
+// session, so the credential is a visitor token this route mints on the first
+// line; only its sha256 is stored, as the channel identity's handle, so the
+// inbox never holds a credential it could leak. Every line goes through the
+// `lyra-webchat` ChannelAdapter and `processChannelEvents`, as a webhook's
+// would; a reply staff send goes out through `dispatchOutbound` like any other,
+// and the widget collects it by polling `GET …/chat` with the same token.
+// Starting a conversation writes a customer, so it carries the lead form's
+// guards: Turnstile and a per-IP ceiling. Every line is capped per visitor and
+// per IP.
+const VISITOR_HEADER = "x-lyra-visitor";
+const CHAT_WINDOW_SEC = 10 * 60;
+const CHAT_START_IP_MAX = 10;
+const CHAT_VISITOR_MAX = 30;
+const CHAT_IP_MAX = 120;
+// A tab polls every few seconds; this is room for a handful of tabs behind one IP.
+const CHAT_POLL_IP_MAX = 600;
+const CHAT_TRANSCRIPT_MAX = 100;
+const DELIVERED = new Set(["sent", "delivered", "read"]);
+
+const ChatBody = z
+  .object({
+    text: z.string().trim().min(1).max(2000),
+    name: z.string().trim().min(1).max(200).optional(),
+    turnstileToken: TurnstileToken
+  })
+  .strict();
+
+type ConnectorRow = typeof schema.orbitChannelConnectors.$inferSelect;
+type Database = ReturnType<typeof rawDb>;
+
+interface ChatLine {
+  id: string;
+  from: "visitor" | "agent";
+  text: string;
+  at: number;
+}
+
+/** The visitor's handle, or null for a missing or malformed token. */
+async function visitorHandle(token: string | undefined): Promise<string | null> {
+  if (!token || !/^[A-Za-z0-9_-]{32,128}$/.test(token)) return null;
+  return sha256Hex(token);
+}
+
+async function chatConnector(database: Database, slug: string) {
+  const tenant = await activeTenant(database, slug);
+  const connector = await activeWebchat(database, tenant.id);
+  if (!connector) throw notFound("chat");
+  return { tenant, connector };
+}
+
+async function knownVisitor(database: Database, connector: ConnectorRow, handle: string | null) {
+  if (!handle) return null;
+  const [identity] = await database
+    .select()
+    .from(schema.orbitChannelIdentities)
+    .where(
+      and(
+        eq(schema.orbitChannelIdentities.tenantId, connector.tenantId),
+        eq(schema.orbitChannelIdentities.connectorId, connector.id),
+        eq(schema.orbitChannelIdentities.handle, handle)
+      )
+    )
+    .limit(1);
+  return identity ?? null;
+}
+
+/**
+ * What the visitor may see: their own lines, and replies that actually went out
+ * through the channel. A pending AI draft has no delivery status and stays in
+ * the inbox until a person sends it.
+ */
+async function transcript(database: Database, connector: ConnectorRow, customerId: string): Promise<ChatLine[]> {
+  const conversations = await database
+    .select({ id: schema.orbitConversations.id })
+    .from(schema.orbitConversations)
+    .where(
+      and(
+        eq(schema.orbitConversations.tenantId, connector.tenantId),
+        eq(schema.orbitConversations.connectorId, connector.id),
+        eq(schema.orbitConversations.customerId, customerId)
+      )
+    );
+  if (conversations.length === 0) return [];
+  const rows = await database
+    .select()
+    .from(schema.orbitMessages)
+    .where(
+      and(
+        eq(schema.orbitMessages.tenantId, connector.tenantId),
+        inArray(
+          schema.orbitMessages.conversationId,
+          conversations.map((row) => row.id)
+        )
+      )
+    )
+    .orderBy(desc(schema.orbitMessages.ts), desc(schema.orbitMessages.id));
+  return rows
+    .filter(
+      (m) =>
+        m.role === "customer" ||
+        ((m.role === "agent_human" || m.role === "agent_ai") && DELIVERED.has(m.deliveryStatus ?? ""))
+    )
+    .slice(0, CHAT_TRANSCRIPT_MAX)
+    .reverse()
+    .map((m): ChatLine => ({ id: m.id, from: m.role === "customer" ? "visitor" : "agent", text: m.content, at: m.ts }));
+}
+
+portalRoutes.get("/:tenantSlug/chat", async (c) => {
+  const ip = c.req.header("cf-connecting-ip");
+  if (ip) await throttle(c.env, `portal-chat-poll-ip:${ip}`, CHAT_POLL_IP_MAX, CHAT_WINDOW_SEC);
+  const database = rawDb(c.env);
+  const { connector } = await chatConnector(database, c.req.param("tenantSlug"));
+  const visitor = await knownVisitor(database, connector, await visitorHandle(c.req.header(VISITOR_HEADER)));
+  return c.json({ messages: visitor ? await transcript(database, connector, visitor.customerId) : [] });
+});
+
+portalRoutes.post("/:tenantSlug/chat/messages", async (c) => {
+  const now = Date.now();
+  const input = await body(c, ChatBody);
+  const ip = c.req.header("cf-connecting-ip");
+  if (ip) await throttle(c.env, `portal-chat-ip:${ip}`, CHAT_IP_MAX, CHAT_WINDOW_SEC);
+  const database = rawDb(c.env);
+  const { tenant, connector } = await chatConnector(database, c.req.param("tenantSlug"));
+
+  let token = c.req.header(VISITOR_HEADER) ?? "";
+  let handle = await visitorHandle(token);
+  const returning = await knownVisitor(database, connector, handle);
+  if (!returning) {
+    // A new visitor, or a token this tenant never issued: a conversation start.
+    if (!input.name) throw badRequest("a name is needed to start a conversation", { name: "required" });
+    if (ip) await throttle(c.env, `portal-chat-start-ip:${ip}`, CHAT_START_IP_MAX, CHAT_WINDOW_SEC);
+    await verifyTurnstile(c.env, input.turnstileToken, ip);
+    token = randomToken(32);
+    handle = await sha256Hex(token);
+  }
+  const visitorKey = handle as string;
+  await throttle(c.env, `portal-chat-visitor:${visitorKey}`, CHAT_VISITOR_MAX, CHAT_WINDOW_SEC);
+
+  const ctx = await portalCtx(c, tenant.id, now, "portal-chat");
+  const events = webchatAdapter.parse(
+    webchatRequest({
+      ref: `webchat:${newId("wcm", now)}`,
+      handle: visitorKey,
+      ...(!returning && input.name ? { name: input.name } : {}),
+      text: input.text,
+      sentAt: now
+    })
+  );
+  // ADR-0098: a web chat line gets the same real-time reply path as a provider webhook.
+  const received: Envelope[] = [];
+  await processChannelEvents(ctx, connector, events, { ...inboundHooks(c.env, ctx), received: (event) => void received.push(event) });
+  await kickAutoReply(c, tenant.id, received);
+
+  const visitor = returning ?? (await knownVisitor(database, connector, visitorKey));
+  return c.json(
+    { visitorToken: token, messages: visitor ? await transcript(database, connector, visitor.customerId) : [] },
+    201
+  );
 });

@@ -43,6 +43,8 @@ export const HIDDEN_ROUTES: Record<string, string> = {
     "public one-tap renewal page, no session and no shell — reached only with the link token (docs/modules/orbit.md §2.2)",
   "/portal/:tenantSlug/feedback/:id":
     "public CSAT tap, no session and no shell — reached only with the link token sent after the conversation closed (docs/modules/orbit.md §5)",
+  "/portal/:tenantSlug/chat":
+    "public web chat, no session and no shell — linked from the storefront footer while the tenant has an active web chat connector (ADR-0099)",
   "/logout": "action only, no UI",
   "/settings": "reached from the account menu in the header, not the module rail",
   "/settings/:tab": "one settings section — profile, sign-in, brand, regional, data — reached from the tabs on /settings",

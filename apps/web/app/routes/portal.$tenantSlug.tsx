@@ -44,6 +44,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "portal.privacy": "Your privacy rights",
     "portal.partners": "Partner with us",
     "portal.register": "Create an account",
+    "portal.chat": "Chat with us",
     "portal.quick": "Quick quote — three details, real prices.",
     "portal.slow": "Leave your details and a specialist prices this one for you.",
     "portal.form.age": "Your age",
@@ -81,6 +82,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "portal.privacy": "حقوقك في الخصوصية",
     "portal.partners": "كن شريكًا معنا",
     "portal.register": "إنشاء حساب",
+    "portal.chat": "تحدّث معنا",
     "portal.quick": "عرض سعر سريع — ثلاث معلومات وأسعار حقيقية.",
     "portal.slow": "اترك بياناتك وسيقوم مختص بتسعير هذا المنتج لك.",
     "portal.form.age": "عمرك",
@@ -154,6 +156,8 @@ interface Product {
 /** Mirrors `GET /v1/portal/{tenantSlug}/site` — apps/api/src/routes/portal.ts §site. */
 interface SiteResponse {
   tenant: { name: string; brand: Brand; domainPack?: string };
+  /** Whether the tenant keeps an active web chat connector (ADR-0099). */
+  chat?: boolean;
   products: Product[];
 }
 
@@ -380,6 +384,13 @@ export default function Portal() {
           <a className="text-accent underline" href={`/portal/${tenantSlug}/register`}>
             {l("portal.register")}
           </a>
+          {/* ADR-0099: offered only while the tenant keeps web chat switched on;
+              a door that answers "not open" is worse than no door. */}
+          {site.chat ? (
+            <a className="text-accent underline" href={`/portal/${tenantSlug}/chat`}>
+              {l("portal.chat")}
+            </a>
+          ) : null}
         </footer>
       </div>
     </main>

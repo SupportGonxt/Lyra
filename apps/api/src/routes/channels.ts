@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { schema, EntitlementsJson, PolicyJson } from "@lyra/db";
-import { consume, moduleEnabled, notFound, openFields, unauthorized, type ConnectorSecrets, type Envelope } from "@lyra/core";
+import { consume, moduleEnabled, notFound, openFields, unauthorized, type ConnectorSecrets, type Ctx, type Envelope } from "@lyra/core";
 import { ctxFor, db as rawDb, scheduledConfig } from "../auth.js";
 import { AUTO_REPLY_CONSUMER } from "../dispatch.js";
 import { onInboundMessage } from "../engines/orbit-auto-reply.js";
@@ -38,6 +38,26 @@ async function connectorFor(env: Env, connectorId: string) {
     connector,
     adapter: adapterFor(connector.provider),
     open: () => openFields(fieldKey(env), JSON.parse(connector.secretsJson) as ConnectorSecrets)
+  };
+}
+
+/**
+ * What every inbound customer line is offered once it is durable, whichever
+ * door it came through — a provider webhook here, the portal's web chat
+ * (routes/portal.ts, ADR-0099) there. One definition, so the two cannot drift.
+ */
+export function inboundHooks(env: Env, ctx: Ctx) {
+  return {
+    // Language + sentiment per inbound message (orbit-signal.ts): feeds
+    // routing's sentimentBelow and the churn model's lastSentiment.
+    signal: (conversationId: string, customerId: string | null, text: string) =>
+      recordSignal(ctx, gatewayFor(env), conversationId, customerId, text),
+    // docs/27 F32: try the knowledge base before a person is needed. `deflect`
+    // itself decides nothing here — it answers only a conversation still on
+    // the bot and only above its score floor, and logs the miss either way so
+    // containment stays a real ratio.
+    deflect: (conversationId: string, text: string) =>
+      deflect(ctx, gatewayFor(env), env.VEC_KB, { conversationId, question: text }).then(() => undefined)
   };
 }
 
@@ -83,37 +103,40 @@ channelsRoutes.post("/:connectorId/webhook", async (c) => {
 
   const received: Envelope[] = [];
   const result = await processChannelEvents(ctx, connector, events, {
-      // Language + sentiment per inbound message (orbit-signal.ts): feeds
-      // routing's sentimentBelow and the churn model's lastSentiment.
-      signal: (conversationId, customerId, text) => recordSignal(ctx, gatewayFor(c.env), conversationId, customerId, text),
-      // docs/27 F32: try the knowledge base before a person is needed. `deflect`
-      // itself decides nothing here — it answers only a conversation still on
-      // the bot and only above its score floor, and logs the miss either way so
-      // containment stays a real ratio.
-      deflect: (conversationId, text) =>
-        deflect(ctx, gatewayFor(c.env), c.env.VEC_KB, { conversationId, question: text }).then(() => undefined),
-      received: (event) => void received.push(event)
-    });
-
-  // docs/30 ORBIT 3, ADR-0098. The reply is an event consumer (rule 6), and the
-  // drain would reach it on the next cron tick — minutes, which is not "real
-  // time". So the consumer is run now, after the provider has its 200, through
-  // the same `consume` and consumer name the drain uses: whichever runs second
-  // sees a duplicate. It runs under the tenant's own policy — the webhook's ctx
-  // carries a default one, and the auto_approve allowlist is half the switch.
-  if (received.length) {
-    const kick = replyNow(c.env, connector.tenantId, received);
-    let exec: { waitUntil(p: Promise<unknown>): void } | null = null;
-    try {
-      exec = c.executionCtx;
-    } catch {
-      // No execution context (a direct call with no runtime): answer inline.
-    }
-    if (exec) exec.waitUntil(kick);
-    else await kick;
-  }
+    ...inboundHooks(c.env, ctx),
+    received: (event) => void received.push(event)
+  });
+  await kickAutoReply(c, connector.tenantId, received);
   return c.json(result);
 });
+
+/**
+ * docs/30 ORBIT 3, ADR-0098. The reply is an event consumer (rule 6), and the
+ * drain would reach it on the next cron tick — minutes, which is not "real
+ * time". So the consumer is run now, after the caller has its answer, through
+ * the same `consume` and consumer name the drain uses: whichever runs second
+ * sees a duplicate. Every inbound door calls this (provider webhooks and the
+ * portal web chat, ADR-0099).
+ */
+export function kickAutoReply(
+  c: { env: Env; executionCtx: { waitUntil(p: Promise<unknown>): void } },
+  tenantId: string,
+  received: Envelope[]
+): Promise<void> | undefined {
+  if (!received.length) return undefined;
+  const kick = replyNow(c.env, tenantId, received);
+  let exec: { waitUntil(p: Promise<unknown>): void } | null = null;
+  try {
+    exec = c.executionCtx;
+  } catch {
+    // No execution context (a direct call with no runtime): answer inline.
+  }
+  if (exec) {
+    exec.waitUntil(kick);
+    return undefined;
+  }
+  return kick;
+}
 
 async function replyNow(env: Env, tenantId: string, events: Envelope[]): Promise<void> {
   const now = Date.now();

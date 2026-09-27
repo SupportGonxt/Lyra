@@ -21,6 +21,7 @@ export default [
   route("portal/:tenantSlug/partners", "routes/portal.$tenantSlug.partners.tsx"),
   route("portal/:tenantSlug/renewals/:id", "routes/portal.$tenantSlug.renewals.$id.tsx"),
   route("portal/:tenantSlug/feedback/:id", "routes/portal.$tenantSlug.feedback.$id.tsx"),
+  route("portal/:tenantSlug/chat", "routes/portal.$tenantSlug.chat.tsx"),
   layout("routes/workspace.tsx", [
     index("routes/home.tsx"),
 
