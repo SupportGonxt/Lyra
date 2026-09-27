@@ -10,6 +10,7 @@ import { advanceJourneyRuns } from "./engines/orbit-journeys.js";
 import { harvestSignals } from "./engines/scout-ingest.js";
 import { sweepSignalClusters } from "./engines/scout-cluster.js";
 import { sweepPanelBench } from "./engines/scout-bench.js";
+import { sweepWhitespace } from "./engines/scout-whitespace.js";
 import { sweepBilling } from "./engines/billing.js";
 import { sweepConversationDrafts } from "./engines/orbit-draft.js";
 import { runSnapshotter } from "./engines/north-snapshotter.js";
@@ -315,6 +316,9 @@ export default {
               // harvested, reach the SCOUT leads.
               await notifyUrgentWatch(ctx, (await runWatch(ctx)).findings);
               await sweepPanelBench(ctx);
+              // @accept:SA: the Radar's whitespace was only computed on request,
+              // so it went stale; it follows the demand it reads every night.
+              await sweepWhitespace(ctx, gatewayFor(env));
               if (nowDate.getUTCDay() === 1) await sweepSignalClusters(ctx, gatewayFor(env), env);
             }
             // docs/12 §4 / docs/13 §3.5, docs/27 F47: re-score a sample of this

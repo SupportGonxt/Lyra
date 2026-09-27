@@ -6,16 +6,18 @@ import {
   actorRef,
   audit,
   can,
+  conflict,
   diffWords,
   ForbiddenError,
   kAnonymityFloor,
+  moduleOn,
   require_,
   withIdempotency,
   SIGNAL_SOURCE_KINDS,
   type Ctx
 } from "@lyra/core";
 import type { WhitespaceCandidate } from "@lyra/core";
-import { body } from "../http.js";
+import { body, csvBody } from "../http.js";
 import {
   sweepWhitespace,
   coveragePerLine,
@@ -24,6 +26,7 @@ import {
 } from "../engines/scout-whitespace.js";
 import { promoteWhitespace } from "../engines/scout-promote.js";
 import { describeSources, harvestSignals } from "../engines/scout-ingest.js";
+import { parseSignalCsv } from "../engines/scout-import.js";
 import { sweepSignalClusters } from "../engines/scout-cluster.js";
 import { sweepPanelBench } from "../engines/scout-bench.js";
 import { runWatch } from "../engines/scout-watch.js";
@@ -85,6 +88,10 @@ scoutRoutes.get("/whitespaces/:id/commentary", async (c) => {
 scoutRoutes.post("/whitespaces/:id/promote-to-signal", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "scout:whitespaces:promote", { tenantId: ctx.tenantId, module: "scout" });
+  // @accept:SA: the handover drafts a campaign, its ads and its audience in
+  // SIGNAL. Without SIGNAL there is nowhere for them to land — say so before
+  // asking anyone to approve a promotion that could only write orphan rows.
+  if (!moduleOn(ctx, "signal")) throw conflict("promoting a whitespace hands it to signal (marketing), which this tenant does not have on");
   const whitespaceId = c.req.param("id");
   const result = await withIdempotency(
     ctx,
@@ -126,6 +133,17 @@ scoutRoutes.post("/signals/harvest", async (c) => {
   const report = await harvestSignals(ctx, c.get("gateway"), c.env, { fed: input.fed });
   await audit(ctx, { action: "scout.signals.harvest", subjectRef: "signals", after: report });
   return c.json(report, 201);
+});
+
+// @accept:SA: SCOUT's own signals from a file, so a tenant that bought SCOUT
+// alone has a market to read. Per-line honest; stored by the harvest path.
+scoutRoutes.post("/signals/import", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:signals:ingest", { tenantId: ctx.tenantId, module: "scout" });
+  const { items, errors } = parseSignalCsv(await csvBody(c), ctx.now);
+  const report = items.length ? await harvestSignals(ctx, c.get("gateway"), c.env, { fed: items, fedOnly: true }) : { harvested: 0, ingested: 0, duplicates: 0, bySource: {} };
+  await audit(ctx, { action: "scout.signals.import", subjectRef: "signals", after: { ...report, errors: errors.length } });
+  return c.json({ ...report, errors }, 201);
 });
 
 /** The registry itself — what can arrive, without running anything. The source

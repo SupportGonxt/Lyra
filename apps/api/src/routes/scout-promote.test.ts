@@ -61,7 +61,8 @@ beforeAll(async () => {
     now: NOW,
     locale: "en",
     policy: PolicyJson.parse({}),
-    entitlements: EntitlementsJson.parse({})
+    // What seed() provisions: every module. Promotion lands in SIGNAL.
+    entitlements: EntitlementsJson.parse({ modules: ["axis", "orbit", "signal", "scout", "north"] })
   };
 
   await ctx.db.insert(schema.scoutWhitespaces).values([
@@ -221,13 +222,15 @@ function app(over: Partial<Ctx> = {}, gw: Gateway = gatewayWith(promoteReplies()
   return a;
 }
 
-const send = async (a: Hono<App>, method: string, path: string, headers: Record<string, string> = {}) => {
+const send = async (a: Hono<App>, method: string, path: string, headers: Record<string, string> = {}, payload: unknown = {}) => {
   const res = await a.fetch(
     new Request(`http://api.test${path}`, {
       method,
       headers: { "content-type": "application/json", ...headers },
-      ...(method === "POST" ? { body: "{}" } : {})
-    })
+      ...(method === "POST" ? { body: JSON.stringify(payload) } : {})
+    }),
+    // No Vectorize binding: a harvest stores the row unembedded, as deployed.
+    {}
   );
   return { status: res.status, body: (await res.json()) as Record<string, never> };
 };
@@ -343,6 +346,18 @@ describe("POST /whitespaces/:id/promote-to-signal", () => {
     const res = await send(app({ actor: reader() }), "POST", "/whitespaces/wsp_marine/promote-to-signal");
     expect(res.status).toBe(403);
     expect(res.body.code).not.toBe("approval_required");
+  });
+
+  // @accept:SA: the handover drafts a campaign, its ads and its audience in
+  // SIGNAL. A tenant without SIGNAL is told so, before any approval is asked
+  // for and before anything is written that it could never open.
+  it("refuses the handover when SIGNAL is not on, naming why, and writes nothing", async () => {
+    const res = await send(app({ entitlements: EntitlementsJson.parse({ modules: ["scout"] }) }), "POST", "/whitespaces/wsp_marine/promote-to-signal", {
+      "idempotency-key": "promote-marine-solo"
+    });
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(res.body)).toContain("signal");
+    expect(await promoted("Marine cover launch")).toHaveLength(0);
   });
 
   it("asks for the existing scout.whitespace_promote approval and drafts nothing yet", async () => {
@@ -605,5 +620,27 @@ describe("POST /whitespaces/:id/promote-to-signal", () => {
         and(eq(schema.eventOutbox.tenantId, tenantId), eq(schema.eventOutbox.type, "scout.whitespace.promoted"))
       );
     expect(events.filter((e) => (JSON.parse(e.envelopeJson) as { subject?: string }).subject === "wsp_nomodel")).toHaveLength(1);
+  });
+});
+
+describe("POST /signals/import", () => {
+  const admin = () => ({ kind: "user" as const, id: "u_2", tenantId, grants: [{ roleKey: "scout.admin", permissions: permissionsForRole("scout.admin") }] });
+
+  // @accept:SA: a SCOUT-only tenant brings its own signals by file, stored the
+  // way a fed item is, and told which lines it refused.
+  it("stores each good line once and names the ones it refused", async () => {
+    const day = new Date(NOW - 86_400_000).toISOString().slice(0, 10);
+    const csv = `source,sourceRef,observedAt,line\nsearch,imp-1,${day},motor\ngossip,imp-2,${day},motor\n`;
+    const solo = { actor: admin(), entitlements: EntitlementsJson.parse({ modules: ["scout"] }) };
+    const first = await send(app(solo), "POST", "/signals/import", {}, { csv });
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ ingested: 1 });
+    expect((first.body.errors as unknown as { line: number }[]).map((e) => e.line)).toEqual([3]);
+    const again = await send(app(solo), "POST", "/signals/import", {}, { csv });
+    expect(again.body).toMatchObject({ ingested: 0, duplicates: 1 });
+  });
+
+  it("refuses a reader without scout:signals:ingest", async () => {
+    expect((await send(app(), "POST", "/signals/import", {}, { csv: "source\n" })).status).toBe(403);
   });
 });

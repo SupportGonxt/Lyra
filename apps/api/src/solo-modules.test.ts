@@ -179,3 +179,5 @@ it("a SIGNAL-only tenant configures a channel on the platform route @accept:SA",
   expect(out.status).toBe(201);
   expect(JSON.stringify(out.body)).not.toContain("key-solo-secret");
 });
+
+

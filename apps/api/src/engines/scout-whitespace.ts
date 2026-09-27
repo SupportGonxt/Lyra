@@ -6,6 +6,7 @@ import {
   clusterSignals,
   computeWhitespaceCandidates,
   kAnonymityFloor,
+  moduleOn,
   notFound,
   verifyGroundedness,
   type CoverageInput
@@ -30,6 +31,19 @@ const LOOKBACK_MS = 2 * COLD_START_WINDOW_MS;
  *  whitespace.ts's header comment names. Shared with the negotiation-pack
  *  route so `coverage` there is a live number, not a stale persisted one. */
 export async function coveragePerLine(ctx: Ctx): Promise<Map<string, number>> {
+  // @accept:SA: without AXIS there is no policy book to read, and reading it
+  // anyway said zero for every line. The platform records a sale as a
+  // converted quote request, so that is what a SCOUT-only tenant already sells.
+  if (!moduleOn(ctx, "axis")) {
+    const sold = await ctx.db
+      .select({ line: schema.products.line })
+      .from(schema.distQuoteRequests)
+      .innerJoin(schema.products, eq(schema.products.id, schema.distQuoteRequests.productId))
+      .where(and(eq(schema.distQuoteRequests.tenantId, ctx.tenantId), eq(schema.distQuoteRequests.state, "converted")));
+    const byLine = new Map<string, number>();
+    for (const r of sold) byLine.set(r.line, (byLine.get(r.line) ?? 0) + 1);
+    return byLine;
+  }
   const policyRows = await ctx.db
     .select({ line: schema.products.line })
     .from(schema.axisPolicies)
