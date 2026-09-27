@@ -39,7 +39,7 @@ import {
   visionExtractionMessages,
   visionExtractionSchema
 } from "@lyra/model-gateway";
-import { body, csvBody, InstantMs } from "../http.js";
+import { body, csvBody, InstantMs, parse } from "../http.js";
 import { readUpload } from "../upload.js";
 import { must } from "../rows.js";
 import { EndorseBody, changeSetHashOf, endorsePolicy, priceEndorsement } from "../engines/axis-endorse.js";
@@ -97,7 +97,15 @@ import {
   policyForCoverage,
   registerFnol
 } from "../engines/axis-fnol.js";
-import { GenerateBordereauBody, generateBordereaux, reconcileBordereaux } from "../engines/axis-bordereaux.js";
+import {
+  GenerateBordereauBody,
+  generateBordereaux,
+  ImportBordereauBody,
+  importInboundBordereau,
+  ReconcileBody,
+  reconcileBordereaux,
+  reconciliationReport
+} from "../engines/axis-bordereaux.js";
 import { cancelPlan, createPlan, livePlanOf } from "../engines/premium-financing.js";
 import { embedUpsert } from "../engines/vectorize.js";
 import { meterEgress } from "../engines/egress.js";
@@ -1585,12 +1593,48 @@ axisRoutes.post("/bordereaux", async (c) => {
   return c.json(out, 201);
 });
 
+// docs/30 Ledger 5 (ADR-0105). An inbound bordereau from the counterparty's
+// CSV — a multipart "file" with the header as form fields, or JSON carrying
+// both. All or nothing: a file with an unreadable row is refused whole (422,
+// `rowErrors` naming each line), because an inbound period is one-shot.
+axisRoutes.post("/bordereaux/import", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "axis:bordereaux:generate", { tenantId: ctx.tenantId, module: "axis" });
+  const csv = await csvBody(c);
+  // csvBody has read the body; Hono caches it, so the header is read again here.
+  const multipart = (c.req.header("content-type") ?? "").includes("multipart/form-data");
+  const fields: unknown = multipart
+    ? Object.fromEntries([...(await c.req.formData()).entries()].filter(([, v]) => typeof v === "string"))
+    : await c.req.json();
+  const input = parse(ImportBordereauBody, fields);
+  return c.json(await importInboundBordereau(ctx, input, csv), 201);
+});
+
+// Reports and stamps each of their lines; never writes money (ADR-0105).
 axisRoutes.post("/bordereaux/:id/reconcile", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "axis:bordereaux:reconcile", { tenantId: ctx.tenantId, module: "axis" });
   const bordereau = await must(ctx, schema.axisBordereaux, c.req.param("id"), "bordereaux");
-  const out = await reconcileBordereaux(ctx, bordereau);
+  // The body is optional: an empty one reconciles exactly (tolerance 0).
+  const text = await c.req.text();
+  let raw: unknown = {};
+  if (text.trim()) {
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      throw badRequest("request body is not valid JSON");
+    }
+  }
+  const input = parse(ReconcileBody, raw);
+  const out = await reconcileBordereaux(ctx, bordereau, input);
   return c.json(out, 200);
+});
+
+axisRoutes.get("/bordereaux/:id/reconciliation", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "axis:bordereaux:read", { tenantId: ctx.tenantId, module: "axis" });
+  const bordereau = await must(ctx, schema.axisBordereaux, c.req.param("id"), "bordereaux");
+  return c.json(await reconciliationReport(ctx, bordereau), 200);
 });
 
 // AXIS-001's bulk half: CSV case import. Web intake, the partner API and

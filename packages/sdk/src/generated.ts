@@ -371,6 +371,7 @@ export interface AxisBordereaux {
   claimsPaidMinor?: number;
   reserveMinor?: number;
   varianceMinor?: number;
+  toleranceMinor?: number;
   state?: string;
   fileId?: string;
   sourceFileId?: string;
@@ -2563,8 +2564,10 @@ export interface Operations {
   "GET /v1/axis/bordereau-lines/{id}": Op<{ id: string }, never, never, AxisBordereauLines>;
   "GET /v1/axis/bordereaux": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisBordereaux>>;
   "POST /v1/axis/bordereaux": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/axis/bordereaux/import": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/axis/bordereaux/{id}": Op<{ id: string }, never, never, AxisBordereaux>;
-  "POST /v1/axis/bordereaux/{id}/reconcile": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/axis/bordereaux/{id}/reconcile": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/axis/bordereaux/{id}/reconciliation": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/axis/case-approvals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisCaseApprovals>>;
   "GET /v1/axis/case-approvals/{id}": Op<{ id: string }, never, never, AxisCaseApprovals>;
   "GET /v1/axis/cases": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisCases>>;
@@ -3396,8 +3399,10 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/axis/bordereau-lines/{id}": { tag: "axis", summary: "Fetch one bordereau line", permission: "axis:bordereaux:read", public: false },
   "GET /v1/axis/bordereaux": { tag: "axis", summary: "List bordereaux", permission: "axis:bordereaux:read", public: false },
   "POST /v1/axis/bordereaux": { tag: "axis", summary: "Generate an outbound bordereau from ledger data, or store an inbound one's raw lines (idempotent per period)", permission: "axis:bordereaux:generate", public: false },
+  "POST /v1/axis/bordereaux/import": { tag: "axis", summary: "Import an inbound bordereau from the counterparty's CSV (policyNo, the kind's amount columns in minor units; optional currency, taxMinor, riskRef). All or nothing: any unreadable row refuses the file with 422 and rowErrors per line (ADR-0105)", permission: "axis:bordereaux:generate", public: false },
   "GET /v1/axis/bordereaux/{id}": { tag: "axis", summary: "Fetch one bordereaux", permission: "axis:bordereaux:read", public: false },
-  "POST /v1/axis/bordereaux/{id}/reconcile": { tag: "axis", summary: "Match an inbound bordereau's lines against our policies by policy number", permission: "axis:bordereaux:reconcile", public: false },
+  "POST /v1/axis/bordereaux/{id}/reconcile": { tag: "axis", summary: "Reconcile an inbound provider bordereau against the period's commission entries and claims by (reference, currency): matched, variance, missing_ours, missing_theirs; optional toleranceMinor. Reports only, never writes money (ADR-0105)", permission: "axis:bordereaux:reconcile", public: false },
+  "GET /v1/axis/bordereaux/{id}/reconciliation": { tag: "axis", summary: "The reconciliation report as it stands now, under the tolerance it was last run with (read-only, ADR-0105)", permission: "axis:bordereaux:read", public: false },
   "GET /v1/axis/case-approvals": { tag: "axis", summary: "List case-approvals", permission: "axis:cases:approve", public: false },
   "GET /v1/axis/case-approvals/{id}": { tag: "axis", summary: "Fetch one case approval", permission: "axis:cases:approve", public: false },
   "GET /v1/axis/cases": { tag: "axis", summary: "List cases", permission: "axis:cases:read", public: false },

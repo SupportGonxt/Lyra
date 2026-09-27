@@ -524,7 +524,9 @@ const HAND_WRITTEN: Op[] = [
   // Bordereaux (routes/axis.ts, docs/27 §E). Outbound totals our own ledger for
   // the period; inbound stores a counterparty's raw lines for reconciliation.
   { method: "post", path: "/v1/axis/bordereaux", summary: "Generate an outbound bordereau from ledger data, or store an inbound one's raw lines (idempotent per period)", permission: "axis:bordereaux:generate", tag: "axis", requestBody: true },
-  { method: "post", path: "/v1/axis/bordereaux/{id}/reconcile", summary: "Match an inbound bordereau's lines against our policies by policy number", permission: "axis:bordereaux:reconcile", tag: "axis" },
+  { method: "post", path: "/v1/axis/bordereaux/import", summary: "Import an inbound bordereau from the counterparty's CSV (policyNo, the kind's amount columns in minor units; optional currency, taxMinor, riskRef). All or nothing: any unreadable row refuses the file with 422 and rowErrors per line (ADR-0105)", permission: "axis:bordereaux:generate", tag: "axis", requestBody: true },
+  { method: "post", path: "/v1/axis/bordereaux/{id}/reconcile", summary: "Reconcile an inbound provider bordereau against the period's commission entries and claims by (reference, currency): matched, variance, missing_ours, missing_theirs; optional toleranceMinor. Reports only, never writes money (ADR-0105)", permission: "axis:bordereaux:reconcile", tag: "axis", requestBody: true },
+  { method: "get", path: "/v1/axis/bordereaux/{id}/reconciliation", summary: "The reconciliation report as it stands now, under the tolerance it was last run with (read-only, ADR-0105)", permission: "axis:bordereaux:read", tag: "axis" },
 
   // Platform console (routes/platform.ts, ADR-0028/ADR-0029). Cross-tenant,
   // gated on admin:* / core:impersonate:use rather than a tenant permission —

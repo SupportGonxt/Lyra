@@ -213,3 +213,163 @@ describe("AXIS bordereaux (docs/27 §E)", () => {
     expect(generated.bordereau.reserveMinor).toBeGreaterThanOrEqual(100_000);
   });
 });
+
+// docs/30 Ledger 5, ADR-0105. Inbound reconciliation: a counterparty's CSV,
+// read row-honestly, matched against the period's commission entries, and
+// reported — never a money write.
+describe("inbound bordereau reconciliation (docs/30 Ledger 5)", () => {
+  async function importCsv(csv: string, counterpartyId: string, extra: Record<string, unknown> = {}) {
+    return call("POST", "/v1/axis/bordereaux/import", {
+      counterpartyKind: "provider",
+      counterpartyId,
+      kind: "premium",
+      period: currentPeriod(),
+      currency: "AED",
+      csv,
+      ...extra
+    });
+  }
+
+  it("imports a CSV, and classifies matched, amount mismatch, missing on either side, and a second currency", async () => {
+    const stamp = Date.now();
+    const exactNo = `BDX-IN-${stamp}-A`;
+    const offNo = `BDX-IN-${stamp}-B`;
+    const unlistedNo = `BDX-IN-${stamp}-C`;
+    const exact = await boundPolicy(exactNo, Date.now());
+    const off = await boundPolicy(offNo, Date.now());
+    const unlisted = await boundPolicy(unlistedNo, Date.now());
+    const e1 = await accrueCommission(exact);
+    const e2 = await accrueCommission(off);
+    const e3 = await accrueCommission(unlisted);
+    const providerId = (await policyRow(exact)).providerId;
+    expect((await policyRow(off)).providerId).toBe(providerId);
+    expect((await policyRow(unlisted)).providerId).toBe(providerId);
+
+    const csv = [
+      "policyNo,grossPremiumMinor,commissionMinor,currency,riskRef",
+      `${exactNo},${e1.premiumMinor},${e1.grossCommissionMinor},,VIN-1`,
+      `${offNo},${e2.premiumMinor + 500},${e2.grossCommissionMinor},AED,VIN-2`,
+      `GHOST-${stamp},1000,100,AED,`,
+      `${exactNo},2000,200,usd,`
+    ].join("\n");
+    const imported = ok(await importCsv(csv, providerId), 201);
+    expect(imported.bordereau.direction).toBe("inbound");
+    expect(imported.lines).toHaveLength(4);
+    expect(imported.lines.map((l: any) => l.currency)).toEqual(["AED", "AED", "AED", "USD"]);
+    expect(imported.lines[0].riskRef).toBe("VIN-1");
+    expect(JSON.parse(imported.lines[1].rawJson)).toMatchObject({ policyNo: offNo, currency: "AED" });
+
+    const entriesBefore = (await database.select().from(schema.distCommissionEntries)).length;
+    const reconciled = ok(await call("POST", `/v1/axis/bordereaux/${imported.bordereau.id}/reconcile`, {}), 200);
+    const group = (ref: string, currency = "AED") =>
+      (reconciled.report.groups as any[]).find((g) => g.ref === ref && g.currency === currency);
+
+    expect(group(exactNo)).toMatchObject({ state: "matched", varianceMinor: 0 });
+    expect(group(exactNo).ours.records).toEqual([{ id: e1.id, resource: "commission-entries" }]);
+    expect(group(offNo)).toMatchObject({ state: "variance", varianceMinor: 500 });
+    expect(group(`GHOST-${stamp}`)).toMatchObject({ state: "missing_ours", varianceMinor: 1000, policyId: null });
+    expect(group(unlistedNo)).toMatchObject({ state: "missing_theirs", varianceMinor: -e3.premiumMinor, policyId: unlisted });
+    expect(group(exactNo, "USD")).toMatchObject({ state: "missing_ours", varianceMinor: 2000 });
+
+    // Their lines carry the state of the group they fell in; the header says
+    // the period did not reconcile clean. Nothing money-affecting was written.
+    expect(reconciled.lines.map((l: any) => l.matchState)).toEqual(["matched", "variance", "missing_ours", "missing_ours"]);
+    expect(reconciled.lines[0].policyId).toBe(exact);
+    expect(reconciled.bordereau.state).toBe("variance");
+    expect((await database.select().from(schema.distCommissionEntries)).length).toBe(entriesBefore);
+
+    // The report reads back the same without a second write.
+    const read = ok(await call("GET", `/v1/axis/bordereaux/${imported.bordereau.id}/reconciliation`), 200);
+    expect(read.groups).toEqual(reconciled.report.groups);
+    expect(read.totals.map((t: any) => t.currency)).toEqual(["AED", "USD"]);
+  });
+
+  it("a tolerance absorbs a rounding difference, is stored, and the report reads back under it", async () => {
+    const no = `BDX-TOL-${Date.now()}`;
+    const policyId = await boundPolicy(no, Date.now());
+    const entry = await accrueCommission(policyId);
+    const providerId = (await policyRow(policyId)).providerId;
+    // `combined`, so this period's one-shot premium import above stays its own.
+    const csv = `policyNo,grossPremiumMinor,commissionMinor,claimsPaidMinor,reserveMinor\n${no},${entry.premiumMinor + 2},${entry.grossCommissionMinor},0,0`;
+    const imported = ok(await importCsv(csv, providerId, { kind: "combined" }), 201);
+
+    const strict = ok(await call("POST", `/v1/axis/bordereaux/${imported.bordereau.id}/reconcile`, {}), 200);
+    expect(strict.report.groups.find((g: any) => g.ref === no).state).toBe("variance");
+
+    const loose = ok(await call("POST", `/v1/axis/bordereaux/${imported.bordereau.id}/reconcile`, { toleranceMinor: 2 }), 200);
+    expect(loose.report.groups.find((g: any) => g.ref === no)).toMatchObject({ state: "matched", varianceMinor: 2 });
+    expect(loose.bordereau.toleranceMinor).toBe(2);
+    const read = ok(await call("GET", `/v1/axis/bordereaux/${imported.bordereau.id}/reconciliation`), 200);
+    expect(read.toleranceMinor).toBe(2);
+    expect(read.groups.find((g: any) => g.ref === no).state).toBe("matched");
+
+    expect((await call("POST", `/v1/axis/bordereaux/${imported.bordereau.id}/reconcile`, { toleranceMinor: -1 })).status).toBe(400);
+  });
+
+  it("reads every row honestly: a file with a bad row stores nothing and names each bad line", async () => {
+    const counterpartyId = `ext-honest-${Date.now()}`;
+    const csv = [
+      "policyNo,grossPremiumMinor,commissionMinor,currency",
+      "P-1,1000,100,AED",
+      ",1000,100,AED",
+      "P-3,10.50,100,AED",
+      "P-4,1000,100,dirhams",
+      "P-5,1000"
+    ].join("\n");
+    const refused = await importCsv(csv, counterpartyId);
+    expect(refused.status).toBe(422);
+    expect(refused.body.rowErrors.map((e: any) => e.line)).toEqual([3, 4, 5, 6]);
+    expect(refused.body.rowErrors.find((e: any) => e.line === 4).error).toMatch(/grossPremiumMinor/);
+    expect(refused.body.rowErrors.find((e: any) => e.line === 5).error).toMatch(/currency/);
+
+    // Nothing was stored, so the corrected file is not a duplicate period.
+    const fixed = ok(await importCsv("policyNo,grossPremiumMinor,commissionMinor\nP-1,1000,100", counterpartyId), 201);
+    expect(fixed.lines).toHaveLength(1);
+    // And the period is one-shot once it is in.
+    expect((await importCsv("policyNo,grossPremiumMinor,commissionMinor\nP-1,1000,100", counterpartyId)).status).toBe(409);
+  });
+
+  it("refuses a file missing a column its kind compares, and an empty file", async () => {
+    const counterpartyId = `ext-cols-${Date.now()}`;
+    const noCommission = await importCsv("policyNo,grossPremiumMinor\nP-1,1000", counterpartyId);
+    expect(noCommission.status).toBe(422);
+    expect(noCommission.body.rowErrors[0]).toMatchObject({ line: 1 });
+    expect(noCommission.body.rowErrors[0].error).toMatch(/commissionMinor/);
+    expect((await importCsv("policyNo,grossPremiumMinor,commissionMinor\n", counterpartyId)).status).toBe(422);
+  });
+
+  it("reconciles only what a provider sent us: an outbound bordereau, or another counterparty's, is refused", async () => {
+    const policyId = await boundPolicy(`BDX-OUT-${Date.now()}`, Date.now());
+    const providerId = (await policyRow(policyId)).providerId;
+    const outbound = ok(
+      await call("POST", "/v1/axis/bordereaux", { direction: "outbound", counterpartyKind: "provider", counterpartyId: providerId, kind: "claims", period: currentPeriod() }),
+      201
+    );
+    expect((await call("POST", `/v1/axis/bordereaux/${outbound.bordereau.id}/reconcile`, {})).status).toBe(409);
+    expect((await call("GET", `/v1/axis/bordereaux/${outbound.bordereau.id}/reconciliation`)).status).toBe(409);
+
+    const partner = ok(await importCsv("policyNo,grossPremiumMinor,commissionMinor\nP-1,1,1", `ext-ptn-${Date.now()}`, { counterpartyKind: "partner" }), 201);
+    expect((await call("POST", `/v1/axis/bordereaux/${partner.bordereau.id}/reconcile`, {})).status).toBe(409);
+  });
+
+  it("takes the file as a multipart upload, the header as its form fields", async () => {
+    const form = new FormData();
+    for (const [k, v] of Object.entries({ counterpartyKind: "provider", counterpartyId: `ext-upload-${Date.now()}`, kind: "premium", period: currentPeriod(), currency: "USD" })) form.set(k, v);
+    form.set("file", new File(["policyNo,grossPremiumMinor,commissionMinor\nP-9,700,70\n"], "bdx.csv", { type: "text/csv" }));
+    const res = await app.fetch(
+      new Request("http://api.test/v1/axis/bordereaux/import", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form }),
+      env as never,
+      exec as never
+    );
+    expect(res.status).toBe(201);
+    const out = (await res.json()) as any;
+    expect(out.bordereau.currency).toBe("USD");
+    expect(out.lines.map((l: any) => [l.externalRef, l.grossPremiumMinor, l.currency])).toEqual([["P-9", 700, "USD"]]);
+  });
+
+  it("the report is gated on reading bordereaux", async () => {
+    const imported = ok(await importCsv("policyNo,grossPremiumMinor,commissionMinor\nP-1,1,1", `ext-perm-${Date.now()}`), 201);
+    const res = await call("GET", `/v1/axis/bordereaux/${imported.bordereau.id}/reconciliation`, undefined, {}, () => controllerToken);
+    expect(res.status).toBe(403);
+  });
+});
