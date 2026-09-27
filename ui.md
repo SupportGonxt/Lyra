@@ -358,7 +358,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 128 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 129 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
