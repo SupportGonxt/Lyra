@@ -94,7 +94,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. *Done (ADR-0092): signed `lead`/`bind` touches on `/track`, keyed by a tenant webhook secret, replay-safe by `eventId`.*
 3. *Done: the audience rule builder (tagged / prospect reason / prospect score, all or any); 500 cap lifted and unrunnable rules refused on write (ADR-0091).*
 6. *Done (ADR-0091): marketing at three scales — `signal_prospects` from DIST/ORBIT/core events, prospect-sourced niche audiences, drafts written from the person's own reason behind `checkOutreachDraft`, and `signal_responses` rolled up per campaign, audience and person.*
-4. Experiment engine: compute probability-to-beat-control; emit `signal.experiment.concluded`, `campaign.launched`, `creative.flagged`.
+4. ~~Experiment engine.~~ **Fixed** 2026-09-27: `engines/signal-experiment.ts` reads each arm from attribution touches on its own creative since the experiment began (the metric names which touch exposes and which converts), computes probability-to-beat-control, and concludes a running experiment nightly once every arm has its minimum sample and the answer is ≥95% either way — `signal.experiment.concluded` on the bus, `GET /v1/signal/experiments/{id}/readout` for where it stands now. `signal.campaign.launched` fires on a campaign's first move to live (not a resume) and `signal.creative.flagged` on every flagged draft; the dev screen's topic flags are held to the API's sources.
 5. Ad-platform seam (`core/seams.ts`) with Google/Meta adapters — channels are allowed (CLAUDE.md §13).
 
 ### SCOUT · Market

@@ -14,6 +14,7 @@ import { attributeCounts, suggestTargeting } from "../engines/signal-audience.js
 import { creativeContextFor, planAudience, planCampaign } from "../engines/signal-campaign-plan.js";
 import { runBudgetAutopilot } from "../engines/signal-autopilot.js";
 import { funnelByCampaign } from "../engines/signal-attribution.js";
+import { experimentReadout } from "../engines/signal-experiment.js";
 import { demoOnly } from "../auth.js";
 import type { App } from "../env.js";
 
@@ -230,6 +231,14 @@ signalRoutes.post("/creatives/image", async (c) => {
 // Re-fetch after a reload — the POST above only hands back bytes at the
 // moment of generation. Same idiom as north.ts's /boardpacks/:id/file:
 // resolve the creative's file row inside the tenant, meter egress, stream it.
+// docs/30 SIGNAL 4: where an experiment stands now, read from attribution —
+// the same readout the nightly sweep concludes on.
+signalRoutes.get("/experiments/:id/readout", async (c) => {
+  const ctx = c.get("ctx");
+  require_(ctx.actor, "signal:experiments:read", { tenantId: ctx.tenantId, module: "signal" });
+  return c.json(await experimentReadout(ctx, c.req.param("id")));
+});
+
 signalRoutes.get("/creatives/:id/image", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "signal:creatives:read", { tenantId: ctx.tenantId, module: "signal" });

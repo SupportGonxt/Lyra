@@ -56,19 +56,18 @@ export const RESOURCES: ReadonlyArray<{ path: string; permission: string }> = [
 ];
 
 /**
- * The `lyra-events` topics SIGNAL owns. `emitted` is the honest half: only the
- * autopilot publishes today (apps/api/src/engines/signal-autopilot.ts and
- * apps/api/src/routes/signal.ts). The rest are named by docs/modules/signal.md
- * §6 and nothing raises them yet, so an endpoint subscribed to one waits
- * forever — better said here than discovered in production.
+ * The `lyra-events` topics SIGNAL owns (docs/modules/signal.md §6). `emitted`
+ * is the honest half: a topic nothing raises leaves a subscribed endpoint
+ * waiting forever, so the screen says so. signal-dev.test.ts holds each flag to
+ * the API's own sources.
  */
 export const TOPICS: ReadonlyArray<{ name: string; emitted: boolean }> = [
   { name: "signal.budget.moved", emitted: true },
   { name: "signal.autopilot.paused", emitted: true },
   { name: "signal.autopilot.resumed", emitted: true },
-  { name: "signal.campaign.launched", emitted: false },
-  { name: "signal.experiment.concluded", emitted: false },
-  { name: "signal.creative.flagged", emitted: false }
+  { name: "signal.campaign.launched", emitted: true },
+  { name: "signal.experiment.concluded", emitted: true },
+  { name: "signal.creative.flagged", emitted: true }
 ];
 
 /* ---------------------------------------------------------------- reading */

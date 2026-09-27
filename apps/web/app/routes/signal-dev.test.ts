@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
 import type { Env } from "../env";
@@ -77,14 +79,17 @@ describe("catalogues", () => {
     expect(new Set(RESOURCES.map((one) => one.permission)).size).toBe(RESOURCES.length);
   });
 
-  it("marks only the topics something actually raises as emitted", () => {
-    // Only the autopilot publishes today. A endpoint subscribed to one of the
-    // planned names waits forever, so the screen may not claim otherwise.
-    expect(TOPICS.filter((topic) => topic.emitted).map((topic) => topic.name)).toEqual([
-      "signal.budget.moved",
-      "signal.autopilot.paused",
-      "signal.autopilot.resumed"
-    ]);
+  it("marks a topic emitted exactly when some API source raises it", () => {
+    // A hand-kept list here once agreed with the screen and with nothing else.
+    // The API's own sources decide: a topic is emitted iff an emit names it.
+    const root = join(import.meta.dirname, "..", "..", "..", "api", "src");
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") ? [join(dir, e.name)] : []
+      );
+    const source = walk(root).map((f) => readFileSync(f, "utf8")).join("\n");
+    const raised = (name: string) => new RegExp(`type:[^\\n]*"${name.replaceAll(".", "\\.")}"`).test(source);
+    expect(TOPICS.map((t) => [t.name, t.emitted])).toEqual(TOPICS.map((t) => [t.name, raised(t.name)]));
     expect(TOPICS.every((topic) => topic.name.startsWith("signal."))).toBe(true);
   });
 });

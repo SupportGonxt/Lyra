@@ -887,6 +887,17 @@ export const SIGNAL = register(
     // per period), not in a scalar column, and `amountField` reads one column.
     // The launch approval shows the campaign, not a number.
     approval: { update: "signal.campaign_launch" },
+    // docs/30 SIGNAL 4: the first time a campaign goes live is its launch —
+    // resuming a paused one is not. ORBIT staffs for the surge on it.
+    afterWrite: async (ctx, row, action, before) => {
+      if (action !== "update" || row.state !== "live" || !before || before.state === "live" || before.state === "paused") return;
+      await emit(ctx, {
+        module: "signal",
+        type: "signal.campaign.launched",
+        subject: String(row.id),
+        data: { campaignId: row.id, name: row.name, from: before.state }
+      });
+    },
     // `existing` is null on create (a new campaign has no prior state to
     // transition from) — the table only constrains the update path.
     beforeWrite: (_ctx, values, existing) => {
