@@ -134,8 +134,9 @@ test("J-E2 exec assembles a board pack for Thursday @journey:J-E2 @accept:M6", a
 // The other half of J-E3, on the screen the journey actually describes: the
 // what-if ask bar at /north/whatif (apps/web/app/routes/north-whatif.tsx),
 // where assumptions are written as prose lines rather than as the raw JSON
-// the generic /north/scenarios form takes. "Ranges" are still a gap — nothing
-// computes an answer, and the screen says so instead of drawing a band.
+// the generic /north/scenarios form takes. These assumptions name no driver the
+// scenario engine reads (docs/30 NORTH 4, ADR-0103), so saving stores the
+// question unanswered and the screen says so instead of drawing a band.
 test("J-E3 exec asks a what-if in prose and the assumptions come back on the saved scenario @journey:J-E3 @accept:M6", async ({
   page
 }) => {
@@ -160,6 +161,7 @@ test("J-E3 exec asks a what-if in prose and the assumptions come back on the sav
   await expect(page.getByRole("heading", { name: "What it assumes" })).toBeVisible();
   await expect(page.getByText(horizon, { exact: true })).toBeVisible();
   await expect(page.getByText("Retention delta pts", { exact: true })).toBeVisible();
-  // No engine has run, so the answer says so rather than showing a zero.
+  // The engine could not read these assumptions, so the answer says so rather
+  // than showing a zero.
   await expect(page.getByText("Nothing has answered this yet.")).toBeVisible();
 });

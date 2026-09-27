@@ -1205,6 +1205,15 @@ export const NORTH = register(
     read: "north:scenarios:read",
     create: "north:scenarios:run",
     update: "north:scenarios:run"
+  }, {
+    // The answer has one writer, the scenario engine (POST /scenarios/{id}/run,
+    // docs/30 NORTH 4): a result typed into a form is an uncomputed number
+    // wearing a computed one's column. And an answer to other assumptions is
+    // not this scenario's answer, so changing them clears it.
+    beforeWrite: (_ctx, values) => {
+      const { resultJson: _result, modelRunRef: _run, ...rest } = values;
+      return values.assumptionsJson === undefined ? rest : { ...rest, resultJson: null };
+    }
   }),
   r("boardpacks", schema.northBoardpacks, "bpk", "north", {
     read: "north:boardpacks:read",

@@ -1,15 +1,16 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, asc, eq, inArray, max } from "drizzle-orm";
+import { and, eq, inArray, max } from "drizzle-orm";
 import type { ReportTable } from "@lyra/ledger";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, forecast, isClosedPeriod, journeyHealth, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
+import { actorRef, audit, forecast, journeyHealth, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
 import { body, csvBody, IsoDay, parse } from "../http.js";
 import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateBriefing } from "../engines/narrator.js";
 import { runSnapshotter } from "../engines/north-snapshotter.js";
 import { importMetricCsv, pushMetricValues } from "../engines/north-metric-push.js";
+import { closedHistory, runScenario } from "../engines/north-scenario.js";
 import { approveBoardpack, assembleBoardpackSections, distributeBoardpack } from "../engines/north-boardpack.js";
 import { toPdf } from "../engines/export/pdf.js";
 import { pushToActor } from "../engines/realtime.js";
@@ -22,14 +23,6 @@ import type { App } from "../env.js";
 export const northRoutes = new Hono<App>();
 
 const ctxOf = (c: { get(k: "ctx"): Ctx }): Ctx => c.get("ctx");
-
-/**
- * How far back a forecast reads. Three years of months or two of days is more
- * than the damped Holt fit can use and less than a page of rows; the bound is
- * here so a tenant with a decade of history cannot turn one request into a
- * table scan.
- */
-const HISTORY_LIMIT = 800;
 
 const GenerateBriefingBody = z.object({
   date: IsoDay,
@@ -77,6 +70,15 @@ northRoutes.post("/metrics/import", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "north:metrics:write", { tenantId: ctx.tenantId, module: "north" });
   return c.json(await importMetricCsv(ctx, await csvBody(c)), 201);
+});
+
+// docs/30 NORTH 4, ADR-0103: compute a stored what-if against the metric's own
+// forecast and store the answer on the row. Mounted before generic CRUD, and the
+// CRUD strips resultJson (resources.ts), so this is the one writer of an answer.
+northRoutes.post("/scenarios/:id/run", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:scenarios:run", { tenantId: ctx.tenantId, module: "north" });
+  return c.json(await runScenario(ctx, c.req.param("id")));
 });
 
 northRoutes.post("/boardpacks/:id/distribute", async (c) => {
@@ -288,21 +290,7 @@ northRoutes.get("/forecast", async (c) => {
     .limit(1);
   if (!metric) throw notFound(`metric ${input.metricKey}`);
 
-  const rows = await ctx.db
-    .select({ period: schema.northSnapshots.period, value: schema.northSnapshots.value })
-    .from(schema.northSnapshots)
-    .where(
-      and(
-        eq(schema.northSnapshots.tenantId, ctx.tenantId),
-        eq(schema.northSnapshots.metricKey, input.metricKey),
-        eq(schema.northSnapshots.grain, input.grain),
-        eq(schema.northSnapshots.dimsHash, "") // the headline, never a dimensional split
-      )
-    )
-    .orderBy(asc(schema.northSnapshots.period))
-    .limit(HISTORY_LIMIT);
-
-  const history = rows.filter((row) => isClosedPeriod(input.grain, row.period, ctx.now));
+  const history = await closedHistory(ctx, input.metricKey, input.grain);
   const result = forecast(input.grain, history, input.horizon);
 
   return c.json({
