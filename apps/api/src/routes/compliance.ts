@@ -7,6 +7,7 @@ import {
   audit,
   badRequest,
   canonicalJson,
+  conflict,
   emit,
   gate,
   notFound,
@@ -21,6 +22,7 @@ import { meterEgress } from "../engines/egress.js";
 import { render } from "../engines/export/render.js";
 import { utf8, zip } from "../engines/export/zip.js";
 import { body, InstantMs } from "../http.js";
+import { screeningFor, type ScreeningQuery } from "../engines/screening.js";
 import type { App } from "../env.js";
 
 // docs/12 §3–§5. Three compliance capabilities that a form cannot perform,
@@ -33,75 +35,6 @@ export const complianceRoutes = new Hono<App>();
 const ctxOf = (c: { get(k: "ctx"): Ctx }): Ctx => c.get("ctx");
 
 /* ------------------------------------------------------------- screening */
-
-export type ScreeningKind = "sanctions" | "pep" | "adverse_media" | "fraud";
-
-/** What the provider is asked. Hashed as-is, so normalisation lives upstream. */
-export interface ScreeningQuery {
-  kind: ScreeningKind;
-  /** Lower-cased, single-spaced. Two spellings of one search must hash alike. */
-  name: string;
-  identifiers: Record<string, string>;
-}
-
-export interface ScreeningHit {
-  listRef: string;
-  matchedName: string;
-  matchPct: number;
-  note: string;
-  /** Present on every hit this platform can produce today. See `stubScreening`. */
-  stub: true;
-}
-
-export interface ScreeningOutcome {
-  result: "clear" | "hit" | "inconclusive";
-  hits: ScreeningHit[];
-}
-
-/**
- * The seam a bought watchlist plugs into (CLAUDE.md §15). One method, because a
- * screening is one question — the endpoint owns the hash, the row, the block and
- * the audit, so a provider cannot get any of those wrong.
- */
-export interface ScreeningProvider {
-  /** Written to `compliance_screenings.provider`; it is the evidence of what ran. */
-  readonly name: string;
-  screen(query: ScreeningQuery): Promise<ScreeningOutcome>;
-}
-
-/** Names that make the stub answer something other than "clear". Exported so a
- *  test can walk the hit path without pretending a real list exists. */
-export const STUB_SCREENING_TOKENS = [
-  ["lyra-test-hit", "hit"],
-  ["lyra-test-inconclusive", "inconclusive"]
-] as const;
-
-/**
- * ponytail: no sanctions/PEP list is an approved provider (docs/02 §9), so this
- * consults nothing. It matches two deliberately fake tokens and returns "clear"
- * for every real name — which is not a screening result and is labelled as such
- * on every hit and on the screen. Upgrade path: a second implementation of
- * ScreeningProvider naming a real list, plus the ADR docs/02 §9 requires.
- */
-export const stubScreening: ScreeningProvider = {
-  name: "stub",
-  async screen(query) {
-    const match = STUB_SCREENING_TOKENS.find(([token]) => query.name.includes(token));
-    if (!match) return { result: "clear", hits: [] };
-    return {
-      result: match[1],
-      hits: [
-        {
-          listRef: `stub:${match[0]}`,
-          matchedName: query.name,
-          matchPct: 100,
-          note: "Produced locally by the built-in stub. No watchlist was consulted.",
-          stub: true
-        }
-      ]
-    };
-  }
-};
 
 const normaliseName = (raw: string): string => raw.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -149,14 +82,15 @@ complianceRoutes.post("/screenings/run", async (c) => {
   // Server-side, from the normalised query: the hash is the evidence that this
   // row answers that question, so it is never something a caller can state.
   const queryHash = await sha256Hex(canonicalJson(query));
-  const outcome = await stubScreening.screen(query);
+  const provider = screeningFor(c.env, input.kind);
+  const outcome = await provider.screen(query);
 
   const row = {
     id: id("scr", ctx.now),
     tenantId: ctx.tenantId,
     subjectRef,
     kind: input.kind,
-    provider: stubScreening.name,
+    provider: provider.name,
     queryHash,
     result: outcome.result,
     hitsJson: outcome.hits.length ? JSON.stringify(outcome.hits) : null,
@@ -181,6 +115,49 @@ complianceRoutes.post("/screenings/run", async (c) => {
     });
   }
   return c.json({ ...row, hits: outcome.hits }, 201);
+});
+
+const DispositionBody = z
+  .object({
+    disposition: z.enum(["false_positive", "confirmed", "escalated"]),
+    /** Why — the evidence the next examiner reads. */
+    note: z.string().trim().min(3).max(1000)
+  })
+  .strict();
+
+/**
+ * docs/19 §4: a hit blocks, and clearing it is a person's disposition. Only a
+ * false positive lifts the block; a confirmed or escalated hit keeps it. Every
+ * disposition is audited under the officer's name, and a lifted block is
+ * announced so a waiting bind can be retried.
+ */
+complianceRoutes.post("/screenings/:id/disposition", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "compliance:screenings:disposition", { tenantId: ctx.tenantId, module: "compliance" });
+  const input = await body(c, DispositionBody);
+  const [row] = await ctx.db
+    .select()
+    .from(schema.screenings)
+    .where(scoped(ctx, schema.screenings, eq(schema.screenings.id, c.req.param("id"))))
+    .limit(1);
+  if (!row) throw notFound("screening");
+  if (row.result === "clear") throw conflict("a clear screening has nothing to disposition");
+
+  const after = { ...row, disposition: input.disposition, dispositionedBy: actorRef(ctx), blocked: input.disposition !== "false_positive" };
+  await ctx.db
+    .update(schema.screenings)
+    .set({ disposition: after.disposition, dispositionedBy: after.dispositionedBy, blocked: after.blocked })
+    .where(scoped(ctx, schema.screenings, eq(schema.screenings.id, row.id)));
+  await audit(ctx, { action: "compliance.screening.disposition", subjectRef: row.id, before: row, after: { ...after, note: input.note } });
+  if (row.blocked && !after.blocked) {
+    await emit(ctx, {
+      module: "compliance",
+      type: "compliance.screening.cleared",
+      subject: row.subjectRef,
+      data: { screeningId: row.id, kind: row.kind }
+    });
+  }
+  return c.json(after);
 });
 
 /* --------------------------------------------------------- disclosures */

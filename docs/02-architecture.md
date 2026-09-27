@@ -122,7 +122,8 @@ Capability flags: `WORKFLOWS=inline`, `BROWSER_RENDER=playwright-container`,
 
 Cloudflare platform · Anthropic API (via AI Gateway) · Resend (email) ·
 Twilio or Unifonic (WhatsApp/SMS — tenant choice; Unifonic preferred for GCC) ·
-Sentry (errors) · Stripe (platform billing only, not consumer payments).
+Sentry (errors) · Stripe (platform billing only, not consumer payments) ·
+OpenSanctions (sanctions/PEP screening, ADR-0095).
 Anything else requires an ADR.
 
 ## 10. Performance & scale targets

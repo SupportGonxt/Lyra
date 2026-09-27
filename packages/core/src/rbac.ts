@@ -262,7 +262,7 @@ export const PERMISSIONS = [
   "compliance:erasure:execute",
   "compliance:disclosures:read",
   "compliance:disclosures:present",
-  "compliance:screenings:read", "compliance:screenings:run",
+  "compliance:screenings:read", "compliance:screenings:run", "compliance:screenings:disposition",
   "compliance:retention:read", "compliance:retention:run",
   "compliance:legal_holds:read", "compliance:legal_holds:write",
   "compliance:evidence:read", "compliance:evidence:export",

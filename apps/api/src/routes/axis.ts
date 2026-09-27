@@ -3,6 +3,7 @@ import { and, eq, desc, not, sql } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema } from "@lyra/db";
 import {
+  assertNotScreenedOut,
   actorRef,
   AppError,
   assertPolicyTransition,
@@ -843,6 +844,7 @@ axisRoutes.post("/quote-responses/:id/bind", async (c) => {
     // An anonymous shop can price a risk; it cannot sell one. A policy without
     // a customer has nobody to service, renew or pay a claim to.
     if (!request.customerId) throw conflict("quote request has no customer to bind");
+    await assertNotScreenedOut(ctx, request.customerId);
 
     const already = await ctx.db
       .select({ id: schema.axisPolicyVersions.policyId })
