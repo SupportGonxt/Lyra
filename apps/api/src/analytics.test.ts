@@ -588,6 +588,159 @@ describe("dashboard visibility", () => {
   });
 });
 
+/* ------------------------------------------- docs/30 Analytics 5: tile editor */
+
+// The editor saves through the doors that already exist — the module router's
+// POST and generic CRUD's PATCH, both under `analytics:dashboards:write` — so
+// both are held to one layout schema. A malformed layout is refused at the
+// write, never stored to be painted as blank tiles.
+
+describe("dashboard layout on write", () => {
+  const crud = (over: Partial<Ctx> = {}): Hono<App> => {
+    const app = new Hono<App>();
+    app.onError(onError);
+    app.use("*", async (c, next) => {
+      c.set("ctx", { ...ctx, ...over });
+      await next();
+    });
+    app.route("/", analyticsRoutes);
+    app.route("/dashboards", crudRouter(ANALYTICS.find((r) => r.path === "dashboards")!));
+    return app;
+  };
+  const send = (method: string, path: string, payload: unknown, over: Partial<Ctx> = {}) =>
+    crud(over).fetch(
+      new Request(`http://api.test${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      }),
+      env as never
+    );
+  const tile = { key: "Premium", viz: "number", span: 4, definition: { dataset: "policies", metrics: ["gwp"] } };
+  const stored = async () =>
+    JSON.parse((await ctx.db.select().from(schema.dashboards).where(eq(schema.dashboards.id, "dsh_all")))[0]!.layoutJson);
+
+  it("stores a valid layout through PATCH, normalised, filters and all", async () => {
+    await seedDashboard({ id: "dsh_all" });
+    const layout = {
+      tiles: [{ key: "By status", viz: "bar", definition: { dataset: "policies", metrics: ["gwp"], dimensions: ["status"] } }, tile],
+      filters: { lastDays: 30, where: [{ field: "status", op: "eq", value: "active" }] }
+    };
+    const res = await send("PATCH", "/dashboards/dsh_all", { layoutJson: layout });
+    expect(res.status).toBe(200);
+    const after = await stored();
+    expect(after.tiles.map((t: { key: string; span: number }) => [t.key, t.span])).toEqual([
+      ["By status", 4],
+      ["Premium", 4]
+    ]);
+    expect(after.filters).toEqual(layout.filters);
+  });
+
+  it("refuses a structurally malformed layout on PATCH, naming the field, and leaves the row alone", async () => {
+    await seedDashboard({ id: "dsh_all" });
+    const before = await stored();
+    const res = await send("PATCH", "/dashboards/dsh_all", { layoutJson: { tiles: [tile, { ...tile, key: "Wide", span: 20 }] } });
+    expect(res.status).toBe(400);
+    const problem = (await res.json()) as { errors?: Record<string, string> };
+    expect(Object.keys(problem.errors ?? {})).toEqual(["layoutJson.tiles.1.span"]);
+    expect(await stored()).toEqual(before);
+
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: "{not json" })).status).toBe(400);
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: [] })).status).toBe(400);
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: { tiles: [tile, tile] } })).status).toBe(400);
+  });
+
+  it("refuses a tile the registry cannot run: an unknown measure, a split the dataset lacks", async () => {
+    await seedDashboard({ id: "dsh_all" });
+    const measure = { ...tile, definition: { dataset: "policies", metrics: ["nope"] } };
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: { tiles: [measure] } })).status).toBe(400);
+    const split = { ...tile, definition: { dataset: "policies", metrics: ["gwp"], dimensions: ["state"] } };
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: { tiles: [split] } })).status).toBe(400);
+    const dataset = { ...tile, definition: { dataset: "nowhere", metrics: ["gwp"] } };
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: { tiles: [dataset] } })).status).toBe(400);
+  });
+
+  it("refuses a dashboard filter on a field no tile's dataset has", async () => {
+    await seedDashboard({ id: "dsh_all" });
+    const res = await send("PATCH", "/dashboards/dsh_all", {
+      layoutJson: { tiles: [tile], filters: { where: [{ field: "state", op: "eq", value: "open" }] } }
+    });
+    expect(res.status).toBe(400);
+    const problem = (await res.json()) as { errors?: Record<string, string> };
+    expect(Object.keys(problem.errors ?? {})).toEqual(["layoutJson.filters.where.0.field"]);
+  });
+
+  it("refuses a tile drawn from a report that does not exist, and accepts one that does", async () => {
+    await seedDashboard({ id: "dsh_all" });
+    await seedSchedule({});
+    const missing = { key: "Gone", viz: "table", reportId: "rep_missing" };
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: { tiles: [missing] } })).status).toBe(404);
+    const saved = { key: "Saved", viz: "table", reportId: "rep_1" };
+    const ok = await send("PATCH", "/dashboards/dsh_all", {
+      layoutJson: { tiles: [saved], filters: { where: [{ field: "status", op: "eq", value: "active" }] } }
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it("needs the dashboards write permission to save a layout", async () => {
+    await seedDashboard({ id: "dsh_all" });
+    const reader = actor(["analytics:dashboards:read", "axis:policies:read"]);
+    expect((await send("PATCH", "/dashboards/dsh_all", { layoutJson: { tiles: [tile] } }, { actor: reader })).status).toBe(403);
+  });
+
+  it("holds POST to the same schema, with the error keyed on the body's own field", async () => {
+    const res = await send("POST", "/dashboards", {
+      key: "board",
+      module: "axis",
+      name: { en: "Board" },
+      layout: { tiles: [tile, tile] }
+    });
+    expect(res.status).toBe(400);
+    const problem = (await res.json()) as { errors?: Record<string, string> };
+    expect(Object.keys(problem.errors ?? {})).toEqual(["layout.tiles.1.key"]);
+  });
+});
+
+describe("dashboard filters at render", () => {
+  async function paint(layout: unknown): Promise<{ status: number; body: any }> {
+    await ctx.db.update(schema.dashboards).set({ layoutJson: JSON.stringify(layout) }).where(eq(schema.dashboards.id, "dsh_all"));
+    const res = await router().fetch(new Request("http://api.test/v1/analytics/dashboards/dsh_all/data"), env as never);
+    return { status: res.status, body: await res.json() };
+  }
+  const premium = { key: "Premium", viz: "number", span: 4, definition: { dataset: "policies", metrics: ["gwp"] } };
+  const quotes = { key: "Quotes", viz: "number", span: 4, definition: { dataset: "quotes", metrics: ["requests"] } };
+
+  it("puts the dashboard's range over every tile", async () => {
+    await seedPolicies();
+    await seedDashboard({ id: "dsh_all" });
+    const all = await paint({ tiles: [premium] });
+    expect(all.body.tiles[0].totals.gwp).toBe(300_00);
+    const later = await paint({ tiles: [premium], filters: { from: NOW + 1 } });
+    expect(later.body.tiles[0].totals.gwp).toBe(175_00);
+    expect(later.body.layout.filters).toEqual({ from: NOW + 1 });
+  });
+
+  it("applies a dimension filter to the tiles that have it and names it on the ones that do not", async () => {
+    await seedPolicies();
+    await seedDashboard({ id: "dsh_all" });
+    const { status, body } = await paint({
+      tiles: [premium, quotes],
+      filters: { where: [{ field: "providerId", op: "eq", value: "prv_other" }] }
+    });
+    expect(status).toBe(200);
+    expect(body.tiles[0].table.rows).toEqual([{ gwp: null }]);
+    expect(body.tiles[0].unfiltered).toEqual([]);
+    expect(body.tiles[1].error).toBeUndefined();
+    expect(body.tiles[1].unfiltered).toEqual(["providerId"]);
+  });
+
+  it("refuses to paint a stored layout the schema does not accept", async () => {
+    await seedDashboard({ id: "dsh_all" });
+    const { status } = await paint({ tiles: "all of them" });
+    expect(status).toBe(422);
+  });
+});
+
 describe("export visibility", () => {
   const downloader = (id: string): Ctx["actor"] => ({
     kind: "user",

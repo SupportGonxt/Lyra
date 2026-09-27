@@ -33,6 +33,7 @@ import { audienceRuleProblem } from "./engines/signal-outreach.js";
 import { must } from "./rows.js";
 import {
   assertDeliverableSchedule,
+  checkDashboardLayout,
   dashboardVisible,
   exportVisible,
   reportRunVisible,
@@ -1377,7 +1378,15 @@ export const ANALYTICS = register(
   // /v1/analytics/* cannot disagree.
   r("dashboards", schema.dashboards, "dsh", "analytics", rw("analytics:dashboards"), {
     searchable: ["name"],
-    rowVisible: dashboardVisible as NonNullable<Resource["rowVisible"]>
+    rowVisible: dashboardVisible as NonNullable<Resource["rowVisible"]>,
+    // docs/30 Analytics 5: the tile editor saves here. The layout is held to the
+    // schema and the registry the module router's POST uses, and stored
+    // normalised — never as whatever text arrived.
+    beforeWrite: async (ctx, values) => {
+      if (!("layoutJson" in values)) return values;
+      const layout = await checkDashboardLayout(ctx, values.layoutJson, "layoutJson");
+      return { ...values, layoutJson: JSON.stringify(layout) };
+    }
   }),
   r("reports", schema.reports, "rpt", "analytics", rw("analytics:reports"), {
     searchable: ["name"],

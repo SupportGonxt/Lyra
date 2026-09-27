@@ -138,7 +138,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. ~~Schedule create screen.~~ **Fixed** 2026-09-26: `/analytics/schedules/new` schedules a saved report with the builder's own body (named cadence, file, recipients), under the report's own names.
 3. ~~Report builder and natural-language questions.~~ **Fixed** 2026-09-23 (ADR-0088): `/analytics/builder`, `POST /v1/analytics/ask` (eval-first), AI datasets and `/admin/ai/analytics`.
 4. ~~Readable dimension labels.~~ **Fixed** 2026-09-26: report and builder results resolve ref-shaped values through `/v1/names`, and the report summary names measures and splits from the dataset registry.
-5. Dashboard tile editor with filters.
+5. ~~Dashboard tile editor with filters.~~ **Fixed** 2026-09-27: `/analytics/dashboard/:id/edit` adds tiles from a saved report or a dataset and measure (the builder's own form reader), removes, reorders by button or Alt+Arrow, resizes on the twelve-column grid and sets a date range and dimension filters every tile inherits at render, saved through the dashboards write permission and refused at the write when the layout is malformed (`DashboardLayoutSchema`, `checkDashboardLayout`).
 
 ### Admin / Platform
 1. ~~Agents CRUD could raise autonomy without the dual-control approval~~ — **fixed** 2026-09-23 (`resources.ts` agents `beforeWrite`, `ai.test.ts` "the agents CRUD cannot move autonomy").

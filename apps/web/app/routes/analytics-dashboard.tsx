@@ -1,4 +1,4 @@
-import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import {
   DateTime,
   DonutChart,
@@ -19,6 +19,8 @@ import { translator } from "../i18n";
 import type { Row } from "../modules/spec";
 import { useShellData } from "./workspace";
 import { labelsFrom, type Label } from "./detail-kit";
+import { dayOf } from "../analytics-def";
+import { spanClass, type DashboardFilters, type Layout, type TileSpec } from "../dashboard-layout";
 
 // One dashboard, painted from a single call. GET /dashboards/:id/data runs every
 // tile server-side and returns a table per tile — so this screen is layout and
@@ -39,28 +41,7 @@ const PERM = { read: "analytics:dashboards:read" } as const;
 /** How many bars one tile draws before it stops being a picture. */
 const MAX_BARS = 8;
 
-/** Tailwind needs the class to exist in the source, so the spans are written out. */
-const SPAN: Record<number, string> = {
-  1: "lg:col-span-1",
-  2: "lg:col-span-2",
-  3: "lg:col-span-3",
-  4: "lg:col-span-4",
-  5: "lg:col-span-5",
-  6: "lg:col-span-6",
-  7: "lg:col-span-7",
-  8: "lg:col-span-8",
-  9: "lg:col-span-9",
-  10: "lg:col-span-10",
-  11: "lg:col-span-11",
-  12: "lg:col-span-12"
-};
-
-/** DashboardBody.layout.tiles, apps/api/src/routes/analytics.ts. */
-interface TileSpec {
-  key: string;
-  viz: "number" | "line" | "bar" | "table" | "donut" | "list";
-  span?: number;
-}
+const PERM_WRITE = "analytics:dashboards:write";
 
 /** ReportTable, packages/ledger/src/reports.ts — what a tile actually returns. */
 interface TileTable {
@@ -77,12 +58,14 @@ export interface TileResult {
   totals?: Record<string, number>;
   /** Set instead of `table` when that one tile failed. */
   error?: string;
+  /** Dashboard filter fields this tile's dataset does not have, so not applied. */
+  unfiltered?: string[];
 }
 
 interface DashboardData {
   id: string;
   key: string;
-  layout: { tiles: TileSpec[] };
+  layout: Layout;
   tiles: TileResult[];
   generatedAt: number;
 }
@@ -108,7 +91,23 @@ const LABELS: Record<string, Record<string, string>> = {
     generated: "Generated",
     total: "Total",
     "health.allOk": "All {count} tiles built.",
-    "health.someFailed": "{failed} of {total} tiles could not be built."
+    "health.someFailed": "{failed} of {total} tiles could not be built.",
+    editTiles: "Edit tiles",
+    filteredBy: "Filtered",
+    unfiltered: "Not narrowed by {fields}: this tile's data has no such field.",
+    "range.last": "Last {days} days",
+    from: "From",
+    to: "To",
+    "op.eq": "is",
+    "op.neq": "is not",
+    "op.in": "is one of",
+    "op.gt": "is more than",
+    "op.gte": "is at least",
+    "op.lt": "is less than",
+    "op.lte": "is at most",
+    "op.contains": "contains",
+    "op.is_null": "is empty",
+    "op.not_null": "is not empty"
   },
   ar: {
     dashboard: "لوحة معلومات",
@@ -121,7 +120,23 @@ const LABELS: Record<string, Record<string, string>> = {
     generated: "تم الإنشاء",
     total: "الإجمالي",
     "health.allOk": "تم إنشاء كل البطاقات ({count}).",
-    "health.someFailed": "تعذّر إنشاء {failed} من أصل {total} بطاقة."
+    "health.someFailed": "تعذّر إنشاء {failed} من أصل {total} بطاقة.",
+    editTiles: "تحرير البطاقات",
+    filteredBy: "مُصفّاة",
+    unfiltered: "لم تُضيَّق حسب {fields}: بيانات هذه البطاقة لا تحتوي على هذا الحقل.",
+    "range.last": "آخر {days} يومًا",
+    from: "من",
+    to: "إلى",
+    "op.eq": "يساوي",
+    "op.neq": "لا يساوي",
+    "op.in": "أحد القيم",
+    "op.gt": "أكبر من",
+    "op.gte": "لا يقل عن",
+    "op.lt": "أصغر من",
+    "op.lte": "لا يزيد عن",
+    "op.contains": "يحتوي على",
+    "op.is_null": "فارغ",
+    "op.not_null": "غير فارغ"
   }
 };
 
@@ -131,6 +146,30 @@ const LABELS: Record<string, Record<string, string>> = {
 export function tileHealth(tiles: TileResult[]): { ok: number; failed: number; total: number } {
   const failed = tiles.filter((tile) => tile.error || !tile.table).length;
   return { ok: tiles.length - failed, failed, total: tiles.length };
+}
+
+/**
+ * The dashboard's filters read back as phrases for the header, so a reader
+ * knows every figure below is drawn under them (docs/30 Analytics 5). A field
+ * name goes through `l`, whose last resort is `humanise`.
+ */
+export function filterSummary(filters: DashboardFilters | undefined, l: Label): string[] {
+  if (!filters) return [];
+  const parts: string[] = [];
+  if (filters.lastDays !== undefined) parts.push(l("range.last", { days: String(filters.lastDays) }));
+  if (filters.from !== undefined) parts.push(`${l("from")} ${dayOf(filters.from)}`);
+  if (filters.to !== undefined) parts.push(`${l("to")} ${dayOf(filters.to)}`);
+  for (const f of filters.where ?? []) {
+    const value = f.value === undefined ? "" : ` ${Array.isArray(f.value) ? f.value.join(", ") : String(f.value)}`;
+    parts.push(`${l(f.field)} ${l(`op.${f.op}`)}${value}`);
+  }
+  return parts;
+}
+
+/** Under a tile: the dashboard filters its data could not take, or null. */
+export function unfilteredNote(result: TileResult | undefined, l: Label): string | null {
+  if (!result?.unfiltered?.length) return null;
+  return l("unfiltered", { fields: result.unfiltered.map((field) => l(field)).join(", ") });
 }
 
 /** The shared resolver (docs/ui.md §7 P3-14), with one last resort of its own:
@@ -155,7 +194,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
 
   const me = await fetchMe(env, request);
   if (!me.permissions.includes(PERM.read)) {
-    return { name: null, data: null, error: null, requestId: null, denied: true };
+    return { name: null, id: dashboardId, mayEdit: false, data: null, error: null, requestId: null, denied: true };
   }
 
   // GET /dashboards/:id/data checks the permission and the tenant, but not the
@@ -163,18 +202,23 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   // list is the gate: a dashboard that is not in it is not this actor's to open.
   const listed = await api<{ data: DashboardRow[] }>("/v1/analytics/dashboards", { env, request });
   const row = listed.data.find((entry) => entry.id === dashboardId);
-  if (!row) return { name: null, data: null, error: null, requestId: null, denied: false };
+  if (!row) return { name: null, id: dashboardId, mayEdit: false, data: null, error: null, requestId: null, denied: false };
+  // The tile editor's door (docs/30 Analytics 5); the PATCH it saves through
+  // is gated on the same permission.
+  const mayEdit = me.permissions.includes(PERM_WRITE);
 
   try {
     const data = await api<DashboardData>(`/v1/analytics/dashboards/${dashboardId}/data`, {
       env,
       request
     });
-    return { name: nameIn(row.nameJson, me.locale, row.key), data, error: null, requestId: null, denied: false };
+    return { name: nameIn(row.nameJson, me.locale, row.key), id: dashboardId, mayEdit, data, error: null, requestId: null, denied: false };
   } catch (error) {
     if (error instanceof ApiError) {
       return {
         name: nameIn(row.nameJson, me.locale, row.key),
+        id: dashboardId,
+        mayEdit,
         data: null,
         error: error.problem.detail ?? error.problem.title,
         // The id support looks the failure up by. Flattening the problem to a
@@ -202,6 +246,7 @@ export default function AnalyticsDashboard() {
   const data = loaded.data;
   const specs = data?.layout.tiles ?? [];
   const health = data ? tileHealth(data.tiles) : null;
+  const filtered = filterSummary(data?.layout.filters, l);
 
   return (
     <div className="flex flex-col gap-6">
@@ -221,7 +266,20 @@ export default function AnalyticsDashboard() {
               <DateTime value={data.generatedAt} locale={locale} precision="minute" />
             </p>
           ) : null}
+          {filtered.length ? (
+            <p className="font-ui text-12 text-subtle">
+              {l("filteredBy")}: {filtered.join(" · ")}
+            </p>
+          ) : null}
         </div>
+        {loaded.mayEdit ? (
+          <Link
+            to={`/analytics/dashboard/${loaded.id}/edit`}
+            className="font-ui text-13 text-accent underline-offset-2 hover:underline"
+          >
+            {l("editTiles")}
+          </Link>
+        ) : null}
       </header>
 
       {!data ? (
@@ -239,7 +297,8 @@ export default function AnalyticsDashboard() {
         <div className="grid gap-6 lg:grid-cols-12">
           {specs.map((spec) => {
             const result = data.tiles.find((tile) => tile.key === spec.key);
-            const span = SPAN[Math.min(12, Math.max(1, spec.span ?? 4))] ?? SPAN[4];
+            const span = spanClass(spec.span);
+            const note = unfilteredNote(result, l);
             return (
               <section
                 key={spec.key}
@@ -248,6 +307,7 @@ export default function AnalyticsDashboard() {
               >
                 <h2 className="eyebrow">{l(spec.key)}</h2>
                 <Tile spec={spec} result={result} locale={locale} l={l} t={t} />
+                {note ? <p className="font-ui text-12 text-subtle">{note}</p> : null}
               </section>
             );
           })}

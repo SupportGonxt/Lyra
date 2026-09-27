@@ -293,7 +293,7 @@ const LABELS: Record<string, Record<string, string>> = {
   }
 };
 
-const labelsIn = labelsFrom(LABELS);
+export const labelsIn = labelsFrom(LABELS);
 
 /* ------------------------------------------------------------------ pure */
 
