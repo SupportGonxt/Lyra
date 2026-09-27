@@ -11,6 +11,7 @@ import { harvestSignals } from "./engines/scout-ingest.js";
 import { sweepSignalClusters } from "./engines/scout-cluster.js";
 import { sweepPanelBench } from "./engines/scout-bench.js";
 import { sweepWhitespace } from "./engines/scout-whitespace.js";
+import { scimRoutes } from "./routes/scim.js";
 import { concludeExperiments } from "./engines/signal-experiment.js";
 import { sweepBilling } from "./engines/billing.js";
 import { sweepConversationDrafts } from "./engines/orbit-draft.js";
@@ -121,6 +122,8 @@ app.route("/v1/realtime", realtimeRoutes);
 // `GET /v1/dist/commission-entries/statement` (read as an id) and
 // `POST /v1/north/boardpacks` (which would otherwise accept a client-supplied
 // sectionsJson/pdfFileId with no assembly or render behind it).
+// ADR-0096: SCIM 2.0 provisioning, before generated CRUD like every hand-written router.
+app.route("/v1/scim/v2", scimRoutes);
 app.route("/v1/core", coreRoutes);
 // ADR-0089: record notes, backlinks, graph and vault export. No generated
 // resource shares these paths, but they mount here with the other hand-written
