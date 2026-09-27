@@ -22,9 +22,15 @@ vi.mock("./engines/scout-whitespace.js", async (importOriginal) => ({
   sweepWhitespace: vi.fn(async () => 0)
 }));
 
+vi.mock("./engines/signal-experiment.js", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  concludeExperiments: vi.fn(async () => ({ concluded: 0 }))
+}));
+
 import worker from "./index.js";
 import { sweepRenewals } from "./engines/renewals.js";
 import { sweepWhitespace } from "./engines/scout-whitespace.js";
+import { concludeExperiments } from "./engines/signal-experiment.js";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "..", "packages", "db", "migrations");
 
@@ -129,8 +135,8 @@ describe("the nightly window", () => {
       const now = Date.now();
       await client.execute({
         sql: `insert into core_tenants (id, slug, name, status, entitlements_json, created_at, updated_at)
-              values ('t_scout','scout','Scout','active',?,?,?), ('t_axis','axis','Axis','active',?,?,?)`,
-        args: [JSON.stringify({ modules: ["scout"] }), now, now, JSON.stringify({ modules: ["axis"] }), now, now]
+              values ('t_scout','scout','Scout','active',?,?,?), ('t_axis','axis','Axis','active',?,?,?), ('t_sig','sig','Sig','active',?,?,?)`,
+        args: [JSON.stringify({ modules: ["scout"] }), now, now, JSON.stringify({ modules: ["axis"] }), now, now, JSON.stringify({ modules: ["signal"] }), now, now]
       });
       vi.mocked(sweepWhitespace).mockClear();
       let tail: Promise<unknown> = Promise.resolve();
@@ -138,6 +144,11 @@ describe("the nightly window", () => {
       await tail;
       const swept = vi.mocked(sweepWhitespace).mock.calls.map(([c]) => (c as { tenantId: string }).tenantId);
       expect(swept).toEqual(["t_scout"]);
+      // docs/30 SIGNAL 4: experiments conclude only where SIGNAL is on.
+      const concluded = vi.mocked(concludeExperiments).mock.calls.map(([c]) => (c as { tenantId: string }).tenantId);
+      expect(concluded).toContain("t_sig");
+      expect(concluded).not.toContain("t_scout");
+      expect(concluded).not.toContain("t_axis");
     } finally {
       vi.useRealTimers();
     }

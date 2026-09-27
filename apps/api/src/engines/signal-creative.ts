@@ -1,5 +1,5 @@
 import { id as newId, schema } from "@lyra/db";
-import { checkCompliance, sha256Hex, type Ctx, type ComplianceFinding, type ComplianceResult } from "@lyra/core";
+import { checkCompliance, emit, sha256Hex, type Ctx, type ComplianceFinding, type ComplianceResult } from "@lyra/core";
 import { promptNouns, type Gateway, type PromptNouns } from "@lyra/model-gateway";
 
 // docs/modules/signal.md §2.1 + §8 acceptance: "Brief -> 20 compliant ar/en
@@ -217,6 +217,17 @@ async function generateLocale(
         createdAt: ctx.now,
         updatedAt: ctx.now
       });
+
+      // docs/30 SIGNAL 4: a flagged draft waits for a human reviewer; the
+      // bus is how that reviewer's queue hears of it.
+      if (compliance.status === "flagged") {
+        await emit(ctx, {
+          module: "signal",
+          type: "signal.creative.flagged",
+          subject: id,
+          data: { creativeId: id, campaignId: brief.campaignId ?? null, rules: compliance.findings.map((f) => f.rule) }
+        });
+      }
 
       variants.push({
         id,

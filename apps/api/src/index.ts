@@ -11,6 +11,7 @@ import { harvestSignals } from "./engines/scout-ingest.js";
 import { sweepSignalClusters } from "./engines/scout-cluster.js";
 import { sweepPanelBench } from "./engines/scout-bench.js";
 import { sweepWhitespace } from "./engines/scout-whitespace.js";
+import { concludeExperiments } from "./engines/signal-experiment.js";
 import { sweepBilling } from "./engines/billing.js";
 import { sweepConversationDrafts } from "./engines/orbit-draft.js";
 import { runSnapshotter } from "./engines/north-snapshotter.js";
@@ -321,6 +322,9 @@ export default {
               await sweepWhitespace(ctx, gatewayFor(env));
               if (nowDate.getUTCDay() === 1) await sweepSignalClusters(ctx, gatewayFor(env), env);
             }
+            // docs/30 SIGNAL 4: a running experiment concludes the night its
+            // answer is clear, and says so on the bus.
+            if (isBackupWindow && on("signal")) await concludeExperiments(ctx);
             // docs/12 §4 / docs/13 §3.5, docs/27 F47: re-score a sample of this
             // week's real traffic against the deterministic gates, per locale,
             // so a model or prompt that drifted is visible beside the eval suite

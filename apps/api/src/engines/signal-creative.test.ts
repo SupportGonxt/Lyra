@@ -324,6 +324,11 @@ describe("generateCreatives", () => {
         expect(row.complianceNotesJson).toBeNull();
       }
     }
+
+    // docs/30 SIGNAL 4: a flagged draft is announced for the compliance
+    // reviewer's queue — one event per flagged creative, none for a passed one.
+    const announced = (await ctx.db.select().from(schema.eventOutbox)).filter((e) => e.type === "signal.creative.flagged");
+    expect(announced.map((e) => (JSON.parse(e.envelopeJson) as { subject: string }).subject).sort()).toEqual(flagged.map((v) => v.id).sort());
   });
 
   it("keeps ar prompts native — a separate call from en, never a translation pass", async () => {

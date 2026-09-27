@@ -3160,6 +3160,7 @@ export interface Operations {
   "PUT /v1/signal/creatives/{id}/design": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/signal/creatives/{id}/image": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/signal/demo/spend-tick": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/signal/experiments/{id}/readout": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalOutreach>>;
   "POST /v1/signal/outreach/run": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach/{id}": Op<{ id: string }, never, never, SignalOutreach>;
@@ -3960,6 +3961,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PUT /v1/signal/creatives/{id}/design": { tag: "signal", summary: "Save a creative's studio layout and canvas edits (DesignJson). Not a publish: no approval, audited", permission: "signal:creatives:generate", public: false },
   "GET /v1/signal/creatives/{id}/image": { tag: "signal", summary: "Re-stream a previously generated creative image's bytes", permission: "signal:creatives:read", public: false },
   "POST /v1/signal/demo/spend-tick": { tag: "signal", summary: "Insert a spend row per channel per live campaign, keyed off the simulated clock (non-production only)", permission: "signal:autopilot:run", public: false },
+  "GET /v1/signal/experiments/{id}/readout": { tag: "signal", summary: "Where an experiment stands: per-arm samples and rates from attribution touches, probability to beat control, verdict (docs/30 SIGNAL 4)", permission: "signal:experiments:read", public: false },
   "GET /v1/signal/outreach": { tag: "signal", summary: "List outreach", permission: "signal:outreach:read", public: false },
   "POST /v1/signal/outreach/run": { tag: "signal", summary: "Run the acquisition outreach sweep now — draft, consent-gate, approval-gate, send, and record the lead touch (also runs on the nightly tick)", permission: "signal:outreach:send", public: false },
   "GET /v1/signal/outreach/{id}": { tag: "signal", summary: "Fetch one outreach", permission: "signal:outreach:read", public: false },

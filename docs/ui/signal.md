@@ -1060,12 +1060,12 @@ need the repository.
    permission each requires; a **Read** action fetches up to 100 rows of one and
    shows them.
 2. **curl** — the equivalent command for the selected read.
-3. **Webhooks and topics** — the events SIGNAL emits today
+3. **Webhooks and topics** — the events SIGNAL emits
    (`signal.budget.moved`, `signal.autopilot.paused`,
-   `signal.autopilot.resumed`) listed separately from those it does not emit yet
-   (`signal.campaign.launched`, `signal.experiment.concluded`,
-   `signal.creative.flagged`) — the second group is marked **not yet built**
-   in the UI itself.
+   `signal.autopilot.resumed`, `signal.campaign.launched`,
+   `signal.experiment.concluded`, `signal.creative.flagged`). A topic nothing
+   raises would be marked **not yet built**; `signal-dev.test.ts` holds each
+   flag to the API's sources.
 4. **Sandbox** — `ping` and `tick` actions for a non-production tenant.
 5. Two cards that are **deliberately empty**: the tracking pixel and the product
    feed, each with a lede explaining what would go there. **Not yet built**, and

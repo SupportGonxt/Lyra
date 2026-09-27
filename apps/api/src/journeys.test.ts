@@ -1010,6 +1010,11 @@ describe("J-M1 a campaign in a day", () => {
       await call("signal.lead", "PATCH", `/v1/signal/campaigns/${campaignId}`, { state: "live" })
     );
     expect(launched.state).toBe("live");
+    // docs/30 SIGNAL 4: going live is announced (ORBIT staffs for the surge).
+    const events = (await database.select().from(schema.eventOutbox)).filter(
+      (e) => e.type === "signal.campaign.launched" && e.envelopeJson.includes(campaignId)
+    );
+    expect(events).toHaveLength(1);
     const audit = ok(await call("tenant.compliance", "GET", "/v1/core/audit-log?limit=50"));
     expect(audit.data.length).toBeGreaterThan(0);
   });
