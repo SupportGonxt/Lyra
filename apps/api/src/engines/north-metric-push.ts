@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import { actorRef, audit, badRequest, conflict, notFound, periodBounds, periodOf, type Ctx, type Grain } from "@lyra/core";
 import { REGISTRY } from "./north-snapshotter.js";
+import { parseCsv, type RowError } from "./axis-case-import.js";
 
 // docs/30 NORTH 3. A metric whose numbers live outside Lyra — footfall, a
 // partner's own sales — is pushed, not computed. Only a metric the snapshotter
@@ -74,4 +75,41 @@ export async function pushMetricValues(ctx: Ctx, key: string, values: readonly P
     after: { by: actorRef(ctx), periods: values.map((v) => v.period) }
   });
   return { written: values.length };
+}
+
+/**
+ * @accept:SA. Metric values from a file: `metric,period,value`, one push per
+ * metric (the generic import panel's `created` counts values written) so one that refuses (unknown, computed, wrong grain) is reported on
+ * its own lines while the rest land.
+ */
+export async function importMetricCsv(ctx: Ctx, csv: string): Promise<{ created: number; skippedDuplicate: number; errors: RowError[] }> {
+  const { header, rows, parseErrors } = parseCsv(csv);
+  const errors: RowError[] = [...parseErrors];
+  const missing = ["metric", "period", "value"].find((col) => !header.includes(col));
+  if (missing && !parseErrors.length) return { created: 0, skippedDuplicate: 0, errors: [{ line: 1, ref: null, error: `missing column ${missing}` }] };
+  if (missing) return { created: 0, skippedDuplicate: 0, errors };
+
+  const byMetric = new Map<string, { lines: number[]; values: PushedValue[] }>();
+  for (const { line, cells } of rows) {
+    const metric = (cells.metric ?? "").trim();
+    const value = (cells.value ?? "").trim();
+    if (!metric) { errors.push({ line, ref: null, error: "metric is required" }); continue; }
+    if (!/^-?\d+$/.test(value)) { errors.push({ line, ref: metric, error: "value must be a whole number" }); continue; }
+    const group = byMetric.get(metric) ?? { lines: [], values: [] };
+    group.lines.push(line);
+    group.values.push({ period: (cells.period ?? "").trim(), value: Number(value) });
+    byMetric.set(metric, group);
+  }
+
+  let created = 0;
+  for (const [metric, group] of byMetric) {
+    try {
+      created += (await pushMetricValues(ctx, metric, group.values)).written;
+    } catch (err) {
+      const detail = (err as { detail?: string }).detail ?? "refused";
+      for (const line of group.lines) errors.push({ line, ref: metric, error: detail });
+    }
+  }
+  // A pushed period overwrites in place, so there is no duplicate to skip.
+  return { created, skippedDuplicate: 0, errors };
 }

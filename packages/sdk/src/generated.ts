@@ -2950,6 +2950,7 @@ export interface Operations {
   "GET /v1/north/journeys": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/north/metrics": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthMetrics>>;
   "POST /v1/north/metrics": Op<never, never, NorthMetrics, NorthMetrics>;
+  "POST /v1/north/metrics/import": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/north/metrics/{id}": Op<{ id: string }, never, never, NorthMetrics>;
   "PATCH /v1/north/metrics/{id}": Op<{ id: string }, never, NorthMetrics, NorthMetrics>;
   "DELETE /v1/north/metrics/{id}": Op<{ id: string }, never, never, void>;
@@ -3749,6 +3750,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/north/journeys": { tag: "north", summary: "Journey health: each documented journey's funnel from the audit log, ?days= window", permission: "north:metrics:read", public: false },
   "GET /v1/north/metrics": { tag: "north", summary: "List metrics", permission: "north:metrics:read", public: false },
   "POST /v1/north/metrics": { tag: "north", summary: "Create a metric", permission: "north:metrics:write", public: false },
+  "POST /v1/north/metrics/import": { tag: "north", summary: "Import metric values from a CSV (metric,period,value); one push per metric, per-line errors", permission: "north:metrics:write", public: false },
   "GET /v1/north/metrics/{id}": { tag: "north", summary: "Fetch one metric", permission: "north:metrics:read", public: false },
   "PATCH /v1/north/metrics/{id}": { tag: "north", summary: "Update a metric", permission: "north:metrics:write", public: false },
   "DELETE /v1/north/metrics/{id}": { tag: "north", summary: "Soft-delete a metric", permission: "north:metrics:write", public: false },

@@ -56,7 +56,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 | ORBIT · Conversations | Zendesk, Intercom, Service Cloud, Sprinklr | 10 | 3 | 3 | Yes (2026-09-26) — AXIS work goes by event; AXIS tools only where AXIS is held |
 | SIGNAL · Marketing | HubSpot, Braze/Iterable, Ads managers, Marketo | 5 | 8 | 3 | Yes (2026-09-26) — people by CSV (`/v1/core/customers/import`), channels on the platform and first contact (ADR-0093), conversions by signed `/track`, autopilot on imported spend |
 | SCOUT · Market | Crayon/Klue, Similarweb, Qualtrics, Earnix/Akur8 | 8 | 4 | 4 | Yes (2026-09-26) — demand from the platform's quotes, its own signals by CSV (`/v1/scout/signals/import`), coverage from converted requests when AXIS is off, whitespace recomputed nightly; the SIGNAL handover says it needs SIGNAL |
-| NORTH · Insight | Tableau Pulse, ThoughtSpot, Power BI, Anaplan | 5 | 7 | 4 | No — every metric reads other modules |
+| NORTH · Insight | Tableau Pulse, ThoughtSpot, Power BI, Anaplan | 5 | 7 | 4 | Yes (2026-09-27) — computed metrics read the modules held; every other number arrives by push or file (`/v1/north/metrics/import`, the metrics tab's Import) |
 | Ledger | NetSuite, Sage Intacct, Xero, Insurity | 12 | 1 | 5 | Mostly — soft reads of NORTH/Dist/AXIS |
 | Distribution | Salesforce PRM, Impartner, Applied Epic, Zywave | 9 | 4 | 2 | Yes (2026-09-27) — without AXIS the chosen quote is recorded as the sale and accrues through the same rate, gate and settlement (ADR-0094) |
 | Compliance | OneTrust, TrustArc, Vanta/Drata | 8 | 6 | 3 | Serves SIGNAL/Ledger via events |
@@ -107,7 +107,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 ### NORTH · Insight
 1. ~~Schedule the brief; emit `north.briefing.published`.~~ **Fixed** 2026-09-26: `nightlyBriefing` drafts yesterday's exec brief after the snapshot, once per date; publishing stays a person's act (only a verified brief, stamped who and when), and that transition alone emits `north.briefing.published`.
 2. ~~Deliver `north.alert.triggered`.~~ **Fixed** 2026-09-23: `engines/north-alert-notify.ts`, consumed in `dispatch.ts`.
-3. ~~Metric push API.~~ **Fixed** 2026-09-26: `POST /v1/north/metrics/{key}/values` (`north:metrics:write`) writes grand-total snapshots for a metric the snapshotter does not compute (a registered one answers 409, so two writers never fight); a changed value drops its verification.
+3. ~~Metric push API.~~ **Fixed** 2026-09-26: `POST /v1/north/metrics/{key}/values` (`north:metrics:write`) writes grand-total snapshots for a metric the snapshotter does not compute (a registered one answers 409, so two writers never fight); a changed value drops its verification. 2026-09-27: the same push from a CSV (`POST /v1/north/metrics/import`, `metric,period,value`), one push per metric so a refused metric is reported on its own lines.
 4. Scenario engine (the what-if screen stores a question and nothing computes it).
 5. ~~Board-pack approval and distribution log.~~ **Fixed** 2026-09-26: approve (review → final, `north:boardpacks:approve`) and distribute (`north:boardpacks:distribute`) — each named person notified once, each send logged with who and when, `north.boardpack.distributed` emitted.
 

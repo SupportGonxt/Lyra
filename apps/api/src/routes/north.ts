@@ -4,12 +4,12 @@ import { and, asc, eq, inArray, max } from "drizzle-orm";
 import type { ReportTable } from "@lyra/ledger";
 import { id, schema } from "@lyra/db";
 import { actorRef, audit, forecast, isClosedPeriod, journeyHealth, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
-import { body, IsoDay, parse } from "../http.js";
+import { body, csvBody, IsoDay, parse } from "../http.js";
 import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateBriefing } from "../engines/narrator.js";
 import { runSnapshotter } from "../engines/north-snapshotter.js";
-import { pushMetricValues } from "../engines/north-metric-push.js";
+import { importMetricCsv, pushMetricValues } from "../engines/north-metric-push.js";
 import { approveBoardpack, assembleBoardpackSections, distributeBoardpack } from "../engines/north-boardpack.js";
 import { toPdf } from "../engines/export/pdf.js";
 import { pushToActor } from "../engines/realtime.js";
@@ -70,6 +70,13 @@ northRoutes.post("/metrics/:key/values", async (c) => {
     z.object({ values: z.array(z.object({ period: z.string().min(7).max(10), value: z.number().int() })).min(1).max(400) })
   );
   return c.json(await pushMetricValues(ctx, c.req.param("key"), input.values));
+});
+
+// @accept:SA: the same push from a file (`metric,period,value`), per-line errors.
+northRoutes.post("/metrics/import", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:metrics:write", { tenantId: ctx.tenantId, module: "north" });
+  return c.json(await importMetricCsv(ctx, await csvBody(c)), 201);
 });
 
 northRoutes.post("/boardpacks/:id/distribute", async (c) => {

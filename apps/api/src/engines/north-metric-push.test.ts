@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
-import { pushMetricValues } from "./north-metric-push.js";
+import { importMetricCsv, pushMetricValues } from "./north-metric-push.js";
 
 // docs/30 NORTH 3. A metric the snapshotter cannot compute (no registered
 // definition) had no way in, so NORTH was only usable on Lyra's own tables.
@@ -63,5 +63,37 @@ describe("pushMetricValues", () => {
     await expect(pushMetricValues(ctx, "gwp", [{ period: "2026-07", value: 1 }])).rejects.toMatchObject({ status: 409 });
     await expect(pushMetricValues(ctx, "store_footfall", [{ period: "2026-07-01", value: 1 }])).rejects.toMatchObject({ status: 400 });
     expect(await snaps()).toEqual([]);
+  });
+});
+
+// @accept:SA — NORTH alone. With no other module, every number is from
+// outside; a file is how a finance team has them. One push per metric in the
+// file, so a metric that refuses (unknown, computed, wrong grain) is reported
+// against its own lines and the rest still land.
+describe("importMetricCsv", () => {
+  it("pushes each metric's rows and reports the lines it could not take", async () => {
+    const csv = [
+      "metric,period,value",
+      "store_footfall,2026-07,1200",
+      "store_footfall,2026-08,900",
+      "gwp,2026-08,5",
+      "nope,2026-08,1",
+      "store_footfall,2026-09,lots",
+      ",2026-09,1"
+    ].join("\n");
+    const out = await importMetricCsv(ctx, csv);
+    expect(out.created).toBe(2);
+    expect(out.errors.map((e) => [e.line, e.ref])).toEqual([
+      [6, "store_footfall"],
+      [7, null],
+      [4, "gwp"],
+      [5, "nope"]
+    ]);
+    expect((await snaps()).map((s) => s.value).sort()).toEqual([1200, 900].sort());
+  });
+
+  it("refuses a file without the three columns", async () => {
+    const out = await importMetricCsv(ctx, "metric,value\nstore_footfall,1");
+    expect(out).toEqual({ created: 0, skippedDuplicate: 0, errors: [{ line: 1, ref: null, error: "missing column period" }] });
   });
 });
