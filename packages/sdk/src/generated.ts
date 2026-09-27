@@ -3127,6 +3127,8 @@ export interface Operations {
   "POST /v1/scout/data-products": Op<never, never, ScoutDataProducts, ScoutDataProducts>;
   "GET /v1/scout/data-products/{id}": Op<{ id: string }, never, never, ScoutDataProducts>;
   "PATCH /v1/scout/data-products/{id}": Op<{ id: string }, never, ScoutDataProducts, ScoutDataProducts>;
+  "POST /v1/scout/data-products/{id}/deliver": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/scout/data-products/{id}/subscribe": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/scout/panel-bench": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutPanelBench>>;
   "GET /v1/scout/panel-bench/negotiation-pack": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/scout/panel-bench/sweep": Op<never, never, never, Record<string, unknown>>;
@@ -3950,6 +3952,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/scout/data-products": { tag: "scout", summary: "Create a data product", permission: "scout:data_products:create", public: false },
   "GET /v1/scout/data-products/{id}": { tag: "scout", summary: "Fetch one data product", permission: "scout:data_products:read", public: false },
   "PATCH /v1/scout/data-products/{id}": { tag: "scout", summary: "Update a data product", permission: "scout:data_products:publish", public: false },
+  "POST /v1/scout/data-products/{id}/deliver": { tag: "scout", summary: "Deliver a data product to a subscriber: builds the defined cut with thin cells suppressed, refuses below the k-anonymity floor, invoices the subscribed fee (DPROD-DELIVER, income 4060) and logs the artefact in the export register (idempotency-key required)", permission: "scout:data_products:publish", public: false },
+  "POST /v1/scout/data-products/{id}/subscribe": { tag: "scout", summary: "Subscribe a provider to a published data product at a fee per delivery (approval-gated by scout.data_product_subscribe, idempotency-key required, posts DPROD-SUB)", permission: "scout:data_products:publish", public: false },
   "GET /v1/scout/panel-bench": { tag: "scout", summary: "List panel-bench", permission: "scout:panel_bench:read", public: false },
   "GET /v1/scout/panel-bench/negotiation-pack": { tag: "scout", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", public: false },
   "POST /v1/scout/panel-bench/sweep": { tag: "scout", summary: "Run the Bench Builder: rebuild every provider x line x month cell from the panel's own quote outcomes", permission: "scout:panel_bench:build", public: false },
@@ -3965,7 +3969,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/scout/signals/import": { tag: "scout", summary: "Import SCOUT signals from CSV (source, sourceRef, observedAt YYYY-MM-DD, weight; other columns become the payload). Stored by the harvest path, per-line honest", permission: "scout:signals:ingest", public: false },
   "POST /v1/scout/signals/similar": { tag: "scout", summary: "Nearest signals to a phrase, from the market embedding index", permission: "scout:signals:read", public: false },
   "GET /v1/scout/signals/{id}": { tag: "scout", summary: "Fetch one signal", permission: "scout:signals:read", public: false },
-  "GET /v1/scout/sources": { tag: "scout", summary: "The registered signal sources — id, kind, and whether the adapter leaves LYRA (none do today, ADR-0078)", permission: "scout:signals:read", public: false },
+  "GET /v1/scout/sources": { tag: "scout", summary: "The registered signal sources — id, kind, and whether the adapter leaves LYRA (only the RSS reader, and only for a tenant that configured a feed: ADR-0078, ADR-0101)", permission: "scout:signals:read", public: false },
   "GET /v1/scout/watch": { tag: "scout", summary: "Competitor and regulatory watch: each watched subject's window scored against the one before it", permission: "scout:signals:read", public: false },
   "GET /v1/scout/whitespaces": { tag: "scout", summary: "List whitespaces", permission: "scout:whitespaces:read", public: false },
   "GET /v1/scout/whitespaces/commentary": { tag: "scout", summary: "Why each live whitespace is whitespace: the cached one-line commentary plus the evidence it was grounded against, for every candidate at once (the Radar's hover prefetch)", permission: "scout:whitespaces:read", public: false },

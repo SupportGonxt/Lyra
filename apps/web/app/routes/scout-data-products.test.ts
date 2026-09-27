@@ -157,7 +157,7 @@ describe("subscribers", () => {
     const rows = subscribersOf(
       product({ subscribersJson: [{ since: 1 }, null, "prv_falcon", { providerId: "prv_cedar" }] })
     );
-    expect(rows).toEqual([{ providerId: "prv_cedar", since: null, suspendedAt: null }]);
+    expect(rows).toEqual([{ providerId: "prv_cedar", since: null, suspendedAt: null, feeMinor: null }]);
   });
 });
 
@@ -282,7 +282,7 @@ describe("changing status", () => {
     expect(calls[1]?.method).toBe("PATCH");
     expect(calls[1]?.key).toBe("idem_1");
     expect(calls[1]?.body).toEqual({ status: "published" });
-    expect(result.done).toEqual({ status: "published" });
+    expect(result.done).toEqual({ intent: "move", status: "published" });
   });
 
   it("reads the approval gate as a queued change, not a failure", async () => {
@@ -303,6 +303,76 @@ describe("changing status", () => {
     expect(result.problem?.code).toBe("approval_required");
     expect(result.problem?.policy_key).toBe("scout.data_product_publish");
     expect(result.done).toBeNull();
+  });
+});
+
+/* ------------------------------------------------ subscribe and deliver */
+
+// docs/30 SCOUT 1: the screen showed subscribers and a delivery log and could
+// add to neither. These are the two acts that sell the product, and both are
+// the API's to decide — the action only refuses what it can see is empty.
+
+describe("subscribing a provider", () => {
+  it("refuses without a provider or a positive whole fee, before any call", async () => {
+    const calls = stubFetch();
+    expect((await action(args(form({ intent: "subscribe", productId: "dtp_1", feeMinor: "5000" })))).problem?.code).toBe(
+      "provider_required"
+    );
+    for (const feeMinor of ["", "0", "-1", "12.5", "abc"]) {
+      const result = await action(args(form({ intent: "subscribe", productId: "dtp_1", providerId: "prv_falcon", feeMinor })));
+      expect(result.problem?.code).toBe("fee_required");
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("posts provider and fee with the form's idempotency key", async () => {
+    const calls = stubFetch(json({ dataProductId: "dtp_1", providerId: "prv_falcon", feeMinor: 500_000 }, 201));
+    const result = await action(
+      args(form({ intent: "subscribe", productId: "dtp_1", providerId: "prv_falcon", feeMinor: "500000", key: "idem_s" }))
+    );
+    expect(calls[0]?.url).toBe("https://api.test/v1/scout/data-products/dtp_1/subscribe");
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.key).toBe("idem_s");
+    expect(calls[0]?.body).toEqual({ providerId: "prv_falcon", feeMinor: 500_000 });
+    expect(result.done).toEqual({ intent: "subscribe", providerId: "prv_falcon" });
+  });
+
+  it("reads the approval gate as a queued subscription, not a failure", async () => {
+    stubFetch(json({ title: "Approval required", status: 403, code: "approval_required", policy_key: "scout.data_product_subscribe" }, 403));
+    const result = await action(args(form({ intent: "subscribe", productId: "dtp_1", providerId: "prv_falcon", feeMinor: "500000" })));
+    expect(result.problem?.code).toBe("approval_required");
+    expect(result.done).toBeNull();
+  });
+});
+
+describe("delivering to a subscriber", () => {
+  it("refuses without a provider, before any call", async () => {
+    const calls = stubFetch();
+    expect((await action(args(form({ intent: "deliver", productId: "dtp_1" })))).problem?.code).toBe("provider_required");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("posts the provider and reports what the cut held", async () => {
+    const calls = stubFetch(json({ exportId: "exp_1", invoiceId: "inv_1", cells: 4, suppressed: 2, feeMinor: 500_000 }, 201));
+    const result = await action(args(form({ intent: "deliver", productId: "dtp_1", providerId: "prv_cedar", key: "idem_d" })));
+    expect(calls[0]?.url).toBe("https://api.test/v1/scout/data-products/dtp_1/deliver");
+    expect(calls[0]?.key).toBe("idem_d");
+    expect(calls[0]?.body).toEqual({ providerId: "prv_cedar" });
+    expect(result.done).toEqual({ intent: "deliver", cells: 4, suppressed: 2 });
+  });
+
+  it("carries the API's refusal through whole — a thin cut is the API's to refuse", async () => {
+    stubFetch(json({ title: "Conflict", status: 409, code: "conflict", detail: "k-anonymity floor not met: 3 cells below floor of 20" }, 409));
+    const result = await action(args(form({ intent: "deliver", productId: "dtp_1", providerId: "prv_cedar" })));
+    expect(result.problem?.status).toBe(409);
+    expect(result.problem?.detail).toMatch(/k-anonymity/);
+  });
+});
+
+describe("subscribersOf", () => {
+  it("reads the fee a subscription was approved at, and null for one that predates fees", () => {
+    const row = product({ subscribersJson: [{ providerId: "prv_a", since: 1, feeMinor: 500_000 }, { providerId: "prv_b", since: 2 }] });
+    expect(subscribersOf(row).map((one) => one.feeMinor)).toEqual([500_000, null]);
   });
 });
 

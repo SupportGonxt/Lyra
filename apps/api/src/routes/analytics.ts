@@ -376,14 +376,18 @@ analyticsRoutes.get("/exports", async (c) => {
   // Reading the register is not creating an export; `:download` is the gate that
   // matches what comes back, and it is the gate the download itself uses.
   require_(ctx.actor, "analytics:exports:download", { tenantId: ctx.tenantId });
-  const { list } = listParams(c);
+  const { list, filters } = listParams(c);
   const mine = can(ctx.actor, "core:audit:read", { tenantId: ctx.tenantId })
     ? undefined
     : eq(schema.analyticsExports.requestedBy, actorRef(ctx));
+  // `?subjectRef=` is how a subject's own log reads its artefacts (the data
+  // products screen's delivery log). It was sent and ignored, so that log
+  // listed every export the reader could see.
+  const subject = filters.subjectRef ? eq(schema.analyticsExports.subjectRef, filters.subjectRef) : undefined;
   const rows = await ctx.db
     .select()
     .from(schema.analyticsExports)
-    .where(scoped(ctx, schema.analyticsExports, mine))
+    .where(scoped(ctx, schema.analyticsExports, mine, subject))
     .orderBy(desc(schema.analyticsExports.createdAt))
     .limit(list.limit);
   return c.json({ data: rows });
@@ -1029,13 +1033,16 @@ async function materialise(
   }
 }
 
-/** Put the bytes in the object store and leave the two rows that describe them. */
-async function storeExport(
+/** Put the bytes in the object store and leave the two rows that describe them.
+ *  Exported for artefacts that are not report runs — a data-product delivery
+ *  (engines/scout-data-product.ts) names its subject instead of a run. */
+export async function storeExport(
   ctx: Ctx,
   bucket: R2Bucket | undefined,
   a: {
-    runId: string;
+    runId: string | null;
     reportId: string | null;
+    subjectRef?: string | null;
     format: string;
     rendered: Rendered;
     rowCount: number;
@@ -1069,7 +1076,7 @@ async function storeExport(
     tenantId: ctx.tenantId,
     runId: a.runId,
     reportId: a.reportId,
-    subjectRef: null,
+    subjectRef: a.subjectRef ?? null,
     format: a.format,
     fileId,
     sizeBytes: a.rendered.bytes.length,
