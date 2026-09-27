@@ -1390,7 +1390,10 @@ Create: `question` (textarea)\*, `assumptions` (json)\*, `author`\*, `sharedWith
 
 The scenario **result** — the entire point of running one — is a JSON blob
 truncated to 60 characters in the list and rendered in full only as monospace text
-on the record screen.
+on the record screen. `/north/whatif` is where it is read properly. The generic
+CRUD cannot write it: `resultJson` and `modelRunRef` are stripped on create and
+update, and changing `assumptionsJson` clears a stored result (docs/30 NORTH 4) —
+the scenario engine is its one writer.
 
 #### Tab 6 — Board packs
 Read `north:boardpacks:read`, create `north:boardpacks:generate`. **No update.**
@@ -1519,19 +1522,30 @@ flagship screen, so it is also the most-visited path to this defect.
 
 #### `north/whatif` — Scenarios ("What if")
 
-`PERM = { read: "north:scenarios:read", run: "north:scenarios:run" }`. **Confirms
-the doc's earlier finding: this is not a slider or simulator.** A scenario is
-literally a question plus free-text assumptions (`name: value` per line, parsed
-by `readAssumptions()` — a line with no `name:` is refused outright, not silently
-dropped) and, optionally, a stored result. The screen's own code comments are
-explicit about why: "Nothing in the API composes an answer yet… so this screen
-saves the question and its assumptions, renders a stored result where one exists,
-and says plainly that a stored figure is a point estimate with no band behind it.
-It does not invent a range to satisfy the guardrail — a fabricated band is worse
-than a missing one." Saving a scenario stores only `question`, `author`,
-`assumptionsJson` — never a fabricated `resultJson` or `modelRunRef`. The library
-table's "Result" column is a badge ("Answered"/"Unanswered") keyed off whether
-`resultJson` has any keys. The headline is deliberately marked as **not** an AI
+`PERM = { read: "north:scenarios:read", run: "north:scenarios:run" }`. Not a
+slider: a scenario is a question plus `name: value` assumption lines (parsed by
+`readAssumptions()` — a line with no `name:` is refused outright, not silently
+dropped), **computed by the scenario engine** (docs/30 NORTH 4, ADR-0103,
+`POST /v1/north/scenarios/{id}/run`). The engine reads one driver: `metric` (a
+registered metric key), `changeBps` (a signed relative change, `1000` = +10%) and
+`horizonMonths` — `horizonDays` for a daily metric. It answers with the metric's
+own forecast band (p10/p50/p90, damped Holt from closed grand-total snapshots,
+the same history `GET /v1/north/forecast` reads) and the same band shifted.
+Saving asks the engine at once; each open scenario carries a **Compute** button
+("Compute again from the latest figures" once computed), both gated on
+`north:scenarios:run`. Assumptions the engine cannot read come back as a 422
+naming each one, and the screen lists them under the scenario in its own words
+(`need.<reason>`, `{name}`) — the save still stands. A computed answer renders as
+provenance (metric, change, horizon, "Projected from" the last closed period,
+closed periods read, whether the band was measured or is the default ±25%, the
+assumptions **stated but not used**, when it was computed) above a table per
+period — as it stands / with the change / difference, each a median over its
+p10–p90 range. Too little history (fewer than four closed periods) is stored as
+an answer with no numbers, and the screen says there is no baseline to shift and
+that nothing was estimated in its place. A result stored before the engine
+existed (the seeded rows) still renders as flat figures with the point-estimate
+warning. The library's "Result" badge reads Computed / Answered / Unanswered.
+Arithmetic, not a model: no ✦. The headline is deliberately marked as **not** an AI
 surface: `headlineFor()`'s own comment reads "Not AI-authored text, so no ✦
 (CLAUDE.md §11): a person typed this question, nothing summarised it." Numeric
 result fields are unit-decoded from their key's suffix (`*Minor` → money,
@@ -1912,15 +1926,12 @@ SCOUT/SIGNAL has no code counterpart in either direction at that layer — but a
 the data layer this snapshotter is a real, working cross-module coupling that the
 architecture rule above says should not exist in this form.
 
-**9.14 `/north/whatif` has no slider, no simulator, and no confidence band —
-despite what "what-if" and "scenario" imply.** A scenario is a stored question
-plus free-text `name: value` assumption lines (§4.6a); there is no engine in this
-codebase that computes an answer from them (`apps/api/src/engines` holds the
-snapshotter and the board pack, not a scenario engine), so a saved scenario's
-result stays empty until something else fills it in by hand, and the screen says
-so explicitly rather than fabricating a range. This is a genuine capability gap
-against the feature's name, not a rendering defect — the screen is honest about
-the gap it has, which is the right call given the gap exists at all.
+**9.14 ~~`/north/whatif` has no simulator and no confidence band.~~ Fixed
+2026-09-27 (docs/30 NORTH 4, ADR-0103):** the scenario engine computes a stored
+scenario whose assumptions name a driver (`metric`, `changeBps`,
+`horizonMonths`/`horizonDays`) as the metric's forecast band and the same band
+shifted, stored on the row. Still no slider, and one driver per scenario — no
+elasticities or funnel composition yet (ADR-0103 says why).
 
 ---
 
@@ -2013,12 +2024,14 @@ plus the assumptions it rests on. Both are stored so the answer can be argued
 with later, which is the only kind of answer worth keeping." · "Ask a what-if" ·
 "The question" · "What if we move a fifth of the motor book onto the panel?"
 (hint copy) · "Assumptions" · "Asked by" · "Save the question" · "Saving records
-the question and its assumptions. No engine computes the answer yet, so the
-result stays empty until somebody fills it in." · "Saved scenarios" · "Every
+the question and its assumptions, then computes it: the metric's own forecast
+band, and the same band with the change applied. Assumptions the computation
+does not read stay on the scenario, marked as unused." · "Saved scenarios" · "Every
 scenario asked in this tenant, most recent first" · "Question" · "Asked" ·
-"Result" · "Open" · "Answered" · "Unanswered" · "What it assumes" · "What it
-answers" · "Nothing has answered this yet. The question and its assumptions are
-stored; the result is empty because no engine has run against them." · "Shared
+"Result" · "Open" · "Answered" · "Computed" · "Unanswered" · "What it assumes" ·
+"What it answers" · "Nothing has answered this yet. The question and its
+assumptions are stored; computing it projects the metric they name." · "Compute" ·
+"Compute again from the latest figures" · "Scenario computed." · "Shared
 with" · "Model run" · "Not recorded" · "These are point estimates. No confidence
 band was stored with them, so read them as a single line through a range nobody
 has measured." · "No scenarios have been asked" · "The first question somebody

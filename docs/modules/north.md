@@ -50,6 +50,11 @@ connectors).
   with assumptions listed; saved to `north_scenarios`, shareable.
   Guardrail: simulations always display assumption provenance and confidence
   band; no point estimates without ranges.
+- Built so far (ADR-0103): one driver per scenario — `metric`, a relative
+  `changeBps`, `horizonMonths`/`horizonDays` — applied to the metric's own
+  forecast band (`POST /v1/north/scenarios/{id}/run`, deterministic, no model
+  call). Elasticities, funnel/cohort composition, multi-driver and
+  slice-scoped drivers are not built yet.
 
 ### 2.5 Board & investor packs
 - Templates (exco weekly, board monthly/quarterly, investor update):

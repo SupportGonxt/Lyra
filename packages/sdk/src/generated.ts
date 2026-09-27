@@ -3029,6 +3029,7 @@ export interface Operations {
   "POST /v1/north/scenarios": Op<never, never, NorthScenarios, NorthScenarios>;
   "GET /v1/north/scenarios/{id}": Op<{ id: string }, never, never, NorthScenarios>;
   "PATCH /v1/north/scenarios/{id}": Op<{ id: string }, never, NorthScenarios, NorthScenarios>;
+  "POST /v1/north/scenarios/{id}/run": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/north/snapshots": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthSnapshots>>;
   "GET /v1/north/snapshots/{id}": Op<{ id: string }, never, never, NorthSnapshots>;
   "POST /v1/north/snapshots/{id}/verify": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3860,6 +3861,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/north/scenarios": { tag: "north", summary: "Create a scenario", permission: "north:scenarios:run", public: false },
   "GET /v1/north/scenarios/{id}": { tag: "north", summary: "Fetch one scenario", permission: "north:scenarios:read", public: false },
   "PATCH /v1/north/scenarios/{id}": { tag: "north", summary: "Update a scenario", permission: "north:scenarios:run", public: false },
+  "POST /v1/north/scenarios/{id}/run": { tag: "north", summary: "Compute a stored what-if (metric, changeBps, horizonMonths|horizonDays) against the metric's forecast band and store the answer; 422 names each unreadable assumption (docs/30 NORTH 4)", permission: "north:scenarios:run", public: false },
   "GET /v1/north/snapshots": { tag: "north", summary: "List snapshots", permission: "north:snapshots:read", public: false },
   "GET /v1/north/snapshots/{id}": { tag: "north", summary: "Fetch one snapshot", permission: "north:snapshots:read", public: false },
   "POST /v1/north/snapshots/{id}/verify": { tag: "north", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", public: false },

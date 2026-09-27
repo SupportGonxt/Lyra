@@ -20,7 +20,8 @@ import {
   Table,
   Textarea
 } from "@lyra/ui";
-import { api } from "../api.server";
+import { api, type ApiOptions } from "../api.server";
+import { ApiError } from "../api-error";
 import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { FALLBACK_CURRENCY } from "../calendar";
@@ -32,8 +33,12 @@ import {
   readable,
   refuse,
   refused,
+  MetricValue,
+  metricText,
+  pct,
   type ActionResult,
   type Labels,
+  type MetricUnit,
   type Page
 } from "./north-shared";
 
@@ -41,13 +46,15 @@ import {
 // the answer rests on, and the saved library.
 //
 // §2.4's guardrail is that a simulation always shows its assumption provenance
-// and a confidence band — no point estimate without a range. Nothing in the API
-// composes an answer yet (apps/api/src/engines holds the snapshotter and the
-// board pack, no scenario engine), so this screen saves the question and its
-// assumptions, renders a stored result where one exists, and says plainly that
-// a stored figure is a point estimate with no band behind it. It does not
-// invent a range to satisfy the guardrail — a fabricated band is worse than a
-// missing one.
+// and a confidence band — no point estimate without a range. The scenario
+// engine (docs/30 NORTH 4, ADR-0103; apps/api/src/engines/north-scenario.ts)
+// answers a scenario whose assumptions name a driver — `metric`, `changeBps`,
+// `horizonMonths` (or `horizonDays`) — with the metric's own forecast band and
+// the same band shifted. Saving asks it at once; "Compute" asks again against
+// newer snapshots. Assumptions it cannot read are named back, line by line.
+// A stored result no engine produced (older rows) still renders, with the plain
+// warning that it is a point estimate with no band behind it — the screen does
+// not invent a range for it. Arithmetic, not a model: no ✦ (CLAUDE.md §11).
 
 /* --------------------------------------------------------------- constants */
 
@@ -72,12 +79,12 @@ const LABELS: Labels = {
     "ask.question.hint": "Plain words. “What if we move a fifth of the motor book onto the panel?”",
     "ask.assumptions": "Assumptions",
     "ask.assumptions.hint":
-      "One per line, as name: value. A value ending Minor is money in minor units, Bps basis points, Ppm parts per million, Ms milliseconds.",
+      "One per line, as name: value. To have it computed, name a metric, a changeBps (1000 is +10%, -500 is −5%) and a horizonMonths — horizonDays for a daily metric. A value ending Minor is money in minor units, Bps basis points, Ppm parts per million, Ms milliseconds.",
     "ask.author": "Asked by",
     "ask.author.hint": "Recorded against the scenario so the next reader knows whose question it was.",
     "ask.submit": "Save the question",
     "ask.note":
-      "Saving records the question and its assumptions. No engine computes the answer yet, so the result stays empty until somebody fills it in.",
+      "Saving records the question and its assumptions, then computes it: the metric's own forecast band, and the same band with the change applied. Assumptions the computation does not read stay on the scenario, marked as unused.",
     "library.title": "Saved scenarios",
     "library.caption": "Every scenario asked in this tenant, most recent first",
     "library.question": "Question",
@@ -86,25 +93,58 @@ const LABELS: Labels = {
     "library.result": "Result",
     "library.open": "Open",
     "result.yes": "Answered",
+    "result.computed": "Computed",
     "result.no": "Unanswered",
     "detail.assumptions": "What it assumes",
     "detail.result": "What it answers",
     "detail.result.none":
-      "Nothing has answered this yet. The question and its assumptions are stored; the result is empty because no engine has run against them.",
+      "Nothing has answered this yet. The question and its assumptions are stored; computing it projects the metric they name.",
     "detail.shared": "Shared with",
     "detail.run": "Model run",
     "detail.unset": "Not recorded",
     "detail.point":
       "These are point estimates. No confidence band was stored with them, so read them as a single line through a range nobody has measured.",
+    "run.submit": "Compute",
+    "run.again": "Compute again from the latest figures",
+    "run.needs": "It could not be computed from these assumptions:",
+    "need.missing": "{name} is missing.",
+    "need.unknown": "{name} names no metric this tenant keeps.",
+    "need.unsupported_grain": "{name} is kept at a grain nothing projects yet — only daily and monthly metrics.",
+    "need.not_integer": "{name} must be a whole number.",
+    "need.out_of_range": "{name} is outside what the engine projects: a change of −100% to +1000%, a horizon of 1 to 36.",
+    "answer.metric": "Metric",
+    "answer.change": "Change applied",
+    "answer.horizon": "Projected",
+    "horizon.month": "{count} months",
+    "horizon.day": "{count} days",
+    "answer.asOf": "Projected from",
+    "answer.observations": "Closed periods read",
+    "answer.band": "Band",
+    "band.empirical": "Measured from how the forecast missed on held-out periods",
+    "band.default": "The default ±25%, widening with distance — too little history to measure one",
+    "answer.ignored": "Stated but not used",
+    "answer.computed": "Computed",
+    "answer.caption": "The forecast as it stands, and with the change applied, per period",
+    "col.period": "Period",
+    "col.baseline": "As it stands",
+    "col.scenario": "With the change",
+    "col.delta": "Difference",
+    "answer.range": "{p10} to {p90}",
+    "answer.none":
+      "There is no baseline to shift: {metric} has {count} closed periods on record and a projection needs at least four. Nothing has been estimated in their place.",
+    "answer.note":
+      "Every figure is the middle of a range: the band beneath it runs from the 10th to the 90th percentile of the metric's own forecast. The change is applied as stated; the uncertainty is the baseline's.",
     "none.title": "No scenarios have been asked",
     "none.body": "The first question somebody writes down is the first one anybody else can argue with.",
     denied: "You do not have permission to read scenarios. Ask a tenant administrator for Insight scenario access.",
     saved: "Scenario saved.",
+    ran: "Scenario computed.",
     approvalTitle: "Queued for approval",
     approvalBody: "Saving this scenario needs sign-off under policy {policy}. It is queued, not lost.",
     approvalLink: "Open the approvals queue",
     "problem.missing_question": "Write the question out — a scenario without one cannot be argued with later.",
     "problem.missing_author": "Put your name to it.",
+    "problem.missing_scenario": "Choose a scenario to compute.",
     "problem.bad_assumptions":
       "Assumptions are read one per line as name: value. One of these lines carried no name."
   },
@@ -119,12 +159,12 @@ const LABELS: Labels = {
     "ask.question.hint": "بكلمات بسيطة. «ماذا لو نقلنا خُمس محفظة المركبات إلى اللجنة؟»",
     "ask.assumptions": "الافتراضات",
     "ask.assumptions.hint":
-      "افتراض في كل سطر بصيغة الاسم: القيمة. القيمة المنتهية بـ Minor مبلغ بالوحدات الصغرى، وBps نقاط أساس، وPpm أجزاء من مليون، وMs مللي ثانية.",
+      "افتراض في كل سطر بصيغة الاسم: القيمة. ليُحسب، اذكر metric وchangeBps (‏1000 تعني ‎+10%‎، و‎-500‎ تعني ‎−5%‎) وhorizonMonths — أو horizonDays لمؤشر يومي. القيمة المنتهية بـ Minor مبلغ بالوحدات الصغرى، وBps نقاط أساس، وPpm أجزاء من مليون، وMs مللي ثانية.",
     "ask.author": "السائل",
     "ask.author.hint": "يُسجَّل مع السيناريو ليعرف القارئ التالي صاحب السؤال.",
     "ask.submit": "احفظ السؤال",
     "ask.note":
-      "الحفظ يسجّل السؤال وافتراضاته. لا يوجد محرك يحسب الإجابة بعد، لذا تبقى النتيجة فارغة حتى يملأها أحد.",
+      "الحفظ يسجّل السؤال وافتراضاته ثم يحسبه: نطاق التوقع للمؤشر نفسه، والنطاق ذاته بعد تطبيق التغيير. الافتراضات التي لا يقرؤها الحساب تبقى مع السيناريو معلَّمة بأنها غير مستخدمة.",
     "library.title": "السيناريوهات المحفوظة",
     "library.caption": "كل سيناريو طُرح في هذه المؤسسة، الأحدث أولاً",
     "library.question": "السؤال",
@@ -133,24 +173,57 @@ const LABELS: Labels = {
     "library.result": "النتيجة",
     "library.open": "افتح",
     "result.yes": "مُجاب",
+    "result.computed": "محسوب",
     "result.no": "بلا إجابة",
     "detail.assumptions": "ما يفترضه",
     "detail.result": "ما يجيب به",
     "detail.result.none":
-      "لم يُجب أحد عن هذا بعد. السؤال وافتراضاته محفوظة، والنتيجة فارغة لأن لا محرك عمل عليها.",
+      "لم يُجب أحد عن هذا بعد. السؤال وافتراضاته محفوظة، وحسابه يُسقط المؤشر الذي تذكره.",
     "detail.shared": "مشارَك مع",
     "detail.run": "تشغيل النموذج",
     "detail.unset": "غير مسجل",
     "detail.point": "هذه تقديرات نقطية. لم يُحفظ معها نطاق ثقة، فاقرأها كخط واحد داخل مدى لم يقسه أحد.",
+    "run.submit": "احسب",
+    "run.again": "أعد الحساب من أحدث الأرقام",
+    "run.needs": "تعذّر الحساب من هذه الافتراضات:",
+    "need.missing": "{name} غير موجود.",
+    "need.unknown": "{name} لا يسمّي مؤشراً تحتفظ به هذه المؤسسة.",
+    "need.unsupported_grain": "{name} محفوظ بدرجة تفصيل لا يُسقطها شيء بعد — المؤشرات اليومية والشهرية فقط.",
+    "need.not_integer": "{name} يجب أن يكون عدداً صحيحاً.",
+    "need.out_of_range": "{name} خارج ما يُسقطه المحرك: تغيير من ‎−100%‎ إلى ‎+1000%‎، وأفق من 1 إلى 36.",
+    "answer.metric": "المؤشر",
+    "answer.change": "التغيير المطبَّق",
+    "answer.horizon": "مدى الإسقاط",
+    "horizon.month": "{count} شهراً",
+    "horizon.day": "{count} يوماً",
+    "answer.asOf": "أُسقط ابتداءً من",
+    "answer.observations": "الفترات المغلقة المقروءة",
+    "answer.band": "النطاق",
+    "band.empirical": "مقيس من أخطاء التوقع على فترات محجوزة",
+    "band.default": "النطاق الافتراضي ±25% يتّسع مع البُعد — التاريخ أقصر من أن يُقاس منه نطاق",
+    "answer.ignored": "مذكور وغير مستخدم",
+    "answer.computed": "حُسب",
+    "answer.caption": "التوقع كما هو، ومع تطبيق التغيير، لكل فترة",
+    "col.period": "الفترة",
+    "col.baseline": "كما هو",
+    "col.scenario": "مع التغيير",
+    "col.delta": "الفرق",
+    "answer.range": "من {p10} إلى {p90}",
+    "answer.none":
+      "لا يوجد أساس يُزاح: لدى {metric} ‏{count} فترات مغلقة مسجّلة، والإسقاط يحتاج أربعاً على الأقل. لم يُقدَّر شيء بدلاً منها.",
+    "answer.note":
+      "كل رقم هو وسط نطاق: النطاق تحته من المئين العاشر إلى التسعين لتوقع المؤشر نفسه. التغيير مطبَّق كما ذُكر؛ وعدم اليقين هو عدم يقين الأساس.",
     "none.title": "لم تُطرح أي سيناريوهات",
     "none.body": "أول سؤال يكتبه أحد هو أول سؤال يستطيع غيره مناقشته.",
     denied: "لا تملك صلاحية قراءة السيناريوهات. اطلب من مدير المؤسسة صلاحية سيناريوهات التحليلات التنفيذية.",
     saved: "حُفظ السيناريو.",
+    ran: "حُسب السيناريو.",
     approvalTitle: "في انتظار الموافقة",
     approvalBody: "حفظ هذا السيناريو يحتاج موافقة بموجب سياسة {policy}. هو في الانتظار ولم يُفقد.",
     approvalLink: "افتح قائمة الموافقات",
     "problem.missing_question": "اكتب السؤال — السيناريو بلا سؤال لا يمكن مناقشته لاحقاً.",
     "problem.missing_author": "ضع اسمك عليه.",
+    "problem.missing_scenario": "اختر سيناريو لحسابه.",
     "problem.bad_assumptions": "تُقرأ الافتراضات سطراً سطراً بصيغة الاسم: القيمة. أحد هذه السطور بلا اسم."
   }
 };
@@ -171,6 +244,41 @@ interface Scenario {
   author: string;
   createdAt: number;
 }
+
+interface Band {
+  p10: number;
+  p50: number;
+  p90: number;
+}
+
+/**
+ * What the scenario engine stores in `resultJson`. Mirrors `StoredScenarioResult`
+ * in apps/api/src/engines/north-scenario.ts (itself `ScenarioResult` from
+ * packages/core/src/north-scenario.ts plus unit, currency and computedAt) —
+ * only the fields this screen reads.
+ */
+export interface ScenarioAnswer {
+  method: "baseline_shift";
+  metricKey: string;
+  grain: "day" | "month";
+  changeBps: number;
+  horizon: number;
+  points: { period: string; baseline: Band; scenario: Band; delta: Band }[];
+  fit: { observations: number; intervalSource: "empirical" | "default"; lastObserved: string | null };
+  ignored: string[];
+  reason?: "insufficient_history";
+  unit: MetricUnit;
+  currency: string | null;
+  computedAt: number;
+}
+
+/** One assumption the engine could not read, and why — the 422's `errors` map. */
+export interface Need {
+  name: string;
+  reason: string;
+}
+
+type WhatIfResult = ActionResult & { ran?: string; needs?: Need[] };
 
 /* ----------------------------------------------------------------- helpers */
 
@@ -232,11 +340,46 @@ export function readAssumptions(text: string): Record<string, string | number> |
 }
 
 /**
+ * The engine's answer, or null for anything else in `resultJson` — nothing, or
+ * a figure stored by hand before there was an engine, which has no band and is
+ * rendered as the point estimate it is.
+ */
+export function answerOf(raw: unknown): ScenarioAnswer | null {
+  const value = parsed<Partial<ScenarioAnswer> | null>(raw, null);
+  if (!value || value.method !== "baseline_shift" || !Array.isArray(value.points) || !value.fit) return null;
+  return value as ScenarioAnswer;
+}
+
+/**
+ * Which assumptions stopped the engine, from its 422. Only the keys and the
+ * reason codes cross: the wording is this screen's, in the reader's language
+ * (CLAUDE.md §7), the way `rejectedBy` treats a 400's field map.
+ */
+export function needsOf(error: unknown): Need[] | null {
+  if (!(error instanceof ApiError) || error.status !== 422 || !error.problem.errors) return null;
+  return Object.entries(error.problem.errors).map(([name, reason]) => ({ name, reason }));
+}
+
+/** Ask the engine; an unreadable-assumptions refusal is an answer to show, not a failure. */
+async function compute(
+  id: string,
+  args: Pick<ApiOptions, "env" | "request">
+): Promise<{ needs: Need[] } | { problem: ActionResult["problem"] } | null> {
+  try {
+    await api(`/v1/north/scenarios/${encodeURIComponent(id)}/run`, { ...args, method: "POST" });
+    return null;
+  } catch (error) {
+    const needs = needsOf(error);
+    if (needs) return { needs };
+    return { problem: refused(error).problem };
+  }
+}
+
+/**
  * The hero's headline: whichever scenario is open, in its own words. A
- * stored question is the one thing on this screen that is never generic —
- * unlike the answer, which the action() above refuses to compute, so there
- * is no delta to narrate with yet. Not AI-authored text, so no ✦ (CLAUDE.md
- * §11): a person typed this question, nothing summarised it.
+ * stored question is the one thing on this screen that is never generic.
+ * Not AI-authored text, so no ✦ (CLAUDE.md §11): a person typed this
+ * question, nothing summarised it.
  */
 export function headlineFor(open: { question: string } | null, l: (key: string) => string): string {
   return open?.question ?? l("title");
@@ -260,9 +403,19 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
 /* ------------------------------------------------------------------ action */
 
-export async function action({ request, context }: ActionFunctionArgs): Promise<ActionResult> {
+export async function action({ request, context }: ActionFunctionArgs): Promise<WhatIfResult> {
   const env = context.get(cloudflare).env;
   const form = await request.formData();
+
+  // "Compute" on a stored scenario: ask the engine again, against whatever
+  // snapshots have closed since.
+  if (form.get("intent") === "run") {
+    const id = String(form.get("id") ?? "").trim();
+    if (!id) return refuse("missing_scenario");
+    const outcome = await compute(id, { env, request });
+    if (!outcome) return { problem: null, saved: "run", ran: id };
+    return "needs" in outcome ? { problem: null, saved: null, ran: id, needs: outcome.needs } : { problem: outcome.problem, saved: null, ran: id };
+  }
 
   const question = String(form.get("question") ?? "").trim();
   const author = String(form.get("author") ?? "").trim();
@@ -273,20 +426,29 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
   if (!assumptions) return refuse("bad_assumptions");
 
   const key = String(form.get("idempotencyKey") ?? "");
+  let created: { id: string };
   try {
-    await api("/v1/north/scenarios", {
+    created = await api<{ id: string }>("/v1/north/scenarios", {
       env,
       request,
       method: "POST",
       ...(key ? { headers: { "idempotency-key": key } } : {}),
-      // No resultJson and no modelRunRef: nothing has run, and an empty object
-      // would read on the next screen as an answer of zero.
+      // No resultJson and no modelRunRef: the engine is the one writer of an
+      // answer, and the API drops either if sent.
       body: { question, author, assumptionsJson: assumptions }
     });
   } catch (error) {
     return refused(error);
   }
-  return { problem: null, saved: "scenario" };
+
+  // Ask and answer in one step (docs/modules/north.md §2.4). The question is
+  // saved whatever the engine says: assumptions it cannot read are named back
+  // beside the stored scenario, not turned into a failed save.
+  const outcome = await compute(created.id, { env, request });
+  if (!outcome) return { problem: null, saved: "scenario", ran: created.id };
+  return "needs" in outcome
+    ? { problem: null, saved: "scenario", ran: created.id, needs: outcome.needs }
+    : { problem: outcome.problem, saved: "scenario", ran: created.id };
 }
 
 /* --------------------------------------------------------------- the screen */
@@ -359,7 +521,7 @@ export default function NorthWhatIf() {
       {shown ? <Gate problem={shown} l={l} /> : null}
       {result?.saved ? (
         <p role="status" className="font-ui text-13 text-success">
-          {l("saved")}
+          {l(result.saved === "run" ? "ran" : "saved")}
         </p>
       ) : null}
 
@@ -372,7 +534,19 @@ export default function NorthWhatIf() {
           <EmptyState title={l("none.title")} body={l("none.body")} />
         ) : (
           <>
-            {open ? <ScenarioDetail scenario={open} locale={locale} currency={currency} l={l} /> : null}
+            {open ? (
+              <ScenarioDetail
+                scenario={open}
+                locale={locale}
+                currency={currency}
+                l={l}
+                canRun={held.has(PERM.run)}
+                busy={busy}
+                // Only the scenario the engine was just asked about; the
+                // needs of another one do not belong under this question.
+                needs={result?.ran === open.id ? (result.needs ?? null) : null}
+              />
+            ) : null}
 
             <Panel eyebrow={l("library.title")}>
               <Table
@@ -401,6 +575,9 @@ export default function NorthWhatIf() {
                     key: "result",
                     header: l("library.result"),
                     render: (row) => {
+                      // Computed by the engine, stored by hand before there was
+                      // one, or not answered at all — three different claims.
+                      if (answerOf(row.resultJson)) return <Badge tone="success">{l("result.computed")}</Badge>;
                       const answered = Object.keys(parsed<Record<string, unknown>>(row.resultJson, {})).length > 0;
                       return (
                         <Badge tone={answered ? "neutral" : "warning"}>{l(answered ? "result.yes" : "result.no")}</Badge>
@@ -421,15 +598,22 @@ function ScenarioDetail({
   scenario,
   locale,
   currency,
-  l
+  l,
+  canRun,
+  busy,
+  needs
 }: {
   scenario: Scenario;
   locale: string;
   currency: string;
   l: (key: string, vars?: Record<string, string>) => string;
+  canRun: boolean;
+  busy: boolean;
+  needs: Need[] | null;
 }) {
   const assumptions = parsed<Record<string, unknown>>(scenario.assumptionsJson, {});
-  const answer = parsed<Record<string, unknown>>(scenario.resultJson, {});
+  const computed = answerOf(scenario.resultJson);
+  const answer = computed ? {} : parsed<Record<string, unknown>>(scenario.resultJson, {});
   const shared = parsed<string[]>(scenario.sharedWithJson, []);
   // A currency named in the assumptions beats the tenant default: the question
   // may have been asked about a book denominated in something else.
@@ -458,7 +642,9 @@ function ScenarioDetail({
 
         <section className="flex flex-col gap-2">
           <h2 className="eyebrow">{l("detail.result")}</h2>
-          {figures.length === 0 && prose.length === 0 ? (
+          {computed ? (
+            <ComputedAnswer answer={computed} locale={locale} l={l} />
+          ) : figures.length === 0 && prose.length === 0 ? (
             <p className="max-w-[var(--measure-prose)] font-ui text-13 text-subtle">{l("detail.result.none")}</p>
           ) : (
             <>
@@ -478,14 +664,104 @@ function ScenarioDetail({
                 </p>
               ))}
               {/* docs/modules/north.md §2.4: no point estimate without a range.
-                  Nothing stores a band, so the screen says so rather than
-                  drawing one it does not have. */}
+                  A figure stored before the engine existed has no band, so the
+                  screen says so rather than drawing one it does not have. */}
               <p className="max-w-[var(--measure-prose)] font-ui text-12 text-subtle">{l("detail.point")}</p>
             </>
           )}
+
+          {needs?.length ? (
+            <div className="flex flex-col gap-1">
+              <p className="font-ui text-13 text-text">{l("run.needs")}</p>
+              <ul className="flex list-disc flex-col gap-1 ps-5 font-ui text-13 text-text">
+                {needs.map((need) => (
+                  <li key={need.name}>{l(`need.${need.reason}`, { name: need.name })}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {canRun ? (
+            <Form method="post">
+              <input type="hidden" name="intent" value="run" />
+              <input type="hidden" name="id" value={scenario.id} />
+              <Button type="submit" variant="secondary" disabled={busy}>
+                {l(computed ? "run.again" : "run.submit")}
+              </Button>
+            </Form>
+          ) : null}
         </section>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * The engine's answer: what it read, what it left alone, and per period the
+ * baseline band beside the shifted one. A band, never a lone number (§2.4).
+ */
+function ComputedAnswer({
+  answer,
+  locale,
+  l
+}: {
+  answer: ScenarioAnswer;
+  locale: string;
+  l: (key: string, vars?: Record<string, string>) => string;
+}) {
+  const figure = (value: number) => (
+    <MetricValue value={value} unit={answer.unit} currency={answer.currency} locale={locale} />
+  );
+  const text = (value: number) => metricText(value, answer.unit, answer.currency, locale);
+  const band = (b: Band) => (
+    <span className="flex flex-col items-end gap-0.5">
+      <span className="text-text">{figure(b.p50)}</span>
+      <span className="text-12 text-subtle">
+        {l("answer.range", { p10: text(b.p10), p90: text(b.p90) })}
+      </span>
+    </span>
+  );
+  const count = new Intl.NumberFormat(locale);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Provenance
+        rows={[
+          { label: l("answer.metric"), value: answer.metricKey, mono: true },
+          { label: l("answer.change"), value: pct(answer.changeBps, locale) ?? "0%", mono: true },
+          {
+            label: l("answer.horizon"),
+            value: l(`horizon.${answer.grain}`, { count: count.format(answer.horizon) })
+          },
+          { label: l("answer.asOf"), value: answer.fit.lastObserved ?? l("detail.unset"), mono: true },
+          { label: l("answer.observations"), value: count.format(answer.fit.observations), mono: true },
+          { label: l("answer.band"), value: l(`band.${answer.fit.intervalSource}`) },
+          ...(answer.ignored.length ? [{ label: l("answer.ignored"), value: answer.ignored.join(" · "), mono: true }] : []),
+          { label: l("answer.computed"), value: <DateTime value={answer.computedAt} locale={locale} /> }
+        ]}
+      />
+      {answer.points.length === 0 ? (
+        // Too little history is an answer, not a zero: say so, show nothing.
+        <p className="max-w-[var(--measure-prose)] font-ui text-13 text-text">
+          {l("answer.none", { metric: answer.metricKey, count: count.format(answer.fit.observations) })}
+        </p>
+      ) : (
+        <>
+          <Table
+            caption={l("answer.caption")}
+            rows={answer.points}
+            rowKey={(row) => row.period}
+            columns={[
+              { key: "period", header: l("col.period"), render: (row) => <span className="font-mono">{row.period}</span> },
+              { key: "baseline", header: l("col.baseline"), numeric: true, render: (row) => band(row.baseline) },
+              { key: "scenario", header: l("col.scenario"), numeric: true, render: (row) => band(row.scenario) },
+              { key: "delta", header: l("col.delta"), numeric: true, render: (row) => band(row.delta) }
+            ]}
+          />
+          <p className="max-w-[var(--measure-prose)] font-ui text-12 text-subtle">{l("answer.note")}</p>
+        </>
+      )}
+    </div>
   );
 }
 
