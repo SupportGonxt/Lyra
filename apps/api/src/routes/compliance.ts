@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, eq, gte, inArray, isNull, lt, lte } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import { NameJson, TakafulJson, id, parseJson, schema, shariahCertified, toJson } from "@lyra/db";
 import {
   actorRef,
@@ -19,6 +19,7 @@ import {
 } from "@lyra/core";
 import { runTxn, type ReportTable } from "@lyra/ledger";
 import { meterEgress } from "../engines/egress.js";
+import { RETENTION_CLASSES, isRetentionClass, runRetention } from "../engines/compliance-retention.js";
 import { render } from "../engines/export/render.js";
 import { utf8, zip } from "../engines/export/zip.js";
 import { body, InstantMs } from "../http.js";
@@ -415,29 +416,10 @@ complianceRoutes.get("/evidence-bundles/:id/download", async (c) => {
 
 /* ------------------------------------------------------------- retention */
 
-/**
- * The record classes docs/12 §3 puts a floor under. The floor is the regulatory
- * minimum; `policy.retention` may only keep data *longer*, so the cutoff is the
- * later of the two and is never taken from the request.
- *
- * ponytail: `messages` only. `files` needs the object store purged with the row
- * and the erasure-completeness job (PLAT-038); `ai_audit` and `consent` are
- * evidence the platform is required to keep (docs/12 §2). Adding one is an entry
- * here plus its delete.
- */
-const RETENTION_CLASSES = {
-  messages: { tableName: "orbit_messages", floorMonths: 24 }
-} as const;
-
-/** ponytail: one batch per call, so a purge cannot time out or blow the SQL
- *  variable limit. Call again while `rowsAffected` equals this. */
-const RETENTION_BATCH = 500;
-
-function monthsBefore(now: number, months: number): number {
-  const d = new Date(now);
-  d.setUTCMonth(d.getUTCMonth() - months);
-  return d.getTime();
-}
+// The record classes, their floors, the hold check and the purge live in
+// engines/compliance-retention.ts, which the nightly sweep runs as well — one
+// engine, so the door a person uses and the clock cannot disagree. The cutoff
+// is never taken from the request.
 
 const RetentionBody = z
   .object({
@@ -451,97 +433,15 @@ complianceRoutes.post("/retention/run", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "compliance:retention:run", { tenantId: ctx.tenantId, module: "compliance" });
   const input = await body(c, RetentionBody);
-  const klass = Object.entries(RETENTION_CLASSES).find(([key]) => key === input.policyKey)?.[1];
-  if (!klass) throw badRequest(`policyKey must be one of ${Object.keys(RETENTION_CLASSES).join(", ")}`);
-
-  const months = Math.max(ctx.policy.retention.messagesMonths, klass.floorMonths);
-  const cutoffAt = monthsBefore(ctx.now, months);
-
-  const candidates = await ctx.db
-    .select({ id: schema.orbitMessages.id, conversationId: schema.orbitMessages.conversationId })
-    .from(schema.orbitMessages)
-    .where(scoped(ctx, schema.orbitMessages, lt(schema.orbitMessages.ts, cutoffAt)))
-    .limit(RETENTION_BATCH);
-
-  // A hold freezes deletion for its subject (schema compliance_legal_holds).
-  // It can name the conversation or the person behind it; both stop the purge.
-  const holds = new Set(
-    (
-      await ctx.db
-        .select({ subjectRef: schema.legalHolds.subjectRef })
-        .from(schema.legalHolds)
-        .where(scoped(ctx, schema.legalHolds, isNull(schema.legalHolds.releasedAt)))
-    ).map((h) => h.subjectRef)
-  );
-  const conversationIds = [...new Set(candidates.map((m) => m.conversationId))];
-  const customerOf = new Map(
-    conversationIds.length
-      ? (
-          await ctx.db
-            .select({ id: schema.orbitConversations.id, customerId: schema.orbitConversations.customerId })
-            .from(schema.orbitConversations)
-            .where(scoped(ctx, schema.orbitConversations, inArray(schema.orbitConversations.id, conversationIds)))
-        ).map((row) => [row.id, row.customerId])
-      : []
-  );
-
-  const held = (conversationId: string): boolean => {
-    if (holds.has(`conversation:${conversationId}`)) return true;
-    const customerId = customerOf.get(conversationId);
-    return customerId ? holds.has(`customer:${customerId}`) : false;
-  };
-  const purge = candidates.filter((m) => !held(m.conversationId));
-  const rowsHeld = candidates.length - purge.length;
-
-  if (input.dryRun) {
-    await audit(ctx, {
-      action: "compliance.retention.plan",
-      subjectRef: `retention:${input.policyKey}`,
-      after: { policyKey: input.policyKey, cutoffAt, rowsAffected: purge.length, rowsHeld }
-    });
-    return c.json({
-      dryRun: true,
-      policyKey: input.policyKey,
-      tableName: klass.tableName,
-      cutoffAt,
-      retentionMonths: months,
-      rowsAffected: purge.length,
-      rowsHeld,
-      more: candidates.length === RETENTION_BATCH
-    });
+  if (!isRetentionClass(input.policyKey)) {
+    throw badRequest(`policyKey must be one of ${Object.keys(RETENTION_CLASSES).join(", ")}`);
   }
-
-  const run = {
-    id: id("ret", ctx.now),
-    tenantId: ctx.tenantId,
-    policyKey: input.policyKey,
-    tableName: klass.tableName,
-    cutoffAt,
-    rowsAffected: purge.length,
-    rowsHeld,
-    state: "done",
-    error: null,
-    startedAt: ctx.now,
-    endedAt: ctx.now
-  };
-  if (purge.length) {
-    await ctx.db.delete(schema.orbitMessages).where(
-      and(
-        scoped(ctx, schema.orbitMessages),
-        inArray(
-          schema.orbitMessages.id,
-          purge.map((m) => m.id)
-        )
-      )
-    );
+  if (!input.dryRun && input.policyKey === "files" && !c.env.FILES) {
+    throw badRequest("files cannot be purged while the object store is not bound");
   }
-  await ctx.db.insert(schema.retentionRuns).values(run);
-  await audit(ctx, {
-    action: "compliance.retention.run",
-    subjectRef: `retention:${input.policyKey}`,
-    after: run
-  });
-  return c.json({ ...run, more: candidates.length === RETENTION_BATCH }, 201);
+  const { run, ...result } = await runRetention(ctx, input.policyKey, { dryRun: input.dryRun, files: c.env.FILES });
+  if (!run) return c.json(result);
+  return c.json({ ...run, more: result.more }, 201);
 });
 
 /* ------------------------------------------------------------ run-only rows */

@@ -508,11 +508,21 @@ describe("POST /v1/compliance/retention/run", () => {
     for (const payload of [
       { policyKey: "messages", cutoffAt: Date.now() },
       { policyKey: "messages", rowsAffected: 0 },
-      { policyKey: "files" },
-      { policyKey: "consent" }
+      // Consent is kept indefinitely (docs/03); no class purges it.
+      { policyKey: "consent" },
+      { policyKey: "notifications" }
     ]) {
       const res = await call(OFFICER, "POST", "/v1/compliance/retention/run", payload);
       expect(res.status, JSON.stringify(payload)).toBe(400);
+    }
+  });
+
+  it("plans the schedule's other classes under their own floors (docs/30 Compliance 5)", async () => {
+    for (const [policyKey, tableName] of [["files", "core_files"], ["ai_audit", "ai_audit_log"]] as const) {
+      const res = await call(OFFICER, "POST", "/v1/compliance/retention/run", { policyKey });
+      expect(res.status, policyKey).toBe(200);
+      expect(res.body.tableName).toBe(tableName);
+      expect(res.body.retentionMonths).toBeGreaterThanOrEqual(84);
     }
   });
 

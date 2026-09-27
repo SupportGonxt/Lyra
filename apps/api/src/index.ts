@@ -27,6 +27,7 @@ import { expireDelegations } from "./engines/staff.js";
 import { notifyUrgentWatch, runWatch } from "./engines/scout-watch.js";
 import { nightlyBriefing } from "./engines/narrator.js";
 import { expireQuoteRequests } from "./engines/dist-quote-expiry.js";
+import { sweepRetention } from "./engines/compliance-retention.js";
 import { COOKIE, allTenants, authRoutes, ctxFor, db, pruneSessions, scheduledConfig } from "./auth.js";
 import { mountAll } from "./crud.js";
 import { BY_MODULE } from "./resources.js";
@@ -298,6 +299,12 @@ export default {
               }
             }
             if (isBackupWindow) await nudgeApiKeyRotation(ctx);
+            // docs/30 Compliance 5: retention on the tenant's own cadence, legal
+            // holds honoured, every run recorded. Only where the policy names a
+            // cadence — the default is "never", because a purge is irreversible
+            // and a tenant that never configured retention has not asked for one.
+            // After the backup, so the night's copy still holds what this removes.
+            if (isBackupWindow && ctx.policy.retention.schedule !== "never") await sweepRetention(ctx, env.FILES);
             // docs/modules/north.md §3 Snapshotter: nightly, 02:00Z per seed.ts's timing model (ADR-0024).
             if (isBackupWindow && on("north")) await runSnapshotter(ctx);
             // docs/30 NORTH gap 1: yesterday's brief, drafted from the snapshot

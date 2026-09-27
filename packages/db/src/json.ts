@@ -70,6 +70,10 @@ export const AGENT_AUTONOMY = ["suggest", "act_with_approval", "act_within_limit
 export const AgentAutonomy = z.enum(AGENT_AUTONOMY);
 export type AgentAutonomy = z.infer<typeof AgentAutonomy>;
 
+/** Cadences the retention sweep understands, off first (docs/30 Compliance 5). */
+export const RETENTION_SCHEDULES = ["never", "daily", "weekly", "monthly"] as const;
+export type RetentionSchedule = (typeof RETENTION_SCHEDULES)[number];
+
 export const PolicyJson = z.object({
   autoApprove: z.array(z.string()).default([]),
   aiBudgetDailyTokens: z.number().int().nonnegative().default(2_000_000),
@@ -82,9 +86,13 @@ export const PolicyJson = z.object({
     .object({
       messagesMonths: z.number().int().positive().default(24),
       filesYears: z.number().int().positive().default(7),
-      aiAuditYears: z.number().int().positive().default(7)
+      aiAuditYears: z.number().int().positive().default(7),
+      // docs/30 Compliance 5: how often the nightly window purges on its own.
+      // "never" by default — a purge is irreversible, so a tenant that never
+      // chose a cadence keeps its data until someone runs retention by hand.
+      schedule: z.enum(RETENTION_SCHEDULES).default("never")
     })
-    .default({ messagesMonths: 24, filesYears: 7, aiAuditYears: 7 }),
+    .default({ messagesMonths: 24, filesYears: 7, aiAuditYears: 7, schedule: "never" }),
   domainPack: z.string().default("insurance-retail"),
   // ADR-0073: the command center's autonomy envelope — how much the central
   // loop may do without asking. Absent means draft_only (reads yes, writes
