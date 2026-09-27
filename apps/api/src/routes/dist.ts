@@ -24,7 +24,7 @@ import { quoterFor } from "../engines/dist-quoter.js";
 import { runShop } from "../engines/shop.js";
 import { decideOffer, markSurfaced, proposeOffers } from "../engines/nbo.js";
 import { qualifyReferral, settleReferral } from "../engines/referral-settlement.js";
-import { accrueCommission } from "../engines/commission-accrual.js";
+import { accrueCommission, accrueSale } from "../engines/commission-accrual.js";
 import type { App } from "../env.js";
 
 // docs/05 §4-6. The aggregator's own verbs: shop a risk across the panel, show
@@ -289,6 +289,26 @@ distRoutes.post("/commission-entries/accrue", async (c) => {
   );
 });
 
+const SaleBody = z.object({
+  earnedOn: z.enum(["issue", "collection"]).default("issue"),
+  taxMinor: z.number().int().min(0).default(0)
+});
+
+/**
+ * ADR-0094: confirm the chosen quote as a sale and accrue its channel's
+ * commission — Distribution's own bind for a tenant without AXIS. Same
+ * permission, gate and one-per-subject index as the policy door.
+ */
+distRoutes.post("/quote-responses/:id/sale", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "dist:commissions:adjust", { tenantId: ctx.tenantId, module: "dist" });
+  const input = { ...(await body(c, SaleBody)), responseId: c.req.param("id") };
+  return c.json(
+    await withIdempotency(ctx, c.req.header("idempotency-key"), "dist.sale", input, () => accrueSale(ctx, input)),
+    201
+  );
+});
+
 const ClawbackBody = z.object({
   reason: z.string().min(3).max(500),
   /**
@@ -306,18 +326,17 @@ const ClawbackBody = z.object({
  * a policy cancellation with, so a policy's own cancel and its commission
  * clawback never disagree about what "unearned" means.
  *
- * Every real commission entry's `policyId` is a live `axis_policies` row (the
- * column is `notNull`), so this resolves for every entry a live system posts.
- * The one case it falls through — no such policy — is a caller-supplied
- * `policyId` that names nothing on this tenant, and a full reversal is the
- * only honest answer to "prorate against what": there is no term to prorate.
+ * An entry accrued on a policy prorates against its term. An entry accrued on
+ * a confirmed sale (ADR-0094: no policy, so no term) or naming a policy this
+ * tenant does not have reverses in full — the only honest answer to "prorate
+ * against what" when there is no term to prorate.
  */
 async function clawableAmounts(
   ctx: Ctx,
   entry: typeof schema.distCommissionEntries.$inferSelect,
   asOf: number
 ): Promise<{ premiumMinor: number; grossCommissionMinor: number; channelCommissionMinor: number; netCommissionMinor: number; taxMinor: number }> {
-  const policy = await one(ctx, schema.axisPolicies, entry.policyId);
+  const policy = entry.policyId ? await one(ctx, schema.axisPolicies, entry.policyId) : null;
   if (!policy) {
     return {
       premiumMinor: entry.premiumMinor,

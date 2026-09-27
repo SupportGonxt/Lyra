@@ -6,6 +6,7 @@ import {
   conflict,
   emit,
   gate,
+  moduleOn,
   notFound,
   quoteCommission,
   type Ctx,
@@ -40,19 +41,29 @@ export interface AccrueInput {
 
 export type CommissionEntry = typeof schema.distCommissionEntries.$inferInsert;
 
+/** What a commission is rated on: a bound policy, or (ADR-0094) a confirmed sale. */
+interface Subject {
+  /** The gate's subject, before `:kind` — what may be accrued once per kind. */
+  ref: string;
+  policyId: string | null;
+  saleRef: string | null;
+  offeringId: string;
+  providerId: string;
+  channelId: string;
+  premiumMinor: number;
+  currency: string;
+}
+
 /**
- * Derived from the policy and the rate in force rather than taken from the
+ * Rate, gate, insert, audit, announce — the one path both subjects take.
+ * Derived from the subject and the rate in force rather than taken from the
  * caller, so a channel cannot post its own commission.
  */
-export async function accrueCommission(ctx: Ctx, input: AccrueInput): Promise<CommissionEntry> {
-  const policy = await one(ctx, schema.axisPolicies, input.policyId);
-  if (!policy) throw notFound("policy");
-  if (!policy.offeringId || !policy.channelId) throw badRequest("policy has no offering or channel to rate");
-
+async function book(ctx: Ctx, subject: Subject, input: Omit<AccrueInput, "policyId">): Promise<CommissionEntry> {
   const split = await quoteCommission(ctx, {
-    offeringId: policy.offeringId,
-    channelId: policy.channelId,
-    premiumMinor: policy.premiumMinor
+    offeringId: subject.offeringId,
+    channelId: subject.channelId,
+    premiumMinor: subject.premiumMinor
   });
 
   // Tax comes off the net share and can never exceed it: a taxMinor above
@@ -64,32 +75,33 @@ export async function accrueCommission(ctx: Ctx, input: AccrueInput): Promise<Co
 
   // The position is only knowable once the rate has been applied, so the
   // gate sits here: it is the commission that is approved, not the request.
-  // Keyed by policy and kind, because that pair is what may exist once.
-  // singleUse: false on this policy — dist_commission_entries_accrual_uq
-  // below is the sole arbiter of "exactly one execution"; gate() just
-  // needs to stay valid across the whole race, not spend on first pass.
+  // Keyed by subject and kind, because that pair is what may exist once.
+  // singleUse: false on this policy — the unique indexes below are the sole
+  // arbiter of "exactly one execution"; gate() just needs to stay valid
+  // across the whole race, not spend on first pass.
   await gate(ctx, {
     policyKey: "dist.commission_accrue",
-    subjectRef: `${policy.id}:${input.kind}`,
+    subjectRef: `${subject.ref}:${input.kind}`,
     amountMinor: split.grossMinor,
-    context: { policyId: policy.id, kind: input.kind, premiumMinor: policy.premiumMinor }
+    context: { policyId: subject.policyId, saleRef: subject.saleRef, kind: input.kind, premiumMinor: subject.premiumMinor }
   });
 
   const row: CommissionEntry = {
     id: newId("ce", ctx.now),
     tenantId: ctx.tenantId,
-    policyId: policy.id,
-    offeringId: policy.offeringId,
-    providerId: policy.providerId,
-    channelId: policy.channelId,
+    policyId: subject.policyId,
+    saleRef: subject.saleRef,
+    offeringId: subject.offeringId,
+    providerId: subject.providerId,
+    channelId: subject.channelId,
     rateId: split.rateId ?? null,
     kind: input.kind,
-    premiumMinor: policy.premiumMinor,
+    premiumMinor: subject.premiumMinor,
     grossCommissionMinor: split.grossMinor,
     channelCommissionMinor: split.channelMinor,
     netCommissionMinor: split.netMinor - input.taxMinor,
     taxMinor: input.taxMinor,
-    currency: policy.currency,
+    currency: subject.currency,
     earnedOn: input.earnedOn,
     earnedAt: input.earnedOn === "issue" ? ctx.now : null,
     state: "accrued",
@@ -99,10 +111,11 @@ export async function accrueCommission(ctx: Ctx, input: AccrueInput): Promise<Co
   try {
     await ctx.db.insert(schema.distCommissionEntries).values(row);
   } catch (e) {
-    // dist_commission_entries_accrual_uq — one accrual per (policy, kind).
-    // The index, not a pre-check, is the guard: two submits racing a
-    // check-then-insert both pass the check, but only one insert lands.
-    if (isUniqueViolation(e)) throw conflict("commission already accrued for this policy and kind");
+    // dist_commission_entries_accrual_uq / _sale_uq — one accrual per
+    // (policy or sale, kind). The index, not a pre-check, is the guard: two
+    // submits racing a check-then-insert both pass the check, but only one
+    // insert lands.
+    if (isUniqueViolation(e)) throw conflict(`commission already accrued for this ${subject.policyId ? "policy" : "sale"} and kind`);
     throw e;
   }
   await audit(ctx, { action: "dist.commission.accrue", subjectRef: row.id, after: row });
@@ -110,9 +123,88 @@ export async function accrueCommission(ctx: Ctx, input: AccrueInput): Promise<Co
     module: "dist",
     type: "dist.commission.accrued",
     subject: row.id,
-    data: { policyId: policy.id, grossMinor: split.grossMinor, channelMinor: split.channelMinor }
+    data: { policyId: subject.policyId, saleRef: subject.saleRef, grossMinor: split.grossMinor, channelMinor: split.channelMinor }
   });
   return row;
+}
+
+export async function accrueCommission(ctx: Ctx, input: AccrueInput): Promise<CommissionEntry> {
+  const policy = await one(ctx, schema.axisPolicies, input.policyId);
+  if (!policy) throw notFound("policy");
+  if (!policy.offeringId || !policy.channelId) throw badRequest("policy has no offering or channel to rate");
+  return book(
+    ctx,
+    {
+      ref: policy.id,
+      policyId: policy.id,
+      saleRef: null,
+      offeringId: policy.offeringId,
+      providerId: policy.providerId,
+      channelId: policy.channelId,
+      premiumMinor: policy.premiumMinor,
+      currency: policy.currency
+    },
+    input
+  );
+}
+
+/* ------------------------------------------------------------ the sale door */
+
+export interface SaleInput {
+  responseId: string;
+  earnedOn: "issue" | "collection";
+  taxMinor: number;
+}
+
+/**
+ * ADR-0094: without AXIS nothing is ever bound, so the sale Distribution can
+ * see is the quote the customer chose. Staff confirming it books the channel's
+ * new-business commission, rated from that quote's offering and the
+ * comparison's channel. With AXIS on the bind is the sale, and a second door
+ * onto the same fact would accrue it twice.
+ */
+export async function accrueSale(ctx: Ctx, input: SaleInput): Promise<CommissionEntry> {
+  if (moduleOn(ctx, "axis")) throw conflict("with AXIS on, the bind is the sale — commission accrues from the policy");
+  const response = await one(ctx, schema.distQuoteResponses, input.responseId);
+  if (!response) throw notFound("quote response");
+  if (response.state !== "quoted" || response.premiumMinor === null) throw conflict("that response is not a quote");
+  if (response.selectedAt === null) throw conflict("only the quote the customer chose can be sold");
+  const request = await one(ctx, schema.distQuoteRequests, response.requestId);
+  if (!request) throw notFound("quote request");
+
+  const entry = await book(
+    ctx,
+    {
+      ref: `sale:${response.id}`,
+      policyId: null,
+      saleRef: `quote_response:${response.id}`,
+      offeringId: response.offeringId,
+      providerId: response.providerId,
+      channelId: request.channelId,
+      premiumMinor: response.premiumMinor,
+      currency: response.currency ?? request.currency
+    },
+    { kind: "new_business", earnedOn: input.earnedOn, taxMinor: input.taxMinor }
+  );
+  await ctx.db
+    .update(schema.distQuoteResponses)
+    .set({ soldAt: ctx.now, updatedAt: ctx.now })
+    .where(and(eq(schema.distQuoteResponses.tenantId, ctx.tenantId), eq(schema.distQuoteResponses.id, response.id)));
+  await emit(ctx, {
+    module: "dist",
+    type: "dist.sale.confirmed",
+    subject: response.id,
+    data: {
+      requestId: request.id,
+      offeringId: response.offeringId,
+      providerId: response.providerId,
+      channelId: request.channelId,
+      customerId: request.customerId,
+      premiumMinor: response.premiumMinor,
+      commissionEntryId: entry.id
+    }
+  });
+  return entry;
 }
 
 /* ------------------------------------------------------------ the bind door */

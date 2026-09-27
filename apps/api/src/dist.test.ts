@@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
-import { id as newId, schema, type Db } from "@lyra/db";
+import { EntitlementsJson, id as newId, schema, type Db } from "@lyra/db";
 import { seed, totpAt, TOTP_STEP_SEC, type SeedResult } from "@lyra/core";
 import { app } from "./index.js";
 import type { Env } from "./env.js";
@@ -775,5 +775,116 @@ describe("commission-rate structures are validated on write", () => {
     );
     expect([201, 403]).toContain(res.status);
     if (res.status === 403) expect(res.body.code).toBe("approval_required");
+  });
+});
+
+/* -------------------------------------- ADR-0094: a confirmed sale accrues */
+
+// @accept:SA — Distribution alone. Without AXIS no policy is ever bound, so
+// commission accrued only on a bind never accrued at all. The sale a
+// distributor can see is the quote the customer chose; staff confirming it is
+// what books the channel's commission, through the same rate, gate and index.
+describe("ADR-0094: POST /quote-responses/:id/sale accrues commission without AXIS", () => {
+  let responseId: string;
+  let unselectedId: string;
+  let policy: typeof schema.axisPolicies.$inferSelect;
+  const setModules = (modules: string[]) =>
+    database
+      .update(schema.tenants)
+      .set({ entitlementsJson: JSON.stringify(EntitlementsJson.parse({ edition: "suite", modules, seats: 250 })) })
+      .where(eq(schema.tenants.id, seeded.tenantId));
+
+  beforeAll(async () => {
+    policy = (await database.select().from(schema.axisPolicies).where(eq(schema.axisPolicies.policyNo, "CDR-MOT-2501-664118")))[0]!;
+    const now = Date.now();
+    // One response per offering per request, so each quote has its own comparison.
+    const quote = async (selectedAt: number | null): Promise<string> => {
+      const requestId = newId("qr", now);
+      await database.insert(schema.distQuoteRequests).values({
+        id: requestId,
+        tenantId: seeded.tenantId,
+        channelId: policy.channelId!,
+        productId: "prd_sale_test",
+        inputsJson: "{}",
+        currency: policy.currency,
+        state: selectedAt ? "converted" : "complete",
+        createdAt: now,
+        updatedAt: now
+      });
+      const id = newId("qresp", now);
+      await database.insert(schema.distQuoteResponses).values({
+        id,
+        tenantId: seeded.tenantId,
+        requestId,
+        offeringId: policy.offeringId!,
+        providerId: policy.providerId,
+        state: "quoted",
+        premiumMinor: policy.premiumMinor,
+        currency: policy.currency,
+        selectedAt,
+        createdAt: now,
+        updatedAt: now
+      });
+      return id;
+    };
+    responseId = await quote(now);
+    unselectedId = await quote(null);
+    await setModules(["orbit", "signal", "scout", "north"]);
+  });
+
+  const sale = (id: string, key?: string) =>
+    call("finance.controller", "POST", `/v1/dist/quote-responses/${id}/sale`, {}, key ? { "idempotency-key": key } : {});
+
+  it("refuses a quote the customer did not choose", async () => {
+    const res = await sale(unselectedId);
+    expect(res.status).toBe(409);
+  });
+
+  it("raises the accrual approval, then books one entry keyed by the sale", async () => {
+    const first = await sale(responseId);
+    expect(first.status).toBe(403);
+    expect(first.body.policy_key).toBe("dist.commission_accrue");
+    const res = await throughApproval(
+      "finance.controller",
+      "finance.approver",
+      "POST",
+      `/v1/dist/quote-responses/${responseId}/sale`,
+      {},
+      { "idempotency-key": `sale-${responseId}` }
+    );
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      state: "accrued",
+      kind: "new_business",
+      policyId: null,
+      saleRef: `quote_response:${responseId}`,
+      channelId: policy.channelId,
+      premiumMinor: policy.premiumMinor
+    });
+    expect(res.body.grossCommissionMinor).toBeGreaterThan(0);
+
+    const [stamped] = await database.select().from(schema.distQuoteResponses).where(eq(schema.distQuoteResponses.id, responseId));
+    expect(stamped!.soldAt).not.toBeNull();
+    const sold = (await database.select().from(schema.eventOutbox)).filter(
+      (e) => e.type === "dist.sale.confirmed" && e.envelopeJson.includes(responseId)
+    );
+    expect(sold).toHaveLength(1);
+  });
+
+  it("books a sale once: a fresh key on the same sale is a conflict", async () => {
+    const res = await sale(responseId, "sale-second");
+    expect(res.status).toBe(409);
+    const entries = await database
+      .select()
+      .from(schema.distCommissionEntries)
+      .where(eq(schema.distCommissionEntries.saleRef, `quote_response:${responseId}`));
+    expect(entries).toHaveLength(1);
+  });
+
+  it("with AXIS on, the bind is the sale and this door is shut", async () => {
+    await setModules(["axis", "orbit", "signal", "scout", "north"]);
+    const res = await sale(unselectedId);
+    expect(res.status).toBe(409);
+    expect(res.body.detail).toMatch(/bind/);
   });
 });

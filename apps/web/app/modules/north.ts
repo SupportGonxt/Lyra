@@ -13,6 +13,7 @@ export const north: WorkspaceSpec = {
       "boardpacks.approve.confirm": "Sign this pack off as final? It can then be sent to the board.",
       "boardpacks.distribute": "Send to the board",
       recipients: "Recipients (emails, comma separated)",
+      import: "Import",
       metrics: "Metrics",
       snapshots: "Snapshots",
       briefings: "Briefings",
@@ -137,6 +138,7 @@ export const north: WorkspaceSpec = {
       "boardpacks.approve.confirm": "اعتماد هذه الحزمة نهائية؟ يمكن بعدها إرسالها إلى المجلس.",
       "boardpacks.distribute": "إرسال إلى المجلس",
       recipients: "المستلمون (عناوين بريد مفصولة بفواصل)",
+      import: "استيراد",
       metrics: "المؤشرات",
       snapshots: "اللقطات",
       briefings: "الإحاطات",
@@ -265,6 +267,8 @@ export const north: WorkspaceSpec = {
       create: "north:metrics:write",
       update: "north:metrics:write",
       remove: "north:metrics:write",
+      // @accept:SA: numbers from outside, a file at a time (metric,period,value).
+      import: { api: "/v1/north/metrics/import", permission: "north:metrics:write", required: ["metric", "period", "value"] },
       sort: "key",
       order: "asc",
       filters: [

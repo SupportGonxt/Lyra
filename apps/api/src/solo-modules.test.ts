@@ -181,3 +181,23 @@ it("a SIGNAL-only tenant configures a channel on the platform route @accept:SA",
 });
 
 
+
+// docs/30 NORTH: alone, every number is from outside — a file is how a finance
+// team has them, one push per metric in it.
+it("a NORTH-only tenant imports its metric values from a file @accept:SA", async () => {
+  const now = Date.now();
+  await database.insert(schema.northMetrics).values({
+    id: "met_solo_footfall", tenantId, key: "solo_footfall", nameJson: "{}", definitionSqlRef: "push:solo_footfall", grain: "month", createdAt: now, updatedAt: now
+  });
+  // The analyst pushes numbers; the administrator does not (separation of duties).
+  const admin = token;
+  const login = await call("POST", "/v1/auth/login", { email: "rana.hadid@gonxt.ae", password: PASSWORD, tenantSlug: "gonxt" }, false);
+  token = login.body.token as string;
+  if (login.body.mfaRequired) {
+    await call("POST", "/v1/auth/mfa/verify", { code: await totpAt(DEMO_TOTP_SECRET, Math.floor(Date.now() / 1000 / TOTP_STEP_SEC)) });
+  }
+  const out = await soloIn("north", () => call("POST", "/v1/north/metrics/import", { csv: "metric,period,value\nsolo_footfall,2026-07,1200\nsolo_footfall,2026-08,900\n" }))
+    .finally(() => (token = admin));
+  expect(out.status).toBe(201);
+  expect(out.body).toEqual({ created: 2, skippedDuplicate: 0, errors: [] });
+});
