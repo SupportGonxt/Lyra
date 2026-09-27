@@ -17,7 +17,7 @@ import {
   type Ctx
 } from "@lyra/core";
 import type { WhitespaceCandidate } from "@lyra/core";
-import { body, csvBody } from "../http.js";
+import { body, csvBody, requireHeader } from "../http.js";
 import {
   sweepWhitespace,
   coveragePerLine,
@@ -26,6 +26,7 @@ import {
 } from "../engines/scout-whitespace.js";
 import { promoteWhitespace } from "../engines/scout-promote.js";
 import { describeSources, harvestSignals } from "../engines/scout-ingest.js";
+import { deliverProduct, subscribeProduct } from "../engines/scout-data-product.js";
 import { parseSignalCsv } from "../engines/scout-import.js";
 import { sweepSignalClusters } from "../engines/scout-cluster.js";
 import { benchElasticity, sweepPanelBench } from "../engines/scout-bench.js";
@@ -194,6 +195,44 @@ scoutRoutes.get("/watch", async (c) => {
   const days = Number(c.req.query("days"));
   const windowMs = Number.isFinite(days) && days >= 1 && days <= 180 ? days * 86_400_000 : undefined;
   return c.json(await runWatch(ctx, windowMs));
+});
+
+/**
+ * docs/modules/scout.md §2.5, docs/30 SCOUT 1 (ADR-0101). Selling a data
+ * product: subscribe fixes a provider's fee under the
+ * `scout.data_product_subscribe` approval; deliver builds the cut, gates it on
+ * k-anonymity, bills the approved fee and logs the artefact. Both are
+ * contractual, so both demand an idempotency key rather than accept one.
+ * Registered before the generated CRUD, like the whitespace routes above.
+ */
+const SubscribeBody = z.object({
+  providerId: z.string().min(1).max(100),
+  feeMinor: z.number().int().positive().max(1_000_000_000_00)
+});
+const DeliverBody = z.object({ providerId: z.string().min(1).max(100) });
+
+scoutRoutes.post("/data-products/:id/subscribe", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:data_products:publish", { tenantId: ctx.tenantId, module: "scout" });
+  const key = requireHeader(c, "idempotency-key");
+  const input = await body(c, SubscribeBody);
+  const dataProductId = c.req.param("id");
+  const result = await withIdempotency(ctx, key, "scout.data_product.subscribe", { dataProductId, ...input }, () =>
+    subscribeProduct(ctx, { dataProductId, ...input, key })
+  );
+  return c.json(result, 201);
+});
+
+scoutRoutes.post("/data-products/:id/deliver", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:data_products:publish", { tenantId: ctx.tenantId, module: "scout" });
+  const key = requireHeader(c, "idempotency-key");
+  const input = await body(c, DeliverBody);
+  const dataProductId = c.req.param("id");
+  const result = await withIdempotency(ctx, key, "scout.data_product.deliver", { dataProductId, ...input }, () =>
+    deliverProduct(ctx, c.env.FILES, { dataProductId, providerId: input.providerId, key })
+  );
+  return c.json(result, 201);
 });
 
 // docs/27 P2 K_FLOOR follow-up: scout-admin.tsx, scout-data-products.tsx,

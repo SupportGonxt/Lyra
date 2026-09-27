@@ -1,7 +1,7 @@
 # ADR-0078 — SCOUT's external signal sources are proposed, not integrated
 
 **Date:** 2026-09-19
-**Status:** Proposed
+**Status:** Proposed — first candidate (news/regulatory RSS) accepted in ADR-0101
 **Builds on:** docs/02 §9 (approved third-party services), docs/02 §11 and
 docs/16 (extension seams), ADR-0018 (seams declared before they are built),
 docs/20 (self-sufficiency: platform APIs are channels, management suites are not)

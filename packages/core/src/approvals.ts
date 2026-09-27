@@ -202,6 +202,11 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     // docs/modules/scout.md §4: "whitespace approvals (promote/park)" — a
     // product-strategy decision, same shape as dist.offering_publish.
     policy({ key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" }),
+    // docs/30 SCOUT 1 (ADR-0101): subscribing a provider to a data product sets
+    // the fee every later delivery invoices, so the subscription is the
+    // contract and the approval is given here, once, for that price. Above the
+    // threshold the requester may not approve their own sale.
+    policy({ key: "scout.data_product_subscribe", module: "scout", decide: "scout:data_products:publish", dualControl: "above_threshold", defaultThresholdMinor: 10_000_00 }),
     // governance
     policy({ key: "core.impersonate", module: "core", decide: "core:impersonate:use", dualControl: "always", neverAutoApprove: true }),
     // ADR-0028: a toggle can turn a capability on for every tenant at once; no

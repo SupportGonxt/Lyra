@@ -122,6 +122,9 @@ describe("APPROVAL_POLICIES", () => {
       // the tenant's half of the switch — and never sent on it alone.
       "orbit.ai_reply": { key: "orbit.ai_reply", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" },
       "scout.whitespace_promote": { key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" },
+      // docs/30 SCOUT 1 (ADR-0101): selling a data product fixes the price every
+      // delivery bills, so a large one wants a second pair of eyes.
+      "scout.data_product_subscribe": { key: "scout.data_product_subscribe", module: "scout", decide: "scout:data_products:publish", dualControl: "above_threshold", defaultThresholdMinor: 10_000_00 },
       "core.impersonate": { key: "core.impersonate", module: "core", decide: "core:impersonate:use", dualControl: "always", neverAutoApprove: true },
       "core.mandate_register": { key: "core.mandate_register", module: "core", decide: "core:api_keys:create", dualControl: "always", neverAutoApprove: true },
       "core.unmasked_export": { key: "core.unmasked_export", module: "core", decide: "analytics:exports:unmasked", dualControl: "always", neverAutoApprove: true },

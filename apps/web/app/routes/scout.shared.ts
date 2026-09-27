@@ -534,6 +534,8 @@ export const LABELS: Record<string, Record<string, string>> = {
     "problem.product_required": "That data product is missing.",
     "problem.floor_too_low":
       "The suppression floor on that cut is below the module's k-anonymity floor, so it cannot be published from here.",
+    "problem.provider_required": "Choose who receives the product.",
+    "problem.fee_required": "Enter a fee above zero for each delivery.",
 
     /* radar */
     "radar.title": "Radar",
@@ -787,6 +789,18 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dtp.openRadar": "Back to the radar",
     "dtp.headlineFlagged": "{n} of {total} data products are flagged for review.",
     "dtp.headlinePublished": "{n} of {total} data products are published.",
+    "dtp.subscribe": "Add a subscriber",
+    "dtp.subscribeHint":
+      "The fee is what every delivery to this subscriber invoices. Setting it is a contract, so it goes for approval first; subscribing someone already listed changes their fee.",
+    "dtp.provider": "Subscriber",
+    "dtp.fee": "Fee per delivery",
+    "dtp.feeEach": "Each delivery:",
+    "dtp.noFee": "No fee recorded — add them again to set one before delivering.",
+    "dtp.noProviders": "There is nobody on the panel to subscribe.",
+    "dtp.noProviders.body": "Subscribers are chosen from the panel. Add a provider there first.",
+    "dtp.deliver": "Deliver now",
+    "dtp.subscribed": "{provider} is subscribed.",
+    "dtp.delivered": "Delivered {cells} cells; {suppressed} were below the floor and left out.",
 
     /* screen 6 — SCOUT admin */
     "adm.title": "Market settings",
@@ -799,6 +813,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "adm.quiet": "Quiet",
     "adm.neverIngested": "Never ingested",
     "adm.noConnectors": "No source fetches from outside yet",
+    "adm.rssOn": "News and regulatory feeds are read from outside",
+    "adm.rssOnWhy":
+      "The feed reader fetches each configured feed once a night: one plain request, no redirect followed, nothing about this workspace sent. It keeps each item's title and link — and for a news item a short excerpt — never an author, and it never follows an item's link. Other external sources still need their own recorded decision.",
     "adm.noConnectorsWhy":
       "Every adapter listed above reads what this workspace already holds, or takes what an integrator fed it. Search trends, review sites, news and regulatory feeds are third-party services: each needs a recorded decision before it is switched on, and the adapters plug into the same registry when it is. Crawl politeness, robots handling and per-source credentials travel with the adapter, not with a setting on this screen.",
     "adm.floors": "Suppression floors",
@@ -836,7 +853,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "adm.source.regulatory": "Regulatory",
     "adm.registry": "Registered adapters",
     "adm.registryHint":
-      "What can arrive, as the module declares it. An adapter marked outside LYRA fetches from a third party; none does today.",
+      "What can arrive, as the module declares it. An adapter marked as fetching from outside reads a third party's service; the feed reader appears only once a feed is configured.",
     "adm.adapterInternal": "Reads rows LYRA already holds",
     "adm.adapterExternal": "Fetches from outside LYRA",
     "adm.watch": "Competitor and regulatory watch",
@@ -941,6 +958,8 @@ export const LABELS: Record<string, Record<string, string>> = {
     "problem.transition_required": "لا يمكن نقل البطاقة إلى تلك الحالة من حالتها الراهنة.",
     "problem.product_required": "هذا المنتج المعرفي غير موجود.",
     "problem.floor_too_low": "حد الإخفاء في هذا التقطيع أقل من حد إخفاء الهوية للوحدة، لذا لا يمكن نشره من هنا.",
+    "problem.provider_required": "اختر من يستلم المنتج.",
+    "problem.fee_required": "أدخل رسمًا أكبر من صفر لكل تسليم.",
 
     /* radar */
     "radar.title": "الرادار",
@@ -1189,6 +1208,18 @@ export const LABELS: Record<string, Record<string, string>> = {
     "dtp.openRadar": "العودة إلى الرادار",
     "dtp.headlineFlagged": "{n} من أصل {total} منتج معرفي مُعلَّم للمراجعة.",
     "dtp.headlinePublished": "{n} من أصل {total} منتج معرفي منشور.",
+    "dtp.subscribe": "إضافة مشترك",
+    "dtp.subscribeHint":
+      "الرسم هو ما تُصدَر به فاتورة كل تسليم لهذا المشترك. تحديده عقد، لذا يُرسل للموافقة أولًا؛ وإضافة مشترك مدرج أصلًا تغيّر رسمه.",
+    "dtp.provider": "المشترك",
+    "dtp.fee": "الرسم لكل تسليم",
+    "dtp.feeEach": "كل تسليم:",
+    "dtp.noFee": "لا رسم مسجل — أضفه مجددًا لتحديد رسم قبل التسليم.",
+    "dtp.noProviders": "لا أحد في القائمة للاشتراك.",
+    "dtp.noProviders.body": "يُختار المشتركون من قائمة الجهات. أضف جهة هناك أولًا.",
+    "dtp.deliver": "سلّم الآن",
+    "dtp.subscribed": "أصبح {provider} مشتركًا.",
+    "dtp.delivered": "سُلّمت {cells} خانة؛ و{suppressed} دون الحد فاستُبعدت.",
 
     /* الشاشة ٦ — إعدادات سكاوت */
     "adm.title": "إعدادات السوق",
@@ -1201,6 +1232,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "adm.quiet": "هادئ",
     "adm.neverIngested": "لم يستقبل قط",
     "adm.noConnectors": "لا مصدر يجلب من الخارج بعد",
+    "adm.rssOn": "تُقرأ خلاصات الأخبار والتنظيم من الخارج",
+    "adm.rssOnWhy":
+      "يجلب قارئ الخلاصات كل خلاصة مهيأة مرة كل ليلة: طلب واحد بسيط، دون اتباع أي تحويل، ودون إرسال شيء عن مساحة العمل هذه. يحتفظ بعنوان كل عنصر ورابطه — ومقتطف قصير لعنصر الأخبار — ولا يحتفظ بالكاتب أبدًا، ولا يتبع رابط العنصر. المصادر الخارجية الأخرى ما زالت تحتاج قرارها المسجَّل.",
     "adm.noConnectorsWhy":
       "كل موصل في الأعلى يقرأ ما تملكه مساحة العمل أصلًا أو يأخذ ما يرسله المُكامِل. اتجاهات البحث ومواقع المراجعات وخلاصات الأخبار والتنظيم خدمات طرف ثالث: لكل منها قرار مسجَّل قبل تشغيله، وتتصل بالسجل نفسه عند تشغيلها. أدب الزحف ومعالجة robots وبيانات الاعتماد تسافر مع الموصل لا مع إعداد في هذه الشاشة.",
     "adm.floors": "حدود الكبت",
@@ -1238,7 +1272,7 @@ export const LABELS: Record<string, Record<string, string>> = {
     "adm.source.regulatory": "تنظيمي",
     "adm.registry": "الموصلات المسجَّلة",
     "adm.registryHint":
-      "ما الذي يمكن أن يصل، كما تعلنه الوحدة. الموصل المعلَّم بأنه خارج ليرا يجلب من طرف ثالث، ولا موصل كذلك اليوم.",
+      "ما الذي يمكن أن يصل، كما تعلنه الوحدة. الموصل المعلَّم بأنه يجلب من الخارج يقرأ خدمة طرف ثالث؛ ولا يظهر قارئ الخلاصات إلا بعد تهيئة خلاصة.",
     "adm.adapterInternal": "يقرأ صفوفًا تملكها ليرا أصلًا",
     "adm.adapterExternal": "يجلب من خارج ليرا",
     "adm.watch": "مراقبة المنافسين والتنظيم",

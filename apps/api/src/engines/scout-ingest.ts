@@ -3,6 +3,7 @@ import { id as newId, schema } from "@lyra/db";
 import { scoped, type Ctx, type HarvestedSignal, type HarvestWindow, type SignalSource } from "@lyra/core";
 import type { Gateway } from "@lyra/model-gateway";
 import { embedUpsert } from "./vectorize.js";
+import { feedsOf, rssSource, type Fetcher } from "./scout-rss.js";
 import type { Env } from "../env.js";
 
 // docs/modules/scout.md §2.1 "Signal ingestion" / §3 "Harvester | schedules per
@@ -10,12 +11,13 @@ import type { Env } from "../env.js";
 // `SignalSource` (packages/core/src/seams.ts) for what it saw inside a window
 // and writes one `scout_signals` row per item it has not already recorded.
 //
-// What ships is the seam plus adapters that read rows LYRA already holds. The
-// external built-ins docs §2.1 names — search-trend connectors, app/review
-// scraping, news/regulatory RSS, competitor page monitors — are third-party
-// services and are refused until ADR-0078 is accepted (docs/02 §9, CLAUDE.md
-// guardrails). An accepted ADR adds an adapter file and one line in
-// `sourcesFor`; nothing else here changes. That is the seam working.
+// What ships is the seam, adapters that read rows LYRA already holds, and one
+// external adapter: the news/regulatory RSS reader ADR-0101 accepted
+// (scout-rss.ts), registered only for a tenant that configured a feed. The
+// other external built-ins docs §2.1 names — search-trend connectors,
+// app/review scraping, competitor page monitors — stay refused until their own
+// decision (ADR-0078). Each is an adapter file and one line in `sourcesFor`;
+// nothing else here changes. That is the seam working.
 
 /** Half a year back, the same lookback the whitespace sweep reads. */
 export const HARVEST_LOOKBACK_MS = 182 * 86_400_000;
@@ -117,9 +119,17 @@ export function fedSource(items: readonly HarvestedSignal[]): SignalSource {
   };
 }
 
-/** Every source this deployment has. One place to read "what can arrive". */
-export function sourcesFor(ctx: Ctx, fed: readonly HarvestedSignal[] = []): SignalSource[] {
+/** Every source this tenant has. One place to read "what can arrive". `fetcher`
+ *  is what an external adapter fetches through — the platform's own `fetch`
+ *  unless a test injects one; building a source never calls it. */
+export function sourcesFor(
+  ctx: Ctx,
+  fed: readonly HarvestedSignal[] = [],
+  fetcher: Fetcher = (url, init) => fetch(url, init)
+): SignalSource[] {
   const sources = [quoteDemandSource(ctx), abandonmentSource(ctx)];
+  const feeds = feedsOf(ctx.policy);
+  if (feeds.length) sources.push(rssSource(feeds, fetcher, ctx.now));
   if (fed.length) sources.push(fedSource(fed));
   return sources;
 }
@@ -148,12 +158,12 @@ export async function harvestSignals(
   ctx: Ctx,
   gateway: Gateway,
   env: Env,
-  opts: { fed?: readonly HarvestedSignal[]; lookbackMs?: number; fedOnly?: boolean } = {}
+  opts: { fed?: readonly HarvestedSignal[]; lookbackMs?: number; fedOnly?: boolean; fetch?: Fetcher } = {}
 ): Promise<HarvestReport> {
   const window: HarvestWindow = { since: ctx.now - (opts.lookbackMs ?? HARVEST_LOOKBACK_MS), until: ctx.now };
   // A file import stores what it was given and nothing else; a harvest also
   // runs every registered source.
-  const sources = opts.fedOnly ? [fedSource(opts.fed ?? [])] : sourcesFor(ctx, opts.fed ?? []);
+  const sources = opts.fedOnly ? [fedSource(opts.fed ?? [])] : sourcesFor(ctx, opts.fed ?? [], opts.fetch);
 
   const harvested: HarvestedSignal[] = [];
   for (const source of sources) {

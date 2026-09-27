@@ -280,7 +280,11 @@ export default function ScoutAdmin() {
             </li>
           ))}
         </ul>
-        <GuardrailNotice tone="info" title={l("adm.noConnectors")} reason={l("adm.noConnectorsWhy")} />
+        {loaded.adapters.some((one) => one.external) ? (
+          <GuardrailNotice tone="info" title={l("adm.rssOn")} reason={l("adm.rssOnWhy")} />
+        ) : (
+          <GuardrailNotice tone="info" title={l("adm.noConnectors")} reason={l("adm.noConnectorsWhy")} />
+        )}
       </Card>
 
       <Card title={l("adm.watch")} description={l("adm.watchHint", { days: String(watchDays(loaded.watch.windowMs)) })}>

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { eq } from "drizzle-orm";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { id as newId, schema, EntitlementsJson, PolicyJson } from "@lyra/db";
 import { permissionsForRole, seed, type Ctx, type HarvestedSignal } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
@@ -148,7 +148,7 @@ const fed = (over: Partial<HarvestedSignal> & Pick<HarvestedSignal, "sourceRef">
 });
 
 describe("the signal source registry", () => {
-  it("ships no adapter that leaves LYRA — the seam is declared, the integration is not (ADR-0078)", () => {
+  it("ships no adapter that leaves LYRA until a tenant configures one (ADR-0078, ADR-0101)", () => {
     const sources = describeSources(ctx);
     expect(sources.length).toBeGreaterThan(0);
     expect(sources.every((one) => one.external === false)).toBe(true);
@@ -190,6 +190,45 @@ describe("harvestSignals", () => {
       .from(schema.scoutSignals)
       .where(eq(schema.scoutSignals.tenantId, tenantId));
     expect(rows.find((one) => one.sourceRef === "circular-no-index")?.ref).toBeNull();
+  });
+});
+
+describe("the RSS adapter in the harvest (ADR-0101)", () => {
+  const FEED = `<rss><channel><title>Gulf Logistics Weekly</title>
+    <item><title>Riders move to shift contracts</title><link>https://news.example.com/riders</link>
+    <guid>riders-1</guid><pubDate>${new Date(NOW - 86_400_000).toUTCString()}</pubDate></item>
+  </channel></rss>`;
+  const withFeeds = (): Ctx => ({
+    ...ctx,
+    policy: PolicyJson.parse({ moduleConfig: { scout: { settings: { rssFeeds: ["https://news.example.com/feed"] } } } })
+  });
+
+  it("is registered, and marked external, only for a tenant that configured a feed", () => {
+    expect(describeSources(ctx).some((one) => one.id === "external.rss")).toBe(false);
+    expect(describeSources(withFeeds())).toContainEqual({ id: "external.rss", kind: "news", external: true });
+  });
+
+  it("stores each feed item once through the one write path, and fetches through the injected fetch", async () => {
+    const fetcher = vi.fn(async () => new Response(FEED, { status: 200 }));
+    const env = { VEC_MARKET: fakeIndex() } as Env;
+    const first = await harvestSignals(withFeeds(), gateway(), env, { fetch: fetcher });
+    expect(first.bySource.news).toBe(1);
+    const second = await harvestSignals(withFeeds(), gateway(), env, { fetch: fetcher });
+    expect(second.bySource.news).toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    const rows = await ctx.db
+      .select({ sourceRef: schema.scoutSignals.sourceRef, payloadJson: schema.scoutSignals.payloadJson })
+      .from(schema.scoutSignals)
+      .where(eq(schema.scoutSignals.tenantId, tenantId));
+    const row = rows.find((one) => one.sourceRef === "rss:news.example.com/riders-1");
+    expect(JSON.parse(row?.payloadJson ?? "{}")).toMatchObject({ headline: "Riders move to shift contracts", publisher: "Gulf Logistics Weekly" });
+  });
+
+  it("a file import runs no source at all, so it fetches nothing", async () => {
+    const fetcher = vi.fn(async () => new Response(FEED, { status: 200 }));
+    await harvestSignals(withFeeds(), gateway(), {} as Env, { fed: [fed({ sourceRef: "import-only" })], fedOnly: true, fetch: fetcher });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
 

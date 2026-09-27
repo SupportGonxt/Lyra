@@ -8,8 +8,9 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
-import { Badge, Button, Card, DateTime, EmptyState, Field, GuardrailNotice, Ref, Select } from "@lyra/ui";
+import { Badge, Button, Card, DateTime, EmptyState, Field, GuardrailNotice, Money, MoneyField, Ref, Select } from "@lyra/ui";
 import { ApiError, api, names } from "../api.server";
+import { refOptions } from "../refs.server";
 import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { useScoutSessionData } from "./scout-shell";
@@ -43,6 +44,11 @@ import { jsonOf } from "../json.js";
 // The one judgement the screen makes is arithmetic: a floor under the module's
 // k-anonymity floor cannot be published from here, because publishing is what
 // exposes the thin cells.
+//
+// docs/30 SCOUT 1: it also sells. Subscribing a provider at a fee is the
+// contract (approval-gated, POST …/subscribe); delivering builds the cut the
+// definition names and bills that fee (POST …/deliver). Both answers are the
+// API's — the thin-cell refusal and the approval queue included.
 
 const LIMIT = 100;
 const DELIVERIES = 20;
@@ -93,6 +99,9 @@ export interface Subscriber {
   providerId: string;
   since: number | null;
   suspendedAt: number | null;
+  /** The fee per delivery the subscription was approved at; null for one that
+   *  predates fees, which the API refuses to deliver until it is re-priced. */
+  feeMinor: number | null;
 }
 
 const bag = (raw: unknown): Record<string, unknown> => {
@@ -133,7 +142,8 @@ export function subscribersOf(row: DataProductRow): Subscriber[] {
       {
         providerId: item.providerId,
         since: typeof item.since === "number" ? item.since : null,
-        suspendedAt: typeof item.suspendedAt === "number" ? item.suspendedAt : null
+        suspendedAt: typeof item.suspendedAt === "number" ? item.suspendedAt : null,
+        feeMinor: typeof item.feeMinor === "number" ? item.feeMinor : null
       }
     ];
   });
@@ -203,7 +213,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     K_FLOOR
   );
 
-  const [named, deliveries] = await Promise.all([
+  const [named, deliveries, providers] = await Promise.all([
     names(
       rows.flatMap((row) => subscribersOf(row).map((one) => one.providerId)),
       { env, request }
@@ -218,7 +228,9 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
             ),
           // A withheld export read costs the delivery log, not the catalogue.
           emptyPage<ExportRow>()
-        )
+        ),
+    // Who may be subscribed. An unreadable list leaves the form with no choices.
+    refOptions("/v1/core/providers?sort=name&order=asc&limit=200", env, request)
   ]);
 
   return {
@@ -227,14 +239,38 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     named,
     deliveries: deliveries.data,
     moves: product === null ? [] : nextProductStates(product.status),
+    providers,
     key: mintKey("scout-dtp"),
     kFloor
   };
 }
 
+export type Done =
+  | { intent: "move"; status: string }
+  | { intent: "subscribe"; providerId: string }
+  | { intent: "deliver"; cells: number; suppressed: number };
+
 export interface ActionResult {
   problem: Problemish | null;
-  done: { status: string } | null;
+  done: Done | null;
+}
+
+/** A fee is a positive whole number of minor units, or it is not a fee. */
+const feeOf = (raw: string): number | null => (/^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : null);
+
+async function post(
+  path: string,
+  payload: Record<string, unknown>,
+  key: string,
+  opts: { env: Parameters<typeof api>[1]["env"]; request: Request }
+): Promise<{ ok: Record<string, unknown> } | { problem: Problemish }> {
+  try {
+    const ok = await api<Record<string, unknown>>(path, { ...opts, method: "POST", body: payload, headers: { "idempotency-key": key } });
+    return { ok };
+  } catch (error) {
+    if (error instanceof ApiError) return { problem: error.problem };
+    throw error;
+  }
 }
 
 export async function action({ request, context }: ActionFunctionArgs): Promise<ActionResult> {
@@ -242,10 +278,26 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
   const form = await request.formData();
   const key = String(form.get("key") ?? "") || mintKey("scout-dtp");
 
-  if (String(form.get("intent") ?? "") !== "move") return refuse("bad_intent");
+  const intent = String(form.get("intent") ?? "");
+  if (intent !== "move" && intent !== "subscribe" && intent !== "deliver") return refuse("bad_intent");
 
   const id = String(form.get("productId") ?? "");
   if (id === "") return refuse("product_required");
+
+  if (intent === "subscribe" || intent === "deliver") {
+    const providerId = String(form.get("providerId") ?? "");
+    if (providerId === "") return refuse("provider_required");
+    const path = `/v1/scout/data-products/${encodeURIComponent(id)}/${intent}`;
+    if (intent === "subscribe") {
+      const feeMinor = feeOf(String(form.get("feeMinor") ?? ""));
+      if (feeMinor === null) return refuse("fee_required");
+      const answer = await post(path, { providerId, feeMinor }, key, { env, request });
+      return "problem" in answer ? { problem: answer.problem, done: null } : { problem: null, done: { intent, providerId } };
+    }
+    const answer = await post(path, { providerId }, key, { env, request });
+    if ("problem" in answer) return { problem: answer.problem, done: null };
+    return { problem: null, done: { intent, cells: Number(answer.ok.cells ?? 0), suppressed: Number(answer.ok.suppressed ?? 0) } };
+  }
 
   const from = String(form.get("from") ?? "");
   const to = String(form.get("to") ?? "");
@@ -275,7 +327,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
       body: { status: to },
       headers: { "idempotency-key": key }
     });
-    return { problem: null, done: { status: to } };
+    return { problem: null, done: { intent: "move", status: to } };
   } catch (error) {
     if (error instanceof ApiError) return { problem: error.problem, done: null };
     throw error;
@@ -314,6 +366,8 @@ export default function ScoutDataProducts() {
   const definition = definitionOf(product);
   const subscribers = subscribersOf(product);
   const warnings = warningsFor(product, loaded.kFloor);
+  const selling = may.has(PERM.dataProductsPublish) && product.status === "published";
+  const currency = shell?.currency ?? "AED";
 
   return (
     <div className="flex flex-col gap-6">
@@ -326,7 +380,11 @@ export default function ScoutDataProducts() {
 
       {result?.done ? (
         <p role="status" className="font-ui text-13 text-success">
-          {l("dtp.moved", { status: l(`dtp.status.${result.done.status}`) })}
+          {result.done.intent === "move"
+            ? l("dtp.moved", { status: l(`dtp.status.${result.done.status}`) })
+            : result.done.intent === "subscribe"
+              ? l("dtp.subscribed", { provider: loaded.named[result.done.providerId] ?? result.done.providerId })
+              : l("dtp.delivered", { cells: String(result.done.cells), suppressed: String(result.done.suppressed) })}
         </p>
       ) : null}
 
@@ -439,12 +497,56 @@ export default function ScoutDataProducts() {
                         </Badge>
                       )}
                       {one.suspendedAt === null ? null : <DateTime value={one.suspendedAt} locale={locale} />}
+                      {one.feeMinor === null ? (
+                        <span>{l("dtp.noFee")}</span>
+                      ) : (
+                        <span>
+                          {l("dtp.feeEach")} <Money amountMinor={one.feeMinor} currency={currency} locale={locale} />
+                        </span>
+                      )}
                     </span>
+                    {selling && one.suspendedAt === null && one.feeMinor !== null ? (
+                      <Form method="post" className="mt-1">
+                        <input type="hidden" name="intent" value="deliver" />
+                        <input type="hidden" name="key" value={`${loaded.key}:deliver:${one.providerId}`} />
+                        <input type="hidden" name="productId" value={product.id} />
+                        <input type="hidden" name="providerId" value={one.providerId} />
+                        <Button type="submit" size="sm" variant="secondary" disabled={busy}>
+                          {l("dtp.deliver")}
+                        </Button>
+                      </Form>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             )}
           </Card>
+
+          {selling ? (
+            <Card title={l("dtp.subscribe")} description={l("dtp.subscribeHint")}>
+              {loaded.providers.length === 0 ? (
+                <EmptyState title={l("dtp.noProviders")} body={l("dtp.noProviders.body")} />
+              ) : (
+                <Form method="post" className="mt-2 flex flex-wrap items-end gap-3">
+                  <input type="hidden" name="intent" value="subscribe" />
+                  <input type="hidden" name="key" value={`${loaded.key}:subscribe`} />
+                  <input type="hidden" name="productId" value={product.id} />
+                  <Field label={l("dtp.provider")} id="providerId">
+                    <Select
+                      name="providerId"
+                      options={loaded.providers.map((one) => ({ value: one.id, label: one.label }))}
+                    />
+                  </Field>
+                  <Field label={l("dtp.fee")} id="feeMinor">
+                    <MoneyField id="feeMinor" name="feeMinor" currency={currency} locale={locale} required />
+                  </Field>
+                  <Button type="submit" disabled={busy}>
+                    {l("dtp.subscribe")}
+                  </Button>
+                </Form>
+              )}
+            </Card>
+          ) : null}
 
           <Card title={l("dtp.deliveries")} description={l("dtp.deliveriesHint")}>
             {loaded.deliveries.length === 0 ? (
