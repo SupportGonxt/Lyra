@@ -43,6 +43,9 @@ export const PURPOSES: Record<string, PurposeDef> = {
   // sent, and the send path is the same row, so it is customer-facing here.
   "conversation.reply": { module: "orbit", customerFacing: true },
   "orbit.conversation.reply": { module: "orbit", customerFacing: true },
+  // ADR-0098: the same reply, sent on inbound without a human in between.
+  // Its own slug so ai_audit_log can tell a sent reply from a draft.
+  "orbit.conversation.auto_reply": { module: "orbit", customerFacing: true },
   "orbit.renewal.draft_reply": { module: "orbit", customerFacing: true },
   "orbit.renewal.draft_outreach": { module: "orbit", customerFacing: true },
   // A journey `agent` node's pending outreach draft (apps/api engines/orbit-journeys.ts).

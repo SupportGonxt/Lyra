@@ -19,7 +19,8 @@ const TITLES: Record<string, Record<string, string>> = {
     "ai.budget_raise": "AI budget raise",
     "ai.prompt_publish": "Publish a prompt",
     "ai.autonomy_raise": "Raise autonomy",
-    "compliance.shariah_certify": "Shariah certification"
+    "compliance.shariah_certify": "Shariah certification",
+    "orbit.ai_reply": "AI reply sent on inbound"
   },
   ar: {
     "ledger.refund": "استرداد",
@@ -70,6 +71,7 @@ const TITLES: Record<string, Record<string, string>> = {
     "signal.outreach_send": "إرسال تواصل",
     "orbit.renewal_offer": "عرض تجديد",
     "orbit.document_send": "إرسال مستند",
+    "orbit.ai_reply": "رد ذكي يُرسل فور وصول الرسالة",
     "scout.whitespace_promote": "ترقية فرصة سوقية",
     "core.impersonate": "الدخول بهوية مستخدم",
     "core.flag_toggle": "تبديل ميزة",

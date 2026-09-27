@@ -85,7 +85,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
    - A journey without a cap can no longer be activated (the journeys resource's `beforeWrite`).
    - `onJourneyEvent` isolates each journey, so one refused graph no longer fails the consumer for every other journey on the same event.
 2. ~~Save-desk outcomes emit `orbit.renewal.accepted`/`lost`.~~ **Fixed** 2026-09-23 (renewal outcome events: offered/accepted/lost).
-3. Real-time AI replies on inbound, sent within the agent's autonomy.
+3. ~~Real-time AI replies on inbound, sent within the agent's autonomy.~~ **Fixed** 2026-09-27: `orbit.message.received` has a consumer (`engines/orbit-auto-reply.ts`, kicked by the webhook itself and retried by the drain) that sends the service agent's reply through the consented outbound path only when its autonomy is `act_within_limits`+ and `orbit.ai_reply` is on the tenant's allowlist and the reply clears `checkAutoReply` (evals/orbit-auto-reply); otherwise it writes the pending draft at once (ADR-0098).
 4. Web chat channel (a `ChannelAdapter` plus a portal route).
 5. ~~Module-aware tools.~~ **Fixed** 2026-09-26: the agent is offered only tools the person it acts for can run (`TOOL_PERMISSION`), so an ORBIT-only tenant sees no AXIS tool; `start_quote` and a document chase announce `orbit.quote.requested` / `orbit.conversation.document` and AXIS raises its own case and task (`engines/axis-orbit-intake.ts`). The scheduler stands down every module a tenant did not buy (`switchedOff`), and `solo-modules.test.ts` holds each module alone to what a full tenant is told. `bindPartner` still has no route (Distribution).
 

@@ -1,7 +1,8 @@
 import { and, desc, eq, gte, ne } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { verifyGroundedness, type Ctx } from "@lyra/core";
+import { actorRef, checkAutoReply, verifyGroundedness, type Ctx } from "@lyra/core";
 import { isoDay, type Gateway } from "@lyra/model-gateway";
+import { isUniqueViolation } from "../crud.js";
 import { activePrompt, findAgent } from "./ai-agent.js";
 
 // docs/27 F7. The draft loop had two ends and no middle: apps/web's
@@ -17,8 +18,10 @@ import { activePrompt, findAgent } from "./ai-agent.js";
 
 /** The seeded ORBIT drafting agent. No agent row, no sweep — a tenant seeded
  *  before this existed is skipped, not crashed. */
-const AGENT_KEY = "service";
+export const AGENT_KEY = "service";
 const PURPOSE = "orbit.conversation.reply";
+/** ADR-0098: the same reply, sent. Its own purpose so ai_audit_log tells the two apart. */
+const AUTO_PURPOSE = "orbit.conversation.auto_reply";
 
 /** How far back a conversation can have gone quiet and still get a draft.
  *  Older than this and the reply is archaeology, not service. */
@@ -136,7 +139,26 @@ interface DraftRequest {
   instruction: string;
   contextLines: string[];
   userContent: string;
+  /**
+   * A fixed run id, used as a claim: the insert fails on the second attempt, so
+   * two consumers racing over one inbound message produce one reply
+   * (engines/orbit-auto-reply.ts). Omitted, a fresh id is minted.
+   */
+  runId?: string;
+  /**
+   * ADR-0098. Present only when the agent's autonomy and the tenant's
+   * allowlist both permit sending. A reply that clears `checkAutoReply` is
+   * handed here instead of being written as a draft; anything the send step
+   * refuses or throws on falls back to the draft, so a human still sees it.
+   * Returns the id of the message it recorded.
+   */
+  send?: (text: string, aiAuditId: string) => Promise<string>;
 }
+
+/** Flags that say nothing about the answer itself: redacted-and-restored PII, and which provider answered. */
+const BENIGN_FLAG = /^(?:pii_|provider_fallback$)/;
+
+export type ReplyOutcome = "sent" | "drafted" | "refused" | "claimed";
 
 /** The one path a draft takes: an ai_runs row, the model, the groundedness gate, a pending message. */
 async function writeDraft(
@@ -146,21 +168,76 @@ async function writeDraft(
   conv: Conversation,
   req: DraftRequest
 ): Promise<string | null> {
-  const runId = newId("air", lctx.now);
-  await lctx.db.insert(schema.aiRuns).values({
-    id: runId,
-    tenantId: lctx.tenantId,
-    agentKey: agent.key,
-    module: "orbit",
-    purpose: req.purpose,
-    subjectRef: conv.id,
-    actorRef: "system:scheduler",
-    autonomyLevel: agent.autonomyLevel,
-    trigger: req.trigger,
-    state: "running",
-    inputHash: "",
-    startedAt: lctx.now
+  const { messageId } = await runReply(lctx, gateway, agent, conv, req);
+  return messageId;
+}
+
+/**
+ * Draft — or, under ADR-0098, send — the reply to a customer who has just
+ * written. Same run record, same context and same groundedness floor as the
+ * sweep's draft; the only difference is what becomes of a reply that clears
+ * the stricter auto-reply gate when a `send` step is offered.
+ */
+export async function replyToInbound(
+  ctx: Ctx,
+  gateway: Gateway,
+  agent: Agent,
+  conv: Conversation,
+  history: readonly (typeof schema.orbitMessages.$inferSelect)[],
+  opts: { runId: string; send?: DraftRequest["send"] }
+): Promise<ReplyOutcome> {
+  const newest = history[0];
+  if (!newest) return "refused";
+  const locale = conv.lang === "ar" ? "ar" : "en";
+  const lctx: Ctx = { ...ctx, locale };
+  const contextLines = await buildContext(lctx, conv, history);
+  const { outcome } = await runReply(lctx, gateway, agent, conv, {
+    purpose: opts.send ? AUTO_PURPOSE : PURPOSE,
+    trigger: "event",
+    instruction: opts.send
+      ? "Write the next reply to this customer using only the context lines below. It is sent to the customer " +
+        "as you write it, with no person reading it first. Do not state a number that is not in the context. " +
+        "You cannot change, cancel, pay or send anything: never say something has been done; say a colleague " +
+        `will follow up instead. No promise of cover and no advice. Reply in ${locale}.`
+      : "Draft the next reply to this customer using only the context lines below. " +
+        "Do not state a number that is not in the context. Never say a message, payment or " +
+        `change has been made — you are drafting for a human to approve. Reply in ${locale}.`,
+    contextLines,
+    userContent: newest.content,
+    runId: opts.runId,
+    ...(opts.send ? { send: opts.send } : {})
   });
+  return outcome;
+}
+
+async function runReply(
+  lctx: Ctx,
+  gateway: Gateway,
+  agent: Agent,
+  conv: Conversation,
+  req: DraftRequest
+): Promise<{ messageId: string | null; outcome: ReplyOutcome }> {
+  const runId = req.runId ?? newId("air", lctx.now);
+  try {
+    await lctx.db.insert(schema.aiRuns).values({
+      id: runId,
+      tenantId: lctx.tenantId,
+      agentKey: agent.key,
+      module: "orbit",
+      purpose: req.purpose,
+      subjectRef: conv.id,
+      actorRef: req.trigger === "schedule" ? "system:scheduler" : actorRef(lctx),
+      autonomyLevel: agent.autonomyLevel,
+      trigger: req.trigger,
+      state: "running",
+      inputHash: "",
+      startedAt: lctx.now
+    });
+  } catch (err) {
+    // Someone else holds this claim (see DraftRequest.runId): they answer, not us.
+    if (req.runId && isUniqueViolation(err)) return { messageId: null, outcome: "claimed" };
+    throw err;
+  }
 
   try {
     const prompt = await activePrompt(lctx, agent.promptRef);
@@ -183,9 +260,31 @@ async function writeDraft(
     const groundedness = verifyGroundedness(result.text, req.contextLines);
     const text = result.text.trim();
     const ok = groundedness.ok && text.length > 0;
-    const messageId = newId("omg", lctx.now);
+    let messageId = newId("omg", lctx.now);
 
-    if (ok) {
+    // ADR-0098. The send step is offered only a reply a person would not have
+    // had to stop: the auto-reply gate over the text, and no guardrail flag on
+    // the call beyond the ones that say nothing about the answer. Everything
+    // else — including a send that throws (consent withdrawn, provider down) —
+    // lands as the same pending draft the sweep writes, so nothing is lost.
+    let delivery: "sent" | "drafted" | null = null;
+    let held: string | null = null;
+    if (ok && req.send) {
+      const verdict = checkAutoReply(text, req.contextLines, lctx.locale);
+      const flagged = result.flags.filter((f) => !BENIGN_FLAG.test(f));
+      held = verdict.why ?? (flagged.length ? `flag:${flagged.join(",")}` : null);
+      if (!held) {
+        try {
+          messageId = await req.send(text, result.auditId);
+          delivery = "sent";
+        } catch (err) {
+          held = `send:${err instanceof Error ? err.message.slice(0, 80) : "error"}`;
+        }
+      }
+    }
+
+    if (ok && delivery !== "sent") {
+      delivery = "drafted";
       await lctx.db.insert(schema.orbitMessages).values({
         id: messageId,
         tenantId: lctx.tenantId,
@@ -215,7 +314,8 @@ async function writeDraft(
           model: result.model,
           provider: result.provider,
           flags: result.flags,
-          mismatches: groundedness.mismatches
+          mismatches: groundedness.mismatches,
+          ...(req.send ? { delivery, held } : {})
         }),
         tokensIn: result.usage.tokensIn,
         tokensOut: result.usage.tokensOut,
@@ -225,7 +325,8 @@ async function writeDraft(
       })
       .where(and(eq(schema.aiRuns.tenantId, lctx.tenantId), eq(schema.aiRuns.id, runId)));
 
-    return ok ? messageId : null;
+    if (!ok) return { messageId: null, outcome: "refused" };
+    return { messageId, outcome: delivery === "sent" ? "sent" : "drafted" };
   } catch (err) {
     await lctx.db
       .update(schema.aiRuns)

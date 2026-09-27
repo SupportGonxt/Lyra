@@ -1,6 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
-import { emit, recordConsent, type Ctx, type InboundEvent } from "@lyra/core";
+import { emit, recordConsent, type Ctx, type Envelope, type InboundEvent } from "@lyra/core";
 import { isUniqueViolation } from "../crud.js";
 import { adapterFor } from "./orbit-channel-adapters.js";
 import { routeConversation } from "./orbit-routing.js";
@@ -120,6 +120,12 @@ export async function processChannelEvents(
      * reason `signal` is — this engine has to stay callable with no AI wiring.
      */
     deflect?: (conversationId: string, text: string) => Promise<void>;
+    /**
+     * Every `orbit.message.received` envelope this call wrote, after signal and
+     * deflection have run — so the caller can hand it straight to its consumer
+     * rather than wait for the next drain (ADR-0098, routes/channels.ts).
+     */
+    received?: (event: Envelope) => void;
   } = {}
 ): Promise<{ processed: number; skipped: number }> {
   let processed = 0;
@@ -166,7 +172,7 @@ export async function processChannelEvents(
         .set({ lastMessageAt: event.message.sentAt, updatedAt: ctx.now })
         .where(eq(schema.orbitConversations.id, conversation.id));
       // After the insert, so a redelivery (unique violation above) announces nothing.
-      await emit(ctx, {
+      const received = await emit(ctx, {
         module: "orbit",
         type: "orbit.message.received",
         subject: messageId,
@@ -180,6 +186,7 @@ export async function processChannelEvents(
       // Inside the try, after the insert: a redelivered webhook throws on the
       // unique index above and must not answer the customer a second time.
       await opts.deflect?.(conversation.id, event.message.text);
+      opts.received?.(received);
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       skipped++;

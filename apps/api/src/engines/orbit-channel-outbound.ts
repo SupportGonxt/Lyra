@@ -17,7 +17,14 @@ export async function dispatchOutbound(
   env: Env,
   conversation: ConversationRow,
   connector: ConnectorRow,
-  text: string
+  text: string,
+  /**
+   * Who wrote the words. Default `agent_human`: this is the human reply path.
+   * An auto-reply (engines/orbit-auto-reply.ts, ADR-0098) sends through the
+   * same consent gate and the same write-after-send, as `agent_ai` with the
+   * audit id of the model call that produced it — the ✦ and its "why".
+   */
+  author: { role: "agent_human" | "agent_ai"; aiAuditId?: string } = { role: "agent_human" }
 ): Promise<{ messageId: string; externalRef: string }> {
   if (!conversation.externalRef) throw badRequest("conversation has no channel address to reply to");
 
@@ -62,9 +69,10 @@ export async function dispatchOutbound(
     id: messageId,
     tenantId: ctx.tenantId,
     conversationId: conversation.id,
-    role: "agent_human",
+    role: author.role,
     modality: "text",
     content: text,
+    aiAuditId: author.aiAuditId ?? null,
     deliveryStatus: "sent",
     externalRef: sent.externalRef,
     ts: ctx.now
@@ -78,7 +86,8 @@ export async function dispatchOutbound(
   // firstResponseMs is elapsed ms from queue entry to first response
   // (docs/03 §ORBIT, apps/web's orbit-console reads it as a duration, not a
   // timestamp), so once it is set, later replies must not touch it.
-  if (conversation.firstResponseMs === null) {
+  // An AI answer is not the human first response the SLA measures.
+  if (author.role === "agent_human" && conversation.firstResponseMs === null) {
     await ctx.db
       .update(schema.orbitConversations)
       .set({
