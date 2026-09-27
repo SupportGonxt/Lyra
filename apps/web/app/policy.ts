@@ -21,7 +21,8 @@ const TITLES: Record<string, Record<string, string>> = {
     "ai.autonomy_raise": "Raise autonomy",
     "compliance.shariah_certify": "Shariah certification",
     "orbit.ai_reply": "AI reply sent on inbound",
-    "scout.data_product_subscribe": "Data product subscription"
+    "scout.data_product_subscribe": "Data product subscription",
+    "axis.reinsurance_cession": "Reinsurance cession"
   },
   ar: {
     "ledger.refund": "استرداد",
@@ -75,6 +76,7 @@ const TITLES: Record<string, Record<string, string>> = {
     "orbit.ai_reply": "رد ذكي يُرسل فور وصول الرسالة",
     "scout.whitespace_promote": "ترقية فرصة سوقية",
     "scout.data_product_subscribe": "اشتراك في منتج معرفي",
+    "axis.reinsurance_cession": "إسناد إعادة تأمين",
     "core.impersonate": "الدخول بهوية مستخدم",
     "core.flag_toggle": "تبديل ميزة",
     "core.mandate_register": "تسجيل تفويض وكيل",

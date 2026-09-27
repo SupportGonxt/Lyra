@@ -268,7 +268,38 @@ export const axis: WorkspaceSpec = {
       "link.processMap": "Process map",
       "link.claimsDesk": "Claims desk",
       "link.renewals": "Renewal desk",
-      "link.referrals": "Referral desk"
+      "link.referrals": "Referral desk",
+
+      // Reinsurance (docs/30 AXIS 5, ADR-0106).
+      "reinsurance-treaties": "Reinsurance treaties",
+      "reinsurance-cessions": "Cessions",
+      reinsurerId: "Reinsurer",
+      cededSharePpm: "Share ceded",
+      limitMinor: "Per-risk limit",
+      retentionMinor: "Retention",
+      lines: "Lines",
+      cedingCommissionPpm: "Ceding commission rate",
+      effectiveFrom: "Effective from",
+      effectiveTo: "Effective to",
+      treatyId: "Treaty",
+      sumInsuredMinor: "Sum insured",
+      cededPremiumMinor: "Ceded",
+      cededSumInsuredMinor: "Sum insured ceded",
+      cedingCommissionMinor: "Ceding commission",
+      netPayableMinor: "Owed to reinsurer",
+      retainedPremiumMinor: "Retained",
+      txnId: "Transaction",
+      postedAt: "Posted",
+      "kind.quota_share": "Quota share",
+      "kind.surplus": "Surplus",
+      "state.pending_approval": "Awaiting approval",
+      "state.posted": "Posted",
+      "treaties.shareHint": "Quota share only: the part of every risk passed to the reinsurer.",
+      "treaties.limitHint": "Quota share only, optional: the share applies to the sum insured up to this amount.",
+      "treaties.retentionHint": "Surplus only: what is kept on every risk before anything is ceded.",
+      "treaties.linesHint": "Surplus only: how many retentions the reinsurer takes above the first.",
+      "treaties.productLineHint": "Leave empty to cover every line.",
+      "treaties.priorityHint": "Lower goes first; each treaty takes its share of what the one before kept."
     },
     ar: {
       cases: "الحالات",
@@ -519,7 +550,37 @@ export const axis: WorkspaceSpec = {
       "link.processMap": "خريطة العملية",
       "link.claimsDesk": "مكتب المطالبات",
       "link.renewals": "مكتب التجديدات",
-      "link.referrals": "مكتب الإحالات"
+      "link.referrals": "مكتب الإحالات",
+
+      "reinsurance-treaties": "اتفاقيات إعادة التأمين",
+      "reinsurance-cessions": "التنازلات",
+      reinsurerId: "معيد التأمين",
+      cededSharePpm: "الحصة المتنازل عنها",
+      limitMinor: "الحد لكل خطر",
+      retentionMinor: "الاحتفاظ",
+      lines: "الخطوط",
+      cedingCommissionPpm: "نسبة عمولة التنازل",
+      effectiveFrom: "ساري من",
+      effectiveTo: "ساري حتى",
+      treatyId: "الاتفاقية",
+      sumInsuredMinor: "مبلغ التأمين",
+      cededPremiumMinor: "المتنازل عنه",
+      cededSumInsuredMinor: "مبلغ التأمين المتنازل عنه",
+      cedingCommissionMinor: "عمولة التنازل",
+      netPayableMinor: "المستحق لمعيد التأمين",
+      retainedPremiumMinor: "المحتفظ به",
+      txnId: "المعاملة",
+      postedAt: "تاريخ القيد",
+      "kind.quota_share": "حصة نسبية",
+      "kind.surplus": "فائض",
+      "state.pending_approval": "بانتظار الموافقة",
+      "state.posted": "مقيّد",
+      "treaties.shareHint": "للحصة النسبية فقط: الجزء من كل خطر الذي يُحال إلى معيد التأمين.",
+      "treaties.limitHint": "للحصة النسبية فقط، اختياري: تُطبّق الحصة على مبلغ التأمين حتى هذا المبلغ.",
+      "treaties.retentionHint": "للفائض فقط: ما يُحتفظ به من كل خطر قبل التنازل عن أي شيء.",
+      "treaties.linesHint": "للفائض فقط: عدد مرات الاحتفاظ التي يتحملها معيد التأمين فوق الأول.",
+      "treaties.productLineHint": "اتركه فارغًا ليشمل جميع الخطوط.",
+      "treaties.priorityHint": "الأقل أولًا؛ كل اتفاقية تأخذ حصتها مما احتفظت به السابقة."
     }
   },
   // Nothing here is a duplicate of a tab: reconciliation lives in the ledger and
@@ -1086,6 +1147,84 @@ export const axis: WorkspaceSpec = {
         { name: "receivedMinor", type: "money" },
         { name: "varianceReason", type: "text" },
         { name: "evidenceFileId", type: "text" }
+      ]
+    },
+    // docs/30 AXIS 5, ADR-0106. Treaties are the terms; a cession is what one
+    // made of a policy the tenant underwrites itself, computed and posted by
+    // the API (engines/axis-reinsurance.ts), so the second tab only reads.
+    {
+      key: "reinsurance-treaties",
+      api: "/v1/axis/reinsurance-treaties",
+      read: "axis:reinsurance:read",
+      create: "axis:reinsurance:write",
+      update: "axis:reinsurance:write",
+      search: true,
+      sort: "priority",
+      order: "asc",
+      filters: [
+        { name: "status", options: ["draft", "active", "closed"] },
+        { name: "kind", options: ["quota_share", "surplus"] }
+      ],
+      columns: [
+        { name: "ref", type: "text", sortable: true },
+        { name: "kind", type: "text", badge: true },
+        { name: "reinsurerId", type: "text" },
+        { name: "productLine", type: "text" },
+        { name: "cededSharePpm", type: "rate" },
+        { name: "retentionMinor", type: "money", currencyFrom: "currency" },
+        { name: "lines", type: "number" },
+        { name: "cedingCommissionPpm", type: "rate" },
+        { name: "priority", type: "number", sortable: true },
+        { name: "effectiveFrom", type: "datetime", sortable: true },
+        { name: "effectiveTo", type: "datetime" },
+        { name: "status", type: "text", badge: true }
+      ],
+      fields: [
+        { name: "ref", type: "text", required: true },
+        { name: "kind", type: "select", options: ["quota_share", "surplus"], required: true },
+        { name: "reinsurerId", type: "text", required: true },
+        { name: "productLine", type: "text", hintKey: "treaties.productLineHint" },
+        { name: "currency", type: "text", required: true },
+        { name: "cededSharePpm", type: "rate", hintKey: "treaties.shareHint" },
+        { name: "limitMinor", type: "money", hintKey: "treaties.limitHint" },
+        { name: "retentionMinor", type: "money", hintKey: "treaties.retentionHint" },
+        { name: "lines", type: "number", hintKey: "treaties.linesHint" },
+        { name: "cedingCommissionPpm", type: "rate", required: true },
+        { name: "priority", type: "number", hintKey: "treaties.priorityHint" },
+        { name: "effectiveFrom", type: "datetime", required: true },
+        { name: "effectiveTo", type: "datetime", required: true }
+      ],
+      editable: [
+        { name: "status", type: "select", options: ["draft", "active", "closed"] },
+        { name: "cededSharePpm", type: "rate", hintKey: "treaties.shareHint" },
+        { name: "limitMinor", type: "money", hintKey: "treaties.limitHint" },
+        { name: "retentionMinor", type: "money", hintKey: "treaties.retentionHint" },
+        { name: "lines", type: "number", hintKey: "treaties.linesHint" },
+        { name: "cedingCommissionPpm", type: "rate" },
+        { name: "priority", type: "number", hintKey: "treaties.priorityHint" },
+        { name: "effectiveTo", type: "datetime" }
+      ]
+    },
+    {
+      key: "reinsurance-cessions",
+      api: "/v1/axis/reinsurance-cessions",
+      read: "axis:reinsurance:read",
+      sort: "createdAt",
+      filters: [
+        { name: "state", options: ["pending_approval", "posted"] },
+        { name: "kind", options: ["quota_share", "surplus"] }
+      ],
+      columns: [
+        { name: "policyId", type: "text" },
+        { name: "treatyId", type: "text" },
+        { name: "kind", type: "text", badge: true },
+        { name: "premiumMinor", type: "money", currencyFrom: "currency" },
+        { name: "cededPremiumMinor", type: "money", currencyFrom: "currency" },
+        { name: "cedingCommissionMinor", type: "money", currencyFrom: "currency" },
+        { name: "netPayableMinor", type: "money", currencyFrom: "currency" },
+        { name: "retainedPremiumMinor", type: "money", currencyFrom: "currency" },
+        { name: "state", type: "text", badge: true },
+        { name: "createdAt", type: "datetime", sortable: true }
       ]
     },
     {

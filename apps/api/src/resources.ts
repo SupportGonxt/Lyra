@@ -21,7 +21,9 @@ import {
   kAnonymityFloor,
   scoped,
   sealFields,
-  tenantAccount
+  tenantAccount,
+  TREATY_STATUSES,
+  treatyProblem
 } from "@lyra/core";
 import { assertPeriodCode } from "@lyra/ledger";
 import { SENSITIVE_EXTRACTION_FIELDS } from "@lyra/model-gateway";
@@ -681,7 +683,40 @@ export const AXIS = register(
   // both enforce the idempotent-per-period / inbound-one-shot rules a
   // generic create/update would bypass.
   r("bordereaux", schema.axisBordereaux, "bdx", "axis", ro("axis:bordereaux:read")),
-  r("bordereau-lines", schema.axisBordereauLines, "bdxl", "axis", ro("axis:bordereaux:read"))
+  r("bordereau-lines", schema.axisBordereauLines, "bdxl", "axis", ro("axis:bordereaux:read")),
+  // docs/30 AXIS 5, ADR-0106. A treaty is tenant data a reinsurance desk
+  // writes; `treatyProblem` (@lyra/core) is the same validator the planner
+  // refuses incoherent terms with, so what can be stored is what can be ceded.
+  r("reinsurance-treaties", schema.axisReinsuranceTreaties, "rit", "axis", {
+    read: "axis:reinsurance:read",
+    create: "axis:reinsurance:write",
+    update: "axis:reinsurance:write"
+  }, {
+    searchable: ["ref"],
+    beforeWrite: async (ctx, values, existing) => {
+      const merged = { ...(existing ?? {}), ...values } as Record<string, unknown>;
+      const problem = treatyProblem(merged);
+      if (problem) throw badRequest(problem);
+      const status = merged.status ?? "draft";
+      if (!(TREATY_STATUSES as readonly unknown[]).includes(status)) {
+        throw badRequest(`status must be one of ${TREATY_STATUSES.join(", ")}`);
+      }
+      if (values.reinsurerId !== undefined) {
+        const [reinsurer] = await ctx.db
+          .select({ isInternal: schema.providers.isInternal })
+          .from(schema.providers)
+          .where(scoped(ctx, schema.providers, eq(schema.providers.id, String(values.reinsurerId))));
+        if (!reinsurer) throw badRequest("reinsurerId names no provider in this tenant");
+        // Ceding to yourself moves nothing: the risk would never leave.
+        if (reinsurer.isInternal) throw badRequest("a treaty cedes to another carrier, not to the tenant's own underwriting");
+      }
+      return values;
+    }
+  }),
+  // Read-only: engines/axis-reinsurance.ts is the one writer. A cession is a
+  // computed figure that posts to the ledger; a hand-typed one would be a
+  // hand-typed journal with none of RI-CEDE's gate.
+  r("reinsurance-cessions", schema.axisReinsuranceCessions, "ric", "axis", ro("axis:reinsurance:read"))
 );
 
 /* ------------------------------------------------------------------- orbit */

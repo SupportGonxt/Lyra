@@ -27,6 +27,7 @@ import { onAccrualDecided, onPolicyIssuedAccrue } from "./engines/commission-acc
 import { onInboundMessage } from "./engines/orbit-auto-reply.js";
 import type { Gateway } from "@lyra/model-gateway";
 import type { Env } from "./env.js";
+import { onCessionDecided, onPolicyIssuedCede } from "./engines/axis-reinsurance.js";
 
 // The outbox drain. Events are written in the same request that changed the row,
 // so delivery can fail all it likes without ever losing the fact that something
@@ -137,6 +138,18 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100, dep
       }
       if (event.type === "core.approval.decided") {
         await consume(ctx.db, event, "dist.commission.accrual.decided", (e) => onAccrualDecided(ctx, e), ctx.now);
+      }
+      // docs/30 AXIS 5, ADR-0106: a policy the tenant underwrites itself cedes
+      // under every active treaty that attaches (engines/axis-reinsurance.ts);
+      // the RI-CEDE gate's decision is what posts a cession that waited on it.
+      // `decide()` announces `${policy.module}.approval.decided`, and
+      // `axis.reinsurance_cession` is an axis policy — not `core.`, which is
+      // only what the commission accrual above hears because its policy is core's.
+      if (event.type === "axis.policy.issued" && on("axis")) {
+        await consume(ctx.db, event, "axis.reinsurance.cede", (e) => onPolicyIssuedCede(ctx, e), ctx.now);
+      }
+      if (event.type === "axis.approval.decided" && on("axis")) {
+        await consume(ctx.db, event, "axis.reinsurance.decided", (e) => onCessionDecided(ctx, e), ctx.now);
       }
       // F61: a portal-filed DSAR gets its acknowledgement here — the compliance
       // staff are notified so the request never arrives with no owner.

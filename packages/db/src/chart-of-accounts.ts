@@ -69,6 +69,12 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   // LATER, and it needs its own asset account to be written against.
   { code: "2040", en: "Takaful Participants' Fund", ar: "صندوق المشتركين التكافلي", type: "liability", normalSide: "credit" },
   { code: "2050", en: "Takaful Surplus Payable", ar: "فائض تكافلي مستحق الدفع", type: "liability", normalSide: "credit" },
+  // Reinsurance (docs/30 AXIS 5, ADR-0106). What the tenant, as underwriter,
+  // owes a reinsurer for premium ceded under a treaty, net of the ceding
+  // commission the reinsurer gives back. RI-CEDE moves the ceded share here out
+  // of 2000: the premium was never revenue, so ceding it is a reclassification
+  // of who the premium is owed to, not an expense.
+  { code: "2060", en: "Reinsurance Payable", ar: "مستحقات إعادة التأمين", type: "liability", normalSide: "credit" },
 
   // equity (docs/27 F3). Retained earnings are posted by YEAR-END-CLOSE, not
   // derived: a derived plug makes the balance sheet un-auditable and leaves
@@ -100,6 +106,10 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   // because which model a product runs is a product attribute (core_products
   // .takaful_json) and not a different posting shape.
   { code: "4096", en: "Takaful Operator Surplus Share", ar: "حصة المشغّل من الفائض التكافلي", type: "income", normalSide: "credit" },
+  // The ceding commission a reinsurer allows on premium ceded to it (ADR-0106).
+  // Its own account rather than 4000: it is earned from a reinsurer on the
+  // tenant's own underwriting, not from an insurer for distribution.
+  { code: "4097", en: "Reinsurance Ceding Commission", ar: "عمولة التنازل عن إعادة التأمين", type: "income", normalSide: "credit" },
 
   // expense / contra-income
   { code: "5000", en: "Commission Clawback", ar: "استرداد العمولة", type: "expense", normalSide: "debit" },

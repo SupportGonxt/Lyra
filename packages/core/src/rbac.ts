@@ -163,6 +163,12 @@ export const PERMISSIONS = [
   "axis:complaints:read", "axis:complaints:write", "axis:complaints:close",
   "axis:siu:read", "axis:siu:write", "axis:siu:decide",
   "axis:reports:read",
+  // Reinsurance (docs/30 AXIS 5, ADR-0106). Writing a treaty sets commercial
+  // terms with a reinsurer; approving a cession signs the amount it posts.
+  // Separate verbs so a role can hold one without the other; axis.admin holds
+  // all three through `axis:*:*`, and dual control above the policy threshold
+  // is what keeps a drafter from signing their own large cession.
+  "axis:reinsurance:read", "axis:reinsurance:write", "axis:reinsurance:approve",
 
   // ORBIT — customer experience
   "orbit:conversations:read", "orbit:conversations:reply", "orbit:conversations:assign",
@@ -629,6 +635,9 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "dist:commissions:*", "dist:rates:read", "dist:rates:approve", "dist:channels:read",
     // Settles against the terms, so must be able to read them.
     "dist:agreements:read", "core:onboarding:read",
+    // ADR-0106: a cession posts RI-CEDE to the ledger, so the controller is the
+    // second seat on it beside axis.admin — reads the treaty, signs the amount.
+    "axis:reinsurance:read", "axis:reinsurance:approve",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
     "analytics:exports:unmasked", "compliance:disclosures:present", "compliance:evidence:read", "compliance:evidence:export",
     "core:notes:read", "core:notes:write"

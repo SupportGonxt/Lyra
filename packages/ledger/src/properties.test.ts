@@ -108,7 +108,10 @@ function argsFor(code: string, amount: number, split: number): Record<string, un
     { amountMinor: amount, direction: "shortfall", reason: "property-test reconciliation residual" },
     // A takaful surplus distribution: only `surplusMinor` is required, every
     // account defaulted, so this is the shape that fits it and nothing earlier.
-    { surplusMinor: amount }
+    { surplusMinor: amount },
+    // A reinsurance cession (ADR-0106): the ceded premium and the ceding
+    // commission the reinsurer gives back on it, which can never exceed it.
+    { cededPremiumMinor: amount, cedingCommissionMinor: tax }
   ];
   for (const s of shapes) {
     if (spec.schema.safeParse({ ...spec.defaults, ...s }).success) return s;

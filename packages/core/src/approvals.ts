@@ -126,6 +126,12 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     policy({ key: "axis.reinstate", module: "axis", decide: "axis:policies:reinstate", dualControl: "always", neverAutoApprove: true }),
     policy({ key: "axis.ntu", module: "axis", decide: "axis:policies:ntu", dualControl: "above_threshold", defaultThresholdMinor: 0 }),
     policy({ key: "axis.renew", module: "axis", decide: "axis:policies:renew", dualControl: "above_threshold", defaultThresholdMinor: 250_000_00 }),
+    // docs/30 AXIS 5, ADR-0106. A cession moves what the tenant owes on its own
+    // underwriting from the premium payable to a reinsurer and books the ceding
+    // commission. Derived from an active treaty, not stated by anybody, so a
+    // tenant may automate it like a commission accrual (docs/19 §7); above the
+    // threshold a second pair of eyes signs the amount.
+    policy({ key: "axis.reinsurance_cession", module: "axis", decide: "axis:reinsurance:approve", dualControl: "above_threshold", defaultThresholdMinor: 100_000_00 }),
     // underwriting referral: risk outside delegated authority (§A.4) — the approval queue IS the escalation path
     policy({ key: "axis.underwriting_referral", module: "axis", decide: "axis:policies:decide_referral", dualControl: "above_threshold", defaultThresholdMinor: 500_000_00 }),
     // distribution — commercial terms with a counterparty, so a second pair of eyes

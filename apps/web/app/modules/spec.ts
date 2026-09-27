@@ -407,6 +407,8 @@ export const REF_SOURCES: Record<string, { api: string; label: string; prefix?: 
   customerId: { api: "/v1/core/customers", label: "nameJson" },
   caseId: { api: "/v1/axis/cases", label: "ref" },
   providerId: { api: "/v1/core/providers", label: "name" },
+  // ADR-0106: a reinsurer is a provider row (the API refuses the tenant's own).
+  reinsurerId: { api: "/v1/core/providers", label: "name" },
   channelId: { api: "/v1/dist/channels", label: "key" },
   productId: { api: "/v1/core/products", label: "nameJson" },
   userId: { api: "/v1/core/users", label: "name" },

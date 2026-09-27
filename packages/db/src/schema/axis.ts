@@ -655,3 +655,75 @@ export const telemetryPoints = sqliteTable(
   // lookup, window aggregate) is a prefix scan the unique index already serves.
   (t) => [uniqueIndex("axis_telem_point_uq").on(t.tenantId, t.subjectRef, t.source, t.at)]
 );
+
+/**
+ * docs/30 AXIS 5, ADR-0106. A proportional reinsurance treaty the tenant, as
+ * underwriter (`core_providers.is_internal`), cedes under. Quota share takes
+ * `ceded_share_ppm` of every risk (optionally only up to `limit_minor` of sum
+ * insured); surplus takes what sits above `retention_minor`, up to `lines`
+ * multiples of it. The arithmetic is `planCessions` (packages/core
+ * reinsurance.ts); `treatyProblem` is the one validator both the planner and
+ * the write path use.
+ */
+export const reinsuranceTreaties = sqliteTable(
+  "axis_reinsurance_treaties",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    ref: text("ref").notNull(), // the treaty's own reference, unique per tenant
+    reinsurerId: text("reinsurer_id").notNull(), // -> core_providers.id
+    kind: text("kind").notNull(), // quota_share|surplus
+    productLine: text("product_line"), // null = every line
+    currency: text("currency").notNull(),
+    cededSharePpm: integer("ceded_share_ppm"), // quota share
+    limitMinor: integer("limit_minor"), // quota share, optional per-risk cap on sum insured
+    retentionMinor: integer("retention_minor"), // surplus
+    lines: integer("lines"), // surplus
+    cedingCommissionPpm: integer("ceding_commission_ppm").notNull().default(0),
+    priority: integer("priority").notNull().default(0), // applied low to high
+    effectiveFrom: integer("effective_from").notNull(),
+    effectiveTo: integer("effective_to").notNull(),
+    status: text("status").notNull().default("draft"), // draft|active|closed
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("axis_ri_treaties_ref_uq").on(t.tenantId, t.ref),
+    index("axis_ri_treaties_status_idx").on(t.tenantId, t.status, t.productLine)
+  ]
+);
+
+/**
+ * One cession per (policy, treaty) — the unique index is the idempotency
+ * guard an `axis.policy.issued` redelivery lands on. Amounts are what
+ * `planCessions` returned at issue and what the RI-CEDE transaction posts; a
+ * later edit to the treaty does not rewrite a cession already made.
+ */
+export const reinsuranceCessions = sqliteTable(
+  "axis_reinsurance_cessions",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    policyId: text("policy_id").notNull(),
+    treatyId: text("treaty_id").notNull(),
+    reinsurerId: text("reinsurer_id").notNull(),
+    kind: text("kind").notNull(), // the treaty's kind, stamped
+    currency: text("currency").notNull(),
+    premiumMinor: integer("premium_minor").notNull(), // the policy premium the plan ran on
+    sumInsuredMinor: integer("sum_insured_minor"),
+    cededPremiumMinor: integer("ceded_premium_minor").notNull(),
+    cededSumInsuredMinor: integer("ceded_sum_insured_minor"),
+    cedingCommissionMinor: integer("ceding_commission_minor").notNull(),
+    netPayableMinor: integer("net_payable_minor").notNull(),
+    retainedPremiumMinor: integer("retained_premium_minor").notNull(),
+    state: text("state").notNull().default("pending_approval"), // pending_approval|posted
+    txnId: text("txn_id"), // -> ledger_txns.id, once posted
+    postedAt: integer("posted_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("axis_ri_cessions_policy_treaty_uq").on(t.tenantId, t.policyId, t.treatyId),
+    index("axis_ri_cessions_state_idx").on(t.tenantId, t.state, t.treatyId)
+  ]
+);
