@@ -196,6 +196,7 @@ export const orbit: WorkspaceSpec = {
       "secretsJson.hint": "One JSON object of provider secrets. Stored sealed and never shown again.",
       "provider.whatsapp-cloud-api": "WhatsApp Cloud API",
       "provider.mailgun-email": "Mailgun",
+      "provider.lyra-webchat": "Web chat",
       isDefault: "Default team",
       "isDefault.hint": "Where a conversation lands when no routing rule matches.",
       userId: "Person",
@@ -403,6 +404,7 @@ export const orbit: WorkspaceSpec = {
       "secretsJson.hint": "كائن JSON واحد يضم أسرار المزود. يُخزَّن مشفّرًا ولا يُعرض مرة أخرى.",
       "provider.whatsapp-cloud-api": "واتساب كلاود API",
       "provider.mailgun-email": "ميلغن",
+      "provider.lyra-webchat": "دردشة الويب",
       isDefault: "الفريق الافتراضي",
       "isDefault.hint": "الوجهة التي تصل إليها المحادثة عند عدم تطابق أي قاعدة توجيه.",
       userId: "الشخص",
@@ -742,7 +744,7 @@ export const orbit: WorkspaceSpec = {
       ],
       fields: [
         { name: "label", type: "text", required: true },
-        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email"], required: true },
+        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email", "lyra-webchat"], required: true },
         { name: "transport", type: "select", options: ["whatsapp", "email", "web", "voice", "agent"], required: true },
         // Sealed by resources.ts's beforeWrite before it reaches SQLite, and
         // never read back — the list has no `secretsJson` column for that reason.

@@ -96,6 +96,36 @@ describe("processChannelEvents", () => {
     expect(messages).toHaveLength(2);
   });
 
+  // docs/30 ORBIT 4: once a person takes a conversation it is `human`, and the
+  // customer's next line belongs in the same thread the person is answering —
+  // not in a fresh bot conversation the agent never sees.
+  it("continues a conversation a person has taken over", async () => {
+    await processChannelEvents(ctx, connector, [
+      { kind: "message", message: { externalRef: "wamid.1", handle: "97150", text: "Hi", modality: "text", sentAt: now } }
+    ]);
+    await ctx.db.update(schema.orbitConversations).set({ state: "human" }).where(eq(schema.orbitConversations.tenantId, tenantId));
+    await processChannelEvents(ctx, connector, [
+      { kind: "message", message: { externalRef: "wamid.2", handle: "97150", text: "Still there?", modality: "text", sentAt: now + 1000 } }
+    ]);
+
+    const conversations = await ctx.db.select().from(schema.orbitConversations).where(eq(schema.orbitConversations.tenantId, tenantId));
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0]!.state).toBe("human");
+  });
+
+  it("opens a new conversation once the last one was closed", async () => {
+    await processChannelEvents(ctx, connector, [
+      { kind: "message", message: { externalRef: "wamid.1", handle: "97150", text: "Hi", modality: "text", sentAt: now } }
+    ]);
+    await ctx.db.update(schema.orbitConversations).set({ state: "closed" }).where(eq(schema.orbitConversations.tenantId, tenantId));
+    await processChannelEvents(ctx, connector, [
+      { kind: "message", message: { externalRef: "wamid.2", handle: "97150", text: "New question", modality: "text", sentAt: now + 1000 } }
+    ]);
+
+    const conversations = await ctx.db.select().from(schema.orbitConversations).where(eq(schema.orbitConversations.tenantId, tenantId));
+    expect(conversations.map((c) => c.state).sort()).toEqual(["bot", "closed"]);
+  });
+
   it("de-dupes a redelivered webhook by externalRef", async () => {
     const event = {
       kind: "message" as const,

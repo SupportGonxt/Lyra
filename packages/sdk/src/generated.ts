@@ -3093,6 +3093,8 @@ export interface Operations {
   "GET /v1/platform/incidents": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/platform/ops/overview": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/platform/slo": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/portal/{tenantSlug}/chat": Op<{ tenantSlug: string }, never, never, Record<string, unknown>>;
+  "POST /v1/portal/{tenantSlug}/chat/messages": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/portal/{tenantSlug}/feedback/{id}": Op<{ tenantSlug: string; id: string }, never, never, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/feedback/{id}": Op<{ tenantSlug: string; id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/leads": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3914,6 +3916,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/platform/incidents": { tag: "platform", summary: "Outage incidents across every tenant, newest first", permission: "admin:diagnostics:read", public: false },
   "GET /v1/platform/ops/overview": { tag: "platform", summary: "Outbox backlog, DLQ depth and pending approvals, per tenant", permission: "admin:diagnostics:read", public: false },
   "GET /v1/platform/slo": { tag: "platform", summary: "Every SLO definition with its actual and burn percent over its window", permission: "admin:diagnostics:read", public: false },
+  "GET /v1/portal/{tenantSlug}/chat": { tag: "portal", summary: "The web chat transcript for the visitor named by the x-lyra-visitor header: their lines and the replies sent to them (empty for an unknown visitor); rate-limited per IP", permission: null, public: true },
+  "POST /v1/portal/{tenantSlug}/chat/messages": { tag: "portal", summary: "Post a web chat line into ORBIT. Without a known x-lyra-visitor token it starts a conversation (name and Turnstile required) and mints one; rate-limited per visitor and IP", permission: null, public: true },
   "GET /v1/portal/{tenantSlug}/feedback/{id}": { tag: "portal", summary: "Whether a closed conversation can still be rated, and its rating if already given", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/feedback/{id}": { tag: "portal", summary: "Submit the CSAT rating (1-5) for a closed conversation; one rating per conversation", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/leads": { tag: "portal", summary: "Submit a quote lead from the public storefront; rate-limited per email", permission: null, public: true },

@@ -563,6 +563,11 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/portal/{tenantSlug}/renewals/{id}/accept", summary: "Customer accepts a renewal in one tap; records the decision, does not bind or charge", tag: "portal", requestBody: true, public: true },
   { method: "get", path: "/v1/portal/{tenantSlug}/feedback/{id}", summary: "Whether a closed conversation can still be rated, and its rating if already given", tag: "portal", public: true },
   { method: "post", path: "/v1/portal/{tenantSlug}/feedback/{id}", summary: "Submit the CSAT rating (1-5) for a closed conversation; one rating per conversation", tag: "portal", requestBody: true, public: true },
+  // docs/30 ORBIT 4, ADR-0099: web chat. The visitor token travels in the
+  // x-lyra-visitor header, never the URL; 404 while the tenant has no active
+  // `lyra-webchat` connector.
+  { method: "get", path: "/v1/portal/{tenantSlug}/chat", summary: "The web chat transcript for the visitor named by the x-lyra-visitor header: their lines and the replies sent to them (empty for an unknown visitor); rate-limited per IP", tag: "portal", public: true },
+  { method: "post", path: "/v1/portal/{tenantSlug}/chat/messages", summary: "Post a web chat line into ORBIT. Without a known x-lyra-visitor token it starts a conversation (name and Turnstile required) and mints one; rate-limited per visitor and IP", tag: "portal", requestBody: true, public: true },
 
   // Cross-resource search (routes/search.ts, docs/24 Phase 2 item 10). Fans out
   // over every registered resource's searchable columns, filtered again by the

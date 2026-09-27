@@ -222,6 +222,7 @@ export const admin: WorkspaceSpec = {
       "secretsJson.hint": "One JSON object of provider secrets. Stored sealed and never shown again.",
       "provider.whatsapp-cloud-api": "WhatsApp Cloud API",
       "provider.mailgun-email": "Mailgun",
+      "provider.lyra-webchat": "Web chat",
       agent: "Agent",
       portal: "Portal",
       motor: "Motor",
@@ -548,6 +549,7 @@ export const admin: WorkspaceSpec = {
       "secretsJson.hint": "كائن JSON واحد يضم أسرار المزود. يُخزَّن مشفّرًا ولا يُعرض مرة أخرى.",
       "provider.whatsapp-cloud-api": "واتساب كلاود API",
       "provider.mailgun-email": "ميلغن",
+      "provider.lyra-webchat": "دردشة الويب",
       import: "استيراد",
       agent: "وكيل",
       portal: "بوابة",
@@ -815,7 +817,7 @@ export const admin: WorkspaceSpec = {
       ],
       fields: [
         { name: "label", type: "text", required: true },
-        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email"], required: true },
+        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email", "lyra-webchat"], required: true },
         { name: "transport", type: "select", options: ["whatsapp", "email", "web", "voice", "agent"], required: true },
         { name: "secretsJson", type: "json", required: true, hintKey: "secretsJson.hint" },
         { name: "configJson", type: "json" }

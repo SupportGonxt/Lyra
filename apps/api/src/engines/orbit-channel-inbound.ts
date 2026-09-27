@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
 import { emit, recordConsent, type Ctx, type Envelope, type InboundEvent } from "@lyra/core";
 import { isUniqueViolation } from "../crud.js";
@@ -76,9 +76,14 @@ async function getOrCreateConversation(
         eq(schema.orbitConversations.tenantId, ctx.tenantId),
         eq(schema.orbitConversations.customerId, customerId),
         eq(schema.orbitConversations.connectorId, connector.id),
-        eq(schema.orbitConversations.state, "bot")
+        // Any open conversation, not only one still on the bot: once a person
+        // has taken it (`human`), the customer's next line belongs in the thread
+        // that person is answering. Only a closed one starts afresh.
+        ne(schema.orbitConversations.state, "closed")
       )
-    );
+    )
+    .orderBy(desc(schema.orbitConversations.createdAt))
+    .limit(1);
   if (conversation) return { id: conversation.id, customerId };
 
   const conversationId = id("cnv", ctx.now);
