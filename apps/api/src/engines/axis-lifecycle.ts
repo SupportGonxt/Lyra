@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, PaymentPlanJson } from "@lyra/db";
 import {
+  assertNotScreenedOut,
   actorRef,
   assertPolicyTransition,
   audit,
@@ -316,6 +317,7 @@ export const ReinstateBody = z.object({
 export type ReinstateInput = z.infer<typeof ReinstateBody>;
 
 export async function reinstatePolicy(ctx: Ctx, policy: PolicyRow, input: ReinstateInput) {
+  await assertNotScreenedOut(ctx, policy.customerId);
   hop(policy, "active");
 
   // LAPSE reverses nothing (⊘), so reinstatement must not re-credit the full
@@ -499,6 +501,7 @@ export type RenewInput = z.infer<typeof RenewBody>;
  * risk (or run to term) before it can be renewed — nothing to renew otherwise.
  */
 export async function renewPolicy(ctx: Ctx, prior: PolicyRow, input: RenewInput) {
+  await assertNotScreenedOut(ctx, prior.customerId);
   hop(prior, "renewed");
 
   const startAt = input.startAt ?? prior.endAt;

@@ -62,6 +62,12 @@ export const compliance: WorkspaceSpec = {
       hitsJson: "Hits",
       disposition: "Disposition",
       dispositionedBy: "Dispositioned by",
+      "disposition.false_positive": "False positive — lift the block",
+      "disposition.confirmed": "Confirmed match — keep the block",
+      "disposition.escalated": "Escalated — keep the block",
+      note: "Reason",
+      "screenings.disposition": "Record disposition",
+      "screenings.disposition.confirm": "Record this disposition under your name? A false positive lifts the block and lets the customer be bound again.",
       caseRef: "Case reference",
       blocked: "Blocked",
       policyKey: "Policy",
@@ -197,6 +203,12 @@ export const compliance: WorkspaceSpec = {
       hitsJson: "التطابقات",
       disposition: "التصرف",
       dispositionedBy: "تم التصرف بواسطة",
+      "disposition.false_positive": "تطابق خاطئ — رفع الحظر",
+      "disposition.confirmed": "تطابق مؤكد — إبقاء الحظر",
+      "disposition.escalated": "مُصعَّد — إبقاء الحظر",
+      note: "السبب",
+      "screenings.disposition": "تسجيل التصرف",
+      "screenings.disposition.confirm": "تسجيل هذا التصرف باسمك؟ التطابق الخاطئ يرفع الحظر ويتيح إصدار وثيقة للعميل مجددًا.",
       caseRef: "مرجع الحالة",
       blocked: "محظور",
       policyKey: "مفتاح السياسة",
@@ -407,6 +419,21 @@ export const compliance: WorkspaceSpec = {
       // is computed from the question that was asked, never typed. The run lives
       // at `POST /v1/compliance/screenings/run` behind
       // `compliance:screenings:run`, and its screen is /compliance/run/screening.
+      // docs/19 §4: clearing a hit is a person's disposition, never a field edit.
+      actions: [
+        {
+          intent: "disposition",
+          method: "POST",
+          path: "/{id}/disposition",
+          labelKey: "screenings.disposition",
+          permission: "compliance:screenings:disposition",
+          confirm: true,
+          fields: [
+            { name: "disposition", type: "select", required: true, options: ["false_positive", "confirmed", "escalated"] },
+            { name: "note", type: "text", required: true }
+          ]
+        }
+      ],
       sort: "ts",
       filters: [
         { name: "result", options: ["clear", "hit", "inconclusive"] },

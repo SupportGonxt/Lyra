@@ -6,6 +6,7 @@ export * from "./crypto.js";
 export * from "./field-crypto.js";
 export * from "./context.js";
 export * from "./entitlements.js";
+export * from "./screening.js";
 export * from "./module-config.js";
 export * from "./audit.js";
 export * from "./events.js";

@@ -130,7 +130,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 1. ~~Admin consent writes go through `recordConsent` so suppression fires.~~ **Fixed** 2026-09-23: `announceConsent` is the single emitter.
 2. ~~Audit export in the UI (F59).~~ **Fixed** 2026-09-23 (see Admin 2).
 3. ~~DSAR runner that erases.~~ **Fixed** 2026-09-23 (ADR-0089): a fulfilled erasure reaches AI memories and record notes, logged (`engines/compliance-erasure.ts`).
-4. Screening hits block binding; a real screening provider behind the seam.
+4. ~~Screening hits block binding; a real screening provider behind the seam.~~ **Fixed** 2026-09-27 (ADR-0095): `assertNotScreenedOut` is asked by policy create, quote bind, renew, reinstate and the Distribution sale; `POST /v1/compliance/screenings/{id}/disposition` (a reason required; only a false positive lifts the block, `compliance.screening.cleared`); OpenSanctions answers sanctions and PEPs once `OPENSANCTIONS_API_KEY` or a self-hosted `OPENSANCTIONS_URL` is set — a commercial licence is the procurement step before production turns it on.
 5. Scheduled retention with more record classes.
 
 ### Analytics

@@ -292,6 +292,7 @@ const HAND_WRITTEN: Op[] = [
   // hash and a bundle's manifest are evidence, and evidence a caller can type
   // is not evidence (routes/compliance.ts).
   { method: "post", path: "/v1/compliance/screenings/run", summary: "Screen a customer or name against the watchlists and record the hashed query", permission: "compliance:screenings:run", tag: "compliance", requestBody: true },
+  { method: "post", path: "/v1/compliance/screenings/{id}/disposition", summary: "Record a disposition on a screening hit (a reason required); only a false positive lifts the block (ADR-0095)", permission: "compliance:screenings:disposition", tag: "compliance", requestBody: true },
   { method: "post", path: "/v1/compliance/evidence-bundles/export", summary: "Assemble an evidence bundle and record its manifest and hash", permission: "compliance:evidence:export", tag: "compliance", requestBody: true },
   { method: "get", path: "/v1/compliance/evidence-bundles/{id}/download", summary: "Download an assembled evidence bundle", permission: "compliance:evidence:read", tag: "compliance" },
   { method: "post", path: "/v1/compliance/retention/run", summary: "Run a retention class and record what it purged", permission: "compliance:retention:run", tag: "compliance", requestBody: true },

@@ -85,6 +85,11 @@ export interface Env {
    * a `vars` entry: the day it lands in wrangler.jsonc it is in git.
    */
   FIELD_KEY?: string;
+  /** ADR-0095: the OpenSanctions match API key (a wrangler secret). With neither
+   *  this nor OPENSANCTIONS_URL set, screening runs the labelled stub. */
+  OPENSANCTIONS_API_KEY?: string;
+  /** ADR-0095: a self-hosted yente (on-prem); defaults to the hosted API. */
+  OPENSANCTIONS_URL?: string;
   /**
    * docs/10 §6 Turnstile secret (`infra/cloudflare/turnstile.tf`). A wrangler
    * secret. Its absence is meaningful: no secret, no challenge — see

@@ -5,6 +5,7 @@ import {
   badRequest,
   conflict,
   emit,
+  assertNotScreenedOut,
   gate,
   moduleOn,
   notFound,
@@ -171,6 +172,7 @@ export async function accrueSale(ctx: Ctx, input: SaleInput): Promise<Commission
   if (response.selectedAt === null) throw conflict("only the quote the customer chose can be sold");
   const request = await one(ctx, schema.distQuoteRequests, response.requestId);
   if (!request) throw notFound("quote request");
+  await assertNotScreenedOut(ctx, request.customerId);
 
   const entry = await book(
     ctx,

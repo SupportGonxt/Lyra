@@ -171,7 +171,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "action.purge": "Delete permanently",
     "stub.title": "No screening provider is configured",
     "stub.body":
-      "This result was produced by the built-in stub, which consults no watchlist. It is a record that a screening was requested, and it is not a sanctions, politically-exposed-person or adverse-media check. Connecting a provider is a procurement decision, not a setting.",
+      "This result was produced by the built-in stub, which consults no watchlist. It is a record that a screening was requested, and it is not a sanctions, politically-exposed-person or adverse-media check. Sanctions and PEP screening use OpenSanctions once the platform holds its key; adverse media and fraud have no list yet.",
     "result.screening": "Screening result",
     "result.clear": "Clear",
     "result.hit": "Hit",
@@ -265,7 +265,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "action.purge": "حذف نهائي",
     "stub.title": "لا يوجد مزود فحص مُهيأ",
     "stub.body":
-      "نتجت هذه النتيجة عن المكوّن المدمج المؤقت الذي لا يراجع أي قائمة. هي سجل بأن فحصًا قد طُلب، وليست فحص عقوبات ولا شخصيات سياسية بارزة ولا تغطية إعلامية سلبية. ربط مزود حقيقي قرار تعاقدي لا إعداد في النظام.",
+      "نتجت هذه النتيجة عن المكوّن المدمج المؤقت الذي لا يراجع أي قائمة. هي سجل بأن فحصًا قد طُلب، وليست فحص عقوبات ولا شخصيات سياسية بارزة ولا تغطية إعلامية سلبية. يعتمد فحص العقوبات والشخصيات السياسية البارزة على OpenSanctions حين تحمل المنصة مفتاحه؛ ولا قائمة بعد للتغطية الإعلامية السلبية والاحتيال.",
     "result.screening": "نتيجة الفحص",
     "result.clear": "خالٍ",
     "result.hit": "تطابق",
@@ -629,11 +629,14 @@ function ScreeningResult({ screening, locale, l }: { screening: Screening; local
   return (
     <section className="flex flex-col gap-4">
       {/* Said before the result is read, not after: a "clear" nobody qualifies
-          is the one thing this screen must never imply. */}
-      <div role="note" className="flex flex-col gap-1 rounded-lg border border-warning/40 bg-warning/10 p-4">
-        <p className="section-title">{l("stub.title")}</p>
-        <p className="max-w-prose font-ui text-13 text-muted">{l("stub.body")}</p>
-      </div>
+          is the one thing this screen must never imply. Shown whenever the
+          built-in stub answered (ADR-0095), however the tenant is configured. */}
+      {screening.provider === "stub" ? (
+        <div role="note" className="flex flex-col gap-1 rounded-lg border border-warning/40 bg-warning/10 p-4">
+          <p className="section-title">{l("stub.title")}</p>
+          <p className="max-w-prose font-ui text-13 text-muted">{l("stub.body")}</p>
+        </div>
+      ) : null}
 
       <Card title={l("result.screening")}>
         <Facts

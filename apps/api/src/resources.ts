@@ -2,6 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
 import { AGENT_AUTONOMY, ChannelOptinsJson, PaymentPlanWrite, PurposesJson, schema } from "@lyra/db";
 import {
+  assertNotScreenedOut,
   actorRef,
   announceConsent,
   autoApproveProblem,
@@ -564,7 +565,10 @@ export const AXIS = register(
     // or string" (see `isJsonColumn`), so without this the sweep's own input is
     // whatever a caller typed. Validated here rather than in the shape because
     // that is where the other JSON columns are checked (`extractionJson` above).
-    beforeWrite: (_ctx, values, existing) => {
+    beforeWrite: async (ctx, values, existing) => {
+      // docs/19 §4: a standing screening hit refuses the bind before any
+      // approval is raised for it.
+      if (!existing) await assertNotScreenedOut(ctx, values.customerId as string | undefined);
       guardPolicyState(values, existing);
       if (values.paymentPlanJson === undefined || values.paymentPlanJson === null) return values;
       const raw = values.paymentPlanJson;
