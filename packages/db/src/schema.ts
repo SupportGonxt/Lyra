@@ -75,7 +75,9 @@ export {
   complaints as axisComplaints,
   siuReferrals as axisSiuReferrals,
   referrals as axisReferrals,
-  telemetryPoints as axisTelemetryPoints
+  telemetryPoints as axisTelemetryPoints,
+  reinsuranceTreaties as axisReinsuranceTreaties,
+  reinsuranceCessions as axisReinsuranceCessions
 } from "./schema/axis.js";
 
 export {

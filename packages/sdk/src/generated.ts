@@ -612,6 +612,49 @@ export interface AxisReferrals {
   updatedAt?: number;
 }
 
+export interface AxisReinsuranceCessions {
+  id?: string;
+  tenantId?: string;
+  policyId: string;
+  treatyId: string;
+  reinsurerId: string;
+  kind: string;
+  currency: string;
+  premiumMinor: number;
+  sumInsuredMinor?: number;
+  cededPremiumMinor: number;
+  cededSumInsuredMinor?: number;
+  cedingCommissionMinor: number;
+  netPayableMinor: number;
+  retainedPremiumMinor: number;
+  state?: string;
+  txnId?: string;
+  postedAt?: number;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface AxisReinsuranceTreaties {
+  id?: string;
+  tenantId?: string;
+  ref: string;
+  reinsurerId: string;
+  kind: string;
+  productLine?: string;
+  currency: string;
+  cededSharePpm?: number;
+  limitMinor?: number;
+  retentionMinor?: number;
+  lines?: number;
+  cedingCommissionPpm?: number;
+  priority?: number;
+  effectiveFrom: number;
+  effectiveTo: number;
+  status?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface AxisSiuReferrals {
   id?: string;
   tenantId?: string;
@@ -2604,6 +2647,12 @@ export interface Operations {
   "GET /v1/axis/referrals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisReferrals>>;
   "GET /v1/axis/referrals/{id}": Op<{ id: string }, never, never, AxisReferrals>;
   "POST /v1/axis/referrals/{id}/decide": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/axis/reinsurance-cessions": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisReinsuranceCessions>>;
+  "GET /v1/axis/reinsurance-cessions/{id}": Op<{ id: string }, never, never, AxisReinsuranceCessions>;
+  "GET /v1/axis/reinsurance-treaties": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisReinsuranceTreaties>>;
+  "POST /v1/axis/reinsurance-treaties": Op<never, never, AxisReinsuranceTreaties, AxisReinsuranceTreaties>;
+  "GET /v1/axis/reinsurance-treaties/{id}": Op<{ id: string }, never, never, AxisReinsuranceTreaties>;
+  "PATCH /v1/axis/reinsurance-treaties/{id}": Op<{ id: string }, never, AxisReinsuranceTreaties, AxisReinsuranceTreaties>;
   "GET /v1/axis/siu-referrals": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisSiuReferrals>>;
   "POST /v1/axis/siu-referrals": Op<never, never, AxisSiuReferrals, AxisSiuReferrals>;
   "GET /v1/axis/siu-referrals/{id}": Op<{ id: string }, never, never, AxisSiuReferrals>;
@@ -3429,6 +3478,12 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/axis/referrals": { tag: "axis", summary: "List referrals", permission: "axis:policies:decide_referral", public: false },
   "GET /v1/axis/referrals/{id}": { tag: "axis", summary: "Fetch one referral", permission: "axis:policies:decide_referral", public: false },
   "POST /v1/axis/referrals/{id}/decide": { tag: "axis", summary: "Accept, decline, or counter an open underwriting-authority referral", permission: "axis:policies:decide_referral", public: false },
+  "GET /v1/axis/reinsurance-cessions": { tag: "axis", summary: "List reinsurance-cessions", permission: "axis:reinsurance:read", public: false },
+  "GET /v1/axis/reinsurance-cessions/{id}": { tag: "axis", summary: "Fetch one reinsurance cession", permission: "axis:reinsurance:read", public: false },
+  "GET /v1/axis/reinsurance-treaties": { tag: "axis", summary: "List reinsurance-treaties", permission: "axis:reinsurance:read", public: false },
+  "POST /v1/axis/reinsurance-treaties": { tag: "axis", summary: "Create a reinsurance treaty", permission: "axis:reinsurance:write", public: false },
+  "GET /v1/axis/reinsurance-treaties/{id}": { tag: "axis", summary: "Fetch one reinsurance treaty", permission: "axis:reinsurance:read", public: false },
+  "PATCH /v1/axis/reinsurance-treaties/{id}": { tag: "axis", summary: "Update a reinsurance treaty", permission: "axis:reinsurance:write", public: false },
   "GET /v1/axis/siu-referrals": { tag: "axis", summary: "List siu-referrals", permission: "axis:siu:read", public: false },
   "POST /v1/axis/siu-referrals": { tag: "axis", summary: "Create a siu referral", permission: "axis:siu:write", public: false },
   "GET /v1/axis/siu-referrals/{id}": { tag: "axis", summary: "Fetch one siu referral", permission: "axis:siu:read", public: false },

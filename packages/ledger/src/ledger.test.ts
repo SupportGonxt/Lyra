@@ -110,6 +110,9 @@ function argsFor(code: string, r: () => number): Record<string, unknown> {
     // never loses a minor unit between two roundings. The share is seeded, so
     // the fuzz walks the whole 0-100% range across runs.
     { surplusMinor: amount, participantShareBps: Math.floor(r() * 10_001) },
+    // A reinsurance cession (ADR-0106): the commission is floored off the ceded
+    // premium and the reinsurer's payable is the remainder, seeded over 0-100%.
+    { cededPremiumMinor: amount, cedingCommissionMinor: Math.floor(amount * r()) },
     // Authored entries (docs/27 F2, F3): the caller supplies the lines, so the
     // generator has to as well. Last, so no derived recipe matches these first.
     {

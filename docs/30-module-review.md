@@ -70,7 +70,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. ~~Policy schedule produced on bind.~~ **Fixed** 2026-09-26: `bindPolicy` issues the schedule with the bind; a document the renderer refuses is audited (`axis.policy.document_failed`), never a 409 on a policy that now exists.
 3. ~~Quote desk issues through `/quote-responses/:id/bind`.~~ **Fixed** 2026-09-23: a named customer is required at shop time; the desk binds (docs/27).
 4. ~~Screens for NTU / lapse / reinstate~~ — **reviewer was wrong**: all three are declared actions on the policies tab (`apps/web/app/modules/axis.ts` `/{id}/ntu`, `/lapse`, `/reinstate`) and render on the generic record page. SLA prediction now has its caller (2026-09-26): an ambient line under the case's due date, ✦ with the evidenced driver as its why.
-5. Reinsurance treaties and cessions (missing).
+5. ~~Reinsurance treaties and cessions (missing).~~ **Fixed** 2026-09-27: quota-share and surplus treaties are an AXIS tenant resource, and a policy the tenant underwrites itself cedes on `axis.policy.issued` — one cession per policy and treaty, floored minor units with the remainder retained — posted through the gated RI-CEDE recipe (Dr 2000 / Cr 2060 / Cr 4097); ADR-0106 flags two accounting choices for the product owner.
 
 ### ORBIT · Conversations
 1. ~~Seeded journeys fire~~ — **fixed** 2026-09-23: seeded trigger names are renamed to emitted events on resync (`syncSeedEventNames`), guarded by `event-seams.test.ts`.

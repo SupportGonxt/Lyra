@@ -93,6 +93,9 @@ describe("APPROVAL_POLICIES", () => {
       "axis.reinstate": { key: "axis.reinstate", module: "axis", decide: "axis:policies:reinstate", dualControl: "always", neverAutoApprove: true },
       "axis.ntu": { key: "axis.ntu", module: "axis", decide: "axis:policies:ntu", dualControl: "above_threshold", defaultThresholdMinor: 0 },
       "axis.renew": { key: "axis.renew", module: "axis", decide: "axis:policies:renew", dualControl: "above_threshold", defaultThresholdMinor: 250_000_00 },
+      // ADR-0106: system-derived from an active treaty, so automatable; a second
+      // pair of eyes above the threshold.
+      "axis.reinsurance_cession": { key: "axis.reinsurance_cession", module: "axis", decide: "axis:reinsurance:approve", dualControl: "above_threshold", defaultThresholdMinor: 100_000_00 },
       "axis.claim_reserve": { key: "axis.claim_reserve", module: "axis", decide: "axis:claims:reserve_approve", dualControl: "above_threshold", defaultThresholdMinor: 50_000_00 },
       "axis.claim_payment": { key: "axis.claim_payment", module: "axis", decide: "axis:claims:pay_approve", dualControl: "always", neverAutoApprove: true },
       "axis.claim_exgratia": { key: "axis.claim_exgratia", module: "axis", decide: "axis:claims:pay_approve", dualControl: "always", neverAutoApprove: true },

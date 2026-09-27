@@ -47,6 +47,13 @@ Officer · Tenant Admin · AXIS Module Admin · Developer (integrations).
 - "Audit-on-demand": one-click export of any case's full trail (events,
   documents, AI actions, approvals) as a signed PDF+JSON bundle.
 
+### 2.5 Reinsurance (ADR-0106)
+- Proportional treaties (quota share, surplus) as tenant data: reinsurer, line,
+  currency, share or retention × lines, ceding commission, priority, period.
+- A policy the tenant underwrites itself (`is_internal` provider) cedes on
+  `axis.policy.issued`: one cession per policy × treaty, posted as `RI-CEDE`
+  behind the `axis.reinsurance_cession` approval (docs/19 §5.2 H).
+
 ## 3. Agents & automations
 
 | Agent | Trigger | Tier | Consequential? |

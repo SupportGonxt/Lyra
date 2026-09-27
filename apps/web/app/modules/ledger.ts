@@ -317,6 +317,7 @@ export const ledger: WorkspaceSpec = {
       "type.RSHARE-ACCR": "Revenue share accrued",
       "type.AD-PLACEMENT": "Ad placement",
       "type.SURPLUS-DIST": "Surplus distributed",
+      "type.RI-CEDE": "Premium ceded to reinsurer",
 
       "type.SUB-CREATE": "Subscription started",
       "type.SUB-INVOICE": "Subscription invoiced",
@@ -669,6 +670,7 @@ export const ledger: WorkspaceSpec = {
       "type.RSHARE-ACCR": "استحقاق حصة الإيراد",
       "type.AD-PLACEMENT": "إشغال إعلاني",
       "type.SURPLUS-DIST": "توزيع الفائض",
+      "type.RI-CEDE": "قسط متنازل عنه لمعيد التأمين",
 
       "type.SUB-CREATE": "بدء اشتراك",
       "type.SUB-INVOICE": "فاتورة اشتراك",

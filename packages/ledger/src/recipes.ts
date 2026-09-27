@@ -375,6 +375,65 @@ export function takafulSurplus(a: TakafulSurplusArgs): PostingLine[] {
   );
 }
 
+/* ------------------------------------------ C.3 reinsurance cession (ADR-0106) */
+
+const CessionArgs = z.object({
+  /** What `planCessions` (packages/core reinsurance.ts) says the treaty takes. */
+  cededPremiumMinor: Pos,
+  /** Given back by the reinsurer on the ceded premium; at most all of it. */
+  cedingCommissionMinor: NonNeg.default(0),
+  /** 2000 Insurer Payable — where BIND booked the premium as owed. */
+  insurerPayableAccount: z.string().default("2000"),
+  /** 2060 Reinsurance Payable. */
+  reinsurancePayableAccount: z.string().default("2060"),
+  /** 4097 Reinsurance Ceding Commission. */
+  commissionIncomeAccount: z.string().default("4097"),
+  memo: Memo,
+  /** On every leg. The 2000 leg needs the bind's own `item`/`counterparty` to net its open item. */
+  dims: Dims,
+  /** Laid over `dims` on the reinsurer's two legs, so they are attributed to the reinsurer. */
+  reinsurerDims: Dims
+});
+export type CessionArgs = z.input<typeof CessionArgs>;
+
+/**
+ * docs/30 AXIS 5, ADR-0106. The tenant, underwriting through its own
+ * (`is_internal`) provider, passes a share of a policy to a reinsurer:
+ *
+ *   Dr 2000 Insurer Payable          ceded premium
+ *     Cr 2060 Reinsurance Payable      ceded − ceding commission
+ *     Cr 4097 Ceding Commission        ceding commission
+ *
+ * Not an expense. BIND booked the premium Dr 1200 / Cr 2000 and never as
+ * revenue (`premiumBooked` says why), so a cession that debited a "premium
+ * ceded" expense would put a cost on the P&L against income that was never
+ * there. What changes is who the ceded share is owed to; the only P&L effect is
+ * the commission the reinsurer allows, which is the tenant's to earn.
+ *
+ * Balanced by construction: the payable leg is the remainder. It refuses client
+ * money and equity for the same reason `reconWriteOff` does — the accounts are
+ * arguments, and a caller must not be able to argue a cession into either.
+ */
+export function reinsuranceCession(a: CessionArgs): PostingLine[] {
+  const commission = a.cedingCommissionMinor ?? 0;
+  if (commission > a.cededPremiumMinor) {
+    throw badRequest(`ceding commission ${commission} exceeds the ceded premium ${a.cededPremiumMinor}`);
+  }
+  const payable = a.insurerPayableAccount ?? INSURER_PAYABLE;
+  const reinsurer = a.reinsurancePayableAccount ?? "2060";
+  const income = a.commissionIncomeAccount ?? "4097";
+  for (const code of [payable, reinsurer, income]) {
+    if (account(code)?.clientMoney) throw badRequest(`a cession may not touch client money account ${code}`);
+    if (code.startsWith("3")) throw badRequest(`a cession may not touch equity account ${code}`);
+  }
+  const theirs = a.reinsurerDims ? { ...(a.dims ?? {}), ...a.reinsurerDims } : a.dims;
+  return lines(
+    line(payable, "debit", a.cededPremiumMinor, a.memo ?? "premium ceded to reinsurer", a.dims),
+    line(reinsurer, "credit", a.cededPremiumMinor - commission, "owed to reinsurer", theirs),
+    line(income, "credit", commission, "ceding commission", theirs)
+  );
+}
+
 const PayoutArgs = z.object({
   amountMinor: Pos,
   payableAccount: z.string().default("2100"),
@@ -851,6 +910,8 @@ export const RECIPES: Record<string, RecipeSpec> = {
   // docs/27 F45. Was `expenseAccrual` into 5400/2100 — a partner revenue share,
   // which a takaful surplus is not on either leg. See `takafulSurplus`.
   "SURPLUS-DIST": spec(TakafulSurplusArgs, takafulSurplus),
+  // ADR-0106. Premium ceded under a reinsurance treaty, net of ceding commission.
+  "RI-CEDE": spec(CessionArgs, reinsuranceCession),
 
   // subscriptions & platform billing
   "SUB-INVOICE": spec(InvoiceArgs, invoiceRaised),

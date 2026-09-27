@@ -139,6 +139,12 @@ export const TXN_TYPES: Record<string, TxnTypeDef> = def([
   ["RSHARE-ACCR", true, null],
   ["AD-PLACEMENT", true, null],
   ["SURPLUS-DIST", true, "ledger.surplus"],
+  // docs/30 AXIS 5, ADR-0106. Premium ceded to a reinsurer under a treaty when
+  // the tenant underwrites the policy itself. System-derived from the treaty,
+  // like a commission accrual, but it moves what the tenant owes to whom, so it
+  // is gated; nothing leaves the business here — settling 2060 with the
+  // reinsurer is a payout of its own, not built yet.
+  ["RI-CEDE", true, "axis.reinsurance_cession"],
 
   // 4.4b manual & structural (docs/27 F2, F3). The three entries a controller
   // cannot operate without, and the only ones whose lines are authored rather

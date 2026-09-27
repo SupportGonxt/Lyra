@@ -161,6 +161,7 @@ crediting income in any batch that debits the client-money asset.
 | `RSHARE-ACCR` | Partner share accrued on a bind | Expense + payable |
 | `AD-PLACEMENT` | Sponsored placement revenue earned | Requires `DISCLOSURE-PRESENT` |
 | `SURPLUS-DIST` | Takaful surplus distribution recorded | Structure-specific |
+| `RI-CEDE` | Premium ceded to a reinsurer under a treaty (own underwriting only) | ADR-0106; one per policy × treaty; `axis.reinsurance_cession` gate |
 
 ### 4.5 Subscriptions, usage & platform billing
 | Code | Transaction | Notes |
@@ -243,11 +244,12 @@ Clearing.
 **Liabilities** `2000` Insurer Payable · `2010` Client Money Liability ·
 `2100` Partner/Publisher Payable · `2150` Creator Payable · `2200` Tax Payable ·
 `2250` Accrued Expenses · `2300` Deferred Revenue · `2350` Customer Deposits ·
-`2400` Refunds Payable.
+`2400` Refunds Payable · `2060` Reinsurance Payable (ADR-0106).
 **Income** `4000` Commission–New · `4010` Commission–Renewal · `4020` Brokerage
 Fees · `4030` Referral · `4040` Subscription · `4045` Membership · `4050` Usage ·
 `4060` Data Products · `4070` Advertising · `4075` Marketplace · `4080`
-Financing Commission · `4090` Service Fees.
+Financing Commission · `4090` Service Fees · `4097` Reinsurance Ceding
+Commission (ADR-0106).
 **Expense / contra** `5000` Commission Clawback (contra-income) · `5100` Media
 Spend · `5150` Creator Spend · `5200` AI & Inference COGS · `5300` Payment
 Processing Fees · `5400` Partner Revenue Share · `5450` Recovery Written Off ·
@@ -330,6 +332,19 @@ AI-CALL (daily roll)  Dr 5200 AI & Inference COGS           80
                         Cr 2250 Accrued Expenses              80
 ```
 These two feed cost-per-case / per-conversation / per-brief telemetry (NFR-013).
+
+**H. Reinsurance cession (own underwriting — ADR-0106)**
+```
+BIND (premium booked) Dr 1200 Premium Receivable       10,000
+                        Cr 2000 Insurer Payable          10,000
+RI-CEDE (40% QS,      Dr 2000 Insurer Payable           4,000
+ 25% ceding cmsn)       Cr 2060 Reinsurance Payable       3,000
+                        Cr 4097 Ceding Commission         1,000
+```
+Premium is never revenue in this ledger, so a cession reclassifies who the
+ceded share is owed to rather than expensing it; only the ceding commission
+reaches the P&L. Amounts are floored in minor units and the retained premium is
+the remainder, so ceded + retained is the premium exactly.
 
 ### 5.3 Multi-currency, tax, periods
 - Post in transaction currency; stamp `fx_rate` and base amount. Revaluation job
