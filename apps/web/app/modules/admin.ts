@@ -133,6 +133,8 @@ export const admin: WorkspaceSpec = {
       mfaAsserted: "Asserts two-factor",
       clientId: "Client identifier",
       discoveryUrl: "Discovery URL",
+      ssoUrl: "SAML sign-in URL",
+      certificate: "SAML signing certificate",
       defaultRoleKey: "Default role",
       url: "Endpoint",
       eventTypesJson: "Event types",
@@ -458,6 +460,8 @@ export const admin: WorkspaceSpec = {
       mfaAsserted: "يؤكد المصادقة الثنائية",
       clientId: "معرف العميل",
       discoveryUrl: "رابط الاكتشاف",
+      ssoUrl: "رابط تسجيل الدخول عبر SAML",
+      certificate: "شهادة توقيع SAML",
       defaultRoleKey: "الدور الافتراضي",
       url: "نقطة النهاية",
       eventTypesJson: "أنواع الأحداث",
@@ -1218,6 +1222,10 @@ export const admin: WorkspaceSpec = {
         { name: "issuer", type: "text", required: true },
         { name: "clientId", type: "text" },
         { name: "discoveryUrl", type: "text" },
+        // SAML (ADR-0097): where the IdP signs people in, and the certificate it
+        // signs with (PEM, or the base64 its metadata carries).
+        { name: "ssoUrl", type: "text" },
+        { name: "certificate", type: "textarea" },
         { name: "defaultRoleKey", type: "text" }
       ],
       editable: [
@@ -1226,6 +1234,8 @@ export const admin: WorkspaceSpec = {
         { name: "issuer", type: "text" },
         { name: "clientId", type: "text" },
         { name: "discoveryUrl", type: "text" },
+        { name: "ssoUrl", type: "text" },
+        { name: "certificate", type: "textarea" },
         { name: "defaultRoleKey", type: "text" },
         { name: "enabled", type: "boolean" },
         { name: "mfaAsserted", type: "boolean" }
