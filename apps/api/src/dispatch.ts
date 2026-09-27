@@ -18,6 +18,7 @@ import { onBindIssued } from "./engines/signal-attribution.js";
 import { onLeadConverted } from "./engines/signal-outreach.js";
 import { onProspectSignal } from "./engines/signal-prospects.js";
 import { onResponseSignal } from "./engines/signal-responses.js";
+import { onBudgetMoveDecided, onBudgetMoveUpdated } from "./engines/signal-ad-platforms.js";
 import { onRenewalDecided } from "./engines/orbit-renewal-attribute.js";
 import { onDsarCreated } from "./engines/compliance-dsar.js";
 import { onDsarUpdated } from "./engines/compliance-erasure.js";
@@ -150,6 +151,14 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100, dep
       }
       if (event.type === "axis.approval.decided" && on("axis")) {
         await consume(ctx.db, event, "axis.reinsurance.decided", (e) => onCessionDecided(ctx, e), ctx.now);
+      }
+      // docs/30 SIGNAL 5, ADR-0100: an approved budget move reaches a connected
+      // ad account only here, after its approver; an undo reverses what went.
+      if (event.type === "signal.approval.decided" && on("signal")) {
+        await consume(ctx.db, event, "signal.ad_platform.push", (e) => onBudgetMoveDecided(ctx, deps?.env.FIELD_KEY, e), ctx.now);
+      }
+      if (event.type === "signal.budget-moves.updated" && on("signal")) {
+        await consume(ctx.db, event, "signal.ad_platform.undo", (e) => onBudgetMoveUpdated(ctx, deps?.env.FIELD_KEY, e), ctx.now);
       }
       // F61: a portal-filed DSAR gets its acknowledgement here — the compliance
       // staff are notified so the request never arrives with no owner.

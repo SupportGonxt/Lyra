@@ -223,6 +223,9 @@ export const admin: WorkspaceSpec = {
       "provider.whatsapp-cloud-api": "WhatsApp Cloud API",
       "provider.mailgun-email": "Mailgun",
       "provider.lyra-webchat": "Web chat",
+      "provider.google-ads": "Google Ads",
+      "provider.meta-ads": "Meta Ads",
+      ads: "Ad account",
       agent: "Agent",
       portal: "Portal",
       motor: "Motor",
@@ -550,6 +553,9 @@ export const admin: WorkspaceSpec = {
       "provider.whatsapp-cloud-api": "واتساب كلاود API",
       "provider.mailgun-email": "ميلغن",
       "provider.lyra-webchat": "دردشة الويب",
+      "provider.google-ads": "إعلانات جوجل",
+      "provider.meta-ads": "إعلانات ميتا",
+      ads: "حساب إعلاني",
       import: "استيراد",
       agent: "وكيل",
       portal: "بوابة",
@@ -805,7 +811,7 @@ export const admin: WorkspaceSpec = {
       update: "core:channels:write",
       remove: "core:channels:write",
       filters: [
-        { name: "transport", options: ["whatsapp", "email", "web", "voice", "agent"] },
+        { name: "transport", options: ["whatsapp", "email", "web", "voice", "agent", "ads"] },
         { name: "status", options: ["active", "disabled"] }
       ],
       columns: [
@@ -817,8 +823,8 @@ export const admin: WorkspaceSpec = {
       ],
       fields: [
         { name: "label", type: "text", required: true },
-        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email", "lyra-webchat"], required: true },
-        { name: "transport", type: "select", options: ["whatsapp", "email", "web", "voice", "agent"], required: true },
+        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email", "lyra-webchat", "google-ads", "meta-ads"], required: true },
+        { name: "transport", type: "select", options: ["whatsapp", "email", "web", "voice", "agent", "ads"], required: true },
         { name: "secretsJson", type: "json", required: true, hintKey: "secretsJson.hint" },
         { name: "configJson", type: "json" }
       ],

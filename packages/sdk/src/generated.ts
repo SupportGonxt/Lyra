@@ -3262,6 +3262,7 @@ export interface Operations {
   "GET /v1/signal/spend": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalSpend>>;
   "POST /v1/signal/spend": Op<never, never, SignalSpend, SignalSpend>;
   "POST /v1/signal/spend/import": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/signal/spend/pull": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/signal/spend/{id}": Op<{ id: string }, never, never, SignalSpend>;
   "PATCH /v1/signal/spend/{id}": Op<{ id: string }, never, SignalSpend, SignalSpend>;
   "GET /v1/staff/delegations": Op<never, never, never, Record<string, unknown>>;
@@ -4094,6 +4095,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/signal/spend": { tag: "signal", summary: "List spend", permission: "signal:spend:read", public: false },
   "POST /v1/signal/spend": { tag: "signal", summary: "Create a spend", permission: "signal:spend:write", public: false },
   "POST /v1/signal/spend/import": { tag: "signal", summary: "Import spend actuals from CSV (day, campaignId, channel, amountMinor, currency, impressions, clicks, conversions). Per-line honest; a (campaign, channel, day) already held is corrected, not doubled", permission: "signal:spend:write", public: false },
+  "POST /v1/signal/spend/pull": { tag: "signal", summary: "Pull daily spend from every connected ad account (Google Ads, Meta; connectors on transport `ads`) through the import's write path — optional body {since, until} as YYYY-MM-DD, default the last three whole days, at most 31. A tenant with no ad connector gets connectors: 0 and nothing changes", permission: "signal:spend:write", public: false },
   "GET /v1/signal/spend/{id}": { tag: "signal", summary: "Fetch one spend", permission: "signal:spend:read", public: false },
   "PATCH /v1/signal/spend/{id}": { tag: "signal", summary: "Update a spend", permission: "signal:spend:write", public: false },
   "GET /v1/staff/delegations": { tag: "staff", summary: "Who currently holds whose authority", permission: "core:delegations:read", public: false },

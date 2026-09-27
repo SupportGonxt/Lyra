@@ -1,6 +1,7 @@
 import { prospectCounts } from "../engines/signal-prospects.js";
 import { responseRollup } from "../engines/signal-responses.js";
 import { importSpend } from "../engines/signal-spend-import.js";
+import { pullAdSpend, spendPullWindow, SPEND_PULL_MAX_DAYS } from "../engines/signal-ad-platforms.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { require_, audit, badRequest, emit, notFound, type Ctx } from "@lyra/core";
@@ -298,7 +299,7 @@ signalRoutes.post("/autopilot/resume", (c) => setAutopilotPaused(c, false));
 signalRoutes.post("/autopilot/run", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "signal:autopilot:run", { tenantId: ctx.tenantId, module: "signal" });
-  return c.json({ adjusted: await runBudgetAutopilot(ctx) });
+  return c.json({ adjusted: await runBudgetAutopilot(ctx, { fieldKey: c.env.FIELD_KEY }) });
 });
 
 // The acquisition outreach sweep (engines/signal-outreach.ts): draft, consent-
@@ -354,6 +355,25 @@ signalRoutes.post("/spend/import", async (c) => {
   require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });
   const csv = await csvBody(c);
   return c.json(await importSpend(ctx, csv), 201);
+});
+
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a YYYY-MM-DD day");
+const SpendPullBody = z
+  .object({ since: Day.optional(), until: Day.optional() })
+  .refine((b) => !b.since || !b.until || b.since <= b.until, { message: "since must not be after until", path: ["since"] });
+
+// docs/30 SIGNAL 5, ADR-0100: the same pull the nightly tick runs, on demand —
+// every connected ad account's daily spend through the import's write path.
+// A tenant with no ad connector gets `connectors: 0` and nothing changes.
+signalRoutes.post("/spend/pull", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });
+  const raw = c.req.header("content-type")?.includes("application/json") ? await body(c, SpendPullBody) : {};
+  const window = spendPullWindow(ctx.now, raw);
+  if (Date.parse(window.until) - Date.parse(window.since) > SPEND_PULL_MAX_DAYS * DAY_MS) {
+    throw badRequest(`a pull covers at most ${SPEND_PULL_MAX_DAYS} days`, { since: "window too long" });
+  }
+  return c.json(await pullAdSpend(ctx, c.env.FIELD_KEY, window));
 });
 
 // ADR-0091: what came back from sends, per campaign (broad), audience (niche)

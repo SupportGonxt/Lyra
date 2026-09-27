@@ -211,3 +211,48 @@ export interface ChannelAdapter {
     config: Record<string, unknown>
   ): Promise<{ externalRef: string }>;
 }
+
+/**
+ * docs/30 SIGNAL 5, ADR-0100. An ad network is a channel (CLAUDE.md §13): the
+ * tenant's account on Google Ads or Meta, held as a connector row sealed like
+ * every other (`orbit_channel_connectors`, ADR-0093) under transport `ads`.
+ * SIGNAL reads spend back through it and pushes an *approved* budget move out
+ * through it — the adapter never decides whether a move may happen, only how
+ * the provider's wire format says it.
+ *
+ * Amounts are minor units of `currency`. `externalCampaignId` is the
+ * provider's own id; the connector config maps it to a LYRA campaign
+ * (`adCampaignMap`, ad-platform.ts), so an adapter never sees LYRA ids.
+ */
+export interface AdSpendRow {
+  readonly externalCampaignId: string;
+  /** YYYY-MM-DD in the ad account's reporting timezone. */
+  readonly day: string;
+  readonly amountMinor: number;
+  readonly currency: string;
+  readonly impressions: number;
+  readonly clicks: number;
+  readonly conversions: number;
+}
+
+export interface AdSpendWindow {
+  /** Inclusive YYYY-MM-DD. */
+  readonly since: string;
+  /** Inclusive YYYY-MM-DD. */
+  readonly until: string;
+}
+
+export interface AdPlatform {
+  readonly provider: string;
+  /** The `signal_spend.channel` this provider's spend lands under unless the connector config names another. */
+  readonly defaultChannel: string;
+  pullSpend(window: AdSpendWindow, secrets: ConnectorSecrets, config: Record<string, unknown>): Promise<readonly AdSpendRow[]>;
+  /** Moves one campaign's daily budget by `deltaMinor`; refuses a currency the account does not bill in. */
+  adjustDailyBudget(
+    externalCampaignId: string,
+    deltaMinor: number,
+    currency: string,
+    secrets: ConnectorSecrets,
+    config: Record<string, unknown>
+  ): Promise<{ beforeMinor: number; afterMinor: number }>;
+}
