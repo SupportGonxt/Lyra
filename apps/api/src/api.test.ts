@@ -446,6 +446,15 @@ describe("openapi", () => {
  * so it needs the reason beside it — the empty case is a route someone forgot.
  */
 const UNDOCUMENTED = new Set([
+  // ADR-0096: SCIM Group create, replace and delete exist only to answer
+  // RFC 7644's own `mutability` error — roles are the administrator's to define.
+  // Documenting them would advertise operations that always refuse.
+  "post /v1/scim/v2/Groups",
+  "put /v1/scim/v2/Groups",
+  "delete /v1/scim/v2/Groups",
+  "post /v1/scim/v2/Groups/:p",
+  "put /v1/scim/v2/Groups/:p",
+  "delete /v1/scim/v2/Groups/:p",
   // Operational, not part of /v1: a load balancer's probe and the spec itself.
   "get /health",
   "get /openapi.json",

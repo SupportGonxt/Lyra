@@ -70,6 +70,17 @@ const HAND_WRITTEN: Op[] = [
   // generated create — a CRUD body would ask the caller for the very column the
   // server owns. Each returns its plaintext once and never again.
   { method: "post", path: "/v1/core/api-keys", summary: "Mint an API key; the plaintext is returned once and never again", permission: "core:api_keys:create", tag: "core", requestBody: true },
+  // ADR-0096: SCIM 2.0 (RFC 7644), answered as application/scim+json.
+  { method: "get", path: "/v1/scim/v2/ServiceProviderConfig", summary: "SCIM: what this service supports (patch, filter; no bulk, sort or etag)", permission: "core:users:read", tag: "scim" },
+  { method: "get", path: "/v1/scim/v2/Users", summary: "SCIM: list users; filter userName eq or externalId eq", permission: "core:users:read", tag: "scim" },
+  { method: "post", path: "/v1/scim/v2/Users", summary: "SCIM: provision a user who signs in through the identity provider", permission: "core:users:create", tag: "scim", requestBody: true },
+  { method: "get", path: "/v1/scim/v2/Users/{id}", summary: "SCIM: one user", permission: "core:users:read", tag: "scim" },
+  { method: "put", path: "/v1/scim/v2/Users/{id}", summary: "SCIM: replace a user's name, userName, externalId and active", permission: "core:users:update", tag: "scim", requestBody: true },
+  { method: "patch", path: "/v1/scim/v2/Users/{id}", summary: "SCIM: patch a user; active=false suspends", permission: "core:users:update", tag: "scim", requestBody: true },
+  { method: "delete", path: "/v1/scim/v2/Users/{id}", summary: "SCIM: deactivate (suspend) a user; history stays attributable", permission: "core:users:update", tag: "scim" },
+  { method: "get", path: "/v1/scim/v2/Groups", summary: "SCIM: the tenant's roles as groups; filter displayName eq", permission: "core:roles:read", tag: "scim" },
+  { method: "get", path: "/v1/scim/v2/Groups/{id}", summary: "SCIM: one role and its members", permission: "core:roles:read", tag: "scim" },
+  { method: "patch", path: "/v1/scim/v2/Groups/{id}", summary: "SCIM: add or remove members; a grant needs every permission the role confers", permission: "core:roles:assign", tag: "scim", requestBody: true },
   { method: "post", path: "/v1/core/webhooks", summary: "Register a webhook; the signing secret is generated server-side and returned once", permission: "core:webhooks:write", tag: "core", requestBody: true },
 
   // Not the generated delete either: the key has `revokedAt`, not `deletedAt`,

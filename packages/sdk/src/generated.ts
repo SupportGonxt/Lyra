@@ -3087,6 +3087,16 @@ export interface Operations {
   "GET /v1/portal/{tenantSlug}/site": Op<{ tenantSlug: string }, never, never, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/track": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/realtime": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/scim/v2/Groups": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/scim/v2/Groups/{id}": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "PATCH /v1/scim/v2/Groups/{id}": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/scim/v2/ServiceProviderConfig": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/scim/v2/Users": Op<never, never, never, Record<string, unknown>>;
+  "POST /v1/scim/v2/Users": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/scim/v2/Users/{id}": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "PATCH /v1/scim/v2/Users/{id}": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "PUT /v1/scim/v2/Users/{id}": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "DELETE /v1/scim/v2/Users/{id}": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/scout/clusters": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutClusters>>;
   "POST /v1/scout/clusters/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/clusters/{id}": Op<{ id: string }, never, never, ScoutClusters>;
@@ -3889,6 +3899,16 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/portal/{tenantSlug}/site": { tag: "portal", summary: "A tenant's public storefront: brand and active products", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/track": { tag: "portal", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP. A lead or bind must be signed (ADR-0092): x-lyra-key-id (a tenant webhook id), x-lyra-timestamp, x-lyra-signature v1=HMAC-SHA256(secret, `${timestamp}.${body}`); a replayed eventId is answered 200 with duplicate: true", permission: null, public: true },
   "GET /v1/realtime": { tag: "realtime", summary: "Server-Sent Events stream of the caller's own live updates", permission: null, public: false },
+  "GET /v1/scim/v2/Groups": { tag: "scim", summary: "SCIM: the tenant's roles as groups; filter displayName eq", permission: "core:roles:read", public: false },
+  "GET /v1/scim/v2/Groups/{id}": { tag: "scim", summary: "SCIM: one role and its members", permission: "core:roles:read", public: false },
+  "PATCH /v1/scim/v2/Groups/{id}": { tag: "scim", summary: "SCIM: add or remove members; a grant needs every permission the role confers", permission: "core:roles:assign", public: false },
+  "GET /v1/scim/v2/ServiceProviderConfig": { tag: "scim", summary: "SCIM: what this service supports (patch, filter; no bulk, sort or etag)", permission: "core:users:read", public: false },
+  "GET /v1/scim/v2/Users": { tag: "scim", summary: "SCIM: list users; filter userName eq or externalId eq", permission: "core:users:read", public: false },
+  "POST /v1/scim/v2/Users": { tag: "scim", summary: "SCIM: provision a user who signs in through the identity provider", permission: "core:users:create", public: false },
+  "GET /v1/scim/v2/Users/{id}": { tag: "scim", summary: "SCIM: one user", permission: "core:users:read", public: false },
+  "PATCH /v1/scim/v2/Users/{id}": { tag: "scim", summary: "SCIM: patch a user; active=false suspends", permission: "core:users:update", public: false },
+  "PUT /v1/scim/v2/Users/{id}": { tag: "scim", summary: "SCIM: replace a user's name, userName, externalId and active", permission: "core:users:update", public: false },
+  "DELETE /v1/scim/v2/Users/{id}": { tag: "scim", summary: "SCIM: deactivate (suspend) a user; history stays attributable", permission: "core:users:update", public: false },
   "GET /v1/scout/clusters": { tag: "scout", summary: "List clusters", permission: "scout:clusters:read", public: false },
   "POST /v1/scout/clusters/sweep": { tag: "scout", summary: "Run the Clusterer over the persisted signal corpus: places each signal against the market embedding index, re-scores momentum, stamps cluster ids", permission: "scout:clusters:build", public: false },
   "GET /v1/scout/clusters/{id}": { tag: "scout", summary: "Fetch one cluster", permission: "scout:clusters:read", public: false },
