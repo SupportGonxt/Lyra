@@ -3111,6 +3111,7 @@ export interface Operations {
   "GET /v1/scout/panel-bench/negotiation-pack": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/scout/panel-bench/sweep": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/panel-bench/{id}": Op<{ id: string }, never, never, ScoutPanelBench>;
+  "GET /v1/scout/price-elasticity": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scout/scout-experiments": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ScoutScoutExperiments>>;
   "POST /v1/scout/scout-experiments": Op<never, never, ScoutScoutExperiments, ScoutScoutExperiments>;
   "GET /v1/scout/scout-experiments/{id}": Op<{ id: string }, never, never, ScoutScoutExperiments>;
@@ -3925,6 +3926,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/scout/panel-bench/negotiation-pack": { tag: "scout", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", public: false },
   "POST /v1/scout/panel-bench/sweep": { tag: "scout", summary: "Run the Bench Builder: rebuild every provider x line x month cell from the panel's own quote outcomes", permission: "scout:panel_bench:build", public: false },
   "GET /v1/scout/panel-bench/{id}": { tag: "scout", summary: "Fetch one panel bench", permission: "scout:panel_bench:read", public: false },
+  "GET /v1/scout/price-elasticity": { tag: "scout", summary: "Price elasticity per line: volume-weighted log-log fit of win rate on price index over the bench cells above the k-anonymity floor, with a 95% interval, or why there is too little to fit", permission: "scout:panel_bench:read", public: false },
   "GET /v1/scout/scout-experiments": { tag: "scout", summary: "List scout-experiments", permission: "scout:experiments:read", public: false },
   "POST /v1/scout/scout-experiments": { tag: "scout", summary: "Create a scout experiment", permission: "scout:experiments:create", public: false },
   "GET /v1/scout/scout-experiments/{id}": { tag: "scout", summary: "Fetch one scout experiment", permission: "scout:experiments:read", public: false },

@@ -28,7 +28,7 @@ import { promoteWhitespace } from "../engines/scout-promote.js";
 import { describeSources, harvestSignals } from "../engines/scout-ingest.js";
 import { parseSignalCsv } from "../engines/scout-import.js";
 import { sweepSignalClusters } from "../engines/scout-cluster.js";
-import { sweepPanelBench } from "../engines/scout-bench.js";
+import { benchElasticity, sweepPanelBench } from "../engines/scout-bench.js";
 import { runWatch } from "../engines/scout-watch.js";
 import { suggestTargeting } from "../engines/signal-audience.js";
 import { planCampaign } from "../engines/signal-campaign-plan.js";
@@ -172,6 +172,15 @@ scoutRoutes.post("/panel-bench/sweep", async (c) => {
   const report = await sweepPanelBench(ctx);
   await audit(ctx, { action: "scout.bench.sweep", subjectRef: "panel-bench", after: report });
   return c.json(report, 201);
+});
+
+/** docs/30 SCOUT 5: how much win rate moves with price, per line, fitted over
+ *  the bench cells a bench reader may see (engines/scout-bench.ts). A read — no
+ *  audit row, same as the bench list it summarises. */
+scoutRoutes.get("/price-elasticity", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:panel_bench:read", { tenantId: ctx.tenantId, module: "scout" });
+  return c.json({ data: await benchElasticity(ctx) });
 });
 
 /**

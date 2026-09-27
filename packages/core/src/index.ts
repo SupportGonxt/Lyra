@@ -37,6 +37,7 @@ export * from "./seed.js";
 export * from "./seed/period.js";
 export * from "./whitespace.js";
 export * from "./bench.js";
+export * from "./elasticity.js";
 export * from "./watch.js";
 export * from "./words.js";
 export * from "./wording-diff.js";

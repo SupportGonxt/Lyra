@@ -101,8 +101,8 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 1. Data-product subscribe/deliver routes (billing functions exist, called only from tests).
 2. First external source adapter (news/RSS), per ADR-0078.
 3. ~~Watch alerts routed to notifications.~~ **Fixed** 2026-09-26: the nightly window runs the watch after the harvest and `notifyUrgentWatch` tells every `scout.lead`, once per subject per day.
-4. PDF wording diff via the AXIS extraction path.
-5. Price elasticity from bench data on the pricing screen.
+4. PDF wording diff via the AXIS extraction path. *Open 2026-09-27, needs a decision first:* the AXIS path produces no text to diff — `POST /v1/axis/documents/:id/extract` either takes caller-supplied `rawText` (never stored) or renders page 1 to an image and reads the named fields of `eid`/`mulkiya` (`EXTRACTION_FIELDS`), storing only those fields; `axis_documents` rows also require a case. Choosing a PDF-text dependency (docs/02 §9, ADR-0016) or a multi-page vision transcription purpose (eval-first), and where a wording's text lives, is the decision.
+5. ~~Price elasticity from bench data on the pricing screen.~~ **Fixed** 2026-09-27: `estimateElasticity` (packages/core/src/elasticity.ts) fits a volume-weighted log-log slope of win rate on price index per line over the bench cells above the k-anonymity floor, with a 95% interval and an honest "not enough data" / "prices too close" state, served by `GET /v1/scout/price-elasticity` and rendered as a third panel on `/scout/pricing`.
 
 ### NORTH · Insight
 1. ~~Schedule the brief; emit `north.briefing.published`.~~ **Fixed** 2026-09-26: `nightlyBriefing` drafts yesterday's exec brief after the snapshot, once per date; publishing stays a person's act (only a verified brief, stamped who and when), and that transition alone emits `north.briefing.published`.
