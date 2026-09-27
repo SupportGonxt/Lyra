@@ -198,6 +198,8 @@ export const quoteResponses = sqliteTable(
     validUntil: integer("valid_until"),
     rawRef: text("raw_ref"), // -> core_files.id, the provider's raw response for audit
     selectedAt: integer("selected_at"),
+    /** When a person confirmed the selected quote as sold (ADR-0094); the sale a tenant without AXIS earns commission on. */
+    soldAt: integer("sold_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull()
   },
@@ -218,7 +220,10 @@ export const commissionEntries = sqliteTable(
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
-    policyId: text("policy_id").notNull(), // -> axis_policies.id
+    // One of the two says what was sold (ADR-0094): the AXIS policy, or — for a
+    // tenant without AXIS — the quote response a person confirmed as sold.
+    policyId: text("policy_id"), // -> axis_policies.id
+    saleRef: text("sale_ref"), // -> dist_quote_responses.id
     offeringId: text("offering_id"),
     providerId: text("provider_id").notNull(),
     channelId: text("channel_id").notNull(),
@@ -252,6 +257,10 @@ export const commissionEntries = sqliteTable(
     uniqueIndex("dist_commission_entries_accrual_uq")
       .on(t.tenantId, t.policyId, t.kind)
       .where(sql`kind != 'clawback'`),
+    // The same rule for a confirmed sale: one accrual per (sale, kind).
+    uniqueIndex("dist_commission_entries_sale_uq")
+      .on(t.tenantId, t.saleRef, t.kind)
+      .where(sql`kind != 'clawback' and sale_ref is not null`),
     index("dist_commission_entries_idx").on(t.tenantId, t.state, t.earnedAt),
     index("dist_commission_entries_policy_idx").on(t.tenantId, t.policyId),
     index("dist_commission_entries_provider_idx").on(t.tenantId, t.providerId, t.state),

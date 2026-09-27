@@ -58,7 +58,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 | SCOUT · Market | Crayon/Klue, Similarweb, Qualtrics, Earnix/Akur8 | 8 | 4 | 4 | Yes (2026-09-26) — demand from the platform's quotes, its own signals by CSV (`/v1/scout/signals/import`), coverage from converted requests when AXIS is off, whitespace recomputed nightly; the SIGNAL handover says it needs SIGNAL |
 | NORTH · Insight | Tableau Pulse, ThoughtSpot, Power BI, Anaplan | 5 | 7 | 4 | No — every metric reads other modules |
 | Ledger | NetSuite, Sage Intacct, Xero, Insurity | 12 | 1 | 5 | Mostly — soft reads of NORTH/Dist/AXIS |
-| Distribution | Salesforce PRM, Impartner, Applied Epic, Zywave | 9 | 4 | 2 | Partly — accrual needs AXIS policies |
+| Distribution | Salesforce PRM, Impartner, Applied Epic, Zywave | 9 | 4 | 2 | Yes (2026-09-27) — without AXIS the chosen quote is recorded as the sale and accrues through the same rate, gate and settlement (ADR-0094) |
 | Compliance | OneTrust, TrustArc, Vanta/Drata | 8 | 6 | 3 | Serves SIGNAL/Ledger via events |
 | Analytics | Looker, Power BI, Metabase, Mode | 6 | 4 | 6 | Reads everyone's tables by design |
 | Admin / Platform | Okta/Entra, Retool/Backstage, Credo AI/Arize | 12 | 5 | 2 | Underpins every module |
@@ -124,6 +124,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 3. ~~Expose commission tiers (`structureJson`) in the rates form.~~ **Fixed** 2026-09-23: the field is on the rates form, and the API validates it strictly (`CommissionStructureJson`, `packages/core/src/commission.ts`) before the rate-change approval — the engine reads a malformed structure as flat, so it must be refused on write (`dist.test.ts` "commission-rate structures are validated on write").
 4. ~~Referral qualify/settle desk.~~ **Fixed** 2026-09-26: `/distribution/referrals` — qualify and settle with an idempotency key per referral, the referral ledger read from its REFERRAL-QUAL/SETL transactions.
 5. ~~Select → bind handoff.~~ **Fixed** 2026-09-26: the comparison names the policy a bound quote became (`policyId`), so the compare screen shows it on every revisit instead of offering a bind the API refuses.
+6. ~~Accrual without AXIS.~~ **Fixed** 2026-09-27 (ADR-0094): `POST /v1/dist/quote-responses/:id/sale` confirms the chosen quote as the sale and books its commission through `accrueCommission`'s own path; "Record sale" on the compare screen where AXIS is not on.
 
 ### Compliance
 1. ~~Admin consent writes go through `recordConsent` so suppression fires.~~ **Fixed** 2026-09-23: `announceConsent` is the single emitter.

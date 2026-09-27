@@ -1242,7 +1242,8 @@ export interface DistChannels {
 export interface DistCommissionEntries {
   id?: string;
   tenantId?: string;
-  policyId: string;
+  policyId?: string;
+  saleRef?: string;
   offeringId?: string;
   providerId: string;
   channelId: string;
@@ -1405,6 +1406,7 @@ export interface DistQuoteResponses {
   validUntil?: number;
   rawRef?: string;
   selectedAt?: number;
+  soldAt?: number;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -2814,6 +2816,7 @@ export interface Operations {
   "POST /v1/dist/quote-requests/{id}/share": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/dist/quote-responses": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<DistQuoteResponses>>;
   "GET /v1/dist/quote-responses/{id}": Op<{ id: string }, never, never, DistQuoteResponses>;
+  "POST /v1/dist/quote-responses/{id}/sale": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/dist/referrals/qualify": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/dist/referrals/settle": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ledger/account-balances": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerAccountBalances>>;
@@ -3612,6 +3615,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/dist/quote-requests/{id}/share": { tag: "dist", summary: "Share the comparison with the customer over their consented channel", permission: "dist:quote_requests:share", public: false },
   "GET /v1/dist/quote-responses": { tag: "dist", summary: "List quote-responses", permission: "dist:quote_requests:read", public: false },
   "GET /v1/dist/quote-responses/{id}": { tag: "dist", summary: "Fetch one quote respons", permission: "dist:quote_requests:read", public: false },
+  "POST /v1/dist/quote-responses/{id}/sale": { tag: "dist", summary: "Confirm the chosen quote as a sale and accrue its channel commission (ADR-0094, tenants without AXIS)", permission: "dist:commissions:adjust", public: false },
   "POST /v1/dist/referrals/qualify": { tag: "dist", summary: "Record a qualified referral lead/approval event (REFERRAL-QUAL)", permission: "dist:commissions:adjust", public: false },
   "POST /v1/dist/referrals/settle": { tag: "dist", summary: "Settle a qualified referral's revenue against the partner's statement (REFERRAL-SETL)", permission: "dist:commissions:settle", public: false },
   "GET /v1/ledger/account-balances": { tag: "ledger", summary: "List account-balances", permission: "ledger:accounts:read", public: false },

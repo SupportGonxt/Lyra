@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
 import type { Env } from "../env";
-import { action, boundPolicy, labeller, requestExpired } from "./quote-compare";
+import { action, axisOn, boundPolicy, labeller, requestExpired } from "./quote-compare";
 
 describe("requestExpired", () => {
   it("is false when the request never expires", () => {
@@ -96,5 +96,45 @@ describe("bind", () => {
       endAt: Date.UTC(2027, 8, 30)
     });
     expect(result).toMatchObject({ problem: null, done: "done.bind", policyId: "pol_1" });
+  });
+});
+
+// ADR-0094: without AXIS nothing binds, so the chosen quote is confirmed as a
+// sale and its channel commission accrues from it.
+describe("sale", () => {
+  const env = { ENVIRONMENT: "test", API_ORIGIN: "https://api.test", SESSION_COOKIE: "s" } as Env;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("offers the sale only where AXIS is not on to bind", () => {
+    expect(axisOn({ modules: ["axis"] }, {})).toBe(true);
+    expect(axisOn({ modules: ["axis"] }, { moduleConfig: { axis: { enabled: false } } })).toBe(false);
+    expect(axisOn({ modules: ["signal"] }, {})).toBe(false);
+    expect(axisOn({}, {})).toBe(false);
+  });
+
+  it("confirms the chosen quote as a sale under its own idempotency key", async () => {
+    const calls: Array<{ url: string; key: string | null }> = [];
+    vi.stubGlobal("fetch", (input: URL | string, init: RequestInit = {}) => {
+      calls.push({ url: String(input), key: new Headers(init.headers).get("idempotency-key") });
+      return Promise.resolve(
+        new Response(JSON.stringify({ id: "ce_1", state: "accrued" }), { status: 201, headers: { "content-type": "application/json" } })
+      );
+    });
+    const form = new FormData();
+    form.set("intent", "sale");
+    form.set("responseId", "qr_9");
+    form.set("idempotencyKey", "k");
+
+    const result = await action({
+      request: new Request("https://web.test/distribution/quote-requests/req_1/compare", { method: "POST", body: form }),
+      context: { get: () => ({ env, ctx: null }) },
+      params: { id: "req_1" }
+    } as unknown as ActionFunctionArgs);
+
+    expect(calls[0]?.url).toBe("https://api.test/v1/dist/quote-responses/qr_9/sale");
+    expect(calls[0]?.key).toBe("k:qr_9:sale");
+    expect(result).toMatchObject({ problem: null, done: "done.sale" });
   });
 });

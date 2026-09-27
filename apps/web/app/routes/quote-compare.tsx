@@ -55,8 +55,19 @@ const PERM = {
   commissions: "dist:commissions:read",
   offersRead: "dist:offers:read",
   offersDecide: "dist:offers:override",
-  bind: "axis:policies:bind"
+  bind: "axis:policies:bind",
+  sell: "dist:commissions:adjust"
 } as const;
+
+/**
+ * ADR-0094: whether AXIS is there to bind — bought and not switched off, the
+ * API's `moduleOn`. Without it the chosen quote is recorded as a sale instead.
+ */
+export function axisOn(entitlements: Record<string, unknown>, policy: Record<string, unknown>): boolean {
+  const modules = Array.isArray(entitlements.modules) ? (entitlements.modules as string[]) : [];
+  const config = (policy.moduleConfig ?? {}) as Record<string, { enabled?: boolean } | undefined>;
+  return modules.includes("axis") && config.axis?.enabled !== false;
+}
 
 /** A calendar day as the API's instant: midnight UTC. */
 function dayStart(value: FormDataEntryValue | null): number {
@@ -108,6 +119,8 @@ interface Quote {
   rationaleKey: string | null;
   validUntil: number | null;
   selectedAt: number | null;
+  /** ADR-0094: when the chosen quote was confirmed as a sale, without AXIS. */
+  soldAt?: number | null;
   offering: Offering | null;
   /** The policy this quote was bound into, if any (routes/dist.ts comparison). */
   policyId: string | null;
@@ -202,6 +215,11 @@ const LABELS: Record<string, Record<string, string>> = {
     startAt: "Starts",
     endAt: "Ends",
     bindSubmit: "Issue",
+    "done.sale": "Sale recorded and the channel's commission accrued.",
+    saleTitle: "Record the sale",
+    saleBody: "The customer bought the selected quote. Recording it accrues the channel's commission from this quote's rate; policy may hold it for approval.",
+    saleSubmit: "Record sale",
+    sold: "This sale is recorded and its commission accrued.",
     "done.accepted": "Interest recorded against this suggestion.",
     "done.dismissed": "Suggestion dismissed. It will not be shown again.",
     approvalRef: "Approval {id}",
@@ -293,6 +311,11 @@ const LABELS: Record<string, Record<string, string>> = {
     startAt: "تبدأ",
     endAt: "تنتهي",
     bindSubmit: "إصدار",
+    "done.sale": "سُجّل البيع واستُحقّت عمولة القناة.",
+    saleTitle: "تسجيل البيع",
+    saleBody: "اشترى العميل العرض المختار. تسجيله يستحق عمولة القناة وفق سعر هذا العرض؛ وقد تتطلب السياسة موافقة عليه.",
+    saleSubmit: "تسجيل البيع",
+    sold: "سُجّل هذا البيع واستُحقّت عمولته.",
     "done.accepted": "سُجّل الاهتمام بهذا الاقتراح.",
     "done.dismissed": "تم تجاهل الاقتراح ولن يُعرض ثانية.",
     approvalRef: "الموافقة {id}",
@@ -429,7 +452,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
       share: held.has(PERM.share),
       select: held.has(PERM.select),
       decide: held.has(PERM.offersDecide),
-      bind: held.has(PERM.bind)
+      bind: held.has(PERM.bind),
+      sell: held.has(PERM.sell) && !axisOn(me.entitlements, me.policy)
     }
   };
 }
@@ -483,6 +507,16 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       });
       policyId = bound.policy.id;
       done = "done.bind";
+    } else if (intent === "sale") {
+      const responseId = String(form.get("responseId") ?? "");
+      await api(`/v1/dist/quote-responses/${encodeURIComponent(responseId)}/sale`, {
+        env,
+        request,
+        method: "POST",
+        body: {},
+        ...(baseKey ? { headers: { "idempotency-key": `${baseKey}:${responseId}:sale` } } : {})
+      });
+      done = "done.sale";
     } else if (intent === "offer") {
       const decision = String(form.get("decision") ?? "");
       const offerId = String(form.get("offerId") ?? "");
@@ -536,7 +570,8 @@ export default function QuoteCompare() {
   // A refused issue is shown inside the issue form, at the foot of a long page,
   // rather than at the top where its reader cannot see it.
   const bindProblem = result?.intent === "bind" ? (result.problem ?? null) : null;
-  const problem = bindProblem ? null : (result?.problem ?? null);
+  const saleProblem = result?.intent === "sale" ? (result.problem ?? null) : null;
+  const problem = bindProblem || saleProblem ? null : (result?.problem ?? null);
   const done = result?.done ?? null;
   const shell = useShellData();
   const navigation = useNavigation();
@@ -813,6 +848,15 @@ export default function QuoteCompare() {
               busy={busy}
               idempotencyKey={loaded.idempotencyKey}
               problem={bindProblem}
+            />
+          ) : chosen && loaded.can.sell ? (
+            <SalePanel
+              quote={chosen}
+              L={L}
+              busy={busy}
+              idempotencyKey={loaded.idempotencyKey}
+              problem={saleProblem}
+              sold={Boolean(chosen.soldAt) || result?.done === "done.sale"}
             />
           ) : null}
         </div>
@@ -1287,6 +1331,59 @@ function BindPanel({
         </Form>
       ) : (
         <p className="max-w-prose font-ui text-13 text-muted">{L("bindNoCustomer")}</p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * ADR-0094: the sale without AXIS. Nothing to type — the commission is rated
+ * from the quote on the server — so the panel is the consequence and one button.
+ */
+function SalePanel({
+  quote,
+  L,
+  busy,
+  idempotencyKey,
+  problem,
+  sold
+}: {
+  quote: Quote;
+  L: (key: string, vars?: Record<string, string>) => string;
+  busy: boolean;
+  idempotencyKey: string;
+  problem: ApiProblem | null;
+  sold: boolean;
+}) {
+  const gated = approvalOf(problem);
+  return (
+    <section aria-labelledby="sale-heading" className="flex flex-col gap-3 rounded-lg border border-border bg-surface-1 p-4">
+      <h2 id="sale-heading" className="section-title">
+        {L("saleTitle")}
+      </h2>
+      {sold ? (
+        <p role="status" className="font-ui text-13 text-text">
+          {L("sold")}
+        </p>
+      ) : (
+        <Form method="post" className="flex flex-col gap-3">
+          <p className="max-w-prose font-ui text-13 text-muted">{L("saleBody")}</p>
+          <input type="hidden" name="intent" value="sale" />
+          <input type="hidden" name="responseId" value={quote.id} />
+          <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+          {gated ? (
+            <p role="status" className="font-ui text-13 text-warning">
+              {L("approvalBody", { policy: gated.policyKey })}
+            </p>
+          ) : problem ? (
+            <Problem problem={problem} />
+          ) : null}
+          <div>
+            <Button type="submit" loading={busy}>
+              {L("saleSubmit")}
+            </Button>
+          </div>
+        </Form>
       )}
     </section>
   );

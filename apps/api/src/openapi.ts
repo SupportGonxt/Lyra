@@ -202,6 +202,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/dist/quote-requests/{id}/share", summary: "Share the comparison with the customer over their consented channel", permission: "dist:quote_requests:share", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/quote-requests/{id}/select", summary: "Record the quote the customer chose", permission: "dist:quote_requests:select", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/commission-entries/accrue", summary: "Accrue the commission split between the provider, us and the channel", permission: "dist:commissions:adjust", tag: "dist", requestBody: true },
+  { method: "post", path: "/v1/dist/quote-responses/{id}/sale", summary: "Confirm the chosen quote as a sale and accrue its channel commission (ADR-0094, tenants without AXIS)", permission: "dist:commissions:adjust", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/commission-entries/{id}/clawback", summary: "Claw back an accrued commission after a cancellation", permission: "dist:commissions:adjust", tag: "dist", requestBody: true },
   { method: "get", path: "/v1/dist/commission-entries/statement", summary: "Commission statement for a channel over a period", permission: "dist:commissions:read", tag: "dist" },
   { method: "post", path: "/v1/dist/next-best-offers/propose", summary: "Rank cross-sell and upsell offers for a customer", permission: "dist:offers:surface", tag: "dist", requestBody: true },
