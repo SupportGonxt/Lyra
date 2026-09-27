@@ -27,10 +27,16 @@ vi.mock("./engines/signal-experiment.js", async (importOriginal) => ({
   concludeExperiments: vi.fn(async () => ({ concluded: 0 }))
 }));
 
+vi.mock("./engines/compliance-retention.js", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  sweepRetention: vi.fn(async () => [])
+}));
+
 import worker from "./index.js";
 import { sweepRenewals } from "./engines/renewals.js";
 import { sweepWhitespace } from "./engines/scout-whitespace.js";
 import { concludeExperiments } from "./engines/signal-experiment.js";
+import { sweepRetention } from "./engines/compliance-retention.js";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "..", "packages", "db", "migrations");
 
@@ -149,6 +155,42 @@ describe("the nightly window", () => {
       expect(concluded).toContain("t_sig");
       expect(concluded).not.toContain("t_scout");
       expect(concluded).not.toContain("t_axis");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // docs/30 Compliance 5: retention runs on the clock only for a tenant whose
+  // policy names a cadence. One that never configured retention keeps its data
+  // — the purge is irreversible, so silence is never read as consent to delete.
+  it("sweeps retention for a tenant with a configured cadence, and for no other", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const now = Date.UTC(2026, 8, 29, 2, 5);
+      vi.setSystemTime(now);
+      const AXIS = JSON.stringify({ modules: ["axis"] });
+      await client.execute({
+        sql: `insert into core_tenants (id, slug, name, status, policy_json, entitlements_json, created_at, updated_at)
+              values ('t_ret','ret','Ret','active',?,?,?,?), ('t_none','none','None','active','{}',?,?,?),
+                     ('t_never','never','Never','active',?,?,?,?)`,
+        // Retention is the platform's, not a module's: it runs whatever was bought.
+        args: [
+          JSON.stringify({ retention: { schedule: "weekly" } }), AXIS, now, now,
+          AXIS, now, now,
+          JSON.stringify({ retention: { schedule: "never" } }), AXIS, now, now
+        ]
+      });
+      const tick = async () => {
+        vi.mocked(sweepRetention).mockClear();
+        let tail: Promise<unknown> = Promise.resolve();
+        await worker.scheduled(undefined, env, { waitUntil(p: Promise<unknown>) { tail = p; } });
+        await tail;
+        return vi.mocked(sweepRetention).mock.calls.map(([c]) => (c as { tenantId: string }).tenantId);
+      };
+      expect(await tick()).toEqual(["t_ret"]);
+      // Outside the nightly window nothing purges, configured or not.
+      vi.setSystemTime(Date.UTC(2026, 8, 29, 14, 5));
+      expect(await tick()).toEqual([]);
     } finally {
       vi.useRealTimers();
     }

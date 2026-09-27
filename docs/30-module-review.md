@@ -131,7 +131,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. ~~Audit export in the UI (F59).~~ **Fixed** 2026-09-23 (see Admin 2).
 3. ~~DSAR runner that erases.~~ **Fixed** 2026-09-23 (ADR-0089): a fulfilled erasure reaches AI memories and record notes, logged (`engines/compliance-erasure.ts`).
 4. ~~Screening hits block binding; a real screening provider behind the seam.~~ **Fixed** 2026-09-27 (ADR-0095): `assertNotScreenedOut` is asked by policy create, quote bind, renew, reinstate and the Distribution sale; `POST /v1/compliance/screenings/{id}/disposition` (a reason required; only a false positive lifts the block, `compliance.screening.cleared`); OpenSanctions answers sanctions and PEPs once `OPENSANCTIONS_API_KEY` or a self-hosted `OPENSANCTIONS_URL` is set — a commercial licence is the procurement step before production turns it on.
-5. Scheduled retention with more record classes.
+5. ~~Scheduled retention with more record classes.~~ **Fixed** 2026-09-27 (ADR-0107): `engines/compliance-retention.ts` purges `messages`, `files` (object deleted, row tombstoned) and `ai_audit` under their docs/12 floors with legal holds honoured, and the nightly window runs it on `policy.retention.schedule` — `never` by default, so no tenant loses data until it chooses a cadence.
 
 ### Analytics
 1. ~~Dashboard schedules refused at creation until delivery supports them.~~ **Fixed** 2026-09-23 (`assertDeliverableSchedule`).

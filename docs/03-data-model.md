@@ -142,4 +142,7 @@ snapshots, never module hot tables directly.
 Per-tenant policy_json drives: message retention (default 24m), file retention
 (7y for policy docs), ai_audit_log (7y), consent (indefinite), right-to-erasure
 job (Workflow) that hard-deletes customer PII + tombstones references.
+The retention purge (`POST /v1/compliance/retention/run`, classes `messages`,
+`files`, `ai_audit`) runs nightly only on the cadence `policy_json.retention.schedule`
+names (`never` by default — ADR-0107); legal holds freeze it either way.
 Dedicated-D1 tenants pin region via Cloudflare placement hints; on-prem = local.
