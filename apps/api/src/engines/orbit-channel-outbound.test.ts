@@ -283,6 +283,25 @@ describe("dispatchOutbound", () => {
     expect(row!.firstResponseMs).toBe(12_345);
   });
 
+  // ADR-0098: an auto-reply goes out through this same path, and the transcript
+  // must not later read as though a person wrote it.
+  it("records an AI-authored send as agent_ai with its audit id, and leaves the first-response clock to a human", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ messages: [{ id: "wamid.ai" }] }), { status: 200 }))
+    );
+    const result = await dispatchOutbound(ctx, env, conversation, connector, "A colleague will confirm.", {
+      role: "agent_ai",
+      aiAuditId: "aia_1"
+    });
+    const [message] = await ctx.db.select().from(schema.orbitMessages).where(eq(schema.orbitMessages.id, result.messageId));
+    expect(message!.role).toBe("agent_ai");
+    expect(message!.aiAuditId).toBe("aia_1");
+    expect(message!.deliveryStatus).toBe("sent");
+    const [row] = await ctx.db.select().from(schema.orbitConversations).where(eq(schema.orbitConversations.id, "cnv_1"));
+    expect(row!.firstResponseMs).toBeNull();
+  });
+
   it("records no message when the provider send fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 500 })));
     await expect(dispatchOutbound(ctx, env, conversation, connector, "hi")).rejects.toThrow();

@@ -118,6 +118,9 @@ describe("APPROVAL_POLICIES", () => {
       "signal.outreach_send": { key: "signal.outreach_send", module: "signal", decide: "signal:outreach:send", dualControl: "never" },
       "orbit.renewal_offer": { key: "orbit.renewal_offer", module: "orbit", decide: "orbit:renewals:approve", dualControl: "never" },
       "orbit.document_send": { key: "orbit.document_send", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" },
+      // ADR-0098: an AI reply sent on inbound. Automatable on purpose — it is
+      // the tenant's half of the switch — and never sent on it alone.
+      "orbit.ai_reply": { key: "orbit.ai_reply", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" },
       "scout.whitespace_promote": { key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" },
       "core.impersonate": { key: "core.impersonate", module: "core", decide: "core:impersonate:use", dualControl: "always", neverAutoApprove: true },
       "core.mandate_register": { key: "core.mandate_register", module: "core", decide: "core:api_keys:create", dualControl: "always", neverAutoApprove: true },

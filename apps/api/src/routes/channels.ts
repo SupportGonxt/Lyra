@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { schema, EntitlementsJson, PolicyJson } from "@lyra/db";
-import { notFound, openFields, unauthorized, type ConnectorSecrets } from "@lyra/core";
-import { ctxFor, db as rawDb } from "../auth.js";
+import { consume, moduleEnabled, notFound, openFields, unauthorized, type ConnectorSecrets, type Envelope } from "@lyra/core";
+import { ctxFor, db as rawDb, scheduledConfig } from "../auth.js";
+import { AUTO_REPLY_CONSUMER } from "../dispatch.js";
+import { onInboundMessage } from "../engines/orbit-auto-reply.js";
 import { fieldKey } from "../env.js";
 import { adapterFor } from "../engines/orbit-channel-adapters.js";
 import { processChannelEvents } from "../engines/orbit-channel-inbound.js";
@@ -79,8 +81,8 @@ channelsRoutes.post("/:connectorId/webhook", async (c) => {
     now
   );
 
-  return c.json(
-    await processChannelEvents(ctx, connector, events, {
+  const received: Envelope[] = [];
+  const result = await processChannelEvents(ctx, connector, events, {
       // Language + sentiment per inbound message (orbit-signal.ts): feeds
       // routing's sentimentBelow and the churn model's lastSentiment.
       signal: (conversationId, customerId, text) => recordSignal(ctx, gatewayFor(c.env), conversationId, customerId, text),
@@ -89,7 +91,49 @@ channelsRoutes.post("/:connectorId/webhook", async (c) => {
       // the bot and only above its score floor, and logs the miss either way so
       // containment stays a real ratio.
       deflect: (conversationId, text) =>
-        deflect(ctx, gatewayFor(c.env), c.env.VEC_KB, { conversationId, question: text }).then(() => undefined)
-    })
-  );
+        deflect(ctx, gatewayFor(c.env), c.env.VEC_KB, { conversationId, question: text }).then(() => undefined),
+      received: (event) => void received.push(event)
+    });
+
+  // docs/30 ORBIT 3, ADR-0098. The reply is an event consumer (rule 6), and the
+  // drain would reach it on the next cron tick — minutes, which is not "real
+  // time". So the consumer is run now, after the provider has its 200, through
+  // the same `consume` and consumer name the drain uses: whichever runs second
+  // sees a duplicate. It runs under the tenant's own policy — the webhook's ctx
+  // carries a default one, and the auto_approve allowlist is half the switch.
+  if (received.length) {
+    const kick = replyNow(c.env, connector.tenantId, received);
+    let exec: { waitUntil(p: Promise<unknown>): void } | null = null;
+    try {
+      exec = c.executionCtx;
+    } catch {
+      // No execution context (a direct call with no runtime): answer inline.
+    }
+    if (exec) exec.waitUntil(kick);
+    else await kick;
+  }
+  return c.json(result);
 });
+
+async function replyNow(env: Env, tenantId: string, events: Envelope[]): Promise<void> {
+  const now = Date.now();
+  const ctx = await ctxFor(
+    env,
+    {
+      tenantId,
+      locale: "en",
+      actor: { kind: "system", id: "orbit-auto-reply", tenantId, grants: [] },
+      ...(await scheduledConfig(env, tenantId))
+    },
+    now
+  );
+  if (!moduleEnabled(ctx.policy, "orbit")) return;
+  const deps = { env, gateway: gatewayFor(env) };
+  for (const event of events) {
+    // `consume` records a failure for the drain to retry; nothing here may
+    // throw into a response that has already been sent.
+    await consume(ctx.db, event, AUTO_REPLY_CONSUMER, (e) => onInboundMessage(ctx, deps, e).then(() => undefined), now).catch(
+      (err: unknown) => console.error("orbit auto-reply kick failed", { tenantId, eventId: event.id, err: String(err) })
+    );
+  }
+}

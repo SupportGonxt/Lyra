@@ -190,6 +190,15 @@ export const APPROVAL_POLICIES: Record<string, ApprovalPolicy> = Object.fromEntr
     // permission to; consent and quiet hours are separate runtime floors.
     policy({ key: "orbit.renewal_offer", module: "orbit", decide: "orbit:renewals:approve", dualControl: "never" }),
     policy({ key: "orbit.document_send", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" }),
+    // ADR-0098 (docs/30 ORBIT 3): the service agent answering an inbound
+    // message with no person in between. Sending is consequential (rule 4), so
+    // this key is the tenant's half of the switch — the agent's own autonomy
+    // (act_within_limits or above) is the other, and neither alone sends. There
+    // is nothing for a pending approval to release: when this key is not on the
+    // allowlist the reply is written as a draft instead, which the conversation
+    // view already approves or discards. Hence the engine only calls gate() once
+    // both halves say yes, and gate() then records the auto-approval.
+    policy({ key: "orbit.ai_reply", module: "orbit", decide: "orbit:conversations:reply", dualControl: "never" }),
     // docs/modules/scout.md §4: "whitespace approvals (promote/park)" — a
     // product-strategy decision, same shape as dist.offering_publish.
     policy({ key: "scout.whitespace_promote", module: "scout", decide: "scout:whitespaces:promote", dualControl: "never" }),

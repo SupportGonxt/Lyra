@@ -120,6 +120,53 @@ describe("POST /v1/channels/:connectorId/webhook", () => {
     expect(rows[0]!.content).toBe("Hello");
   });
 
+  // docs/30 ORBIT 3, ADR-0098: "real time" cannot wait for the next cron drain,
+  // so the webhook hands each received message to the reply consumer after it
+  // has answered the provider — through the same `consume` the drain uses, so
+  // the drain later sees a duplicate rather than answering twice.
+  it("hands each received message to the reply consumer once the provider has its answer", async () => {
+    // The kick stands down for a tenant that did not buy ORBIT, as the drain does.
+    await database
+      .update(schema.tenants)
+      .set({ entitlementsJson: JSON.stringify({ modules: ["orbit"] }) })
+      .where(eq(schema.tenants.id, tenantId));
+    const pending: Promise<unknown>[] = [];
+    const collecting = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} };
+    const body = JSON.stringify({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                contacts: [{ wa_id: "97151", profile: { name: "Omar" } }],
+                messages: [{ from: "97151", id: "wamid.kick.1", timestamp: "1700000000", type: "text", text: { body: "Hi" } }]
+              }
+            }
+          ]
+        }
+      ]
+    });
+    const res = await app.fetch(
+      new Request("http://api.test/v1/channels/ccn_1/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-hub-signature-256": `sha256=${await hmacHex(APP_SECRET, body)}` },
+        body
+      }),
+      env as never,
+      collecting as never
+    );
+    expect(res.status).toBe(200);
+    expect(pending).toHaveLength(1);
+    await Promise.all(pending);
+
+    const [message] = await database.select().from(schema.orbitMessages).where(eq(schema.orbitMessages.externalRef, "wamid.kick.1"));
+    const [received] = (await database.select().from(schema.eventOutbox).where(eq(schema.eventOutbox.type, "orbit.message.received")))
+      .map((row) => JSON.parse(row.envelopeJson) as { id: string; subject: string })
+      .filter((e) => e.subject === message!.id);
+    const inbox = await database.select().from(schema.eventInbox).where(eq(schema.eventInbox.id, received!.id));
+    expect(inbox.map((r) => [r.consumer, r.status])).toEqual([["orbit.auto_reply", "done"]]);
+  });
+
   it("is 401 for a bad signature", async () => {
     const res = await app.fetch(
       new Request("http://api.test/v1/channels/ccn_1/webhook", {

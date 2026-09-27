@@ -24,6 +24,9 @@ import { onDsarUpdated } from "./engines/compliance-erasure.js";
 import { onJourneyEvent } from "./engines/orbit-journeys.js";
 import { onAlertTriggered } from "./engines/north-alert-notify.js";
 import { onAccrualDecided, onPolicyIssuedAccrue } from "./engines/commission-accrual.js";
+import { onInboundMessage } from "./engines/orbit-auto-reply.js";
+import type { Gateway } from "@lyra/model-gateway";
+import type { Env } from "./env.js";
 
 // The outbox drain. Events are written in the same request that changed the row,
 // so delivery can fail all it likes without ever losing the fact that something
@@ -56,7 +59,20 @@ export interface EventQueue {
  * one (on-prem, tests) delivery stays inline — same `deliverQueued` call, just
  * synchronous.
  */
-export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Promise<DrainResult> {
+/**
+ * What the AI consumers need that a Ctx does not carry. Optional because most
+ * callers (tests, the webhook-free paths) drain without a model: those
+ * consumers then stand down and the next drain that has one picks them up.
+ */
+export interface DrainDeps {
+  env: Env;
+  gateway: Gateway;
+}
+
+/** The consumer name `orbit.message.received` is answered under — shared with the webhook's kick (routes/channels.ts). */
+export const AUTO_REPLY_CONSUMER = "orbit.auto_reply";
+
+export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100, deps?: DrainDeps): Promise<DrainResult> {
   const events = await pendingOutbox(ctx.db, limit, ctx.now);
   if (!events.length) return { published: 0, delivered: 0, failed: 0, queued: 0 };
 
@@ -146,6 +162,13 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100): Pr
       // trigger-able types here would silently ignore every journey authored
       // outside it (docs/27 F30).
       if (on("orbit")) await consume(ctx.db, event, "orbit.journeys", (e) => onJourneyEvent(ctx, e), ctx.now);
+      // docs/30 ORBIT 3, ADR-0098: an inbound message gets its reply — sent
+      // within the service agent's autonomy, drafted for a person otherwise.
+      // Usually already consumed by the webhook's own kick; `consume` then
+      // reports a duplicate and this is the retry path for a kick that failed.
+      if (event.type === "orbit.message.received" && on("orbit") && deps) {
+        await consume(ctx.db, event, AUTO_REPLY_CONSUMER, (e) => onInboundMessage(ctx, deps, e).then(() => undefined), ctx.now);
+      }
       if ((event.type === "orbit.renewal.accepted" || event.type === "orbit.renewal.lost") && on("orbit")) {
         await consume(ctx.db, event, "orbit.renewal.attribution", (e) => onRenewalDecided(ctx, e).then(() => undefined), ctx.now);
       }

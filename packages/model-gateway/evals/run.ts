@@ -23,6 +23,7 @@ import {
   recallable,
   checkCompliance as checkSignalCompliance,
   checkOutreachDraft,
+  checkAutoReply,
   PROTECTED_AXES,
   type BriefingSnapshot,
   type ReportDefinition
@@ -1170,6 +1171,35 @@ async function scoreOutreachDraft(dir: string): Promise<Metric[]> {
   ];
 }
 
+interface AutoReplyCase extends GroundednessCase {
+  locale: string;
+  /** Which rule a violation is meant to trip — documentation for the reader. */
+  rule?: string;
+}
+
+/**
+ * ORBIT's real-time reply (apps/api engines/orbit-auto-reply.ts, ADR-0098). A
+ * reply that clears this gate is *sent*, with no human reading it first, so the
+ * bar is the draft gate plus three more: it claims no completed action (the
+ * replier has no tool that acts), it passes the same guarantee/superlative
+ * pre-flight as a creative, and it is written in the conversation's language.
+ * Anything this refuses falls back to a draft for a human — so recall is 1.0
+ * and never moves.
+ */
+async function scoreAutoReply(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<AutoReplyCase>(dir);
+  const thresholds = await loadThresholds<GroundednessThresholds>(dir);
+  const violations = cases.filter((c) => !c.expectOk);
+  const clean = cases.filter((c) => c.expectOk);
+  const passes = (c: AutoReplyCase) => checkAutoReply(c.text, c.contextLines, c.locale).ok;
+  const caught = violations.filter((c) => !passes(c)).length;
+  const falseFlags = clean.filter((c) => !passes(c)).length;
+  return [
+    metric("recall", violations.length ? caught / violations.length : 1, { min: thresholds.recallMin }),
+    metric("falsePositiveRate", clean.length ? falseFlags / clean.length : 0, { max: thresholds.falsePositiveMax })
+  ];
+}
+
 interface WhitespaceBriefCase {
   id: string;
   evidence: WhitespaceEvidence;
@@ -1547,6 +1577,8 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   // ADR-0091: a personal acquisition draft is gated on groundedness AND the
   // SIGNAL compliance pre-flight — the one function the outreach engine runs.
   "outreach-draft": scoreOutreachDraft,
+  // ADR-0098: a reply sent on inbound with no human in between.
+  "orbit-auto-reply": scoreAutoReply,
   "axis-fnol-triage": scoreFnolTriage,
   "axis-reserve": scoreReserve,
   "axis-fraud": scoreFraud,

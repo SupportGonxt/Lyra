@@ -246,7 +246,7 @@ export default {
               },
               now
             );
-            await drainOutbox(ctx, env.EVENTS);
+            await drainOutbox(ctx, env.EVENTS, 100, { env, gateway: gatewayFor(env) });
             const on = (module: string) => moduleEnabled(ctx.policy, module);
             // Cover starts, lapses and ends on the clock, not on a request. Runs
             // before the renewal sweep so a policy that expired this tick is in
