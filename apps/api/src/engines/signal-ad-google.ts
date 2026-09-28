@@ -3,6 +3,8 @@ import {
   currencyExponent,
   microsToMinor,
   minorToMicros,
+  minorToUnits,
+  type AdConversionResult,
   type AdPlatform,
   type AdSpendRow,
   type AdSpendWindow,
@@ -35,6 +37,14 @@ interface SearchRow {
   metrics?: { costMicros?: string; impressions?: string; clicks?: string; conversions?: number };
   customer?: { currencyCode?: string };
   campaignBudget?: { resourceName?: string; amountMicros?: string; explicitlyShared?: boolean };
+}
+
+interface UploadReply {
+  results?: Array<{ gclid?: string }>;
+  partialFailureError?: {
+    message?: string;
+    details?: Array<{ errors?: Array<{ message?: string; location?: { fieldPathElements?: Array<{ fieldName?: string; index?: number }> } }> }>;
+  };
 }
 
 function need(secrets: ConnectorSecrets, key: string): string {
@@ -87,8 +97,10 @@ export function googleAdsPlatform(fetchImpl: typeof fetch = (input, init) => fet
       "content-type": "application/json",
       ...(loginCustomerId ? { "login-customer-id": loginCustomerId } : {})
     };
+    // A custom method (`customers/{id}:uploadClickConversions`) hangs off the
+    // customer itself; a collection path follows a slash.
     const post = async (path: string, body: unknown): Promise<unknown> => {
-      const res = await fetchImpl(`${base}/${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+      const res = await fetchImpl(`${base}${path.startsWith(":") ? "" : "/"}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
       if (!res.ok) throw await failure(res);
       return res.json();
     };
@@ -102,12 +114,63 @@ export function googleAdsPlatform(fetchImpl: typeof fetch = (input, init) => fet
       } while (pageToken);
       return out;
     };
-    return { post, search };
+    return { post, search, customerId };
   }
 
   return {
     provider: "google-ads",
     defaultChannel: "google_search",
+    // docs/17 SIG-032, ADR-0112. Offline click conversions match on the gclid
+    // Google issued and nothing else — enhanced conversions (hashed user data)
+    // are not implemented, so none is ever asked for.
+    conversionKeys: ["gclid"],
+    // Google refuses a click conversion more than 90 days after the click.
+    conversionMaxAgeDays: 90,
+
+    async uploadConversions(conversions, secrets, config): Promise<AdConversionResult[]> {
+      const actionId = digitsOf(config, "conversionActionId");
+      if (!actionId) throw new Error("google-ads config conversionActionId is required to upload conversions");
+      const out = new Map<string, AdConversionResult>();
+      const sendable = conversions.filter((c) => {
+        if (c.gclid) return true;
+        out.set(c.conversionId, { conversionId: c.conversionId, status: "failed", error: "no gclid" });
+        return false;
+      });
+      if (sendable.length) {
+        const { post, customerId } = await session(secrets, config);
+        const conversionAction = `customers/${customerId}/conversionActions/${actionId}`;
+        const reply = (await post(":uploadClickConversions", {
+          conversions: sendable.map((c) => ({
+            gclid: c.gclid,
+            conversionAction,
+            conversionDateTime: `${new Date(c.at).toISOString().slice(0, 19).replace("T", " ")}+00:00`,
+            conversionValue: minorToUnits(c.valueMinor, currencyExponent(c.currency)),
+            currencyCode: c.currency,
+            orderId: c.conversionId
+          })),
+          partialFailure: true
+        })) as UploadReply;
+        // With partial failure on, a refused row comes back as an empty result
+        // and its reason sits in partialFailureError, located by index.
+        const reasons = new Map<number, string>();
+        for (const detail of reply.partialFailureError?.details ?? []) {
+          for (const e of detail.errors ?? []) {
+            const index = e.location?.fieldPathElements?.find((f) => f.fieldName === "conversions")?.index;
+            if (typeof index === "number" && !reasons.has(index)) reasons.set(index, e.message ?? "refused");
+          }
+        }
+        sendable.forEach((c, i) => {
+          const accepted = Boolean(reply.results?.[i]?.gclid) && !reasons.has(i);
+          out.set(
+            c.conversionId,
+            accepted
+              ? { conversionId: c.conversionId, status: "sent" }
+              : { conversionId: c.conversionId, status: "failed", error: reasons.get(i) ?? reply.partialFailureError?.message ?? "not accepted" }
+          );
+        });
+      }
+      return conversions.map((c) => out.get(c.conversionId)!);
+    },
 
     async pullSpend(window: AdSpendWindow, secrets, config): Promise<AdSpendRow[]> {
       // The window is interpolated into GAQL, so it is held to two dates first.

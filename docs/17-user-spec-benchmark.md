@@ -489,7 +489,7 @@ no out-of-band tooling. Verification is a scripted role walkthrough per release.
 | SIG-029 | Audiences shareable to ORBIT journeys and SCOUT experiments | M | M4 | T | ☐ |
 | SIG-030 | Campaign management across paid search, paid social, owned email and messaging | M | M4 | T | ☐ |
 | SIG-031 | At least two major ad platform connectors ship in v1 | M | M4 | T | ☐ |
-| SIG-032 | Value-based bidding signals exported to connected platforms | S | M4 | T | ☐ |
+| SIG-032 | Value-based bidding signals exported to connected platforms (ADR-0112; adapters tested against mocks, not a live account) | S | M4 | T | ◐ |
 | SIG-033 | Consistent UTM/attribution schema enforced across campaigns | M | M4 | T | ☐ |
 | SIG-034 | Protected attributes excluded from targeting and scoring models | M | M4 | T,A | ☐ |
 

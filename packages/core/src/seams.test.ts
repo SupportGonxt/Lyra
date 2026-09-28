@@ -16,6 +16,8 @@ import {
   type TimeseriesIngest,
   type AdPlatform,
   type AdSpendRow,
+  type AdConversion,
+  type AdConversionResult,
   type ChannelAdapter,
   type DeliveryReceipt,
   type InboundEvent
@@ -302,6 +304,40 @@ describe("SEAM-14: AdPlatform", () => {
     expect(seen).toEqual(["t:a1:2026-09-25..2026-09-26"]);
     expect(await platform.adjustDailyBudget("111", -10_000, "AED", {}, {})).toEqual({ beforeMinor: 50_000, afterMinor: 40_000 });
     await expect(platform.adjustDailyBudget("111", 1, "USD", {}, {})).rejects.toThrow();
+  });
+
+  it("@seam:H10 an ad platform that takes conversions declares its match keys and answers per conversion (SIG-032, ADR-0112)", async () => {
+    const received: AdConversion[] = [];
+    const platform: AdPlatform = {
+      provider: "fake-ads",
+      defaultChannel: "fake",
+      conversionKeys: ["gclid"],
+      conversionMaxAgeDays: 90,
+      async pullSpend() {
+        return [];
+      },
+      async adjustDailyBudget() {
+        return { beforeMinor: 0, afterMinor: 0 };
+      },
+      async uploadConversions(conversions) {
+        received.push(...conversions);
+        return conversions.map((c): AdConversionResult => (c.gclid ? { conversionId: c.conversionId, status: "sent" } : { conversionId: c.conversionId, status: "failed", error: "no gclid" }));
+      }
+    };
+    const results = await platform.uploadConversions!(
+      [
+        { conversionId: "att_1", at: now, valueMinor: 12_500, currency: "AED", gclid: "Cj0K" },
+        { conversionId: "att_2", at: now, valueMinor: 9_000, currency: "AED" }
+      ],
+      {},
+      {}
+    );
+    expect(results).toEqual([
+      { conversionId: "att_1", status: "sent" },
+      { conversionId: "att_2", status: "failed", error: "no gclid" }
+    ]);
+    expect(platform.conversionKeys).toEqual(["gclid"]);
+    expect(received.map((c) => c.conversionId)).toEqual(["att_1", "att_2"]);
   });
 });
 

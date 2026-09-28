@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { cacRange, type CacRange, type Ctx, type Envelope } from "@lyra/core";
+import { cacRange, clickId, type CacRange, type Ctx, type Envelope } from "@lyra/core";
 import { alias } from "drizzle-orm/sqlite-core";
 
 // The acquisition funnel. `signal_attribution_events` was a dead seam: the
@@ -34,10 +34,15 @@ export async function recordTouch(
     valueMinor?: number | null;
     currency?: string | null;
     subjectRef?: string | null;
+    /** docs/17 SIG-032: the ad platform's click id, when the landing URL carried one. */
+    gclid?: string | null;
+    fbclid?: string | null;
   }
 ): Promise<string> {
   const id = newId("att", ctx.now);
   await ctx.db.insert(schema.signalAttributionEvents).values({
+    gclid: clickId(touch.gclid),
+    fbclid: clickId(touch.fbclid),
     id,
     tenantId: ctx.tenantId,
     customerId: touch.customerId ?? null,
@@ -82,7 +87,28 @@ export async function onBindIssued(ctx: Ctx, event: Envelope): Promise<string | 
 
   if (!lead) return null;
 
+  // docs/17 SIG-032, ADR-0112: the click ids travel with the credit. A lead
+  // captured on a form rarely carries them itself; the same visitor's earlier
+  // anonymous click or visit does, so the newest one of those stands in.
+  let clicks = { gclid: lead.gclid, fbclid: lead.fbclid };
+  if (!clicks.gclid && !clicks.fbclid && lead.anonId) {
+    const [prior] = await ctx.db
+      .select({ gclid: schema.signalAttributionEvents.gclid, fbclid: schema.signalAttributionEvents.fbclid })
+      .from(schema.signalAttributionEvents)
+      .where(
+        and(
+          eq(schema.signalAttributionEvents.tenantId, ctx.tenantId),
+          eq(schema.signalAttributionEvents.anonId, lead.anonId),
+          sql`(${schema.signalAttributionEvents.gclid} is not null or ${schema.signalAttributionEvents.fbclid} is not null)`
+        )
+      )
+      .orderBy(desc(schema.signalAttributionEvents.ts))
+      .limit(1);
+    if (prior) clicks = prior;
+  }
+
   return recordTouch(ctx, {
+    ...clicks,
     touchType: "bind",
     channel: lead.channel,
     campaignId: lead.campaignId,

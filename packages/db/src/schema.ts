@@ -110,6 +110,7 @@ export {
   budgetMoves as signalBudgetMoves,
   aeoPages as signalAeoPages,
   attributionEvents as signalAttributionEvents,
+  conversionExports as signalConversionExports,
   spend as signalSpend,
   outreach as signalOutreach,
   prospects as signalProspects,

@@ -1165,6 +1165,10 @@ portalRoutes.post("/:tenantSlug/feedback/:id", async (c) => {
 // (engines/signal-attribution.ts is the writer this feeds.)
 const TRACK_MAX = 60;
 const TRACK_WINDOW_SEC = 60;
+// docs/17 SIG-032, ADR-0112: the ad platform's click id from the landing URL
+// (`gclid`, `fbclid`), so a bind can later be reported to the platform that
+// bought the click. URL-safe characters only — the same rule `clickId` holds.
+const ClickId = z.string().regex(/^[A-Za-z0-9_.-]{1,512}$/, "a click id");
 
 const TrackBody = z
   .object({
@@ -1172,7 +1176,9 @@ const TrackBody = z
     channel: z.string().min(1).max(64),
     campaignId: z.string().max(64).optional(),
     creativeId: z.string().max(64).optional(),
-    anonId: z.string().min(1).max(128)
+    anonId: z.string().min(1).max(128),
+    gclid: ClickId.optional(),
+    fbclid: ClickId.optional()
   })
   .strict();
 
@@ -1187,7 +1193,9 @@ const SignedTrackBody = z
     campaignId: z.string().max(64).optional(),
     customerId: z.string().max(64).optional(),
     valueMinor: z.number().int().nonnegative().optional(),
-    currency: z.string().regex(/^[A-Z]{3}$/).optional()
+    currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+    gclid: ClickId.optional(),
+    fbclid: ClickId.optional()
   })
   .strict();
 
@@ -1219,7 +1227,9 @@ portalRoutes.post("/:tenantSlug/track", async (c) => {
     channel: input!.channel,
     campaignId: input!.campaignId ?? null,
     creativeId: input!.creativeId ?? null,
-    anonId: input!.anonId
+    anonId: input!.anonId,
+    gclid: input!.gclid ?? null,
+    fbclid: input!.fbclid ?? null
   });
   return c.json({ id }, 201);
 });

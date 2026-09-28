@@ -156,12 +156,46 @@ export const attributionEvents = sqliteTable(
     valueMinor: integer("value_minor"),
     currency: text("currency"),
     subjectRef: text("subject_ref"), // the bind/case it resolved to
+    // docs/17 SIG-032, ADR-0112: the ad platform's own click id, captured on
+    // /track and carried onto the bind, so the bind can be reported back to
+    // the platform that bought the click (signal-conversions.ts).
+    gclid: text("gclid"),
+    fbclid: text("fbclid"),
     ts: integer("ts").notNull()
   },
   (t) => [
     index("signal_attr_tenant_idx").on(t.tenantId, t.ts),
     index("signal_attr_customer_idx").on(t.tenantId, t.customerId, t.ts),
     index("signal_attr_campaign_idx").on(t.tenantId, t.campaignId, t.ts)
+  ]
+);
+
+/**
+ * docs/17 SIG-032, ADR-0112. One row per (bind touch, ad account): what the
+ * value-based bidding exporter did with that bind for that account. `sent`
+ * and `skipped` are final — a bind goes to an account once; `failed` is
+ * offered again on the next run. `detail` is the skip reason
+ * (no_consent|no_value|no_match_key) or the platform's error.
+ */
+export const conversionExports = sqliteTable(
+  "signal_conversion_exports",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    touchId: text("touch_id").notNull(), // -> signal_attribution_events.id (a bind)
+    connectorId: text("connector_id").notNull(), // -> orbit_channel_connectors.id
+    provider: text("provider").notNull(),
+    status: text("status").notNull(), // sent|skipped|failed
+    detail: text("detail"),
+    valueMinor: integer("value_minor"),
+    currency: text("currency"),
+    attempts: integer("attempts").notNull().default(1),
+    attemptedAt: integer("attempted_at").notNull(),
+    exportedAt: integer("exported_at")
+  },
+  (t) => [
+    uniqueIndex("signal_conversion_exports_uq").on(t.tenantId, t.touchId, t.connectorId),
+    index("signal_conversion_exports_tenant_idx").on(t.tenantId, t.attemptedAt)
   ]
 );
 

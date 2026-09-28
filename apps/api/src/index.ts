@@ -21,6 +21,7 @@ import { anchorAudit } from "./engines/anchor.js";
 import { nudgeApiKeyRotation } from "./engines/api-key-rotation.js";
 import { runBudgetAutopilot } from "./engines/signal-autopilot.js";
 import { pullAdSpend, spendPullWindow } from "./engines/signal-ad-platforms.js";
+import { exportConversions } from "./engines/signal-conversions.js";
 import { runAcquisitionSweep } from "./engines/signal-outreach.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
 import { sweepAiDrift } from "./engines/ai-drift.js";
@@ -276,6 +277,12 @@ export default {
             if (isSpendPullWindow && on("signal")) {
               await pullAdSpend(ctx, env.FIELD_KEY, spendPullWindow(now)).catch((err: unknown) =>
                 console.error("ad spend pull failed", { tenantId, err: String(err) })
+              );
+              // docs/17 SIG-032, ADR-0112: yesterday's binds go back to the
+              // platforms with their value, so their bidders learn on value.
+              // Stands down until the tenant configures a conversion value.
+              await exportConversions(ctx, env.FIELD_KEY).catch((err: unknown) =>
+                console.error("conversion export failed", { tenantId, err: String(err) })
               );
             }
             if (on("signal")) await runBudgetAutopilot(ctx, { fieldKey: env.FIELD_KEY });

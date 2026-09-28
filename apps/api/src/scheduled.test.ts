@@ -32,7 +32,13 @@ vi.mock("./engines/compliance-retention.js", async (importOriginal) => ({
   sweepRetention: vi.fn(async () => [])
 }));
 
+vi.mock("./engines/signal-conversions.js", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  exportConversions: vi.fn(async () => ({ connectors: 0, sent: 0, skipped: 0, failed: 0, errors: [] }))
+}));
+
 import worker from "./index.js";
+import { exportConversions } from "./engines/signal-conversions.js";
 import { sweepRenewals } from "./engines/renewals.js";
 import { sweepWhitespace } from "./engines/scout-whitespace.js";
 import { concludeExperiments } from "./engines/signal-experiment.js";
@@ -189,6 +195,37 @@ describe("the nightly window", () => {
       };
       expect(await tick()).toEqual(["t_ret"]);
       // Outside the nightly window nothing purges, configured or not.
+      vi.setSystemTime(Date.UTC(2026, 8, 29, 14, 5));
+      expect(await tick()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // docs/17 SIG-032, ADR-0112: binds are reported to the ad platforms once a
+  // day, right after the spend pull, only where SIGNAL is on.
+  it("exports value-based bidding conversions on the first tick of the UTC day, for tenants with SIGNAL on", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const now = Date.UTC(2026, 8, 29, 0, 5);
+      vi.setSystemTime(now);
+      await client.execute({
+        sql: `insert into core_tenants (id, slug, name, status, policy_json, entitlements_json, created_at, updated_at)
+              values ('t_sig','sig','Sig','active','{}',?,?,?), ('t_off','off','Off','active',?,?,?,?), ('t_axis','axis','Axis','active','{}',?,?,?)`,
+        args: [
+          JSON.stringify({ modules: ["signal"] }), now, now,
+          JSON.stringify({ moduleConfig: { signal: { enabled: false } } }), JSON.stringify({ modules: ["signal"] }), now, now,
+          JSON.stringify({ modules: ["axis"] }), now, now
+        ]
+      });
+      const tick = async () => {
+        vi.mocked(exportConversions).mockClear();
+        let tail: Promise<unknown> = Promise.resolve();
+        await worker.scheduled(undefined, env, { waitUntil(p: Promise<unknown>) { tail = p; } });
+        await tail;
+        return vi.mocked(exportConversions).mock.calls.map(([c]) => (c as { tenantId: string }).tenantId);
+      };
+      expect(await tick()).toEqual(["t_sig"]);
       vi.setSystemTime(Date.UTC(2026, 8, 29, 14, 5));
       expect(await tick()).toEqual([]);
     } finally {

@@ -160,3 +160,99 @@ describe("googleAdsPlatform.adjustDailyBudget", () => {
     expect(calls.some((c) => c.url.endsWith(":mutate"))).toBe(false);
   });
 });
+
+// docs/17 SIG-032, ADR-0112. Offline click conversions: each bind that carries
+// a gclid is uploaded with its value through ConversionUploadService, keyed by
+// our touch id as the orderId so a re-upload is deduplicated on Google's side.
+describe("googleAdsPlatform.uploadConversions", () => {
+  const UPLOAD = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/1234567890:uploadClickConversions`;
+  const AT = Date.parse("2026-09-26T10:15:30Z");
+
+  it("matches on gclid only and uploads value, currency and orderId with partial failure on", async () => {
+    const google = googleAdsPlatform();
+    expect(google.conversionKeys).toEqual(["gclid"]);
+    expect(google.conversionMaxAgeDays).toBe(90);
+
+    const { impl, calls } = fakeFetch((call) => {
+      if (call.url.includes("oauth2")) return { json: { access_token: "at-1" } };
+      return { json: { results: [{ gclid: "G1", conversionAction: "customers/1234567890/conversionActions/777" }] } };
+    });
+    const results = await googleAdsPlatform(impl).uploadConversions!(
+      [{ conversionId: "att_1", at: AT, valueMinor: 12_550, currency: "AED", gclid: "G1" }],
+      SECRETS,
+      { ...CONFIG, conversionActionId: "777" }
+    );
+    expect(results).toEqual([{ conversionId: "att_1", status: "sent" }]);
+    const upload = calls.find((c) => c.url === UPLOAD)!;
+    expect(upload.method).toBe("POST");
+    expect(upload.headers["developer-token"]).toBe("dev-tok");
+    expect(JSON.parse(upload.body)).toEqual({
+      conversions: [
+        {
+          gclid: "G1",
+          conversionAction: "customers/1234567890/conversionActions/777",
+          conversionDateTime: "2026-09-26 10:15:30+00:00",
+          conversionValue: 125.5,
+          currencyCode: "AED",
+          orderId: "att_1"
+        }
+      ],
+      partialFailure: true
+    });
+  });
+
+  it("reports a row Google refused by its index, and the rest as sent", async () => {
+    const { impl } = fakeFetch((call) => {
+      if (call.url.includes("oauth2")) return { json: { access_token: "at-1" } };
+      return {
+        json: {
+          results: [{ gclid: "G1" }, {}],
+          partialFailureError: {
+            code: 3,
+            message: "The click is too old.",
+            details: [{ errors: [{ message: "The click is too old.", location: { fieldPathElements: [{ fieldName: "conversions", index: 1 }] } }] }]
+          }
+        }
+      };
+    });
+    const results = await googleAdsPlatform(impl).uploadConversions!(
+      [
+        { conversionId: "att_1", at: AT, valueMinor: 100, currency: "AED", gclid: "G1" },
+        { conversionId: "att_2", at: AT, valueMinor: 100, currency: "AED", gclid: "G2" }
+      ],
+      SECRETS,
+      { ...CONFIG, conversionActionId: "777" }
+    );
+    expect(results).toEqual([
+      { conversionId: "att_1", status: "sent" },
+      { conversionId: "att_2", status: "failed", error: "The click is too old." }
+    ]);
+  });
+
+  it("never sends a conversion without a gclid, and needs a conversion action to upload to", async () => {
+    const { impl, calls } = fakeFetch((call) => (call.url.includes("oauth2") ? { json: { access_token: "a" } } : { json: { results: [] } }));
+    const results = await googleAdsPlatform(impl).uploadConversions!(
+      [{ conversionId: "att_9", at: AT, valueMinor: 100, currency: "AED" }],
+      SECRETS,
+      { ...CONFIG, conversionActionId: "777" }
+    );
+    expect(results).toEqual([{ conversionId: "att_9", status: "failed", error: "no gclid" }]);
+    expect(calls.some((c) => c.url === UPLOAD)).toBe(false);
+
+    await expect(
+      googleAdsPlatform(impl).uploadConversions!([{ conversionId: "att_1", at: AT, valueMinor: 1, currency: "AED", gclid: "G1" }], SECRETS, CONFIG)
+    ).rejects.toThrow(/conversionActionId/);
+  });
+
+  it("surfaces a refused upload as an error for the whole batch", async () => {
+    const { impl } = fakeFetch((call) =>
+      call.url.includes("oauth2") ? { json: { access_token: "a" } } : { status: 403, json: { error: { message: "caller does not have permission" } } }
+    );
+    await expect(
+      googleAdsPlatform(impl).uploadConversions!([{ conversionId: "att_1", at: AT, valueMinor: 1, currency: "AED", gclid: "G1" }], SECRETS, {
+        ...CONFIG,
+        conversionActionId: "777"
+      })
+    ).rejects.toThrow(/403: caller does not have permission/);
+  });
+});

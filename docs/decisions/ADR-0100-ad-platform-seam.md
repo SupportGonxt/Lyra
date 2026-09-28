@@ -89,7 +89,8 @@ nothing outside LYRA.
   spent, so a retry would ask for a new one. An operator sees the failure on
   the move.
 - Not built:
-  - value-based bidding exports and conversion uploads (signal.md §2.2);
+  - value-based bidding exports and conversion uploads (signal.md §2.2) —
+    since built, ADR-0112;
   - creative publishing (§8 clause 1);
   - TikTok;
   - an OAuth consent flow in the admin screen. Tokens are pasted as sealed

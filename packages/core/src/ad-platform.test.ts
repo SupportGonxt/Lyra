@@ -9,8 +9,15 @@ import {
   dailyBudgetDelta,
   externalCampaignFor,
   microsToMinor,
-  minorToMicros
+  minorToMicros,
+  minorToUnits,
+  conversionValueRule,
+  conversionValueMinor,
+  hashEmail,
+  hashPhone,
+  clickId
 } from "./ad-platform.js";
+import { sha256Hex } from "./crypto.js";
 
 // docs/30 SIGNAL 5. The money arithmetic every ad-platform adapter shares.
 // Platforms report in their own units — Google in micros, Meta in decimal
@@ -149,4 +156,79 @@ describe("adChannel", () => {
 
 it("ad connectors carry the one transport ORBIT's senders never select", () => {
   expect(AD_TRANSPORT).toBe("ads");
+});
+
+// docs/17 SIG-032, ADR-0112. Value-based bidding: what a bind is worth to the
+// platform's bidder, and the only identifiers that may travel with it.
+
+describe("minorToUnits", () => {
+  it("states a minor amount in whole currency units, as the platforms' value fields take it", () => {
+    expect(minorToUnits(12_345, 2)).toBe(123.45);
+    expect(minorToUnits(7, 0)).toBe(7);
+    expect(minorToUnits(1_234, 3)).toBe(1.234);
+    expect(minorToUnits(0, 2)).toBe(0);
+  });
+});
+
+describe("conversionValueRule", () => {
+  it("sends no value until the tenant configures one", () => {
+    expect(conversionValueRule({})).toEqual({ basis: "none" });
+    expect(conversionValueRule({ conversionValue: null })).toEqual({ basis: "none" });
+    expect(conversionValueRule({ conversionValue: { basis: "none" } })).toEqual({ basis: "none" });
+  });
+
+  it("reads commission, or premium at a configured rate in ppm", () => {
+    expect(conversionValueRule({ conversionValue: { basis: "commission" } })).toEqual({ basis: "commission" });
+    expect(conversionValueRule({ conversionValue: { basis: "premium_rate", ratePpm: 150_000 } })).toEqual({ basis: "premium_rate", ratePpm: 150_000 });
+  });
+
+  it("treats a malformed rule as no rule, never as a guess", () => {
+    expect(conversionValueRule({ conversionValue: { basis: "premium_rate" } })).toEqual({ basis: "none" });
+    expect(conversionValueRule({ conversionValue: { basis: "premium_rate", ratePpm: 0 } })).toEqual({ basis: "none" });
+    expect(conversionValueRule({ conversionValue: { basis: "premium_rate", ratePpm: 1_000_001 } })).toEqual({ basis: "none" });
+    expect(conversionValueRule({ conversionValue: { basis: "premium_rate", ratePpm: 1.5 } })).toEqual({ basis: "none" });
+    expect(conversionValueRule({ conversionValue: { basis: "revenue" } })).toEqual({ basis: "none" });
+    expect(conversionValueRule({ conversionValue: "commission" })).toEqual({ basis: "none" });
+  });
+});
+
+describe("conversionValueMinor", () => {
+  it("is the commission as booked, or the premium times the rate rounded half up", () => {
+    expect(conversionValueMinor({ basis: "commission" }, { premiumMinor: 100_000, commissionMinor: 12_500 })).toBe(12_500);
+    expect(conversionValueMinor({ basis: "premium_rate", ratePpm: 125_000 }, { premiumMinor: 100_001, commissionMinor: null })).toBe(12_500);
+    expect(conversionValueMinor({ basis: "premium_rate", ratePpm: 125_000 }, { premiumMinor: 100_004, commissionMinor: null })).toBe(12_501);
+  });
+
+  it("is null when the basis has nothing to read, or the value would be zero", () => {
+    expect(conversionValueMinor({ basis: "none" }, { premiumMinor: 100_000, commissionMinor: 5 })).toBeNull();
+    expect(conversionValueMinor({ basis: "commission" }, { premiumMinor: 100_000, commissionMinor: null })).toBeNull();
+    expect(conversionValueMinor({ basis: "commission" }, { premiumMinor: 100_000, commissionMinor: 0 })).toBeNull();
+    expect(conversionValueMinor({ basis: "premium_rate", ratePpm: 10 }, { premiumMinor: null, commissionMinor: 5 })).toBeNull();
+    expect(conversionValueMinor({ basis: "premium_rate", ratePpm: 10 }, { premiumMinor: 1, commissionMinor: null })).toBeNull();
+  });
+});
+
+describe("hashed identifiers", () => {
+  it("normalise before hashing, so the platform can match the same person", async () => {
+    expect(await hashEmail("  Rania.Haddad@Example.AE ")).toBe(await sha256Hex("rania.haddad@example.ae"));
+    expect(await hashPhone("+971 50-123 4567")).toBe(await sha256Hex("971501234567"));
+  });
+
+  it("refuse what is not an email or a phone number rather than hash noise", async () => {
+    expect(await hashEmail("not-an-email")).toBeNull();
+    expect(await hashEmail("")).toBeNull();
+    expect(await hashPhone("call me")).toBeNull();
+    expect(await hashPhone("12")).toBeNull();
+  });
+});
+
+describe("clickId", () => {
+  it("accepts a platform click id and nothing that could smuggle markup or spaces", () => {
+    expect(clickId("Cj0KCQjw-abc_123")).toBe("Cj0KCQjw-abc_123");
+    expect(clickId(undefined)).toBeNull();
+    expect(clickId("")).toBeNull();
+    expect(clickId("a b")).toBeNull();
+    expect(clickId("<x>")).toBeNull();
+    expect(clickId("x".repeat(513))).toBeNull();
+  });
 });

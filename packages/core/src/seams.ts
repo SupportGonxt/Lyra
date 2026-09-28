@@ -242,8 +242,48 @@ export interface AdSpendWindow {
   readonly until: string;
 }
 
+/**
+ * docs/17 SIG-032, ADR-0112. One bind reported back to the platform with its
+ * value, so the platform's bidder optimises on value rather than lead count.
+ * It carries nothing about the person beyond what the platform matches on:
+ * a click id the platform itself issued, or SHA-256 identifiers the exporter
+ * only fills in when the customer's consent covers data sharing. Which of those
+ * a platform receives is decided by its own `conversionKeys`; nothing else is
+ * ever put on this shape, so no protected attribute can reach a bidder (SIG-034).
+ */
+export type ConversionKey = "gclid" | "fbclid" | "emailSha256" | "phoneSha256";
+
+export interface AdConversion {
+  /** LYRA's id for the conversion (the bind touch): the platform's dedup key. */
+  readonly conversionId: string;
+  /** When the bind happened, epoch ms. */
+  readonly at: number;
+  readonly valueMinor: number;
+  readonly currency: string;
+  readonly gclid?: string;
+  readonly fbclid?: string;
+  readonly emailSha256?: readonly string[];
+  readonly phoneSha256?: readonly string[];
+}
+
+export interface AdConversionResult {
+  readonly conversionId: string;
+  readonly status: "sent" | "failed";
+  readonly error?: string;
+}
+
 export interface AdPlatform {
   readonly provider: string;
+  /** The identifiers this platform matches a conversion on; the exporter sends it no others. */
+  readonly conversionKeys?: readonly ConversionKey[];
+  /** The oldest conversion, in days, the platform still accepts. */
+  readonly conversionMaxAgeDays?: number;
+  /** Reports binds with their value. Optional: a platform without it simply receives none. */
+  uploadConversions?(
+    conversions: readonly AdConversion[],
+    secrets: ConnectorSecrets,
+    config: Record<string, unknown>
+  ): Promise<readonly AdConversionResult[]>;
   /** The `signal_spend.channel` this provider's spend lands under unless the connector config names another. */
   readonly defaultChannel: string;
   pullSpend(window: AdSpendWindow, secrets: ConnectorSecrets, config: Record<string, unknown>): Promise<readonly AdSpendRow[]>;

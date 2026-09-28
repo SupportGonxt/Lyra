@@ -330,6 +330,13 @@
       "when": 1790576845071,
       "tag": "0046_pinned_metric_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1790576874015,
+      "tag": "0047_touch_click_ids",
+      "breakpoints": true
     }
   ]
 }

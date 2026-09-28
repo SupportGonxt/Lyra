@@ -86,6 +86,15 @@ describe("recordSignedConversion", () => {
     expect(t).toMatchObject({ touchType: "bind", valueMinor: 240000, currency: "AED", customerId: null });
   });
 
+  it("keeps the ad click ids a partner reports, so the bind can be sent back to the platform that bought it (SIG-032)", async () => {
+    await recordSignedConversion(ctx, { touchType: "bind", eventId: "ev_5", channel: "google_search", gclid: "Cj0KCQ", fbclid: "IwAR1", valueMinor: 1, currency: "AED" });
+    await recordSignedConversion(ctx, { touchType: "lead", eventId: "ev_6", channel: "meta" });
+    expect((await touches()).map((t) => [t.subjectRef, t.gclid, t.fbclid])).toEqual([
+      ["track:ev_5", "Cj0KCQ", "IwAR1"],
+      ["track:ev_6", null, null]
+    ]);
+  });
+
   it("ignores a replay of the same event", async () => {
     await recordSignedConversion(ctx, { touchType: "lead", eventId: "ev_1", channel: "partner_site", campaignId: "cmp_1" });
     const again = await recordSignedConversion(ctx, { touchType: "lead", eventId: "ev_1", channel: "partner_site", campaignId: "cmp_1" });
