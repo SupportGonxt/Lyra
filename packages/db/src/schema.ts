@@ -177,6 +177,7 @@ export {
   dsarRequests,
   erasureLog,
   disclosures,
+  disclosureWordings,
   screenings,
   retentionRuns,
   legalHolds,

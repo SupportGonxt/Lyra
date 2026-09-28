@@ -271,6 +271,8 @@ export const PERMISSIONS = [
   "compliance:erasure:execute",
   "compliance:disclosures:read",
   "compliance:disclosures:present",
+  // ADR-0108: the tenant's mandatory disclosure wording per product line.
+  "compliance:disclosure_wordings:read", "compliance:disclosure_wordings:write",
   "compliance:screenings:read", "compliance:screenings:run", "compliance:screenings:disposition",
   "compliance:retention:read", "compliance:retention:run",
   "compliance:legal_holds:read", "compliance:legal_holds:write",
