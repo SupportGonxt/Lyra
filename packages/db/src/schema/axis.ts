@@ -479,6 +479,10 @@ export const bordereaux = sqliteTable(
     claimsPaidMinor: integer("claims_paid_minor").notNull().default(0),
     reserveMinor: integer("reserve_minor").notNull().default(0),
     varianceMinor: integer("variance_minor").notNull().default(0),
+    // ADR-0105: the allowance the last reconciliation matched within, in the
+    // lines' own minor units, per field per (reference, currency) group —
+    // stored so the report read later answers with the rule it was run under.
+    toleranceMinor: integer("tolerance_minor").notNull().default(0),
     state: text("state").notNull().default("draft"), // draft|generated|sent|acknowledged|matched|variance|closed
     fileId: text("file_id"), // -> core_files.id, the file we sent/rendered
     sourceFileId: text("source_file_id"), // -> core_files.id, the inbound file we parsed

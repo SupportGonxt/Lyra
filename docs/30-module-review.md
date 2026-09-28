@@ -116,7 +116,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 2. ~~Cash-flow statement (indirect method).~~ **Fixed** 2026-09-24 (ADR-0090, IFRS IAS 7 indirect): `cashFlowStatement` is proved against cash by a property test, served at `/v1/ledger/reports/cash-flow` and its export, and shown at `/ledger/reports/cash-flow`.
 3. ~~Emit `ledger.recon.completed` and `ledger.period.closed`.~~ **Fixed**: recon already announced its close (`recon.ts` `announceCompleted`); 2026-09-26 a period close and reopen emit `ledger.period.closed` / `ledger.period.reopened`.
 4. ~~Budgets and budget-vs-actual.~~ **Fixed** 2026-09-27: budgets per account, month and currency are an audited resource (`/v1/ledger/budgets`, `ledger:budgets:*`, no approval — they move no money, ADR-0104) and `/ledger/reports/budget-vs-actual` compares them with the month's posted lines in the same currency, never summed across currencies and never reading a missing budget as zero.
-5. Inbound bordereaux reconciliation.
+5. ~~Inbound bordereaux reconciliation.~~ **Fixed** 2026-09-27: a provider's CSV imports all-or-nothing with every bad line named (`POST /v1/axis/bordereaux/import`), and reconciliation matches it by (reference, currency) against the period's commission entries and claims — matched, variance, missing on our side or theirs, duplicates flagged, an optional stored tolerance in minor units — then reports on `/axis/bordereaux` with each difference linked to the record whose own approval-gated path adjusts it, never writing money itself (ADR-0105).
 
 ### Distribution
 1. ~~Accrue commission on `axis.policy.issued`.~~ **Fixed** 2026-09-23: `engines/commission-accrual.ts` raises the `dist.commission_accrue` approval on bind; the decision books it.

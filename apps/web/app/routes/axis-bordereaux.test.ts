@@ -8,7 +8,9 @@ import {
   LABELS,
   action,
   labelsIn,
-  loader
+  loader,
+  recordHref,
+  rowErrorsOf
 } from "./axis-bordereaux";
 
 // AXIS's periodic reconciliation file between us and a provider/channel/
@@ -300,6 +302,135 @@ describe("action: reconcile", () => {
 
     expect(result.problem?.status).toBe(403);
     expect(result.done).toBeNull();
+  });
+});
+
+/* ------------------------------------------- inbound reconciliation (ADR-0105) */
+
+// Mirrors the API's report (apps/api/src/engines/axis-bordereaux.ts
+// `reconciliationReport`), in the server's shape.
+const REPORT = {
+  bordereauId: "bdx_in",
+  kind: "premium",
+  fields: ["grossPremiumMinor", "commissionMinor"],
+  toleranceMinor: 0,
+  groups: [
+    {
+      ref: "POL-2",
+      currency: "AED",
+      state: "variance",
+      theirs: { ids: ["bdxl_2"], amounts: { grossPremiumMinor: 105_000, commissionMinor: 10_000 } },
+      ours: { ids: ["ce_2"], amounts: { grossPremiumMinor: 100_000, commissionMinor: 10_000 }, records: [{ id: "ce_2", resource: "commission-entries" }] },
+      deltas: { grossPremiumMinor: 5_000, commissionMinor: 0 },
+      varianceMinor: 5_000,
+      duplicate: false,
+      policyId: "pol_2"
+    }
+  ],
+  totals: [{ currency: "AED", matched: 0, variance: 1, missingOurs: 0, missingTheirs: 0, theirsMinor: 105_000, oursMinor: 100_000, varianceMinor: 5_000 }]
+};
+
+const INBOUND = { ...BORDEREAU, id: "bdx_in", direction: "inbound", toleranceMinor: 0 };
+
+function stubInbound(bordereau: Record<string, unknown>, reconciliation: Response) {
+  const calls: string[] = [];
+  vi.stubGlobal("fetch", (input: URL | string) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/v1/me")) return Promise.resolve(json({ permissions: ["axis:bordereaux:read"] }));
+    if (url.includes("/reconciliation")) return Promise.resolve(reconciliation.clone());
+    if (url.includes("/v1/axis/bordereaux?")) return Promise.resolve(json({ data: [bordereau] }));
+    if (url.endsWith(`/v1/axis/bordereaux/${String(bordereau.id)}`)) return Promise.resolve(json(bordereau));
+    return Promise.resolve(json({ data: [] }));
+  });
+  return calls;
+}
+
+describe("loader: reconciliation report", () => {
+  it("reads the report for a selected inbound provider bordereau", async () => {
+    const calls = stubInbound(INBOUND, json(REPORT));
+    const loaded = await loader(loadArgs("?id=bdx_in"));
+    expect(calls).toContain("https://api.test/v1/axis/bordereaux/bdx_in/reconciliation");
+    expect(loaded.report?.groups[0]?.state).toBe("variance");
+  });
+
+  it("asks nothing for an outbound bordereau, or a counterparty that is not a provider", async () => {
+    for (const bordereau of [BORDEREAU, { ...INBOUND, counterpartyKind: "partner" }]) {
+      const calls = stubInbound(bordereau, json(REPORT));
+      const loaded = await loader(loadArgs(`?id=${bordereau.id}`));
+      expect(calls.some((url) => url.includes("/reconciliation"))).toBe(false);
+      expect(loaded.report).toBeNull();
+    }
+  });
+
+  it("a refused report is no report, not a crash — any 4xx but 401", async () => {
+    stubInbound(INBOUND, new Response(JSON.stringify({ title: "Conflict", status: 409 }), { status: 409, headers: { "content-type": "application/json" } }));
+    const loaded = await loader(loadArgs("?id=bdx_in"));
+    expect(loaded.report).toBeNull();
+  });
+});
+
+describe("recordHref", () => {
+  it("opens each of our records where its own adjustment path lives", () => {
+    expect(recordHref({ id: "ce_1", resource: "commission-entries" })).toBe("/distribution/commission-entries/ce_1");
+    expect(recordHref({ id: "clm_1", resource: "claims" })).toBe("/axis/claims/clm_1/detail");
+    expect(recordHref({ id: "a b", resource: "claims" })).toBe("/axis/claims/a%20b/detail");
+  });
+});
+
+describe("action: import", () => {
+  function upload(fields: Record<string, string>, csv: string | null) {
+    const body = form(fields);
+    if (csv !== null) body.set("file", new File([csv], "bdx.csv", { type: "text/csv" }));
+    return body;
+  }
+  const header = { intent: "import", counterpartyKind: "provider", counterpartyId: "prv_1", kind: "premium", period: "2026-07", currency: "AED" };
+
+  it("sends the uploaded CSV with its header to the import route", async () => {
+    const calls = stubFetch(ok({ bordereau: INBOUND, lines: [] }));
+    const csv = "policyNo,grossPremiumMinor,commissionMinor\nPOL-1,100000,10000\n";
+    const result = await action(args(upload(header, csv)));
+    expect(calls[0]?.url).toBe("https://api.test/v1/axis/bordereaux/import");
+    expect(calls[0]?.method).toBe("POST");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ counterpartyKind: "provider", counterpartyId: "prv_1", kind: "premium", period: "2026-07", currency: "AED", csv });
+    expect(calls[0]?.idempotencyKey).toBe("key-1:import:prv_1:premium:2026-07");
+    expect(result.done).toBe("importDone");
+  });
+
+  it("refuses with no file, or an empty one, before asking the API", async () => {
+    const calls = stubFetch(ok({}));
+    expect((await action(args(upload(header, null)))).error).toBe("csvRequired");
+    expect((await action(args(upload(header, "  \n")))).error).toBe("csvRequired");
+    expect((await action(args(upload({ ...header, period: "2026-13" }, "a\n1")))).error).toBe("periodRequired");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("keeps every refused line the API named, so the reader can fix the file", async () => {
+    const rowErrors = [{ line: 3, ref: "POL-3", error: "grossPremiumMinor must be a whole number of minor units" }];
+    stubFetch(new Response(JSON.stringify({ title: "Cannot process", status: 422, code: "unprocessable", rowErrors }), { status: 422, headers: { "content-type": "application/json" } }));
+    const result = await action(args(upload(header, "policyNo\nx")));
+    expect(result.done).toBeNull();
+    expect(result.problem?.status).toBe(422);
+    expect(rowErrorsOf(result.problem)).toEqual(rowErrors);
+    expect(rowErrorsOf({ title: "x", status: 400 })).toEqual([]);
+  });
+});
+
+describe("action: reconcile with a tolerance", () => {
+  it("carries a whole-number tolerance in minor units", async () => {
+    const calls = stubFetch(ok({ bordereau: INBOUND, lines: [], report: REPORT }));
+    await action(args(form({ intent: "reconcile", bordereauId: "bdx_in", toleranceMinor: "3" })));
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ toleranceMinor: 3 });
+    expect(calls[0]?.idempotencyKey).toBe("key-1:reconcile:bdx_in:3");
+  });
+
+  it("refuses a tolerance that is not a whole number of minor units, zero or more", async () => {
+    const calls = stubFetch(ok({}));
+    for (const toleranceMinor of ["1.5", "-2", "abc"]) {
+      const result = await action(args(form({ intent: "reconcile", bordereauId: "bdx_in", toleranceMinor })));
+      expect(result.error, toleranceMinor).toBe("toleranceInvalid");
+    }
+    expect(calls).toHaveLength(0);
   });
 });
 

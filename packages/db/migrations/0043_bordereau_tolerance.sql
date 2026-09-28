@@ -1,0 +1,1 @@
+ALTER TABLE `axis_bordereaux` ADD `tolerance_minor` integer DEFAULT 0 NOT NULL;
