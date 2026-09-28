@@ -182,10 +182,11 @@ describe("first contact (ADR-0093)", () => {
       id: "ccn_1", tenantId: "t_1", label: "WhatsApp", transport: "whatsapp", provider: "fake", status: "active",
       configJson: "{}", secretsJson: "{}", createdAt: ctx.now, updatedAt: ctx.now
     } as never);
-    (ctx as Ctx & { env?: unknown }).env = { FIELD_KEY: "test-key" };
     sentTo.length = 0;
 
-    const outcome = await runAcquisitionSweep(ctx, stubGateway());
+    // The key arrives the way production passes it — never on the ctx, which
+    // `ctxFor` does not give one (the fixture used to supply what prod lacked).
+    const outcome = await runAcquisitionSweep(ctx, stubGateway(), { env: { FIELD_KEY: "test-key" } });
     expect(outcome.sent).toBe(1);
     expect(sentTo).toEqual(["971500000001"]);
     const [identity] = await ctx.db.select().from(schema.orbitChannelIdentities);
@@ -202,8 +203,7 @@ describe("first contact (ADR-0093)", () => {
       id: "ccn_1", tenantId: "t_1", label: "WhatsApp", transport: "whatsapp", provider: "fake", status: "active",
       configJson: "{}", secretsJson: "{}", createdAt: ctx.now, updatedAt: ctx.now
     } as never);
-    (ctx as Ctx & { env?: unknown }).env = { FIELD_KEY: "test-key" };
-    const outcome = await runAcquisitionSweep(ctx, stubGateway());
+    const outcome = await runAcquisitionSweep(ctx, stubGateway(), { env: { FIELD_KEY: "test-key" } });
     expect(outcome.sent).toBe(0);
     expect((await ctx.db.select().from(schema.signalOutreach))[0]!.state).toBe("failed");
     expect(await ctx.db.select().from(schema.orbitConversations)).toEqual([]);

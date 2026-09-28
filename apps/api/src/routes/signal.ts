@@ -310,7 +310,7 @@ signalRoutes.post("/outreach/run", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "signal:outreach:send", { tenantId: ctx.tenantId, module: "signal" });
   const { runAcquisitionSweep } = await import("../engines/signal-outreach.js");
-  return c.json(await runAcquisitionSweep(ctx, c.get("gateway")));
+  return c.json(await runAcquisitionSweep(ctx, c.get("gateway"), { env: c.env }));
 });
 
 const DAY_MS = 86_400_000;
