@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import { audit, emit, gate, AppError, type Ctx } from "@lyra/core";
+import { pushBudgetMove, type AdPlatforms } from "./signal-ad-platforms.js";
 
 // docs/modules/signal.md §2.3 "autopilot" — CAC/LTV-driven budget reallocation
 // with a bound check, an anomaly guard, and a daily trigger. Same shape as
@@ -277,7 +278,8 @@ function evalAuditPayload(outcome: ProposalOutcome): Record<string, unknown> {
 async function commitMove(
   ctx: Ctx,
   campaign: EligibleCampaign,
-  proposal: Extract<ProposalOutcome, { decision: "act" | "act_with_approval" }>
+  proposal: Extract<ProposalOutcome, { decision: "act" | "act_with_approval" }>,
+  push: AdPushOptions
 ): Promise<void> {
   const fromRef = `signal_campaign:${campaign.id}#${proposal.fromChannel}`;
   const toRef = `signal_campaign:${campaign.id}#${proposal.toChannel}`;
@@ -340,6 +342,23 @@ async function commitMove(
     subject: `budget-moves:${moveId}`,
     data: { fromRef, toRef, amountMinor: proposal.amountMinor, approvedBy }
   });
+
+  // docs/30 SIGNAL 5: the gate above passed it, so a connected ad account
+  // hears the move now. A pending move waits for its approver
+  // (signal-ad-platforms.ts `onBudgetMoveDecided`). No ad connector: no-op.
+  if (approvedBy !== "pending") {
+    const [row] = await ctx.db
+      .select()
+      .from(schema.signalBudgetMoves)
+      .where(and(eq(schema.signalBudgetMoves.tenantId, ctx.tenantId), eq(schema.signalBudgetMoves.id, moveId)));
+    if (row) await pushBudgetMove(ctx, push.fieldKey, row, "apply", push.platforms);
+  }
+}
+
+/** Where an approved move is pushed from: the sealed-secret key and, in tests, the platform adapters. */
+export interface AdPushOptions {
+  fieldKey?: string | undefined;
+  platforms?: AdPlatforms;
 }
 
 /**
@@ -351,7 +370,7 @@ async function commitMove(
  * deduping the "no move created" outcomes (anomaly-rejected, insufficient
  * data), so a second same-day tick would silently re-evaluate those.
  */
-export async function runBudgetAutopilot(ctx: Ctx): Promise<number> {
+export async function runBudgetAutopilot(ctx: Ctx, push: AdPushOptions = {}): Promise<number> {
   // docs/modules/signal.md §8 "one-click global pause": a tenant-wide kill
   // switch checked before touching any campaign, distinct from a single
   // campaign's own state=paused filtered out below.
@@ -397,7 +416,7 @@ export async function runBudgetAutopilot(ctx: Ctx): Promise<number> {
     await audit(ctx, { action: EVAL_ACTION, subjectRef, after: evalAuditPayload(outcome) });
 
     if (outcome.decision === "act" || outcome.decision === "act_with_approval") {
-      await commitMove(ctx, campaign, outcome);
+      await commitMove(ctx, campaign, outcome, push);
       created++;
     }
   }

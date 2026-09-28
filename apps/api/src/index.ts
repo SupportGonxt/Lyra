@@ -20,6 +20,7 @@ import { backupTenant } from "./engines/backup.js";
 import { anchorAudit } from "./engines/anchor.js";
 import { nudgeApiKeyRotation } from "./engines/api-key-rotation.js";
 import { runBudgetAutopilot } from "./engines/signal-autopilot.js";
+import { pullAdSpend, spendPullWindow } from "./engines/signal-ad-platforms.js";
 import { runAcquisitionSweep } from "./engines/signal-outreach.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
 import { sweepAiDrift } from "./engines/ai-drift.js";
@@ -222,6 +223,8 @@ export default {
     // own scheduler.
     const nowDate = new Date(now);
     const isBackupWindow = nowDate.getUTCHours() === 2 && nowDate.getUTCMinutes() < 15;
+    // The autopilot evaluates each campaign on the first tick of the UTC day.
+    const isSpendPullWindow = nowDate.getUTCHours() === 0 && nowDate.getUTCMinutes() < 15;
     ctxExec.waitUntil(
       (async () => {
         await pruneSessions(env, now);
@@ -266,7 +269,16 @@ export default {
             // tick that the next tick's routing sweep should see.
             if (on("orbit")) await advanceJourneyRuns(ctx, 200, { env, gateway: gatewayFor(env) });
             await sweepBilling(ctx);
-            if (on("signal")) await runBudgetAutopilot(ctx);
+            // docs/30 SIGNAL 5, ADR-0100: connected ad accounts' spend lands
+            // just before the autopilot's first evaluation of the UTC day, so
+            // its CAC reads yesterday as the platform restated it. No ad
+            // connector: nothing is called.
+            if (isSpendPullWindow && on("signal")) {
+              await pullAdSpend(ctx, env.FIELD_KEY, spendPullWindow(now)).catch((err: unknown) =>
+                console.error("ad spend pull failed", { tenantId, err: String(err) })
+              );
+            }
+            if (on("signal")) await runBudgetAutopilot(ctx, { fieldKey: env.FIELD_KEY });
             // Acquisition outreach (engines/signal-outreach.ts): draft →
             // consent gate → approval gate → send → lead touch. Quiet hours
             // and the weekly frequency cap are enforced inside the sweep; the

@@ -43,6 +43,7 @@ export * from "./watch.js";
 export * from "./words.js";
 export * from "./wording-diff.js";
 export * from "./seams.js";
+export * from "./ad-platform.js";
 export * from "./lifecycle.js";
 export * from "./claims.js";
 export * from "./premium.js";

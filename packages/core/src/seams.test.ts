@@ -14,6 +14,8 @@ import {
   type SpeechProvider,
   type DataInConnector,
   type TimeseriesIngest,
+  type AdPlatform,
+  type AdSpendRow,
   type ChannelAdapter,
   type DeliveryReceipt,
   type InboundEvent
@@ -262,6 +264,44 @@ describe("SEAM-13: ChannelAdapter", () => {
     const ignoredEvent: InboundEvent = { kind: "ignored", why: "unsupported type" };
     expect(statusEvent.kind).toBe("status");
     expect(ignoredEvent.kind).toBe("ignored");
+  });
+});
+
+describe("SEAM-14: AdPlatform", () => {
+  it("@seam:H10 an ad-platform connector pulls daily spend per platform campaign and moves one campaign's daily budget", async () => {
+    const budgets = new Map<string, number>([["111", 50_000]]);
+    const seen: string[] = [];
+    const platform: AdPlatform = {
+      provider: "fake-ads",
+      defaultChannel: "fake",
+      async pullSpend(window, secrets, config) {
+        seen.push(`${secrets.token}:${String(config.account)}:${window.since}..${window.until}`);
+        const row: AdSpendRow = {
+          externalCampaignId: "111",
+          day: window.since,
+          amountMinor: 12_345,
+          currency: "AED",
+          impressions: 1_000,
+          clicks: 40,
+          conversions: 3
+        };
+        return [row];
+      },
+      async adjustDailyBudget(externalCampaignId, deltaMinor, currency) {
+        const before = budgets.get(externalCampaignId);
+        if (before === undefined || currency !== "AED") throw new Error("no such budget");
+        budgets.set(externalCampaignId, before + deltaMinor);
+        return { beforeMinor: before, afterMinor: before + deltaMinor };
+      }
+    };
+
+    const rows = await platform.pullSpend({ since: "2026-09-25", until: "2026-09-26" }, { token: "t" }, { account: "a1" });
+    expect(rows).toEqual([
+      { externalCampaignId: "111", day: "2026-09-25", amountMinor: 12_345, currency: "AED", impressions: 1_000, clicks: 40, conversions: 3 }
+    ]);
+    expect(seen).toEqual(["t:a1:2026-09-25..2026-09-26"]);
+    expect(await platform.adjustDailyBudget("111", -10_000, "AED", {}, {})).toEqual({ beforeMinor: 50_000, afterMinor: 40_000 });
+    await expect(platform.adjustDailyBudget("111", 1, "USD", {}, {})).rejects.toThrow();
   });
 });
 

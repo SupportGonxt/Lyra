@@ -54,45 +54,71 @@ export async function importSpend(ctx: Ctx, csv: string): Promise<SpendImportRes
     const bad = COUNTS.find((k) => counts[k] === null);
     if (bad) { fail(`${bad} must be a whole number, 0 or more`); continue; }
 
-    const values = {
-      amountMinor: Number(amount),
-      currency: cells.currency!,
-      impressions: counts.impressions!,
-      clicks: counts.clicks!,
-      conversions: counts.conversions!,
-      source: "import",
-      ts: ctx.now
-    };
-    // Looked up rather than upserted: a null campaign is distinct to SQLite's
-    // unique index, so ON CONFLICT would never fire for channel-level spend.
-    const [held] = await ctx.db
-      .select({ id: schema.signalSpend.id })
-      .from(schema.signalSpend)
-      .where(
-        and(
-          eq(schema.signalSpend.tenantId, ctx.tenantId),
-          campaignId ? eq(schema.signalSpend.campaignId, campaignId) : isNull(schema.signalSpend.campaignId),
-          eq(schema.signalSpend.channel, cells.channel),
-          eq(schema.signalSpend.day, cells.day!)
-        )
-      )
-      .limit(1);
-    const id = held?.id ?? newId("spd", ctx.now);
-    if (held) {
-      await ctx.db.update(schema.signalSpend).set(values).where(eq(schema.signalSpend.id, id));
-      out.updated++;
-    } else {
-      await ctx.db.insert(schema.signalSpend).values({ id, tenantId: ctx.tenantId, campaignId, channel: cells.channel, day: cells.day!, ...values });
-      out.created++;
-    }
-    // The same announcement a CRUD write makes (resources.ts spend afterWrite).
-    await emit(ctx, {
-      module: "signal",
-      type: "signal.spend.recorded",
-      subject: id,
-      data: { campaignId, channel: cells.channel, day: cells.day, amountMinor: values.amountMinor, currency: values.currency, conversions: values.conversions }
-    });
+    const outcome = await recordSpend(
+      ctx,
+      {
+        campaignId,
+        channel: cells.channel,
+        day: cells.day!,
+        amountMinor: Number(amount),
+        currency: cells.currency!,
+        impressions: counts.impressions!,
+        clicks: counts.clicks!,
+        conversions: counts.conversions!
+      },
+      "import"
+    );
+    out[outcome]++;
   }
   await audit(ctx, { action: "signal.spend.imported", subjectRef: "signal_spend:import", after: { created: out.created, updated: out.updated, errors: out.errors.length } });
   return out;
+}
+
+export interface SpendLine {
+  campaignId: string | null;
+  channel: string;
+  day: string;
+  amountMinor: number;
+  currency: string;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+}
+
+/**
+ * The one write every spend actual goes through — a CSV line above, a pulled
+ * ad-platform day (signal-ad-platforms.ts) — so both correct a restated
+ * (campaign, channel, day) rather than doubling it, and both announce it.
+ */
+export async function recordSpend(ctx: Ctx, line: SpendLine, source: "import" | "api"): Promise<"created" | "updated"> {
+  const { campaignId, channel, day, ...measures } = line;
+  const values = { ...measures, source, ts: ctx.now };
+  // Looked up rather than upserted: a null campaign is distinct to SQLite's
+  // unique index, so ON CONFLICT would never fire for channel-level spend.
+  const [held] = await ctx.db
+    .select({ id: schema.signalSpend.id })
+    .from(schema.signalSpend)
+    .where(
+      and(
+        eq(schema.signalSpend.tenantId, ctx.tenantId),
+        campaignId ? eq(schema.signalSpend.campaignId, campaignId) : isNull(schema.signalSpend.campaignId),
+        eq(schema.signalSpend.channel, channel),
+        eq(schema.signalSpend.day, day)
+      )
+    )
+    .limit(1);
+  const id = held?.id ?? newId("spd", ctx.now);
+  if (held) {
+    await ctx.db.update(schema.signalSpend).set(values).where(eq(schema.signalSpend.id, id));
+  } else {
+    await ctx.db.insert(schema.signalSpend).values({ id, tenantId: ctx.tenantId, campaignId, channel, day, ...values });
+  }
+  // The same announcement a CRUD write makes (resources.ts spend afterWrite).
+  await emit(ctx, {
+    module: "signal",
+    type: "signal.spend.recorded",
+    subject: id,
+    data: { campaignId, channel, day, amountMinor: line.amountMinor, currency: line.currency, conversions: line.conversions }
+  });
+  return held ? "updated" : "created";
 }
