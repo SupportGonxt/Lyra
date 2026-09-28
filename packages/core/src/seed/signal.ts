@@ -1219,7 +1219,9 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       valueMinor: 448_000,
       currency: "AED",
       subjectRef: `axis_case:${ctx.caseId}`,
-      ts: ctx.issuedAt
+      // When she bought, not when cover starts (issuedAt is two days out): a
+      // window ending now must count this bind (J-M1, the CPA range).
+      ts: now
     },
     {
       id: id("atr", now + 77),

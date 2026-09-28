@@ -193,13 +193,15 @@ export async function acquisitionCostRange(
   const touches = alias(schema.signalAttributionEvents, "b");
   const spend = schema.signalSpend;
 
-  // A prior non-bind touch by the same customer, at or before this bind.
-  const prior = (extra: ReturnType<typeof sql>) =>
-    sql<number>`exists (select 1 from signal_attribution_events p
+  // The channels of every prior non-bind touch by the same customer, at or
+  // before this bind, joined by U+001F. Constant SQL: the caller's `channel`
+  // is compared in code below, so no request input reaches a raw fragment.
+  const priorChannels = sql<string | null>`(select group_concat(p.channel, char(31))
+      from signal_attribution_events p
       where p.tenant_id = b.tenant_id and p.customer_id = b.customer_id
-        and p.touch_type <> 'bind' and p.ts <= b.ts and ${extra})`;
+        and p.touch_type <> 'bind' and p.ts <= b.ts)`;
 
-  const [spent, binds] = await Promise.all([
+  const [spent, rows] = await Promise.all([
     ctx.db
       .select({ v: sql<number>`coalesce(sum(${spend.amountMinor}), 0)` })
       .from(spend)
@@ -214,14 +216,14 @@ export async function acquisitionCostRange(
       )
       .then((rows) => rows[0]?.v ?? 0),
     ctx.db
-      .select({
-        channel: touches.channel,
-        mixed: prior(sql`p.channel <> b.channel`),
-        touched: prior(sql`p.channel = ${channel ?? ""}`)
-      })
+      .select({ channel: touches.channel, prior: priorChannels })
       .from(touches)
       .where(and(eq(touches.tenantId, ctx.tenantId), eq(touches.touchType, "bind"), gte(touches.ts, window.since), lt(touches.ts, window.until)))
   ]);
+  const binds = rows.map((row) => {
+    const seen = row.prior ? row.prior.split("\u001f") : [];
+    return { channel: row.channel, mixed: seen.some((c) => c !== row.channel), touched: channel !== null && seen.includes(channel) };
+  });
 
   const credited = channel === null ? binds : binds.filter((bind) => bind.channel === channel);
   const creditLow = channel === null ? binds.length : credited.filter((bind) => !bind.mixed).length;
