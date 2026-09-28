@@ -173,7 +173,7 @@ crediting income in any batch that debits the client-money asset.
 | `SUB-CANCEL` | Subscription cancelled | Recognition stops; refunds if due |
 | `USAGE-METER` | Metered usage recorded (API calls, AI tokens, seats, posts, binds) | Feeds overage |
 | `OVERAGE` | Overage charge computed | Threshold-based |
-| `SUCCESS-FEE` | Success fee computed from a verified metric | **Requires NORTH-verified metric snapshot** |
+| `SUCCESS-FEE` | Success fee computed from a verified metric | **Requires a pinned, countersigned NORTH metric snapshot** (`args.pinnedSnapshotId`, key `success-fee:{pinId}`; ADR-0111) |
 | `DUNNING` | Dunning step executed on failed payment | Journey-driven, consent-aware |
 | `CREDIT-NOTE` | Credit issued | Dual control |
 
@@ -405,7 +405,7 @@ confirms — proposals are never auto-posted. Match rate is a tracked KPI.
 | Budget move within bounds | L2 | none (logged, reversible window) |
 | Budget move beyond bounds | L1 | marketing lead approval |
 | Client-money transfer | L1 | dual control, always |
-| Success fee | L1 | verified metric snapshot + both parties' sign-off |
+| Success fee | L1 | pinned copy of a verified metric snapshot, countersigned by both parties (ADR-0111), + `ledger.success_fee` dual-control approval |
 
 No transaction type may be added to a tenant's auto-approve allowlist if it
 debits client money, issues a payout, or crosses a regulatory floor.
@@ -457,6 +457,10 @@ treatment so immutability is visible, not merely enforced.
 7. Random saga interruption at any step ends `settled` or fully compensated.
 8. Trial balance equals sum of all journal lines at any point in time.
 9. Recognition schedules never recognise more than invoiced.
-10. `SUCCESS-FEE` cannot post without a verified metric snapshot reference.
+10. `SUCCESS-FEE` cannot post without a pinned metric snapshot countersigned by
+    both parties whose `source_hash` still recomputes, and only under the
+    idempotency key `success-fee:{pinId}` — so one pin bills exactly once and a
+    replay posts nothing new. The live `north_snapshots` row is never read at
+    posting time (docs/specs/gap-finance-design.md D11, ADR-0111).
 11. A claim float never goes negative — for any claim, Σ `CLAIM-PAY` ≤ Σ
     `CLAIM-FUND` plus opening float, under any random ordering of payments.

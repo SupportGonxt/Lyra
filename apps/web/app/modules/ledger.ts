@@ -398,7 +398,28 @@ export const ledger: WorkspaceSpec = {
       "counterpartyKind.partner": "Partner",
       "counterpartyKind.creator": "Creator",
       "counterpartyKind.publisher": "Publisher",
-      "counterpartyKind.insurer": "Insurer"
+      "counterpartyKind.insurer": "Insurer",
+
+      // D11, ADR-0111 — the metric a success fee is billed on, pinned and countersigned.
+      "metric-pins": "Success-fee metrics",
+      sourceSnapshotId: "Snapshot",
+      snapshotId: "Verified snapshot",
+      "hint.pinSnapshot": "The id of a verified NORTH snapshot; its figure is copied and hashed, and the fee bills that copy",
+      metricKey: "Metric",
+      value: "Figure",
+      pinnedBy: "Pinned by",
+      tenantSignedBy: "Our signature",
+      counterpartySignedBy: "Counterparty recorded by",
+      counterpartyEvidenceRef: "Counterparty evidence",
+      evidenceRef: "Counterparty evidence",
+      "hint.pinEvidence": "The counterparty's acceptance: an e-signature id or the signed statement's reference",
+      sourceHash: "Source hash",
+      "state.pinned": "Awaiting countersignature",
+      "state.countersigned": "Countersigned",
+      "pins.signTenant": "Countersign for us",
+      "pins.signTenant.confirm": "Sign our side of this figure? A success fee will be billed on it exactly once, and it cannot be changed after.",
+      "pins.signCounterparty": "Record counterparty sign-off",
+      "pins.signCounterparty.confirm": "Record the counterparty's acceptance of this figure? It cannot be changed after."
     },
     ar: {
       txns: "المعاملات",
@@ -680,6 +701,25 @@ export const ledger: WorkspaceSpec = {
       "type.USAGE-METER": "قياس الاستخدام",
       "type.OVERAGE": "تجاوز الحد",
       "type.SUCCESS-FEE": "رسوم نجاح",
+      "metric-pins": "مقاييس رسوم النجاح",
+      sourceSnapshotId: "اللقطة",
+      snapshotId: "لقطة موثقة",
+      "hint.pinSnapshot": "معرّف لقطة موثقة من NORTH؛ يُنسخ رقمها ويُجزأ، وتُحتسب الرسوم على تلك النسخة",
+      metricKey: "المقياس",
+      value: "الرقم",
+      pinnedBy: "ثبّته",
+      tenantSignedBy: "توقيعنا",
+      counterpartySignedBy: "سجّل موافقة الطرف المقابل",
+      counterpartyEvidenceRef: "دليل الطرف المقابل",
+      evidenceRef: "دليل الطرف المقابل",
+      "hint.pinEvidence": "موافقة الطرف المقابل: معرّف التوقيع الإلكتروني أو مرجع الكشف الموقّع",
+      sourceHash: "بصمة المصدر",
+      "state.pinned": "بانتظار التوقيع المقابل",
+      "state.countersigned": "موقّع من الطرفين",
+      "pins.signTenant": "التوقيع عن جهتنا",
+      "pins.signTenant.confirm": "هل توقّع عن جهتنا على هذا الرقم؟ ستُحتسب عليه رسوم النجاح مرة واحدة فقط، ولا يمكن تغييره بعد ذلك.",
+      "pins.signCounterparty": "تسجيل موافقة الطرف المقابل",
+      "pins.signCounterparty.confirm": "هل تسجّل موافقة الطرف المقابل على هذا الرقم؟ لا يمكن تغييره بعد ذلك.",
       "type.DUNNING": "مطالبة بالسداد",
       "type.CREDIT-NOTE": "إشعار دائن",
 
@@ -1274,6 +1314,48 @@ export const ledger: WorkspaceSpec = {
       editable: [
         { name: "amountMinor", type: "money" },
         { name: "note", type: "textarea" }
+      ]
+    },
+    {
+      // D11, ADR-0111. A success fee bills a pinned copy of one verified NORTH
+      // snapshot that both parties countersigned — never the live row. Pinning
+      // is the create form; each side's signature is a record action, and the
+      // API refuses the pinner on our side and one person on both.
+      key: "metric-pins",
+      api: "/v1/ledger/metric-pins",
+      read: "ledger:metric_pins:read",
+      create: "ledger:metric_pins:pin",
+      filters: [{ name: "state", options: ["pinned", "countersigned"] }],
+      columns: [
+        { name: "metricKey", type: "text" },
+        { name: "period", type: "text", sortable: true },
+        { name: "value", type: "measure", unitFrom: "unit", currencyFrom: "currency" },
+        { name: "state", type: "text", badge: true },
+        { name: "pinnedBy", type: "text" },
+        { name: "tenantSignedBy", type: "text" },
+        { name: "counterpartySignedBy", type: "text" },
+        { name: "counterpartyEvidenceRef", type: "text" },
+        { name: "createdAt", type: "datetime", sortable: true }
+      ],
+      fields: [{ name: "snapshotId", type: "text", required: true, hintKey: "hint.pinSnapshot" }],
+      actions: [
+        {
+          intent: "sign-tenant",
+          method: "POST",
+          path: "/{id}/countersign/tenant",
+          labelKey: "pins.signTenant",
+          permission: "ledger:metric_pins:countersign",
+          confirm: true
+        },
+        {
+          intent: "sign-counterparty",
+          method: "POST",
+          path: "/{id}/countersign/counterparty",
+          labelKey: "pins.signCounterparty",
+          permission: "ledger:metric_pins:countersign",
+          confirm: true,
+          fields: [{ name: "evidenceRef", type: "text", required: true, hintKey: "hint.pinEvidence" }]
+        }
       ]
     },
     {

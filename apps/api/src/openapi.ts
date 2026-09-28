@@ -503,6 +503,8 @@ const HAND_WRITTEN: Op[] = [
   // NORTH explorer and data health (routes/north.ts). Explorer reads a fixed
   // set of columns off north_snapshots only, never a client SQL string.
   { method: "get", path: "/v1/ledger/recon/statement-formats", summary: "Bank statement formats the importer can read (CAMT.053, MT940, OFX)", permission: "ledger:recon:read", tag: "ledger" },
+  { method: "post", path: "/v1/ledger/metric-pins", summary: "Pin a verified metric snapshot for a success fee: a hashed copy the fee is billed on (D11, ADR-0111)", permission: "ledger:metric_pins:pin", tag: "ledger", requestBody: true },
+  { method: "post", path: "/v1/ledger/metric-pins/{id}/countersign/{side}", summary: "Countersign one side (tenant|counterparty) of a metric pin; two different seats, the counterparty's with its evidence", permission: "ledger:metric_pins:countersign", tag: "ledger", requestBody: true },
   { method: "get", path: "/v1/ledger/fx-revaluation", summary: "What a period-end FX revaluation of open foreign balances would post (docs/19 §5.3)", permission: "ledger:journals:read", tag: "ledger" },
   { method: "post", path: "/v1/ledger/fx-revaluation", summary: "Post the period-end FX revaluation; idempotent per period", permission: "ledger:journals:post", tag: "ledger" },
   { method: "post", path: "/v1/north/metrics/{key}/values", summary: "Push grand-total values for a metric the snapshotter does not compute (docs/30 NORTH 3)", permission: "north:metrics:write", tag: "north" },
@@ -510,7 +512,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/north/boardpacks/{id}/approve", summary: "Sign off a rendered board pack: review → final (docs/30 NORTH 5)", permission: "north:boardpacks:approve", tag: "north" },
   { method: "post", path: "/v1/north/boardpacks/{id}/distribute", summary: "Send an approved board pack to named people (ids or emails): one notice each and a line in its distribution log", permission: "north:boardpacks:distribute", tag: "north", requestBody: true },
   { method: "post", path: "/v1/north/scenarios/{id}/run", summary: "Compute a stored what-if (metric, changeBps, horizonMonths|horizonDays) against the metric's forecast band and store the answer; 422 names each unreadable assumption (docs/30 NORTH 4)", permission: "north:scenarios:run", tag: "north" },
-  { method: "post", path: "/v1/north/snapshots/{id}/verify", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", tag: "north", requestBody: true },
+  { method: "post", path: "/v1/north/snapshots/{id}/verify", summary: "Attest to a computed metric snapshot, so it may be pinned for a SUCCESS-FEE (docs/19 §11.10, ADR-0111)", permission: "north:metrics:write", tag: "north", requestBody: true },
   { method: "post", path: "/v1/north/explore", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", tag: "north", requestBody: true },
   { method: "get", path: "/v1/north/journeys", summary: "Journey health: each documented journey's funnel from the audit log, ?days= window", permission: "north:metrics:read", tag: "north" },
   { method: "get", path: "/v1/north/data-health", summary: "Staleness per metric, computed live from the snapshot table", permission: "north:metrics:read", tag: "north" },

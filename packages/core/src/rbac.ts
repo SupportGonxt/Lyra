@@ -246,6 +246,9 @@ export const PERMISSIONS = [
   // are separated from the routine close, so no single seat holds both halves.
   "ledger:journals:draft", "ledger:journals:void",
   "ledger:periods:force_close", "ledger:periods:reopen", "ledger:periods:year_end",
+  // D11, ADR-0111: a success fee bills a pinned, countersigned metric snapshot.
+  // Pinning is originating; countersigning is the second seat on it.
+  "ledger:metric_pins:read", "ledger:metric_pins:pin", "ledger:metric_pins:countersign",
 
   // Running an agent is a per-module permission, not a global one: a marketer
   // who may invoke SIGNAL agents has no business invoking a LEDGER agent.
@@ -659,6 +662,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "ledger:journals:post", "ledger:periods:close", "ledger:periods:force_close",
     "ledger:periods:reopen", "ledger:periods:year_end", "ledger:payouts:approve",
     "ledger:invoices:approve", "ledger:client_money:transfer", "ledger:txns:reverse",
+    // ADR-0111: signs a success-fee metric pin the controller pinned; never pins.
+    "ledger:metric_pins:countersign",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
     "core:notes:read"
   ],

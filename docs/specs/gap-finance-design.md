@@ -117,7 +117,10 @@ key `recon:{matchId}`. It never writes a line.
 route.** `periods.ts:174` and `periods.ts:199` are the root cause; the route is
 one caller of several (close run, year-end, tests, future scheduler).
 
-**D11 — A success fee needs a countersigned metric snapshot.** A new table
+**D11 — A success fee needs a countersigned metric snapshot.** *Built*
+(ADR-0111): `ledger_metric_pins`, `packages/ledger/src/metric-pins.ts`, key
+`success-fee:{pinId}` — leaner than §B.1's `ledger_fee_metric_snapshots`, see
+the ADR for what was deferred. A new table
 holds a *pinned copy* of the `north_snapshots` row plus a `source_hash`; both
 parties countersign; the fee's idempotency key is derived from the snapshot id,
 so one snapshot can bill exactly once.

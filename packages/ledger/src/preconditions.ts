@@ -1,6 +1,7 @@
 import { and, eq, gte, like } from "drizzle-orm";
 import { parseJson, schema, shariahCertified, TakafulJson } from "@lyra/db";
 import { checkKAnonymity, conflict, type Ctx } from "@lyra/core";
+import { getMetricPin, pinSourceHash, successFeeKey } from "./metric-pins.js";
 
 // docs/specs/gap-finance-design.md D2/D3. Some transactions are illegal because
 // of what is already in the ledger, not because of their own arguments: a second
@@ -11,7 +12,17 @@ import { checkKAnonymity, conflict, type Ctx } from "@lyra/core";
 // run once, at the top of the `initiated` hop, before anything has been written.
 // Read, decide, then write — enforced by the shape.
 
-export type Precondition = (ctx: Ctx, args: Record<string, unknown>) => Promise<void>;
+/**
+ * `input` is the envelope being opened. Only a check that ties the
+ * transaction's own identity to ledger state reads it — SUCCESS-FEE's key must
+ * be derived from its pin — so callers that run a check ahead of `runTxn`
+ * (the year-end preview) may omit it.
+ */
+export type Precondition = (
+  ctx: Ctx,
+  args: Record<string, unknown>,
+  input?: { idempotencyKey?: string }
+) => Promise<void>;
 
 /** Settled transactions of `type`, oldest first. */
 async function settledOfType(ctx: Ctx, type: string): Promise<{ idempotencyKey: string }[]> {
@@ -147,41 +158,40 @@ const dataProductKAnonymity: Precondition = async (ctx, args) => {
 /**
  * docs/19 §11.10 — "`SUCCESS-FEE` cannot post without a verified metric snapshot
  * reference", and §7 — "verified metric snapshot + both parties' sign-off". The
- * sign-off half is the `ledger.success_fee` approval policy, which is
- * `dualControl: "always", neverAutoApprove`. This is the other half, and it was
- * the missing one (docs/27 F21): the recipe is an ordinary invoice, so nothing
- * in the posting path could ask what metric the fee was a fee *on*.
+ * approval half is the `ledger.success_fee` policy (`dualControl: "always",
+ * neverAutoApprove`); this is the evidence half.
  *
- * Verified means attested, not merely computed. Every snapshotter run writes
- * `north_snapshots` rows with `verified_at` null; a row only becomes chargeable
- * when somebody re-read the metric and stood behind the number. A reference to
- * another tenant's snapshot reads as not-found rather than as forbidden — the
- * query is tenant-scoped, so a caller learns nothing about what it cannot see.
+ * docs/27 F21 first closed it by reading `north_snapshots` live and requiring
+ * `verified_at` — which D11 (docs/specs/gap-finance-design.md, ADR-0111)
+ * rejected: a verified row can be recomputed and re-verified after sign-off, so
+ * the number billed was free to move. The fee now names a *pin*
+ * (`ledger_metric_pins`, metric-pins.ts): a hashed copy of one verified row,
+ * countersigned by both parties. Here the pin must be fully countersigned, its
+ * copy must still hash to `source_hash`, and the transaction's idempotency key
+ * must be `success-fee:{pinId}` — so the ledger's unique key index is what lets
+ * one pin bill exactly once, and a replay returns the first posting. The live
+ * snapshot is not read at all. Another tenant's pin reads as not found.
  */
-const verifiedMetricSnapshot: Precondition = async (ctx, args) => {
-  const snapshotId = args["metricSnapshotId"];
-  if (typeof snapshotId !== "string" || !snapshotId) {
+const countersignedMetricPin: Precondition = async (ctx, args, input) => {
+  const pinId = args["pinnedSnapshotId"];
+  if (typeof pinId !== "string" || !pinId) {
     throw conflict(
-      "metricSnapshotId is required: a success fee may only be charged on a verified metric snapshot (docs/19 §11.10)"
+      "pinnedSnapshotId is required: a success fee may only be charged on a metric snapshot pinned and countersigned by both parties (docs/19 §11.10)"
     );
   }
-  const [snap] = await ctx.db
-    .select({
-      id: schema.northSnapshots.id,
-      metricKey: schema.northSnapshots.metricKey,
-      period: schema.northSnapshots.period,
-      verifiedAt: schema.northSnapshots.verifiedAt
-    })
-    .from(schema.northSnapshots)
-    .where(
-      and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.id, snapshotId))
-    )
-    .limit(1);
-  if (!snap) throw conflict(`metric snapshot ${snapshotId} not found`);
-  if (snap.verifiedAt == null) {
+  const pin = await getMetricPin(ctx, pinId);
+  if (!pin) throw conflict(`metric pin ${pinId} not found`);
+  if (pin.state !== "countersigned" || !pin.tenantSignedBy || !pin.counterpartySignedBy) {
     throw conflict(
-      `metric snapshot ${snapshotId} (${snap.metricKey} ${snap.period}) has not been verified; a success fee may not be charged on a computed-but-unattested figure (docs/19 §11.10)`
+      `metric pin ${pinId} (${pin.metricKey} ${pin.period}) has not been countersigned by both parties; a success fee may not be charged on it yet`
     );
+  }
+  if ((await pinSourceHash(pin)) !== pin.sourceHash) {
+    throw conflict(`metric pin ${pinId} no longer matches its source_hash; the pinned figure was altered after pinning`);
+  }
+  const want = successFeeKey(pinId);
+  if (input?.idempotencyKey !== want) {
+    throw conflict(`a success fee on metric pin ${pinId} must post under idempotency key ${want}, so one pin bills exactly once`);
   }
 };
 
@@ -233,7 +243,7 @@ const shariahRulingCurrent: Precondition = async (ctx, args) => {
 /** Every check that must pass before a transaction of this type may proceed. */
 export const TXN_PRECONDITIONS: Record<string, Precondition> = {
   "OPEN-BAL": firstOpeningBalanceOnly,
-  "SUCCESS-FEE": verifiedMetricSnapshot,
+  "SUCCESS-FEE": countersignedMetricPin,
   "YEAR-END-CLOSE": async (ctx, args) => {
     await yearNotAlreadyClosed(ctx, args);
     await fiscalYearSoftClosed(ctx, args);

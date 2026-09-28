@@ -273,7 +273,11 @@ export async function runTxn(ctx: Ctx, input: OpenTxnInput, opts: RunOptions = {
   // would burn the idempotency key on a `failed` row, so the retry after the
   // months are closed would hit "already failed" forever.
   const precondition = TXN_PRECONDITIONS[def.code];
-  if (precondition) await precondition(ctx, reconcileSubjectRef(input.subjectRefs, opts.args ?? {}));
+  if (precondition) {
+    await precondition(ctx, reconcileSubjectRef(input.subjectRefs, opts.args ?? {}), {
+      idempotencyKey: input.idempotencyKey
+    });
+  }
 
   const txn = await openTxn(ctx, input);
 

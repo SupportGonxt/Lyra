@@ -93,7 +93,9 @@ const TYPED_ON_PURPOSE: Record<string, string> = {
   closePackFileId: "an upload, not a pick",
   statementFileId: "an upload, not a pick",
   pdfFileId: "an upload, not a pick",
-  bundleFileId: "an upload, not a pick"
+  bundleFileId: "an upload, not a pick",
+  snapshotId:
+    "a verified NORTH snapshot (ADR-0111); the snapshots list would offer unverified rows the API refuses, labelled by period alone"
 };
 
 describe("every id field is picked or excused", () => {

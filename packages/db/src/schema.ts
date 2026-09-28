@@ -157,7 +157,8 @@ export {
   fxRates as ledgerFxRates,
   taxRules as ledgerTaxRules,
   settlements as ledgerSettlements,
-  budgets as ledgerBudgets
+  budgets as ledgerBudgets,
+  metricPins as ledgerMetricPins
 } from "./schema/ledger.js";
 
 export {

@@ -519,3 +519,48 @@ export const budgets = sqliteTable(
   },
   (t) => [uniqueIndex("ledger_budgets_uq").on(t.tenantId, t.period, t.accountCode, t.currency)]
 );
+
+/**
+ * docs/specs/gap-finance-design.md D11, ADR-0111. A success fee is billed on a
+ * *pinned copy* of one verified `north_snapshots` row, not on the row itself:
+ * the live row can be recomputed and re-verified after sign-off, and the number
+ * the fee was agreed on must not be able to move with it.
+ *
+ * `source_hash` is sha-256 over the canonical JSON of the pinned fields
+ * (`pinHashInput` in packages/ledger/src/metric-pins.ts), recomputed at posting
+ * time. Both sides countersign — our side by a seat other than whoever pinned,
+ * the counterparty's acceptance recorded with its evidence by a seat other than
+ * our signer — and only then may `SUCCESS-FEE` post, under the idempotency key
+ * `success-fee:{id}`, so one pin bills exactly once. A pin is never edited.
+ */
+export const metricPins = sqliteTable(
+  "ledger_metric_pins",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    sourceSnapshotId: text("source_snapshot_id").notNull(),
+    metricKey: text("metric_key").notNull(),
+    grain: text("grain").notNull(),
+    period: text("period").notNull(),
+    dimsHash: text("dims_hash").notNull(),
+    value: integer("value").notNull(), // copied, not referenced (D11)
+    unit: text("unit").notNull(), // from the metric definition at pin time
+    currency: text("currency"),
+    sourceVerifiedBy: text("source_verified_by").notNull(),
+    sourceVerifiedAt: integer("source_verified_at").notNull(),
+    sourceHash: text("source_hash").notNull(),
+    state: text("state").notNull().default("pinned"), // pinned|countersigned
+    pinnedBy: text("pinned_by").notNull(),
+    pinnedAt: integer("pinned_at").notNull(),
+    tenantSignedBy: text("tenant_signed_by"),
+    tenantSignedAt: integer("tenant_signed_at"),
+    counterpartySignedBy: text("counterparty_signed_by"),
+    counterpartySignedAt: integer("counterparty_signed_at"),
+    /** The counterparty's acceptance: an e-sign envelope id, a signed statement's file ref. */
+    counterpartyEvidenceRef: text("counterparty_evidence_ref"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  // One pin per snapshot: a second pin of the same row would be a second bill.
+  (t) => [uniqueIndex("ledger_metric_pins_source_uq").on(t.tenantId, t.sourceSnapshotId)]
+);
