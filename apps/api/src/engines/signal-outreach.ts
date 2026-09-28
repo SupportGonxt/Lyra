@@ -434,6 +434,12 @@ export async function runAcquisitionSweep(
   opts: {
     deliver?: (channel: OutreachChannel, to: string, text: string) => Promise<Delivered | string | null>;
     limit?: number;
+    /**
+     * Opens the connector's sealed secrets for a first-contact send. Passed by
+     * the caller that has the Worker env: no Ctx carries one (`ctxFor` never
+     * sets it), so reading it off the ctx found nothing in production.
+     */
+    env?: { FIELD_KEY?: string | undefined };
   } = {}
 ): Promise<SendOutcome> {
   const outcome: SendOutcome = { sent: 0, pendingApproval: 0, skippedQuietHours: 0, skippedCap: 0, droppedFlagged: 0 };
@@ -506,7 +512,7 @@ export async function runAcquisitionSweep(
       if (approvedBy !== "pending") {
         const out = opts.deliver
           ? await opts.deliver(drafted.channel, recipient.customerId, drafted.text)
-          : await deliverInline(ctx, drafted.channel, recipient.customerId, drafted.text);
+          : await deliverInline(ctx, opts.env ?? {}, drafted.channel, recipient.customerId, drafted.text);
         ({ externalRef, conversationId } = typeof out === "string" ? { externalRef: out, conversationId: null } : (out ?? { externalRef: null, conversationId: null }));
       }
 
@@ -579,7 +585,13 @@ async function addressOn(ctx: Ctx, channel: OutreachChannel, customerId: string)
   return null;
 }
 
-async function deliverInline(ctx: Ctx, channel: OutreachChannel, customerId: string, text: string): Promise<Delivered | null> {
+async function deliverInline(
+  ctx: Ctx,
+  env: { FIELD_KEY?: string | undefined },
+  channel: OutreachChannel,
+  customerId: string,
+  text: string
+): Promise<Delivered | null> {
   // Runtime consent check — the pick-time read is advisory, this is the gate.
   await assertChannel(ctx, customerId, channel, { marketing: true });
   const [connector] = await ctx.db
@@ -646,7 +658,7 @@ async function deliverInline(ctx: Ctx, channel: OutreachChannel, customerId: str
     [conversation] = await ctx.db.select().from(schema.orbitConversations).where(eq(schema.orbitConversations.id, row.id));
   }
   if (!conversation) return null;
-  const sent = await dispatchOutbound(ctx, (ctx as Ctx & { env?: unknown }).env as never, conversation, connector, text);
+  const sent = await dispatchOutbound(ctx, env as never, conversation, connector, text);
   return { externalRef: sent.externalRef, conversationId: conversation.id };
 }
 

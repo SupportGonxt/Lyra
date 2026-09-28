@@ -283,7 +283,7 @@ export default {
             // consent gate → approval gate → send → lead touch. Quiet hours
             // and the weekly frequency cap are enforced inside the sweep; the
             // tick is just the clock that runs it.
-            if (on("signal")) await runAcquisitionSweep(ctx, gatewayFor(env));
+            if (on("signal")) await runAcquisitionSweep(ctx, gatewayFor(env), { env });
             // A comparison past its validity lapses and says so; SIGNAL hears it
             // as a prospect (ADR-0091) on the next drain.
             if (on("dist")) await expireQuoteRequests(ctx);

@@ -300,7 +300,7 @@ rather than mirrored, a parameter no caller passes, a column holding something
 other than what its name says. It tests green because the unit test calls the
 function directly and the fixture mocks the assumption instead of the server.
 Fix it at the seam every reader routes through, grep the call sites in the same
-commit, verify on a deployed environment. Sixteen sightings so far.
+commit, verify on a deployed environment. Seventeen sightings so far.
 
 1. `apps/web/app/components/whitespace-commentary.tsx`, typed against an assumed
    contract while the API was built in parallel, shared one field with what
@@ -530,6 +530,17 @@ commit, verify on a deployed environment. Sixteen sightings so far.
    value is a *resource tab* path (`/ledger/txns`) and not the bespoke screen
    one segment away (`/ledger/transactions`, `ledger-open-txn.tsx`), and nothing
    compares either against the route tree.
+
+17. SIGNAL's first-contact send (ADR-0093) read the Worker env off the ctx —
+   `(ctx as Ctx & { env }).env` — to open the connector's sealed secrets. No Ctx
+   carries one (`ctxFor` never sets it), so in production the key was always
+   undefined, while `signal-outreach.test.ts` passed because it assigned
+   `ctx.env` itself: sighting 6's shape exactly, the fixture supplying what
+   production lacked. Found by a parallel agent reading nearby code, not by a
+   screen. `runAcquisitionSweep` now takes `env` in its options and both callers
+   pass it; `ctx-env.guard.test.ts` fails on any cast that grafts `env` onto a
+   Ctx. A type assertion that adds a field to a shared context is a claim no
+   compiler checks — grep for the cast, not the read.
 
 The round that found 16 spent most of its time on the **guards themselves**, and
 that is the lesson worth keeping: four of the tools written to find dead seams
