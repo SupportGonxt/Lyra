@@ -219,6 +219,18 @@ describe("hashed identifiers", () => {
     expect(await hashEmail("")).toBeNull();
     expect(await hashPhone("call me")).toBeNull();
     expect(await hashPhone("12")).toBeNull();
+    for (const bad of ["a@b", "a@.b", "a@b.", "a@@b.c", "a b@c.d", "@b.c", "a@b@c.d"]) expect(await hashEmail(bad)).toBeNull();
+    expect(await hashEmail("a@b.c")).toBe(await sha256Hex("a@b.c"));
+  });
+
+  // Regression, CodeQL high on #81: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ backtracks
+  // polynomially on a long dotted domain with no valid end — an address is
+  // customer-supplied, so the check has to be linear.
+  it("checks a pathological address in linear time", async () => {
+    const hostile = `a@${".".repeat(50_000)}@`;
+    const started = performance.now();
+    expect(await hashEmail(hostile)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(200);
   });
 });
 

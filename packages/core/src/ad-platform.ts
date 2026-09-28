@@ -115,12 +115,23 @@ export function conversionValueMinor(
   return value !== null && value > 0 ? value : null;
 }
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * One `@`, no whitespace, a non-empty local part, and a domain with a dot that
+ * is neither its first nor last character. Checked by index, not a regex: the
+ * address is customer-supplied and `[^\s@]+\.[^\s@]+` backtracks polynomially.
+ */
+function isEmail(value: string): boolean {
+  const at = value.indexOf("@");
+  if (at < 1 || at !== value.lastIndexOf("@") || /\s/.test(value)) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  return dot > 0 && dot < domain.length - 1;
+}
 
 /** SHA-256 of the trimmed, lower-cased address (both platforms' normalisation); null for a non-address. */
 export async function hashEmail(email: string): Promise<string | null> {
   const normal = email.trim().toLowerCase();
-  return EMAIL.test(normal) ? sha256Hex(normal) : null;
+  return isEmail(normal) ? sha256Hex(normal) : null;
 }
 
 /** SHA-256 of the digits with country code and no `+`; null for anything else or fewer than 7 digits. */
