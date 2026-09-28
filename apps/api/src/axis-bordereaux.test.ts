@@ -367,9 +367,12 @@ describe("inbound bordereau reconciliation (docs/30 Ledger 5)", () => {
     expect(out.lines.map((l: any) => [l.externalRef, l.grossPremiumMinor, l.currency])).toEqual([["P-9", 700, "USD"]]);
   });
 
-  it("the report is gated on reading bordereaux", async () => {
+  it("the report is gated on reading bordereaux: the finance controller reads it, a marketer does not", async () => {
     const imported = ok(await importCsv("policyNo,grossPremiumMinor,commissionMinor\nP-1,1,1", `ext-perm-${Date.now()}`), 201);
-    const res = await call("GET", `/v1/axis/bordereaux/${imported.bordereau.id}/reconciliation`, undefined, {}, () => controllerToken);
-    expect(res.status).toBe(403);
+    const path = `/v1/axis/bordereaux/${imported.bordereau.id}/reconciliation`;
+    // ADR-0105 addendum: the controller reconciles these, so it may read them.
+    expect((await call("GET", path, undefined, {}, () => controllerToken)).status).toBe(200);
+    const marketerToken = await login("noor.jamal");
+    expect((await call("GET", path, undefined, {}, () => marketerToken)).status).toBe(403);
   });
 });

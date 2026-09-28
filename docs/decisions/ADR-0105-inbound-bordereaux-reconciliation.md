@@ -91,3 +91,13 @@ reconcile pass, `engines/axis-bordereaux.ts`, with three limits:
   panel. Line numbers and headings are translated.
 - Channel and partner reconciliation, and auto-proposing an adjustment for a
   variance, are left for when a real feed needs them.
+
+## Addendum, 2026-09-28 — who reconciles
+
+The finance controller reconciles a provider's inbound file: it holds
+`axis:bordereaux:read` and `axis:bordereaux:reconcile`, and — like
+`orbit.retention` under ADR-0054 — a named exception in
+`availableShellsForRoles` opens the AXIS shell for it, because the screen lives
+at `/axis/bordereaux` and a grant without the door is unreachable. Its default
+workspace stays the ledger. Existing tenants pick the grant up on
+`POST /v1/auth/demo/resync-roles`.

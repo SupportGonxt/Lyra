@@ -91,6 +91,12 @@ describe("availableShellsForRoles", () => {
     expect(availableShellsForRoles([])).toEqual(["north"]);
   });
 
+  it("grants finance.controller the AXIS shell too, for inbound bordereaux reconciliation (ADR-0105)", () => {
+    expect(availableShellsForRoles(["finance.controller"])).toEqual(expect.arrayContaining(["ledger", "axis"]));
+    // Its default stays the ledger: the exception opens a door, not a home.
+    expect(defaultWorkspaceForRoles(["finance.controller"])).toBe("ledger");
+  });
+
   it("grants orbit.retention the AXIS shell too, per ADR-0054", () => {
     expect(availableShellsForRoles(["orbit.retention"])).toEqual(expect.arrayContaining(["orbit", "axis"]));
     expect(availableShellsForRoles(["orbit.retention"])).toHaveLength(2);

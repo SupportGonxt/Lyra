@@ -68,6 +68,10 @@ export function availableShellsForRoles(roles: readonly string[]): string[] {
     // own continue — orbit.retention still falls through below to also pick
     // up its own workspace exactly as before.
     if (role === "orbit.retention") found.add("axis");
+    // ADR-0105: the finance controller reconciles a provider's inbound
+    // bordereau, which lives on /axis/bordereaux. The same kind of named
+    // exception, for the same reason: the grant is useless without the door.
+    if (role === "finance.controller") found.add("axis");
     const exact = WORKSPACE_BY_ROLE[role];
     if (exact) {
       found.add(exact);

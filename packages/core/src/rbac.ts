@@ -638,6 +638,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // ADR-0106: a cession posts RI-CEDE to the ledger, so the controller is the
     // second seat on it beside axis.admin — reads the treaty, signs the amount.
     "axis:reinsurance:read", "axis:reinsurance:approve",
+    // ADR-0105: reconciles a provider's inbound bordereau against our books.
+    "axis:bordereaux:read", "axis:bordereaux:reconcile",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
     "analytics:exports:unmasked", "compliance:disclosures:present", "compliance:evidence:read", "compliance:evidence:export",
     "core:notes:read", "core:notes:write"
