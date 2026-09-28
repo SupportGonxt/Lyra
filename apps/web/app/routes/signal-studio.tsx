@@ -52,6 +52,7 @@ import {
   channelLabel,
   channelsOf,
   explain,
+  disclosureNotes,
   labelsIn,
   mintKey,
   nextStates,
@@ -264,6 +265,8 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
           .getAll("locales")
           .map((entry) => String(entry))
           .filter((entry) => CONTENT_LOCALES.some((allowed) => allowed === entry));
+        // ADR-0108: the line whose mandatory disclosure the API appends.
+        const productLine = text(form, "productLine");
 
         const result = await api<{ variants: unknown[] }>("/v1/signal/creatives/generate", {
           env,
@@ -275,6 +278,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
             kind,
             brief,
             count: Math.min(count, MAX_VARIANTS),
+            ...(productLine ? { productLine } : {}),
             ...(locales.length > 0 ? { locales } : {})
           }
         });
@@ -909,6 +913,9 @@ export default function CampaignStudio() {
                     </span>
                   </Field>
                 </div>
+                <Field label={l("studio.productLine")} hint={l("studio.productLineHint")}>
+                  <Input name="productLine" maxLength={64} />
+                </Field>
                 <div className="flex items-center gap-3">
                   <Button type="submit" variant="primary" disabled={busy}>
                     {busy ? l("studio.generating") : `${AGENT_MARK} ${l("studio.generate")}`}
@@ -947,7 +954,10 @@ export default function CampaignStudio() {
               <EmptyState title={l("studio.noVariants")} body={l("studio.noVariants.body")} />
             ) : (
               <ul className="flex flex-col divide-y divide-border border-y border-border">
-                {mine.map((creative) => (
+                {mine.map((creative) => {
+                  const disclosure = disclosureNotes(creative.complianceNotesJson);
+                  const reason = disclosure.reasons[0];
+                  return (
                   <li key={creative.id} className="flex flex-col gap-3 py-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone={toneOf(creative.complianceStatus)} dot>
@@ -966,9 +976,20 @@ export default function CampaignStudio() {
                     {creative.complianceStatus === "blocked" ? (
                       <GuardrailNotice
                         title={l("blocked")}
-                        reason={l("studio.blockedNote")}
+                        reason={reason ? l(`studio.disclosure.${reason}`) : l("studio.blockedNote")}
                         tone="warning"
                       />
+                    ) : reason ? (
+                      <GuardrailNotice title={l("flagged")} reason={l(`studio.disclosure.${reason}`)} tone="warning" />
+                    ) : null}
+
+                    {disclosure.disclosure ? (
+                      <p className="font-ui text-13 text-muted">
+                        {l("studio.disclosure.appended", {
+                          key: disclosure.disclosure.key,
+                          version: String(disclosure.disclosure.version)
+                        })}
+                      </p>
                     ) : null}
 
                     {creative.kind === "image" ? (
@@ -1047,7 +1068,8 @@ export default function CampaignStudio() {
                       </div>
                     )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </Card>

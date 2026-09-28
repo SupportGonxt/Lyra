@@ -59,6 +59,9 @@ export const creatives = sqliteTable(
     campaignId: text("campaign_id"),
     kind: text("kind").notNull(), // ad|lp|email|social|video_script
     locale: text("locale").notNull().default("en"),
+    /** ADR-0108: which product line's mandatory disclosure this copy must carry.
+     *  Null = unscoped, soft-flagged once the tenant configures any disclosure. */
+    productLine: text("product_line"),
     contentRef: text("content_ref").notNull(), // R2 key or inline file id
     variantGroup: text("variant_group"),
     complianceStatus: text("compliance_status").notNull().default("pending"), // pending|passed|flagged|blocked

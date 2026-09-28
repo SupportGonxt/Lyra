@@ -309,6 +309,13 @@
       "when": 1790564396921,
       "tag": "0043_bordereau_tolerance",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1790569439061,
+      "tag": "0044_disclosure_scope",
+      "breakpoints": true
     }
   ]
 }

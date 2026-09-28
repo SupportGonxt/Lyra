@@ -35,6 +35,8 @@ const GenerateBody = z.object({
   kind: z.enum(["ad", "lp", "email", "social", "video_script"]),
   brief: z.string().min(1).max(4_000),
   variantGroup: z.string().optional(),
+  /** ADR-0108: the product line whose mandatory disclosure every variant carries. */
+  productLine: z.string().min(1).max(64).optional(),
   locales: z.array(z.enum(["en", "ar"])).min(1).optional(),
   count: z.number().int().min(1).max(100).optional()
 });
@@ -60,6 +62,7 @@ signalRoutes.post("/creatives/generate", async (c) => {
     campaignId: input.campaignId ?? null,
     ...(context.length > 0 ? { context } : {}),
     variantGroup: input.variantGroup ?? null,
+    productLine: input.productLine ?? null,
     ...(input.locales !== undefined ? { locales: input.locales } : {}),
     ...(input.count !== undefined ? { count: input.count } : {})
   });

@@ -1,6 +1,18 @@
 import { id as newId, schema } from "@lyra/db";
-import { checkCompliance, emit, sha256Hex, type Ctx, type ComplianceFinding, type ComplianceResult } from "@lyra/core";
+import {
+  appendDisclosure,
+  checkCompliance,
+  emit,
+  preflightCreative,
+  sha256Hex,
+  type Ctx,
+  type ComplianceFinding,
+  type ComplianceResult,
+  type CreativePreflight,
+  type DisclosureRef
+} from "@lyra/core";
 import { promptNouns, type Gateway, type PromptNouns } from "@lyra/model-gateway";
+import { disclosureScope } from "./compliance-disclosure.js";
 
 // docs/modules/signal.md §2.1 + §8 acceptance: "Brief -> 20 compliant ar/en
 // variants -> publish to Meta+Google in < 1 hour with human review only at the
@@ -31,6 +43,9 @@ export interface CreativeBrief {
    *  offer, and the bands the audience is made of. Absent for a creative
    *  briefed by hand, which is why it is optional rather than empty. */
   context?: string[];
+  /** ADR-0108 / docs/17 SIG-013: the product line whose mandatory disclosure
+   *  every variant carries. Absent = unscoped. */
+  productLine?: string | null;
   /** Groups variants that are A/B siblings of the same slot; defaults to none. */
   variantGroup?: string | null;
   /** Defaults to both — CLAUDE.md rule 7, ar/en from day one, native prompts not translation. */
@@ -88,9 +103,24 @@ export interface GeneratedVariant {
   id: string;
   locale: CreativeLocale;
   text: string;
-  complianceStatus: ComplianceResult["status"];
+  complianceStatus: CreativePreflight["status"];
   complianceFindings: ComplianceFinding[];
+  /** The tenant wording appended to this variant, at the version appended. */
+  disclosure: DisclosureRef | null;
   aiAuditId: string;
+}
+
+/** The inspectable "why" stored on a creative (docs/15 §4): the pre-flight's
+ *  lane, findings and which disclosure version it was judged against. Null for
+ *  a clean creative with no disclosure lane — the pre-ADR-0108 shape. */
+export function complianceNotes(checkedAt: number, result: CreativePreflight): string | null {
+  if (!result.findings.length && !result.disclosure) return null;
+  return JSON.stringify({
+    checkedAt,
+    lane: result.lane,
+    findings: result.findings,
+    disclosure: result.disclosure
+  });
 }
 
 export interface GenerateCreativesResult {
@@ -191,8 +221,13 @@ async function generateLocale(
     });
     auditIds.push(res.auditId);
 
-    for (const text of parseVariants(res.text)) {
-      const compliance = checkCompliance(text);
+    // SIG-013: appended after generation, deterministically — no prompt
+    // changes, and nothing the model writes can drop or paraphrase it.
+    const scope = await disclosureScope(ctx, brief.productLine ?? null, locale);
+
+    for (const drafted of parseVariants(res.text)) {
+      const text = appendDisclosure(drafted, scope.disclosure);
+      const compliance = preflightCreative(text, scope);
       const id = newId("crv", ctx.now);
 
       await ctx.db.insert(schema.signalCreatives).values({
@@ -201,6 +236,7 @@ async function generateLocale(
         campaignId: brief.campaignId ?? null,
         kind: brief.kind,
         locale,
+        productLine: brief.productLine ?? null,
         // ponytail: contentRef stores the generated text inline, mirroring
         // narrator.ts's narrativeRef — nothing in this codebase uploads real R2
         // bytes yet (see analyticsExports' fileId: null). Swap for a real R2
@@ -208,9 +244,7 @@ async function generateLocale(
         contentRef: text,
         variantGroup: brief.variantGroup ?? null,
         complianceStatus: compliance.status,
-        complianceNotesJson: compliance.findings.length
-          ? JSON.stringify({ checkedAt: ctx.now, lane: "soft_flag", findings: compliance.findings })
-          : null,
+        complianceNotesJson: complianceNotes(ctx.now, compliance),
         performanceJson: null,
         generatedBy: "ai",
         aiAuditId: res.auditId,
@@ -235,6 +269,7 @@ async function generateLocale(
         text,
         complianceStatus: compliance.status,
         complianceFindings: compliance.findings,
+        disclosure: compliance.disclosure,
         aiAuditId: res.auditId
       });
     }

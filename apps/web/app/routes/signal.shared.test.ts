@@ -8,7 +8,10 @@ import {
   citationsOf,
   cockpitHeadline,
   devHeadline,
+  DISCLOSURE_REASONS,
+  disclosureNotes,
   engineName,
+  explain,
   expHeadline,
   growthHeadline,
   labelsIn,
@@ -479,5 +482,63 @@ describe("probabilityTone", () => {
     expect(probabilityTone(59)).toBe("warning");
     expect(probabilityTone(35)).toBe("warning");
     expect(probabilityTone(27)).toBe("neutral");
+  });
+});
+
+// docs/17 SIG-013/015, ADR-0108. The shape is the API's `complianceNotes`
+// (apps/api/src/engines/signal-creative.ts) — the fixtures are in that shape,
+// not an assumed one.
+describe("disclosureNotes", () => {
+  it("reads the appended disclosure and its version off the notes", () => {
+    expect(
+      disclosureNotes({
+        checkedAt: 1,
+        lane: null,
+        findings: [],
+        disclosure: { id: "dwd_1", version: 2, key: "motor_ad" }
+      })
+    ).toEqual({ disclosure: { id: "dwd_1", version: 2, key: "motor_ad" }, reasons: [] });
+  });
+
+  it("reads the disclosure reasons, and only those, off the findings", () => {
+    expect(
+      disclosureNotes(
+        JSON.stringify({
+          checkedAt: 1,
+          lane: "hard_block",
+          findings: [
+            { rule: "comparison_claim_requires_source", excerpt: "cheapest", note: "…" },
+            { rule: "disclosure_missing", excerpt: "motor_ad", note: "…" }
+          ],
+          disclosure: { id: "dwd_1", version: 1, key: "motor_ad" }
+        })
+      ).reasons
+    ).toEqual(["disclosure_missing"]);
+  });
+
+  it("is empty for a creative with no notes, or notes that do not parse", () => {
+    expect(disclosureNotes(null)).toEqual({ disclosure: null, reasons: [] });
+    expect(disclosureNotes("{not json")).toEqual({ disclosure: null, reasons: [] });
+  });
+
+  it("has a sentence for every reason, in both languages", () => {
+    for (const locale of ["en", "ar"]) {
+      const l = labelsIn(locale);
+      for (const reason of DISCLOSURE_REASONS) {
+        expect(l(`studio.disclosure.${reason}`)).not.toBe(`studio.disclosure.${reason}`);
+      }
+      expect(l("studio.disclosure.appended", { key: "k", version: "1" })).toContain("k");
+    }
+  });
+});
+
+describe("explain", () => {
+  it("names the missing disclosure when a publish is refused for it", () => {
+    const l = labelsIn("en");
+    const out = explain(
+      { title: "Cannot process", status: 422, code: "unprocessable", errors: { contentRef: "disclosure_missing" } },
+      l
+    );
+    expect(out.title).toBe(l("studio.disclosure.disclosure_missing"));
   });
 });

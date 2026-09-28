@@ -34,6 +34,7 @@ import { embedUpsert } from "./engines/vectorize.js";
 import { assertCanGrant, bundleOf } from "./engines/staff.js";
 import { onExperimentConcluded } from "./engines/scout-validate.js";
 import { audienceRuleProblem } from "./engines/signal-outreach.js";
+import { creativePreflightGuard, recordCreativeDisclosure } from "./engines/signal-disclosure.js";
 import { must } from "./rows.js";
 import {
   assertDeliverableSchedule,
@@ -956,7 +957,16 @@ export const SIGNAL = register(
     read: "signal:creatives:read",
     create: "signal:creatives:generate",
     update: "signal:creatives:approve"
-  }, { approval: { update: "signal.creative_publish" } }),
+  }, {
+    approval: { update: "signal.creative_publish" },
+    // docs/17 SIG-013/015, ADR-0108. Runs before the approval gate on every
+    // write, so neither an approver nor the auto-approve allowlist can carry a
+    // creative missing its disclosure past it.
+    beforeWrite: (ctx, values, existing) => creativePreflightGuard(ctx, values, existing),
+    afterWrite: async (ctx, row, action, before) => {
+      if (action !== "delete") await recordCreativeDisclosure(ctx, row, before);
+    }
+  }),
   r("signal-experiments", schema.signalExperiments, "exp", "signal", {
     read: "signal:experiments:read",
     create: "signal:experiments:create",
@@ -1408,6 +1418,19 @@ export const COMPLIANCE = register(
   r("erasure-log", schema.erasureLog, "ers", "compliance", ro("compliance:dsar:read"), { immutable: true }),
   r("disclosures", schema.disclosures, "dsc", "compliance", ro("compliance:disclosures:read"), {
     immutable: true
+  }),
+  // ADR-0108: the tenant's own mandatory wording per product line and locale.
+  // A wording change bumps `version`, so a presentation's wordingRef always
+  // names the exact text a creative carried.
+  r("disclosure-wordings", schema.disclosureWordings, "dwd", "compliance", rw("compliance:disclosure_wordings"), {
+    beforeWrite: (_ctx, values, existing) => {
+      if (existing && typeof values.wording === "string" && values.wording !== existing.wording) {
+        return { ...values, version: Number(existing.version) + 1 };
+      }
+      if (!existing) return { ...values, version: 1 };
+      const { version: _ignored, ...rest } = values;
+      return rest;
+    }
   }),
   // Read-only here: these three are produced by run/export endpoints in
   // routes/compliance.ts, which hash and gather server-side. A generated

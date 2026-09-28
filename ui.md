@@ -27,7 +27,7 @@ of route files driven by declarative specs in [apps/web/app/modules/](apps/web/a
 - [module.tsx](apps/web/app/routes/module.tsx) — `/:module` and `/:module/:resource`, the tabbed list
 - [record.tsx](apps/web/app/routes/record.tsx) — `/:module/:resource/:id`, the single record
 
-Adding a resource adds a `ResourceSpec` entry, not a route. 139 resource tabs
+Adding a resource adds a `ResourceSpec` entry, not a route. 140 resource tabs
 across 10 workspaces render this way. §7 is the full table.
 
 **Bespoke.** A screen that is genuinely its own thing — a quote comparison, a
@@ -587,7 +587,7 @@ multiplier in ppm (FX 18.5 is `18500000`, never 1850%), `measure` is a number
 whose unit is a sibling column (NORTH stores money, basis points, milliseconds and
 counts in one `value`), `money` is minor units.
 
-### 7.1 The 139 resource tabs
+### 7.1 The 140 resource tabs
 
 
 #### `/admin` — 36 tabs
@@ -732,13 +732,14 @@ reaches the page. No modal, no auto-run, no toast.
 | `process-events` | `/v1/axis/process-events` | `axis:metrics:read` |  |  |  |  |  |
 | `ops-policies` | `/v1/axis/ops-policies` | `axis:ops_policies:read` | ✓ | ✓ | ✓ |  |  |
 
-#### `/compliance` — 10 tabs
+#### `/compliance` — 11 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
 | `dsar-requests` | `/v1/compliance/dsar-requests` | `compliance:dsar:read` | ✓ | ✓ |  |  |  |
 | `erasure-log` | `/v1/compliance/erasure-log` | `compliance:dsar:read` |  |  |  |  |  |
 | `disclosures` | `/v1/compliance/disclosures` | `compliance:disclosures:read` |  |  |  |  |  |
+| `disclosure-wordings` | `/v1/compliance/disclosure-wordings` | `compliance:disclosure_wordings:read` | ✓ | ✓ |  |  |  |
 | `screenings` | `/v1/compliance/screenings` | `compliance:screenings:read` |  |  |  |  |  |
 | `retention-runs` | `/v1/compliance/retention-runs` | `compliance:retention:read` |  |  |  |  |  |
 | `legal-holds` | `/v1/compliance/legal-holds` | `compliance:legal_holds:read` | ✓ | ✓ | ✓ |  |  |

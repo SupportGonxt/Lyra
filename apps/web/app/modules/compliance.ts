@@ -25,6 +25,11 @@ export const compliance: WorkspaceSpec = {
       "dsar-requests": "Subject requests",
       "erasure-log": "Erasure log",
       disclosures: "Disclosures",
+      "disclosure-wordings": "Mandatory disclosures",
+      productLine: "Product line",
+      wording: "Wording",
+      "status.active": "Active",
+      "status.retired": "Retired",
       screenings: "Screenings",
       "retention-runs": "Retention runs",
       "legal-holds": "Legal holds",
@@ -166,6 +171,11 @@ export const compliance: WorkspaceSpec = {
       "dsar-requests": "طلبات أصحاب البيانات",
       "erasure-log": "سجل المحو",
       disclosures: "الإفصاحات",
+      "disclosure-wordings": "الإفصاحات الإلزامية",
+      productLine: "خط المنتج",
+      wording: "الصيغة",
+      "status.active": "نشط",
+      "status.retired": "موقوف",
       screenings: "عمليات الفحص",
       "retention-runs": "عمليات الاحتفاظ",
       "legal-holds": "التجميد القانوني",
@@ -409,6 +419,37 @@ export const compliance: WorkspaceSpec = {
         // The ranking/eligibility criteria that were shown alongside the
         // wording. Wide, so it trails the row rather than crowding it.
         { name: "criteriaJson", type: "json" }
+      ]
+    },
+    {
+      // ADR-0108 / docs/17 SIG-013: the tenant's own mandatory wording per
+      // product line and language. SIGNAL appends it to every creative for
+      // that line and blocks a publish without it. The compliance team writes
+      // the text; `version` is the API's, bumped on every wording change.
+      key: "disclosure-wordings",
+      api: "/v1/compliance/disclosure-wordings",
+      read: "compliance:disclosure_wordings:read",
+      create: "compliance:disclosure_wordings:write",
+      update: "compliance:disclosure_wordings:write",
+      filters: [{ name: "status", options: ["active", "retired"] }],
+      columns: [
+        { name: "productLine", type: "text" },
+        { name: "locale", type: "text" },
+        { name: "key", type: "text" },
+        { name: "wording", type: "text" },
+        { name: "version", type: "number" },
+        { name: "status", type: "text", badge: true },
+        { name: "updatedAt", type: "datetime", sortable: true }
+      ],
+      fields: [
+        { name: "productLine", type: "text", required: true },
+        { name: "locale", type: "select", required: true, options: ["en", "ar"] },
+        { name: "key", type: "text", required: true },
+        { name: "wording", type: "textarea", required: true }
+      ],
+      editable: [
+        { name: "wording", type: "textarea" },
+        { name: "status", type: "select", options: ["active", "retired"] }
       ]
     },
     {

@@ -716,6 +716,19 @@ export interface AxisTelemetryPoints {
   createdAt?: number;
 }
 
+export interface ComplianceDisclosureWordings {
+  id?: string;
+  tenantId?: string;
+  productLine: string;
+  locale?: string;
+  key: string;
+  wording: string;
+  version?: number;
+  status?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface ComplianceDisclosures {
   id?: string;
   tenantId?: string;
@@ -2360,6 +2373,7 @@ export interface SignalCreatives {
   campaignId?: string;
   kind: string;
   locale?: string;
+  productLine?: string;
   contentRef: string;
   variantGroup?: string;
   complianceStatus?: string;
@@ -2675,6 +2689,11 @@ export interface Operations {
   "GET /v1/axis/telemetry-points/{id}": Op<{ id: string }, never, never, AxisTelemetryPoints>;
   "GET /v1/channels/{connectorId}/webhook": Op<{ connectorId: string }, never, never, Record<string, unknown>>;
   "POST /v1/channels/{connectorId}/webhook": Op<{ connectorId: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/compliance/disclosure-wordings": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ComplianceDisclosureWordings>>;
+  "POST /v1/compliance/disclosure-wordings": Op<never, never, ComplianceDisclosureWordings, ComplianceDisclosureWordings>;
+  "GET /v1/compliance/disclosure-wordings/{id}": Op<{ id: string }, never, never, ComplianceDisclosureWordings>;
+  "PATCH /v1/compliance/disclosure-wordings/{id}": Op<{ id: string }, never, ComplianceDisclosureWordings, ComplianceDisclosureWordings>;
+  "DELETE /v1/compliance/disclosure-wordings/{id}": Op<{ id: string }, never, never, void>;
   "GET /v1/compliance/disclosures": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<ComplianceDisclosures>>;
   "POST /v1/compliance/disclosures/present": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/compliance/disclosures/{id}": Op<{ id: string }, never, never, ComplianceDisclosures>;
@@ -3510,6 +3529,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/axis/telemetry-points/{id}": { tag: "axis", summary: "Fetch one telemetry point", permission: "axis:policies:read", public: false },
   "GET /v1/channels/{connectorId}/webhook": { tag: "orbit", summary: "Provider subscription handshake; echoes the challenge when the verify token matches", permission: null, public: true },
   "POST /v1/channels/{connectorId}/webhook": { tag: "orbit", summary: "Provider webhook delivery: signature-verified inbound messages and delivery receipts", permission: null, public: true },
+  "GET /v1/compliance/disclosure-wordings": { tag: "compliance", summary: "List disclosure-wordings", permission: "compliance:disclosure_wordings:read", public: false },
+  "POST /v1/compliance/disclosure-wordings": { tag: "compliance", summary: "Create a disclosure wording", permission: "compliance:disclosure_wordings:write", public: false },
+  "GET /v1/compliance/disclosure-wordings/{id}": { tag: "compliance", summary: "Fetch one disclosure wording", permission: "compliance:disclosure_wordings:read", public: false },
+  "PATCH /v1/compliance/disclosure-wordings/{id}": { tag: "compliance", summary: "Update a disclosure wording", permission: "compliance:disclosure_wordings:write", public: false },
+  "DELETE /v1/compliance/disclosure-wordings/{id}": { tag: "compliance", summary: "Soft-delete a disclosure wording", permission: "compliance:disclosure_wordings:write", public: false },
   "GET /v1/compliance/disclosures": { tag: "compliance", summary: "List disclosures", permission: "compliance:disclosures:read", public: false },
   "POST /v1/compliance/disclosures/present": { tag: "compliance", summary: "Record that a required disclosure was shown, hashing the wording as evidence", permission: "compliance:disclosures:present", public: false },
   "GET /v1/compliance/disclosures/{id}": { tag: "compliance", summary: "Fetch one disclosure", permission: "compliance:disclosures:read", public: false },

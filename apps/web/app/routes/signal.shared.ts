@@ -136,6 +136,9 @@ export interface CreativeRow {
   campaignId: string | null;
   kind: string;
   locale: string;
+  /** ADR-0108: whose mandatory disclosure the copy carries. Mirrors
+   *  signal_creatives.product_line (packages/db/src/schema/signal.ts). */
+  productLine?: string | null;
   contentRef: string;
   variantGroup: string | null;
   complianceStatus: string;
@@ -277,6 +280,8 @@ export interface Problemish {
   code?: string;
   detail?: string;
   policy_key?: string;
+  /** RFC 9457 field map (docs/04 §1): only the key and code cross, never zod's prose. */
+  errors?: Record<string, string>;
 }
 
 /* ------------------------------------------------------------------ plumbing */
@@ -799,6 +804,37 @@ export function nextStates(state: string): readonly string[] {
   return CAMPAIGN_TRANSITIONS[state] ?? [];
 }
 
+/* ------------------------------------------------------- disclosures (SIG-013) */
+
+/** Mirrors `DisclosureReason` in packages/core/src/signal-compliance.ts. */
+export const DISCLOSURE_REASONS = ["disclosure_missing", "disclosure_unconfigured", "disclosure_unscoped"] as const;
+export type DisclosureReason = (typeof DISCLOSURE_REASONS)[number];
+
+export interface DisclosureNotes {
+  disclosure: { id: string; version: number; key: string } | null;
+  reasons: DisclosureReason[];
+}
+
+/**
+ * The disclosure half of a creative's compliance notes — the shape written by
+ * `complianceNotes` in apps/api/src/engines/signal-creative.ts: which tenant
+ * wording was appended (and at which version), and why the lane flagged or
+ * blocked it. Anything else in the column is the banned-claim scan's.
+ */
+export function disclosureNotes(raw: unknown): DisclosureNotes {
+  const notes = asJson<{ findings?: unknown; disclosure?: unknown }>(raw, {});
+  const d = notes.disclosure as { id?: unknown; version?: unknown; key?: unknown } | null | undefined;
+  const disclosure =
+    d && typeof d.id === "string" && typeof d.version === "number" && typeof d.key === "string"
+      ? { id: d.id, version: d.version, key: d.key }
+      : null;
+  const findings = Array.isArray(notes.findings) ? (notes.findings as Array<{ rule?: unknown }>) : [];
+  const reasons = findings
+    .map((f) => f?.rule)
+    .filter((rule): rule is DisclosureReason => DISCLOSURE_REASONS.some((r) => r === rule));
+  return { disclosure, reasons };
+}
+
 /** Compliance has to have cleared a variant before the campaign can carry it. */
 export function isPublishable(creative: CreativeRow): boolean {
   return creative.complianceStatus === "passed";
@@ -1290,6 +1326,12 @@ const LABELS: Record<string, Record<string, string>> = {
     "studio.approve": "Clear this draft",
     "studio.approved": "Cleared",
     "studio.blockedNote": "Compliance blocked this draft. Edit it or discard it.",
+    "studio.productLine": "Product line",
+    "studio.productLineHint": "Its mandatory disclosure, as your compliance team configured it, is added to every draft.",
+    "studio.disclosure.appended": "Disclosure {key} (version {version}) is appended to this draft.",
+    "studio.disclosure.disclosure_missing": "This draft no longer carries its product line's mandatory disclosure word for word. It cannot be cleared until the wording is restored.",
+    "studio.disclosure.disclosure_unconfigured": "No mandatory disclosure is configured for this product line in this language. A compliance reviewer must confirm none is required before clearing it.",
+    "studio.disclosure.disclosure_unscoped": "This draft names no product line, so no disclosure could be matched to it. A compliance reviewer must decide which applies.",
     "studio.discard": "Discard",
     "studio.launch": "Launch the campaign",
     "studio.launchHint": "Going live spends money. It is recorded, and it may need an approver.",
@@ -1899,6 +1941,12 @@ const LABELS: Record<string, Record<string, string>> = {
     "studio.approve": "اعتمد هذه المسودة",
     "studio.approved": "معتمدة",
     "studio.blockedNote": "حجب الامتثال هذه المسودة. حرّرها أو استبعدها.",
+    "studio.productLine": "خط المنتج",
+    "studio.productLineHint": "يُضاف الإفصاح الإلزامي الخاص به، كما أعدّه فريق الامتثال لديك، إلى كل مسودة.",
+    "studio.disclosure.appended": "الإفصاح {key} (الإصدار {version}) مُلحق بهذه المسودة.",
+    "studio.disclosure.disclosure_missing": "لم تعد هذه المسودة تحمل الإفصاح الإلزامي لخط المنتج بنصّه الحرفي. لا يمكن اعتمادها حتى يُعاد النص.",
+    "studio.disclosure.disclosure_unconfigured": "لا يوجد إفصاح إلزامي مُعدّ لخط المنتج هذا بهذه اللغة. على مراجع الامتثال تأكيد عدم الحاجة إليه قبل اعتمادها.",
+    "studio.disclosure.disclosure_unscoped": "لا تحدد هذه المسودة خط منتج، لذا تعذّرت مطابقة أي إفصاح لها. على مراجع الامتثال تحديد ما ينطبق.",
     "studio.discard": "استبعاد",
     "studio.launch": "أطلق الحملة",
     "studio.launchHint": "الإطلاق يصرف مالًا. يُسجَّل الأمر وقد يحتاج موافقًا.",
@@ -2394,6 +2442,9 @@ export const LABEL_KEYS = LABELS;
  * from the API keeps its own title.
  */
 export function explain(problem: Problemish, l: Label): Problemish {
+  // SIG-015: a publish refused for a missing disclosure says so, not "cannot process".
+  const field = problem.errors?.contentRef;
+  if (field && DISCLOSURE_REASONS.some((r) => r === field)) return { ...problem, title: l(`studio.disclosure.${field}`) };
   const key = problem.code ? `problem.${problem.code}` : "";
   return key && LABELS.en![key] ? { ...problem, title: l(key) } : problem;
 }

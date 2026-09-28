@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // docs/12 — compliance operating surface. Consent and the hash-chained audit log
@@ -66,6 +67,36 @@ export const disclosures = sqliteTable(
     ts: integer("ts").notNull()
   },
   (t) => [index("compliance_disclosures_idx").on(t.tenantId, t.subjectRef, t.ts)]
+);
+
+/**
+ * docs/17 SIG-013, ADR-0108: the tenant's own mandatory disclosure wording per
+ * product line and locale — what `compliance_disclosures` above snapshots when
+ * one is shown. The tenant's compliance team writes the text; the platform
+ * never does (docs/12). `version` rises on every wording change, so a
+ * presentation's `wordingRef` names exactly which wording a creative carried.
+ * One active row per (product line, locale); retiring one and activating
+ * another is how wording is replaced.
+ */
+export const disclosureWordings = sqliteTable(
+  "compliance_disclosure_wordings",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    productLine: text("product_line").notNull(),
+    locale: text("locale").notNull().default("en"),
+    key: text("key").notNull(),
+    wording: text("wording").notNull(),
+    version: integer("version").notNull().default(1),
+    status: text("status").notNull().default("active"), // active|retired
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("compliance_disclosure_wordings_active_uq")
+      .on(t.tenantId, t.productLine, t.locale)
+      .where(sql`status = 'active'`)
+  ]
 );
 
 export const screenings = sqliteTable(
