@@ -3282,6 +3282,7 @@ export interface Operations {
   "POST /v1/signal/audiences/suggest": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/signal/audiences/{id}": Op<{ id: string }, never, never, SignalAudiences>;
   "PATCH /v1/signal/audiences/{id}": Op<{ id: string }, never, SignalAudiences, SignalAudiences>;
+  "POST /v1/signal/audiences/{id}/lookalike": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/signal/autopilot/pause": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/signal/autopilot/resume": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/signal/autopilot/run": Op<never, never, never, Record<string, unknown>>;
@@ -4130,6 +4131,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/signal/audiences/suggest": { tag: "signal", summary: "Propose a targetable audience for a subject from k-anonymous attribute counts, with the reason each band was chosen (docs/17 §SIG-025; protected attributes excluded per §SIG-034)", permission: "signal:audiences:estimate", public: false },
   "GET /v1/signal/audiences/{id}": { tag: "signal", summary: "Fetch one audience", permission: "signal:audiences:read", public: false },
   "PATCH /v1/signal/audiences/{id}": { tag: "signal", summary: "Update a audience", permission: "signal:audiences:create", public: false },
+  "POST /v1/signal/audiences/{id}/lookalike": { tag: "signal", summary: "Expand a seed audience into a new audience of the customers most like it (docs/17 §SIG-028, ADR-0113): body {size 1..5000, name?}. Scored on the domain pack's targetable axes only, never a protected attribute (§SIG-034); only people who consented to marketing and profiling are read or returned, suppression always applies, and the new audience's consentPurposes is the strictest basis its members share. 409 when the seed's consented members or shared cells fall under the k-anonymity floor", permission: "signal:audiences:create", public: false },
   "POST /v1/signal/autopilot/pause": { tag: "signal", summary: "Pause the budget autopilot kill switch", permission: "signal:autopilot:pause", public: false },
   "POST /v1/signal/autopilot/resume": { tag: "signal", summary: "Resume the budget autopilot", permission: "signal:autopilot:pause", public: false },
   "POST /v1/signal/autopilot/run": { tag: "signal", summary: "Force the SIGNAL budget autopilot pass now", permission: "signal:autopilot:run", public: false },

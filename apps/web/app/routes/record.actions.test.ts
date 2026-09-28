@@ -101,6 +101,45 @@ describe("runAction", () => {
     expect(calls[0]?.body).toBe(JSON.stringify({ reason: "duplicate" }));
   });
 
+  describe("an action that makes a new record of the same resource", () => {
+    // ADR-0113: "Expand as lookalike" answers with a new audience. The screen
+    // follows it — the size and consent basis the reader needs to see are that
+    // record's own columns.
+    const expand: ActionSpec = {
+      intent: "lookalike",
+      method: "POST",
+      path: "/{id}/lookalike",
+      labelKey: "audiences.lookalike",
+      permission: "signal:audiences:create",
+      opensCreated: true,
+      fields: [{ name: "size", type: "number", required: true }]
+    };
+    const created = () =>
+      new Response(JSON.stringify({ id: "aud_new", size: 40, basis: ["marketing", "profiling"] }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      });
+
+    it("reports the id the API answered with", async () => {
+      const form = new FormData();
+      form.set("size", "40");
+      const calls = stubFetch(created());
+      const result = await runAction(tab, expand, "aud_seed", form, { env });
+      expect(calls[0]?.body).toBe(JSON.stringify({ size: 40 }));
+      expect(result).toEqual({ problem: null, done: "lookalike", opened: "aud_new" });
+    });
+
+    it("opens nothing for an action that does not declare it, whatever the API answers", async () => {
+      stubFetch(created());
+      expect(await runAction(tab, pause, "sch_01H", new FormData(), { env })).toEqual({ problem: null, done: "pause" });
+    });
+
+    it("opens nothing when the answer carries no id", async () => {
+      stubFetch(new Response(null, { status: 204 }));
+      expect(await runAction(tab, expand, "aud_seed", new FormData(), { env })).toEqual({ problem: null, done: "lookalike" });
+    });
+  });
+
   it("surfaces a rejection as a Problem rather than throwing", async () => {
     stubFetch(
       new Response(JSON.stringify({ title: "forbidden", status: 403, detail: "not yours" }), {

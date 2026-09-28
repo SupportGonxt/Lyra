@@ -114,7 +114,8 @@ export {
   spend as signalSpend,
   outreach as signalOutreach,
   prospects as signalProspects,
-  responses as signalResponses
+  responses as signalResponses,
+  audienceMembers as signalAudienceMembers
 } from "./schema/signal.js";
 
 export {

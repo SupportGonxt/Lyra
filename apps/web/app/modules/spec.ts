@@ -111,6 +111,12 @@ export interface ActionSpec {
    * `<labelKey>.confirm` in the workspace's label table.
    */
   confirm?: boolean;
+  /**
+   * The endpoint answers with a new record of this same resource (`{ id }`),
+   * and the screen opens it — the result is a record, so its own columns say
+   * what was made. "Expand as lookalike" (ADR-0113) is the first.
+   */
+  opensCreated?: boolean;
 }
 
 /**
