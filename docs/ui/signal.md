@@ -965,6 +965,21 @@ reversible inside its window; outside it the cell is absent.
 reversals through `signal.budget_move`; both render as the *"Waiting for an
 approver"* panel rather than as failures.
 
+**Autopilot against a frozen budget** (docs/17 SIG-046, ADR-0110). A card
+between the bounds form and the moves table, read from
+`GET /v1/signal/holdout/readout?since=<window start>` and absent — not empty —
+for a reader without `signal:attribution:read`. It leads with one sentence
+(*"Acquisitions cost 50% less where the autopilot ran."*, or *"… more …"*), then
+two stats: cost per acquisition where the autopilot ran, and for the campaigns
+held out, each hinted with its campaign and acquisition counts. With no
+campaign held out it is an `EmptyState` naming the door (*tick Holdout on a
+campaign*); with a side that bought or spent nothing the sentence says so and
+the stat reads *None* — never a zero. The per-campaign table carries a
+**Holdout** column with a *Held out* badge. A campaign is held out from the
+Campaigns tab's edit form (`holdout` checkbox), which is an ordinary campaign
+update behind `signal.campaign_launch`; the autopilot then never moves its
+budget.
+
 ---
 
 ## 7.7 `/signal/analytics` — Growth analytics

@@ -36,6 +36,7 @@ import {
   budgetHeadline,
   budgetOf,
   explain,
+  holdoutVerdict,
   isReversible,
   labelsIn,
   mintKey,
@@ -46,6 +47,7 @@ import {
   windowDays,
   type Budget,
   type CampaignRow,
+  type HoldoutReadout,
   type MoveRow,
   type Page,
   type Problemish,
@@ -74,7 +76,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const days = windowDays(url.searchParams.get("days"));
   const from = Date.now() - days * 86_400_000;
 
-  const [campaigns, spend, moves] = await Promise.all([
+  const [campaigns, spend, moves, holdout] = await Promise.all([
     safe(() => api<Page<CampaignRow>>("/v1/signal/campaigns?limit=200", { env, request }), empty<CampaignRow>()),
     safe(
       () => api<Page<SpendRow>>(`/v1/signal/spend?sort=ts&from=${from}&limit=200`, { env, request }),
@@ -83,6 +85,11 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     safe(
       () => api<Page<MoveRow>>(`/v1/signal/budget-moves?sort=ts&limit=200`, { env, request }),
       empty<MoveRow>()
+    ),
+    // docs/17 SIG-046: null when this reader may not see attribution — the card is then absent, not empty.
+    safe<HoldoutReadout | null>(
+      () => api<HoldoutReadout>(`/v1/signal/holdout/readout?since=${from}`, { env, request }),
+      null
     )
   ]);
 
@@ -104,6 +111,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     ceilingMinor: inCurrency.reduce((sum, campaign) => sum + plannedMinor(budgetOf(campaign), days), 0),
     currency,
     moves: moves.data,
+    holdout,
     campaignNames: Object.fromEntries(campaigns.data.map((one) => [one.id, one.name])) as Record<string, string>,
     now: Date.now(),
     key: mintKey("signal-budget")
@@ -298,6 +306,8 @@ export default function BudgetAndBounds() {
         </Card>
       ) : null}
 
+      {loaded.holdout ? <HoldoutCard readout={loaded.holdout} l={l} locale={locale} currency={currency} /> : null}
+
       <Card title={l("budget.moves")} description={l("budget.movesCaption")}>
         <GuardrailNotice title={l("budget.reverse")} reason={l("budget.reverseHint")} tone="info" />
         {loaded.moves.length === 0 ? (
@@ -373,6 +383,11 @@ function boundsColumns(
       render: (campaign) => l(`autonomy.${campaign.autonomyLevel}`)
     },
     {
+      key: "holdout",
+      header: l("budget.holdout.column"),
+      render: (campaign) => (campaign.holdout ? <Badge tone="info">{l("budget.holdout.badge")}</Badge> : null)
+    },
+    {
       key: "spent",
       header: l("budget.used"),
       numeric: true,
@@ -393,6 +408,44 @@ function boundsColumns(
       }
     }
   ];
+}
+
+/**
+ * docs/17 SIG-046, ADR-0110: what an acquisition cost where the autopilot ran
+ * against the campaigns held at a frozen budget, over the screen's window.
+ */
+function HoldoutCard({
+  readout,
+  l,
+  locale,
+  currency
+}: {
+  readout: HoldoutReadout;
+  l: (key: string, vars?: Record<string, string>) => string;
+  locale: string;
+  currency: string;
+}) {
+  const verdict = holdoutVerdict(readout, l, locale);
+  if (readout.status === "no_holdout") {
+    return (
+      <Card title={l("budget.holdout")}>
+        <EmptyState title={verdict} body={l("budget.holdout.none.body")} />
+      </Card>
+    );
+  }
+  const cac = (value: number | null) =>
+    value === null ? l("none") : <Money amountMinor={value} currency={currency} locale={locale} />;
+  const count = (side: HoldoutReadout["acted"]) =>
+    l("budget.holdout.campaigns", { n: String(side.campaigns), conversions: String(side.conversions) });
+  return (
+    <Card title={l("budget.holdout")} description={l("budget.holdout.lede")}>
+      <p className="font-ui text-14">{verdict}</p>
+      <KPIWall className="mt-4">
+        <Stat label={`${l("budget.holdout.acted")} · ${l("budget.holdout.cac")}`} value={cac(readout.acted.cacMinor)} hint={count(readout.acted)} />
+        <Stat label={`${l("budget.holdout.frozen")} · ${l("budget.holdout.cac")}`} value={cac(readout.holdout.cacMinor)} hint={count(readout.holdout)} />
+      </KPIWall>
+    </Card>
+  );
 }
 
 /** One move's undo, or the reason there is none. */

@@ -64,6 +64,7 @@ export const signal: WorkspaceSpec = {
       "objective.xsell": "Cross-sell",
       state: "State",
       autonomyLevel: "Autonomy",
+      holdout: "Holdout (budget frozen)",
       ownerRef: "Owner",
       startAt: "Starts",
       endAt: "Ends",
@@ -197,6 +198,7 @@ export const signal: WorkspaceSpec = {
       "objective.xsell": "بيع تكميلي",
       state: "الوضع",
       autonomyLevel: "الاستقلالية",
+      holdout: "مستبعدة (ميزانية مجمّدة)",
       ownerRef: "المسؤول",
       startAt: "يبدأ",
       endAt: "ينتهي",
@@ -340,6 +342,7 @@ export const signal: WorkspaceSpec = {
         { name: "objective", type: "text" },
         { name: "state", type: "text", badge: true },
         { name: "autonomyLevel", type: "text", badge: true },
+        { name: "holdout", type: "boolean" },
         { name: "ownerRef", type: "text" },
         { name: "startAt", type: "datetime", sortable: true },
         { name: "endAt", type: "datetime" }
@@ -355,6 +358,8 @@ export const signal: WorkspaceSpec = {
         { name: "audienceId", type: "text" },
         { name: "channelsJson", type: "json", required: true },
         { name: "budgetJson", type: "json", required: true },
+        // ADR-0110: the frozen-budget holdout the autopilot is measured against.
+        { name: "holdout", type: "boolean" },
         { name: "ownerRef", type: "text", required: true },
         { name: "startAt", type: "datetime" },
         { name: "endAt", type: "datetime" }
@@ -368,6 +373,9 @@ export const signal: WorkspaceSpec = {
           options: ["draft", "review", "scheduled", "live", "paused", "ended"]
         },
         { name: "budgetJson", type: "json" },
+        // ADR-0110: holding a campaign out freezes its budget — the autopilot
+        // never moves money into or out of it (docs/17 SIG-046).
+        { name: "holdout", type: "boolean" },
         { name: "startAt", type: "datetime" },
         { name: "endAt", type: "datetime" },
         { name: "ownerRef", type: "text" }

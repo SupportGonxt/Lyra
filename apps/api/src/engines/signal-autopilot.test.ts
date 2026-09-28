@@ -9,12 +9,15 @@ import { chainFor, permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import {
   anomalyGuard,
   boundCheck,
-  compareHoldout,
   computeChannelCac,
   computeLtv,
   proposeReallocation,
   runBudgetAutopilot
 } from "./signal-autopilot.js";
+import { Hono } from "hono";
+import { onError } from "../mw.js";
+import { signalRoutes } from "../routes/signal.js";
+import type { App } from "../env.js";
 
 // docs/modules/signal.md §2.3 "autopilot" — CAC/LTV-driven reallocation with a
 // bound check, an anomaly guard, and a daily trigger. Mirrors the harness in
@@ -71,6 +74,7 @@ async function campaign(opts: {
   boundMinor?: number;
   channels?: string[];
   deletedAt?: number | null;
+  holdout?: boolean;
 }) {
   await ctx.db.insert(schema.signalCampaigns).values({
     id: opts.id,
@@ -87,7 +91,8 @@ async function campaign(opts: {
     ownerRef: "user:noor",
     createdAt: ctx.now,
     updatedAt: ctx.now,
-    deletedAt: opts.deletedAt ?? null
+    deletedAt: opts.deletedAt ?? null,
+    holdout: opts.holdout ?? false
   });
 }
 
@@ -195,18 +200,6 @@ describe("proposeReallocation", () => {
   it("proposes nothing with a single priced channel", () => {
     const cac = computeChannelCac([{ channel: "google_search", amountMinor: 100_000, conversions: 10 }]);
     expect(proposeReallocation(cac)).toBeNull();
-  });
-});
-
-describe("compareHoldout", () => {
-  it("reports uplift when the acted-on cohort beats the frozen-budget holdout", () => {
-    const result = compareHoldout(
-      [{ amountMinor: 100_000, conversions: 20 }],
-      [{ amountMinor: 100_000, conversions: 10 }]
-    );
-    expect(result.actedCacMinor).toBe(5_000);
-    expect(result.holdoutCacMinor).toBe(10_000);
-    expect(result.upliftBps).toBe(5_000); // acted CAC is 50% of holdout CAC
   });
 });
 
@@ -378,5 +371,61 @@ describe("runBudgetAutopilot", () => {
     expect(created).toBe(0);
     const chain = await chainFor(ctx);
     expect(chain.filter((r) => r.action === "signal.autopilot.evaluated")).toHaveLength(1);
+  });
+
+  // docs/17 SIG-046, ADR-0110: a holdout campaign's budget is frozen — the
+  // autopilot neither evaluates it nor moves a fils into or out of it.
+  it("never evaluates or moves a holdout campaign, however wide its CAC gap", async () => {
+    await campaign({ id: "cmp_frozen", autonomyLevel: "act", boundMinor: 1_000_000, holdout: true });
+    await spendRow("cmp_frozen", "google_search", "2023-11-10", 200_000, 40);
+    await spendRow("cmp_frozen", "meta", "2023-11-10", 200_000, 20);
+    await bind("cmp_frozen", 500_000, ctx.now - 2 * DAY_MS);
+
+    expect(await runBudgetAutopilot(ctx)).toBe(0);
+    expect(await ctx.db.select().from(schema.signalBudgetMoves)).toHaveLength(0);
+    const chain = await chainFor(ctx);
+    expect(chain.filter((r) => r.action === "signal.autopilot.evaluated")).toHaveLength(0);
+  });
+});
+
+describe("GET /holdout/readout", () => {
+  const get = async (permissions: string[], query = "", now = ctx.now) => {
+    const a = new Hono<App>();
+    a.onError(onError);
+    a.use("*", async (c, next) => {
+      c.set("ctx", { ...ctx, now, actor: { kind: "user", id: "u_1", tenantId: "t_1", grants: [{ roleKey: "t", permissions: permissions as never }] } });
+      await next();
+    });
+    a.route("/", signalRoutes);
+    const res = await a.fetch(new Request(`http://api.test/holdout/readout${query}`), {} as never);
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  };
+
+  it("needs signal:attribution:read", async () => {
+    expect((await get(["signal:campaigns:read"])).status).toBe(403);
+  });
+
+  it("reads the trailing 30 days by default and honours ?since&until", async () => {
+    await campaign({ id: "cmp_acted", autonomyLevel: "act" });
+    await campaign({ id: "cmp_frozen", autonomyLevel: "act", holdout: true });
+    await spendRow("cmp_acted", "google_search", "2023-11-10", 50_000, 0);
+    await spendRow("cmp_frozen", "google_search", "2023-11-10", 50_000, 0);
+    await bind("cmp_acted", 1, ctx.now - DAY_MS);
+    await bind("cmp_acted", 1, ctx.now - DAY_MS - 1);
+    await bind("cmp_frozen", 1, ctx.now - DAY_MS);
+
+    const later = ctx.now + DAY_MS;
+    const byDefault = await get(["signal:attribution:read"], "", later);
+    expect(byDefault.status).toBe(200);
+    expect(byDefault.body).toMatchObject({ status: "ok", since: later - 30 * DAY_MS, until: later, upliftBps: 5_000 });
+
+    // A window before any spend: designated, but nothing bought.
+    const early = await get(["signal:attribution:read"], `?since=0&until=${ctx.now - 10 * DAY_MS}`);
+    expect(early.body).toMatchObject({ status: "no_conversions", upliftBps: null });
+  });
+
+  it("refuses a window that is not one", async () => {
+    expect((await get(["signal:attribution:read"], "?since=abc")).status).toBe(400);
+    expect((await get(["signal:attribution:read"], "?since=10&until=5")).status).toBe(400);
   });
 });

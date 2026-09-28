@@ -931,6 +931,14 @@ describe("seed", () => {
         sensitivity: "internal",
         target: { value: 25_000, scale: "minor", currency: "AED" }
       },
+      autopilot_uplift_bps: {
+        unit: "percent",
+        grain: "month",
+        direction: "up",
+        owner: "noor.jamal",
+        sensitivity: "internal",
+        target: { value: 2_500, scale: "bps" }
+      },
       commission_per_policy: {
         unit: "money",
         grain: "month",

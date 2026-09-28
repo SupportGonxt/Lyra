@@ -395,6 +395,33 @@ describe("the autopilot pushes only past the signal.budget_move gate", () => {
     expect(spent!.decision).toBe("consumed");
   });
 
+  // ADR-0110: frozen means frozen. A move proposed before its campaign was
+  // designated holdout is not executed by a later approval.
+  it("never pushes an approved move once its campaign is a frozen-budget holdout", async () => {
+    const { google, meta, platforms } = await adAccounts();
+    await ctx.db.update(schema.signalCampaigns).set({ budgetJson: JSON.stringify({ autopilotBoundMinor: 1_000 }), autonomyLevel: "act_with_approval" });
+    await spend("cmp_1", "google_search", 200_000, 40);
+    await spend("cmp_1", "meta", 200_000, 20);
+    await runBudgetAutopilot(ctx, { fieldKey: FIELD_KEY, platforms });
+    const [m] = await ctx.db.select().from(schema.signalBudgetMoves).where(eq(schema.signalBudgetMoves.fromRef, "signal_campaign:cmp_1#meta"));
+    await ctx.db.update(schema.signalCampaigns).set({ holdout: true }).where(eq(schema.signalCampaigns.id, "cmp_1"));
+
+    const [approval] = await ctx.db.select().from(schema.approvals).where(eq(schema.approvals.subjectRef, `budget-moves:${m!.id}`));
+    const approver: Ctx = {
+      ...ctx,
+      actor: { kind: "user", id: "u_lead", tenantId: "t_1", grants: [{ roleKey: "signal.lead", permissions: permissionsForRole("signal.lead") }] }
+    };
+    await decide(approver, approval!.id, "approved");
+    const decided = (await ctx.db.select().from(schema.eventOutbox))
+      .map((e) => JSON.parse(e.envelopeJson) as Envelope)
+      .find((e) => e.type === "signal.approval.decided")!;
+    await onBudgetMoveDecided(ctx, FIELD_KEY, decided, platforms);
+
+    expect([...meta.calls, ...google.calls]).toEqual([]);
+    const [after] = await ctx.db.select().from(schema.signalBudgetMoves).where(eq(schema.signalBudgetMoves.id, m!.id));
+    expect(after!.approvedBy).toBe("pending");
+  });
+
   it("pushes nothing on a rejection, and does not spend an approval for a move with no connected account", async () => {
     const { google, meta, platforms } = await adAccounts();
     const m = await move({ id: "bmv_r", from: "meta", to: "google_search", amountMinor: 70_000, approvedBy: "pending" });

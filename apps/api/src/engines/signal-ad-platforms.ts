@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { schema } from "@lyra/db";
 import {
   AD_TRANSPORT,
@@ -190,6 +190,20 @@ interface Side {
   channel: string;
 }
 
+async function isHoldout(ctx: Ctx, campaignIds: readonly string[]): Promise<boolean> {
+  const rows = await ctx.db
+    .select({ id: schema.signalCampaigns.id })
+    .from(schema.signalCampaigns)
+    .where(
+      and(
+        eq(schema.signalCampaigns.tenantId, ctx.tenantId),
+        inArray(schema.signalCampaigns.id, [...campaignIds]),
+        eq(schema.signalCampaigns.holdout, true)
+      )
+    );
+  return rows.length > 0;
+}
+
 function sideOf(ref: string): Side | null {
   const m = /^signal_campaign:([^#]+)#(.+)$/.exec(ref);
   return m ? { campaignId: m[1]!, channel: m[2]! } : null;
@@ -330,6 +344,10 @@ export async function onBudgetMoveDecided(
   const to = sideOf(move.toRef);
   const accounts = await adAccounts(ctx, platforms);
   if (!from || !to || (!targetsFor(accounts, from).length && !targetsFor(accounts, to).length)) return;
+  // ADR-0110: a campaign designated frozen-budget holdout after this move was
+  // proposed is not moved by the approval that follows. The approval is left
+  // unspent and the move stays pending — frozen means frozen.
+  if (await isHoldout(ctx, [from.campaignId, to.campaignId])) return;
 
   const [approval] = await ctx.db
     .select({ decision: schema.approvals.decision })
