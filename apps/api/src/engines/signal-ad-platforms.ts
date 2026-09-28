@@ -44,7 +44,7 @@ export const AD_PLATFORMS: AdPlatforms = {
 type ConnectorRow = typeof schema.orbitChannelConnectors.$inferSelect;
 type MoveRow = typeof schema.signalBudgetMoves.$inferSelect;
 
-interface AdAccount {
+export interface AdAccount {
   row: ConnectorRow;
   platform: AdPlatform;
   config: Record<string, unknown>;
@@ -59,7 +59,7 @@ function configOf(row: ConnectorRow): Record<string, unknown> {
   }
 }
 
-async function adAccounts(ctx: Ctx, platforms: AdPlatforms): Promise<AdAccount[]> {
+export async function adAccounts(ctx: Ctx, platforms: AdPlatforms): Promise<AdAccount[]> {
   const rows = await ctx.db
     .select()
     .from(schema.orbitChannelConnectors)
@@ -76,7 +76,7 @@ async function adAccounts(ctx: Ctx, platforms: AdPlatforms): Promise<AdAccount[]
   });
 }
 
-async function secretsOf(fieldKey: string | undefined, row: ConnectorRow): Promise<ConnectorSecrets> {
+export async function secretsOf(fieldKey: string | undefined, row: ConnectorRow): Promise<ConnectorSecrets> {
   if (!fieldKey) throw new Error("FIELD_KEY is not configured");
   return openFields(fieldKey, JSON.parse(row.secretsJson) as ConnectorSecrets);
 }

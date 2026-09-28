@@ -1,3 +1,5 @@
+import { sha256Hex } from "./crypto.js";
+
 // docs/30 SIGNAL 5, ADR-0100. The arithmetic and config reading every
 // `AdPlatform` adapter (seams.ts) shares. Platforms report money in their own
 // units — Google Ads in micros, Meta in decimal strings — and a float slip
@@ -71,4 +73,64 @@ export function externalCampaignFor(map: ReadonlyMap<string, string>, campaignId
 
 export function adChannel(config: Record<string, unknown>, fallback: string): string {
   return typeof config.channel === "string" && config.channel !== "" ? config.channel : fallback;
+}
+
+/* ------------------------------------------------------ conversion upload */
+// docs/17 SIG-032, ADR-0112. Value-based bidding: a bind reported back to the
+// platform with what it was worth, so its bidder optimises on value rather
+// than on lead count.
+
+/** A minor amount in whole currency units — the double both platforms' value fields take. */
+export function minorToUnits(minor: number, exponent: number): number {
+  return Number((minor / 10 ** exponent).toFixed(exponent));
+}
+
+/**
+ * How a bind is valued, from `moduleConfig.signal.settings.conversionValue`.
+ * `none` — the default — means no conversion is exported at all: a value
+ * nobody chose would teach the bidder a price nobody set.
+ */
+export type ConversionValueRule = { basis: "none" } | { basis: "commission" } | { basis: "premium_rate"; ratePpm: number };
+
+export function conversionValueRule(settings: Record<string, unknown>): ConversionValueRule {
+  const raw = settings.conversionValue;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { basis: "none" };
+  const rule = raw as { basis?: unknown; ratePpm?: unknown };
+  if (rule.basis === "commission") return { basis: "commission" };
+  const ppm = rule.ratePpm;
+  if (rule.basis === "premium_rate" && typeof ppm === "number" && Number.isInteger(ppm) && ppm > 0 && ppm <= 1_000_000) {
+    return { basis: "premium_rate", ratePpm: ppm };
+  }
+  return { basis: "none" };
+}
+
+/** The bind's value in minor units under the rule; null when there is nothing positive to send. */
+export function conversionValueMinor(
+  rule: ConversionValueRule,
+  bind: { premiumMinor: number | null; commissionMinor: number | null }
+): number | null {
+  let value: number | null = null;
+  if (rule.basis === "commission") value = bind.commissionMinor;
+  else if (rule.basis === "premium_rate" && bind.premiumMinor !== null) value = Math.round((bind.premiumMinor * rule.ratePpm) / 1_000_000);
+  return value !== null && value > 0 ? value : null;
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** SHA-256 of the trimmed, lower-cased address (both platforms' normalisation); null for a non-address. */
+export async function hashEmail(email: string): Promise<string | null> {
+  const normal = email.trim().toLowerCase();
+  return EMAIL.test(normal) ? sha256Hex(normal) : null;
+}
+
+/** SHA-256 of the digits with country code and no `+`; null for anything else or fewer than 7 digits. */
+export async function hashPhone(phone: string): Promise<string | null> {
+  if (/[^\d\s()+.-]/.test(phone)) return null;
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 7 ? sha256Hex(digits) : null;
+}
+
+/** A gclid / fbclid as captured on /track: URL-safe characters only, bounded. */
+export function clickId(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9_.-]{1,512}$/.test(value) ? value : null;
 }

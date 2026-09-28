@@ -161,3 +161,80 @@ describe("metaAdsPlatform.adjustDailyBudget", () => {
     expect(bad.calls).toHaveLength(0);
   });
 });
+
+// docs/17 SIG-032, ADR-0112. Conversions API: each bind as a server event on
+// the tenant's pixel, deduplicated by event_id, matched on the fbclid Meta
+// issued or — only when the exporter supplied them, which it does only under
+// data-sharing consent — SHA-256 identifiers. Nothing else about the person.
+describe("metaAdsPlatform.uploadConversions", () => {
+  const AT = Date.parse("2026-09-26T10:15:30Z");
+  const PIXEL = { ...CONFIG, pixelId: "555" };
+
+  it("matches on fbclid and hashed identifiers, and posts one event per bind with its value", async () => {
+    const meta = metaAdsPlatform();
+    expect(meta.conversionKeys).toEqual(["fbclid", "emailSha256", "phoneSha256"]);
+    expect(meta.conversionMaxAgeDays).toBe(7);
+
+    const { impl, calls } = fakeFetch(() => ({ json: { events_received: 2, fbtrace_id: "x" } }));
+    const results = await metaAdsPlatform(impl).uploadConversions!(
+      [
+        { conversionId: "att_1", at: AT, valueMinor: 12_550, currency: "AED", fbclid: "IwAR1" },
+        { conversionId: "att_2", at: AT, valueMinor: 9_000, currency: "AED", emailSha256: ["e".repeat(64)], phoneSha256: ["p".repeat(64)] }
+      ],
+      SECRETS,
+      PIXEL
+    );
+    expect(results).toEqual([
+      { conversionId: "att_1", status: "sent" },
+      { conversionId: "att_2", status: "sent" }
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(`${GRAPH}/555/events`);
+    expect(calls[0]!.method).toBe("POST");
+    expect(calls[0]!.headers.authorization).toBe("Bearer EAAB-secret");
+    expect(calls[0]!.url).not.toContain("EAAB");
+    expect(JSON.parse(calls[0]!.body)).toEqual({
+      data: [
+        {
+          event_name: "Purchase",
+          event_time: Math.floor(AT / 1000),
+          event_id: "att_1",
+          action_source: "system_generated",
+          user_data: { fbc: `fb.1.${AT}.IwAR1` },
+          custom_data: { value: 125.5, currency: "AED" }
+        },
+        {
+          event_name: "Purchase",
+          event_time: Math.floor(AT / 1000),
+          event_id: "att_2",
+          action_source: "system_generated",
+          user_data: { em: ["e".repeat(64)], ph: ["p".repeat(64)] },
+          custom_data: { value: 90, currency: "AED" }
+        }
+      ]
+    });
+  });
+
+  it("never sends an event with nothing to match it on, and needs a pixel", async () => {
+    const { impl, calls } = fakeFetch(() => ({ json: { events_received: 0 } }));
+    expect(await metaAdsPlatform(impl).uploadConversions!([{ conversionId: "att_1", at: AT, valueMinor: 1, currency: "AED" }], SECRETS, PIXEL)).toEqual([
+      { conversionId: "att_1", status: "failed", error: "no match key" }
+    ]);
+    expect(calls).toHaveLength(0);
+    await expect(
+      metaAdsPlatform(impl).uploadConversions!([{ conversionId: "att_1", at: AT, valueMinor: 1, currency: "AED", fbclid: "x" }], SECRETS, CONFIG)
+    ).rejects.toThrow(/pixelId/);
+  });
+
+  it("treats a batch Meta did not fully acknowledge as failed, and a refused one as an error", async () => {
+    const partial = fakeFetch(() => ({ json: { events_received: 0 } }));
+    expect(
+      await metaAdsPlatform(partial.impl).uploadConversions!([{ conversionId: "att_1", at: AT, valueMinor: 1, currency: "AED", fbclid: "x" }], SECRETS, PIXEL)
+    ).toEqual([{ conversionId: "att_1", status: "failed", error: "meta-ads acknowledged 0 of 1 events" }]);
+
+    const refused = fakeFetch(() => ({ status: 400, json: { error: { message: "Invalid parameter" } } }));
+    await expect(
+      metaAdsPlatform(refused.impl).uploadConversions!([{ conversionId: "att_1", at: AT, valueMinor: 1, currency: "AED", fbclid: "x" }], SECRETS, PIXEL)
+    ).rejects.toThrow(/400: Invalid parameter/);
+  });
+});

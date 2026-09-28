@@ -110,6 +110,24 @@ describe("onBindIssued", () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("carries the lead's ad click ids onto the bind, so the bind can be reported to that platform (SIG-032)", async () => {
+    await recordTouch(ctx, { touchType: "lead", channel: "google_search", customerId: "cus_1", gclid: "G1", fbclid: "F1" });
+    const bindId = await onBindIssued(ctx, issuedEvent("cus_1"));
+    const [bind] = await ctx.db.select().from(schema.signalAttributionEvents).where(eq(schema.signalAttributionEvents.id, bindId!));
+    expect([bind?.gclid, bind?.fbclid]).toEqual(["G1", "F1"]);
+  });
+
+  it("falls back to the newest click id the same visitor carried before they became a lead", async () => {
+    await recordTouch(ctx, { touchType: "click", channel: "google_search", anonId: "anon_1", gclid: "G_old" });
+    ctx = await makeCtx(ctx.now + 1_000);
+    await recordTouch(ctx, { touchType: "visit", channel: "google_search", anonId: "anon_1", gclid: "G_new" });
+    await recordTouch(ctx, { touchType: "click", channel: "google_search", anonId: "anon_other", gclid: "G_someone_else" });
+    await recordTouch(ctx, { touchType: "lead", channel: "google_search", customerId: "cus_1", anonId: "anon_1" });
+    const bindId = await onBindIssued(ctx, issuedEvent("cus_1"));
+    const [bind] = await ctx.db.select().from(schema.signalAttributionEvents).where(eq(schema.signalAttributionEvents.id, bindId!));
+    expect([bind?.gclid, bind?.fbclid]).toEqual(["G_new", null]);
+  });
+
   it("is tenant-scoped: another tenant's lead is not credited", async () => {
     await recordTouch(ctx, { touchType: "lead", channel: "meta", campaignId: "cmp_1", customerId: "cus_1" });
     const other = { ...(await makeCtx()), tenantId: "t_2" };

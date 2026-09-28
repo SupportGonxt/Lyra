@@ -2340,6 +2340,8 @@ export interface SignalAttributionEvents {
   valueMinor?: number;
   currency?: string;
   subjectRef?: string;
+  gclid?: string;
+  fbclid?: string;
   ts: number;
 }
 
@@ -3291,6 +3293,8 @@ export interface Operations {
   "GET /v1/signal/campaigns/{id}": Op<{ id: string }, never, never, SignalCampaigns>;
   "PATCH /v1/signal/campaigns/{id}": Op<{ id: string }, never, SignalCampaigns, SignalCampaigns>;
   "POST /v1/signal/campaigns/{id}/plan": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/signal/conversions/export": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/signal/conversions/exports": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/creatives": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalCreatives>>;
   "POST /v1/signal/creatives": Op<never, never, SignalCreatives, SignalCreatives>;
   "POST /v1/signal/creatives/generate": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -4056,7 +4060,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/portal/{tenantSlug}/renewals/{id}": { tag: "portal", summary: "Open a renewal offer with its link token (reference, expiry and state only)", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/renewals/{id}/accept": { tag: "portal", summary: "Customer accepts a renewal in one tap; records the decision, does not bind or charge", permission: null, public: true },
   "GET /v1/portal/{tenantSlug}/site": { tag: "portal", summary: "A tenant's public storefront: brand and active products", permission: null, public: true },
-  "POST /v1/portal/{tenantSlug}/track": { tag: "portal", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP. A lead or bind must be signed (ADR-0092): x-lyra-key-id (a tenant webhook id), x-lyra-timestamp, x-lyra-signature v1=HMAC-SHA256(secret, `${timestamp}.${body}`); a replayed eventId is answered 200 with duplicate: true", permission: null, public: true },
+  "POST /v1/portal/{tenantSlug}/track": { tag: "portal", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP. A lead or bind must be signed (ADR-0092): x-lyra-key-id (a tenant webhook id), x-lyra-timestamp, x-lyra-signature v1=HMAC-SHA256(secret, `${timestamp}.${body}`); a replayed eventId is answered 200 with duplicate: true. Any touch may carry the ad click id from the landing URL (gclid, fbclid) so a bind can be reported back to that platform (SIG-032, ADR-0112)", permission: null, public: true },
   "GET /v1/realtime": { tag: "realtime", summary: "Server-Sent Events stream of the caller's own live updates", permission: null, public: false },
   "GET /v1/scim/v2/Groups": { tag: "scim", summary: "SCIM: the tenant's roles as groups; filter displayName eq", permission: "core:roles:read", public: false },
   "GET /v1/scim/v2/Groups/{id}": { tag: "scim", summary: "SCIM: one role and its members", permission: "core:roles:read", public: false },
@@ -4137,6 +4141,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/signal/campaigns/{id}": { tag: "signal", summary: "Fetch one campaign", permission: "signal:campaigns:read", public: false },
   "PATCH /v1/signal/campaigns/{id}": { tag: "signal", summary: "Update a campaign", permission: "signal:campaigns:update", public: false },
   "POST /v1/signal/campaigns/{id}/plan": { tag: "signal", summary: "Plan a campaign in three ranked options, each with a probability of success and the reasons behind it, suggesting and linking a targeting pool when the campaign has none", permission: "signal:campaigns:update", public: false },
+  "POST /v1/signal/conversions/export": { tag: "signal", summary: "Report attributed binds with their value to every connected ad account that takes conversions (Google Ads offline click conversions by gclid; Meta Conversions API by fbclid, or SHA-256 email/phone only under data-sharing consent) so the platforms bid on value (SIG-032, ADR-0112). The same run the nightly tick makes. Each bind goes to an account once; a bind whose customer has not consented to marketing is skipped. Stands down (standDown: no_value_rule) until moduleConfig.signal.settings.conversionValue is set to {basis: commission} or {basis: premium_rate, ratePpm}", permission: "signal:spend:write", public: false },
+  "GET /v1/signal/conversions/exports": { tag: "signal", summary: "What the value-based bidding exporter did with each bind per ad account, newest first: status sent|skipped|failed, detail (no_consent, no_value, no_match_key, or the platform's error), value and currency, exportedAt. Optional ?status= and ?limit= (at most 200)", permission: "signal:attribution:read", public: false },
   "GET /v1/signal/creatives": { tag: "signal", summary: "List creatives", permission: "signal:creatives:read", public: false },
   "POST /v1/signal/creatives": { tag: "signal", summary: "Create a creative", permission: "signal:creatives:generate", public: false },
   "POST /v1/signal/creatives/generate": { tag: "signal", summary: "Generate ad-copy variants from a brief, compliance-checked and audited per locale", permission: "signal:creatives:generate", public: false },

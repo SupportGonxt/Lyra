@@ -41,6 +41,9 @@ export interface SignedConversion {
   customerId?: string | null | undefined;
   valueMinor?: number | null | undefined;
   currency?: string | null | undefined;
+  /** docs/17 SIG-032, ADR-0112: the ad click the conversion came from, if the partner kept it. */
+  gclid?: string | null | undefined;
+  fbclid?: string | null | undefined;
 }
 
 export async function recordSignedConversion(ctx: Ctx, input: SignedConversion): Promise<{ id: string; duplicate: boolean }> {
@@ -78,6 +81,8 @@ export async function recordSignedConversion(ctx: Ctx, input: SignedConversion):
     customerId: input.customerId ?? null,
     valueMinor: input.valueMinor ?? null,
     currency: input.currency ?? null,
+    gclid: input.gclid ?? null,
+    fbclid: input.fbclid ?? null,
     subjectRef
   });
   // ADR-0091: the conversion rolls up broad (campaign) and niche (audience),

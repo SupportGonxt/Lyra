@@ -2,12 +2,13 @@ import { prospectCounts } from "../engines/signal-prospects.js";
 import { responseRollup } from "../engines/signal-responses.js";
 import { importSpend } from "../engines/signal-spend-import.js";
 import { pullAdSpend, spendPullWindow, SPEND_PULL_MAX_DAYS } from "../engines/signal-ad-platforms.js";
+import { exportConversions, listConversionExports } from "../engines/signal-conversions.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { require_, audit, badRequest, emit, holdoutReadout, notFound, type Ctx } from "@lyra/core";
 import { schema, DesignJson, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
 import { z } from "zod";
-import { body, csvBody } from "../http.js";
+import { body, csvBody, parse } from "../http.js";
 import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateCreativeImage, generateCreatives } from "../engines/signal-creative.js";
@@ -407,6 +408,25 @@ signalRoutes.post("/spend/pull", async (c) => {
     throw badRequest(`a pull covers at most ${SPEND_PULL_MAX_DAYS} days`, { since: "window too long" });
   }
   return c.json(await pullAdSpend(ctx, c.env.FIELD_KEY, window));
+});
+
+// docs/17 SIG-032, ADR-0112: value-based bidding signals, the same run the
+// nightly tick makes. Stands down until a conversion value is configured.
+signalRoutes.post("/conversions/export", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });
+  return c.json(await exportConversions(ctx, c.env.FIELD_KEY));
+});
+
+const ExportsQuery = z.object({
+  status: z.enum(["sent", "skipped", "failed"]).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional()
+});
+
+signalRoutes.get("/conversions/exports", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:attribution:read", { tenantId: ctx.tenantId, module: "signal" });
+  return c.json({ data: await listConversionExports(ctx, parse(ExportsQuery, c.req.query())) });
 });
 
 // ADR-0091: what came back from sends, per campaign (broad), audience (niche)

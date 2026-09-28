@@ -2,6 +2,8 @@ import {
   applyBudgetDelta,
   currencyExponent,
   decimalToMinor,
+  minorToUnits,
+  type AdConversionResult,
   type AdPlatform,
   type AdSpendRow,
   type AdSpendWindow,
@@ -63,6 +65,57 @@ export function metaAdsPlatform(fetchImpl: typeof fetch = (input, init) => fetch
   return {
     provider: "meta-ads",
     defaultChannel: "meta",
+    // docs/17 SIG-032, ADR-0112. The Conversions API matches on the click id
+    // Meta issued (as `fbc`) or on SHA-256 identifiers; the exporter supplies
+    // the hashed ones only under data-sharing consent.
+    conversionKeys: ["fbclid", "emailSha256", "phoneSha256"],
+    // Meta rejects a server event whose event_time is more than 7 days old.
+    conversionMaxAgeDays: 7,
+
+    async uploadConversions(conversions, secrets, config): Promise<AdConversionResult[]> {
+      const pixelId = String(config.pixelId ?? "");
+      if (!DIGITS.test(pixelId)) throw new Error("meta-ads config pixelId is required to upload conversions");
+      const eventName = typeof config.conversionEvent === "string" && /^\w{1,64}$/.test(config.conversionEvent) ? config.conversionEvent : "Purchase";
+      const out = new Map<string, AdConversionResult>();
+      const events: Record<string, unknown>[] = [];
+      const sent: string[] = [];
+      for (const c of conversions) {
+        // Only the match keys — never a name, a birth date, a gender or any
+        // other field Meta's user_data would accept (SIG-034).
+        const userData: Record<string, unknown> = {};
+        if (c.fbclid) userData.fbc = `fb.1.${c.at}.${c.fbclid}`;
+        if (c.emailSha256?.length) userData.em = [...c.emailSha256];
+        if (c.phoneSha256?.length) userData.ph = [...c.phoneSha256];
+        if (!Object.keys(userData).length) {
+          out.set(c.conversionId, { conversionId: c.conversionId, status: "failed", error: "no match key" });
+          continue;
+        }
+        sent.push(c.conversionId);
+        events.push({
+          event_name: eventName,
+          event_time: Math.floor(c.at / 1000),
+          event_id: c.conversionId,
+          action_source: "system_generated",
+          user_data: userData,
+          custom_data: { value: minorToUnits(c.valueMinor, currencyExponent(c.currency)), currency: c.currency }
+        });
+      }
+      if (events.length) {
+        const { graph, call } = session(secrets, config);
+        const reply = (await call(`${graph}/${pixelId}/events`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ data: events })
+        })) as { events_received?: number };
+        // Meta takes a batch whole or not at all; anything short of all of it
+        // is recorded as failed, and the next run offers it again.
+        const whole = reply.events_received === events.length;
+        for (const id of sent) {
+          out.set(id, whole ? { conversionId: id, status: "sent" } : { conversionId: id, status: "failed", error: `meta-ads acknowledged ${reply.events_received ?? 0} of ${events.length} events` });
+        }
+      }
+      return conversions.map((c) => out.get(c.conversionId)!);
+    },
 
     async pullSpend(window: AdSpendWindow, secrets, config): Promise<AdSpendRow[]> {
       if (!DAY.test(window.since) || !DAY.test(window.until)) throw new Error("spend window must be two YYYY-MM-DD dates");
