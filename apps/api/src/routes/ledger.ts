@@ -23,6 +23,9 @@ import {
   closePeriod,
   closeRun,
   commissionByDimension,
+  countersignPin,
+  PIN_SIDES,
+  pinMetricSnapshot,
   decideMatch,
   ensurePeriod,
   FORCE_REASON_MIN,
@@ -140,6 +143,40 @@ ledgerRoutes.post("/txn/:type", async (c) => {
   );
 
   return c.json({ txn, type: def }, 201);
+});
+
+/* ------------------------------------------------ success-fee metric pins */
+
+// D11 (docs/specs/gap-finance-design.md), ADR-0111. A SUCCESS-FEE bills a
+// pinned copy of one verified NORTH snapshot that both parties countersigned;
+// the rules are in packages/ledger/src/metric-pins.ts. Reads are the generated
+// `metric-pins` resource (resources.ts), which has no create, edit or delete —
+// a pin is written here and never changed.
+
+const PinBody = z.object({ snapshotId: z.string().min(1).max(100) });
+
+ledgerRoutes.post("/metric-pins", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:metric_pins:pin", { tenantId: ctx.tenantId, module: "ledger" });
+  const input = await body(c, PinBody);
+  return c.json(await pinMetricSnapshot(ctx, input.snapshotId), 201);
+});
+
+const CountersignBody = z.object({ evidenceRef: z.string().trim().min(3).max(200).optional() });
+
+ledgerRoutes.post("/metric-pins/:id/countersign/:side", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "ledger:metric_pins:countersign", { tenantId: ctx.tenantId, module: "ledger" });
+  const side = c.req.param("side");
+  if (!(PIN_SIDES as readonly string[]).includes(side)) {
+    throw badRequest(`side must be one of ${PIN_SIDES.join(", ")}`);
+  }
+  const input = await body(c, CountersignBody);
+  return c.json(
+    await countersignPin(ctx, c.req.param("id"), side as (typeof PIN_SIDES)[number], {
+      ...(input.evidenceRef !== undefined ? { evidenceRef: input.evidenceRef } : {})
+    })
+  );
 });
 
 ledgerRoutes.get("/txn/:id", async (c) => {

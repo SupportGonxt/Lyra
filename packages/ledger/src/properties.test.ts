@@ -14,6 +14,7 @@ import { runSaga, runTxn, reverseTxn } from "./txn.js";
 import { clientMoneyPosition, trialBalance } from "./reports.js";
 import { straightLine, assertWithinInvoice, recognitionHeadroom } from "./recognition.js";
 import { seedTestChart } from "./test-chart.js";
+import { countersignPin, pinMetricSnapshot, successFeeKey } from "./metric-pins.js";
 
 // docs/19 §11 — the eleven test obligations, as **property** tests.
 //
@@ -537,56 +538,59 @@ describe("9 — recognition schedules never recognise more than invoiced", () =>
 
 /* ----------------------------------------------------------- obligation 10 */
 
-describe("10 — SUCCESS-FEE cannot post without a verified metric snapshot", () => {
-  it("refuses every unverified reference, and accepts only a verified one", async () => {
+describe("10 — SUCCESS-FEE cannot post without a countersigned metric pin, and bills it once", () => {
+  // D11 (ADR-0111): the reference is a pin — a hashed copy of a verified
+  // snapshot both sides countersigned — and the key is derived from it.
+  it("refuses every pin short of fully countersigned and intact, and posts a good one exactly once", async () => {
     await fc.assert(
       fc.asyncProperty(
         minor,
-        fc.oneof(
-          fc.constant(null), // no reference at all
-          fc.constant("nsp_missing"), // a reference to nothing
-          fc.constant("nsp_unverified"), // computed, never attested
-          fc.constant("nsp_other_tenant"), // real, verified, someone else's
-          fc.constant("nsp_verified")
-        ),
-        async (amount, ref) => {
+        fc.constantFrom("none", "missing", "unsigned", "tenant_only", "counterparty_only", "tampered", "wrong_key", "good"),
+        fc.integer({ min: 1, max: 3 }),
+        async (amount, kind, attempts) => {
           const ctx = await freshCtx();
-          const snap = (id: string, tenantId: string, verified: boolean) => ({
-            id,
-            tenantId,
-            metricKey: "gwp",
-            grain: "month",
-            period: "2026-05",
-            dimsHash: id,
-            value: 1,
-            ts: NOW - 1,
-            ...(verified ? { verifiedAt: NOW - 1, verifiedBy: "user:auditor" } : {})
+          const as = (id: string): Ctx => ({ ...ctx, actor: { ...ctx.actor, id } });
+          await ctx.db.insert(schema.northMetrics).values({
+            id: "mtr_gwp", tenantId: ctx.tenantId, key: "gwp", nameJson: "{}", definitionSqlRef: "gwp",
+            unit: "money", currency: "AED", createdAt: NOW, updatedAt: NOW
           });
-          await ctx.db.insert(schema.northSnapshots).values([
-            snap("nsp_unverified", ctx.tenantId, false),
-            snap("nsp_verified", ctx.tenantId, true),
-            snap("nsp_other_tenant", "t_someone_else", true)
-          ]);
+          await ctx.db.insert(schema.northSnapshots).values({
+            id: "nsp_1", tenantId: ctx.tenantId, metricKey: "gwp", grain: "month", period: "2026-05",
+            dimsHash: "", value: amount, ts: NOW - 1, verifiedAt: NOW - 1, verifiedBy: "user:auditor"
+          });
+          const pin = await pinMetricSnapshot(ctx, "nsp_1");
+          if (kind !== "unsigned" && kind !== "counterparty_only") await countersignPin(as("u_dir"), pin.id, "tenant");
+          if (kind !== "unsigned" && kind !== "tenant_only") {
+            await countersignPin(as("u_ctl"), pin.id, "counterparty", { evidenceRef: "esign" });
+          }
+          if (kind === "tampered") {
+            await ctx.db.update(schema.ledgerMetricPins).set({ value: amount + 1 }).where(eq(schema.ledgerMetricPins.id, pin.id));
+          }
+          const ref = kind === "none" ? null : kind === "missing" ? "pms_missing" : pin.id;
+          const args = { netMinor: amount, taxMinor: 0, ...(ref ? { pinnedSnapshotId: ref } : {}) };
+          const key = kind === "wrong_key" ? `sf-${amount}` : successFeeKey(ref ?? "none");
+          const once = () =>
+            runTxn(
+              ctx,
+              { type: "SUCCESS-FEE", idempotencyKey: key, currency: "AED", grossMinor: amount },
+              { recipe: { lines: buildRecipe("SUCCESS-FEE", args), currency: "AED" }, args, preApproved: true }
+            );
+          const rows = () => ctx.db.select().from(schema.ledgerTxns).where(eq(schema.ledgerTxns.tenantId, ctx.tenantId));
 
-          const args = {
-            netMinor: amount,
-            taxMinor: 0,
-            ...(ref ? { metricSnapshotId: ref } : {})
-          };
-          const run = runTxn(
-            ctx,
-            { type: "SUCCESS-FEE", idempotencyKey: `sf-${amount}`, currency: "AED", grossMinor: amount },
-            { recipe: { lines: buildRecipe("SUCCESS-FEE", args), currency: "AED" }, args, preApproved: true }
-          );
-
-          if (ref === "nsp_verified") {
-            expect((await run).state).toBe("settled");
+          if (kind === "good") {
+            const ids = new Set<string>();
+            for (let i = 0; i < attempts; i++) {
+              const txn = await once();
+              expect(txn.state).toBe("settled");
+              ids.add(txn.id);
+            }
+            expect(ids.size).toBe(1);
+            expect(await rows()).toHaveLength(1);
           } else {
-            await expect(run).rejects.toThrow();
+            await expect(once()).rejects.toThrow();
             // A precondition is a "not yet", so a refusal leaves no trace to
             // burn the idempotency key on.
-            const rows = await ctx.db.select().from(schema.ledgerTxns).where(eq(schema.ledgerTxns.tenantId, ctx.tenantId));
-            expect(rows).toEqual([]);
+            expect(await rows()).toEqual([]);
           }
         }
       ),

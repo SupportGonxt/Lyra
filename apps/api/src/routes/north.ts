@@ -190,7 +190,8 @@ northRoutes.post("/snapshotter/run", async (c) => {
 /**
  * docs/19 §11.10 / docs/27 F21. A snapshotter run *computes* a figure; this is
  * where somebody *attests* to one, and it is the only writer of
- * north_snapshots.verified_at. Without it the SUCCESS-FEE precondition would be
+ * north_snapshots.verified_at. Only a verified row may be pinned for a
+ * SUCCESS-FEE (ledger_metric_pins, ADR-0111); without this the pin would be
  * a gate with nothing on the other side — a declared contract nothing routes
  * through, which is the recurring defect this repo keeps finding.
  *

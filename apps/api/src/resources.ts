@@ -1263,6 +1263,10 @@ export const LEDGER = register(
   r("journal-lines", schema.ledgerJournalLines, "jln", "ledger", ro("ledger:journals:read"), {
     immutable: true
   }),
+  // D11, ADR-0111. Read-only here: a pin is written by POST /v1/ledger/metric-pins
+  // and signed by /metric-pins/:id/countersign/:side (routes/ledger.ts), never
+  // created or edited through the generic surface.
+  r("metric-pins", schema.ledgerMetricPins, "pms", "ledger", ro("ledger:metric_pins:read"), { immutable: true }),
   r("account-balances", schema.ledgerAccountBalances, "bal", "ledger", ro("ledger:accounts:read")),
   // `state` (plus `checklistJson`/`closedBy`/`closedAt`) is close-sequencing-owned:
   // a raw PATCH could jump straight to hard_closed from open, skipping the

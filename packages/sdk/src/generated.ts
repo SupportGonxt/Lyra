@@ -1586,6 +1586,32 @@ export interface LedgerJournalLines {
   postedAt: number;
 }
 
+export interface LedgerMetricPins {
+  id?: string;
+  tenantId?: string;
+  sourceSnapshotId: string;
+  metricKey: string;
+  grain: string;
+  period: string;
+  dimsHash: string;
+  value: number;
+  unit: string;
+  currency?: string;
+  sourceVerifiedBy: string;
+  sourceVerifiedAt: number;
+  sourceHash: string;
+  state?: string;
+  pinnedBy: string;
+  pinnedAt: number;
+  tenantSignedBy?: string;
+  tenantSignedAt?: number;
+  counterpartySignedBy?: string;
+  counterpartySignedAt?: number;
+  counterpartyEvidenceRef?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface LedgerPaymentPlans {
   id?: string;
   tenantId?: string;
@@ -2936,6 +2962,10 @@ export interface Operations {
   "GET /v1/ledger/journal-batches/{id}": Op<{ id: string }, never, never, LedgerJournalBatches>;
   "GET /v1/ledger/journal-lines": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerJournalLines>>;
   "GET /v1/ledger/journal-lines/{id}": Op<{ id: string }, never, never, LedgerJournalLines>;
+  "GET /v1/ledger/metric-pins": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerMetricPins>>;
+  "POST /v1/ledger/metric-pins": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/ledger/metric-pins/{id}": Op<{ id: string }, never, never, LedgerMetricPins>;
+  "POST /v1/ledger/metric-pins/{id}/countersign/{side}": Op<{ id: string; side: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/ledger/payment-plans": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerPaymentPlans>>;
   "GET /v1/ledger/payment-plans/{id}": Op<{ id: string }, never, never, LedgerPaymentPlans>;
   "GET /v1/ledger/payments": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<LedgerPayments>>;
@@ -3778,6 +3808,10 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/journal-batches/{id}": { tag: "ledger", summary: "Fetch one journal batche", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/journal-lines": { tag: "ledger", summary: "List journal-lines", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/journal-lines/{id}": { tag: "ledger", summary: "Fetch one journal line", permission: "ledger:journals:read", public: false },
+  "GET /v1/ledger/metric-pins": { tag: "ledger", summary: "List metric-pins", permission: "ledger:metric_pins:read", public: false },
+  "POST /v1/ledger/metric-pins": { tag: "ledger", summary: "Pin a verified metric snapshot for a success fee: a hashed copy the fee is billed on (D11, ADR-0111)", permission: "ledger:metric_pins:pin", public: false },
+  "GET /v1/ledger/metric-pins/{id}": { tag: "ledger", summary: "Fetch one metric pin", permission: "ledger:metric_pins:read", public: false },
+  "POST /v1/ledger/metric-pins/{id}/countersign/{side}": { tag: "ledger", summary: "Countersign one side (tenant|counterparty) of a metric pin; two different seats, the counterparty's with its evidence", permission: "ledger:metric_pins:countersign", public: false },
   "GET /v1/ledger/payment-plans": { tag: "ledger", summary: "List payment-plans", permission: "ledger:payments:read", public: false },
   "GET /v1/ledger/payment-plans/{id}": { tag: "ledger", summary: "Fetch one payment plan", permission: "ledger:payments:read", public: false },
   "GET /v1/ledger/payments": { tag: "ledger", summary: "List payments", permission: "ledger:payments:read", public: false },
@@ -3897,7 +3931,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/north/scenarios/{id}/run": { tag: "north", summary: "Compute a stored what-if (metric, changeBps, horizonMonths|horizonDays) against the metric's forecast band and store the answer; 422 names each unreadable assumption (docs/30 NORTH 4)", permission: "north:scenarios:run", public: false },
   "GET /v1/north/snapshots": { tag: "north", summary: "List snapshots", permission: "north:snapshots:read", public: false },
   "GET /v1/north/snapshots/{id}": { tag: "north", summary: "Fetch one snapshot", permission: "north:snapshots:read", public: false },
-  "POST /v1/north/snapshots/{id}/verify": { tag: "north", summary: "Attest to a computed metric snapshot, so a SUCCESS-FEE may be charged on it (docs/19 §11.10)", permission: "north:metrics:write", public: false },
+  "POST /v1/north/snapshots/{id}/verify": { tag: "north", summary: "Attest to a computed metric snapshot, so it may be pinned for a SUCCESS-FEE (docs/19 §11.10, ADR-0111)", permission: "north:metrics:write", public: false },
   "POST /v1/north/snapshotter/run": { tag: "north", summary: "Force the NORTH metric snapshot and anomaly scan now (also runs on the scheduled tick)", permission: "north:snapshots:run", public: false },
   "POST /v1/onboarding/agreements": { tag: "onboarding", summary: "Draft the next version of a partner agreement", permission: "dist:agreements:write", public: false },
   "POST /v1/onboarding/agreements/{id}/send": { tag: "onboarding", summary: "Send a drafted agreement for signature", permission: "dist:agreements:write", public: false },

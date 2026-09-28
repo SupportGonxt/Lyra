@@ -817,7 +817,7 @@ describe("seedSignal: attribution events", () => {
     expect(lead.customerId).toBe(ctx.customerId);
 
     const bind = rania[6]!;
-    expect(bind.ts).toBe(ctx.issuedAt);
+    expect(bind.ts).toBe(NOW); // when she bought; cover starts at ctx.issuedAt
     expect(bind.valueMinor).toBe(448_000);
     expect(bind.currency).toBe("AED");
     expect(bind.subjectRef).toBe(`axis_case:${ctx.caseId}`);

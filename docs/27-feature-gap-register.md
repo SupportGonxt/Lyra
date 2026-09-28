@@ -174,7 +174,10 @@ requires a reason too.
 **F21** *Closed.* `TXN_PRECONDITIONS["SUCCESS-FEE"]` requires an
 `args.metricSnapshotId` naming a `north_snapshots` row in this tenant with
 `verified_at` set. `POST /v1/north/snapshots/:id/verify` is the only writer of
-that column and takes a required evidence ref.
+that column and takes a required evidence ref. Superseded by D11 (ADR-0111): the fee now names
+`args.pinnedSnapshotId`, a hashed copy of a verified row in `ledger_metric_pins`
+countersigned by both parties, and posts only under `success-fee:{pinId}`; the
+live row is no longer read at posting time.
 
 **F22** *Closed.* fast-check is a dependency and `packages/ledger/src/properties.test.ts`
 holds all eleven docs/19 §11 obligations as property tests. It found three real

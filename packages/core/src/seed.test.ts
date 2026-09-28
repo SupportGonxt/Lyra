@@ -54,6 +54,18 @@ describe("seed", () => {
     expect(tenants).toHaveLength(0);
   });
 
+  // Regression, J-M1 red since #78: the seeded bind touch was stamped with the
+  // policy's start (issuedAt, two days out), so a window ending now — the CPA
+  // range's default — counted no bind while a from-only read counted one. A
+  // touch records when the customer acted; cover starting later is the policy's.
+  it("dates no attribution touch in the future", async () => {
+    const now = 1_790_000_000_000;
+    await seed(db, { password: "gonxt-test-password", now });
+    const touches = await db.select().from(schema.signalAttributionEvents);
+    expect(touches.some((t) => t.touchType === "bind")).toBe(true);
+    expect(touches.filter((t) => t.ts > now).map((t) => t.touchType)).toEqual([]);
+  });
+
   it("provisions GONXT once, with logins, panel and a reconcilable sale", async () => {
     const r = await seed(db, { password: "gonxt-test-password" });
     expect(r.tenantId).toMatch(/^tn_/);
