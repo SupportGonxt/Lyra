@@ -304,7 +304,7 @@ SIG-053,"Experiment registry with hypothesis, variants, metric and pre-declared 
 SIG-054,Sequential/valid statistical inference; no conclusion without threshold,M,M4,T,no,,,,not_started,,
 SIG-055,Experiment learnings library searchable across campaigns,S,M4,T,no,,,,not_started,,
 SIG-056,Server-side first-party event collection with consent gating,M,M4,T,no,,,,not_started,,
-SIG-057,Attribution reported as ranges with method disclosed; no false precision,M,M4,"T,A",no,,,,not_started,,
+SIG-057,Attribution reported as ranges with method disclosed; no false precision,M,M4,"T,A",no,docs/decisions/ADR-0109-attribution-ranges.md,packages/core/src/attribution-range.test.ts,packages/core/src/attribution-range.ts,implemented,,
 SIG-058,Path/touch analysis to conversion available,S,M4,T,no,,,,not_started,,
 SIG-065,"Analytics home: CAC trend, creative velocity, flag rate and review time, autopilot uplift, citation share, channel efficiency, cohort LTV",M,M4,"T,D",no,,,,not_started,,
 SIG-066,`[∫NOR]` Growth economics feed the executive brief automatically,M,M6,T,yes,,,,not_started,,

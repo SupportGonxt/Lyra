@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
-import { permissionsForRole, type Actor, type Ctx } from "@lyra/core";
+import { cacRange, permissionsForRole, type Actor, type Ctx } from "@lyra/core";
 import { runSnapshotter } from "./north-snapshotter.js";
 
 // ADR-0024 + docs/modules/north.md §2.2/§3: north_snapshots had no real
@@ -1459,6 +1459,38 @@ describe("runSnapshotter: acquisition unit economics", () => {
     expect(result.written).toBe(1);
     // 40,000 spent / 2 binds = AED 200 an acquisition.
     expect(await valueOf("cost_per_acquisition")).toBe(20_000);
+  });
+
+  // docs/17 SIG-057, ADR-0109: the bounds a success fee references are
+  // snapshots in their own right, computed by the same function the API's
+  // /v1/signal/attribution/range answers with — never a point with a margin
+  // painted on afterwards.
+  it("cost_per_acquisition_low and _high snapshot the range's bounds beside the point", async () => {
+    await seedMetric("cost_per_acquisition", "month");
+    await seedMetric("cost_per_acquisition_low", "month");
+    await seedMetric("cost_per_acquisition_high", "month");
+    await ctx.db.insert(schema.signalSpend).values([spendRow("sp_1", 100_000, MONTH_START)]);
+    await ctx.db
+      .insert(schema.signalAttributionEvents)
+      .values(Array.from({ length: 10 }, (_, i) => touch(`at_${i}`, "bind", MONTH_START + i)));
+
+    const result = await runSnapshotter(ctx);
+    expect(result.written).toBe(3);
+    const range = cacRange({ spendMinor: 100_000, conversions: 10 })!;
+    expect(await valueOf("cost_per_acquisition")).toBe(range.point);
+    expect(await valueOf("cost_per_acquisition_low")).toBe(range.low);
+    expect(await valueOf("cost_per_acquisition_high")).toBe(range.high);
+    // Garwood 95% on 10 binds: [4.7954, 18.3904] -> AED 54.37 .. 208.54.
+    expect(await valueOf("cost_per_acquisition_low")).toBe(5_437);
+    expect(await valueOf("cost_per_acquisition_high")).toBe(20_854);
+  });
+
+  it("cost_per_acquisition bounds write nothing for a month that bound nothing", async () => {
+    await seedMetric("cost_per_acquisition_low", "month");
+    await seedMetric("cost_per_acquisition_high", "month");
+    await ctx.db.insert(schema.signalSpend).values([spendRow("sp_1", 40_000, MONTH_START)]);
+    const result = await runSnapshotter(ctx);
+    expect(result.written).toBe(0);
   });
 
   it("cost_per_acquisition writes nothing for a month whose spend bound nothing", async () => {

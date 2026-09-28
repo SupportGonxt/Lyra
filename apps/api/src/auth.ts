@@ -8,6 +8,7 @@ import {
   can,
   emit,
   ensureDemoAdmin,
+  ensureSeedMetrics,
   ensureSeedPeople,
   syncSeedCreativeCopy,
   syncSeedEventNames,
@@ -647,7 +648,10 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // studio headlined every demo design with a path. The seed writes the copy
   // now; this repairs a tenant seeded before.
   const creatives = await syncSeedCreativeCopy(database as unknown as CoreDb, tenantId);
-  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs, prospects, creatives });
+  // Tenth (ADR-0109): NORTH metrics added after provisioning — the CPA bounds a
+  // success fee references. The snapshotter computes only metrics with a row.
+  const metrics = await ensureSeedMetrics(database as unknown as CoreDb, tenantId);
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs, prospects, creatives, metrics });
 });
 
 /**

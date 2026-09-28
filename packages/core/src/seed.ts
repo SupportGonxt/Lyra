@@ -14,6 +14,7 @@ import { ROLES, TENANT_ROLE_KEYS, isInternalRole, requiresMfa } from "./rbac.js"
 import { hashPassword } from "./password.js";
 import { PROSPECT_CHURN_FLOOR } from "./prospects.js";
 import { splitCommission } from "./commission.js";
+import { cacRange } from "./attribution-range.js";
 import type { CoreDb } from "./context.js";
 import { seedAdmin } from "./seed/admin.js";
 import { seedAnalytics } from "./seed/analytics.js";
@@ -133,6 +134,438 @@ const PEOPLE: ReadonlyArray<{ local: string; name: string; role: string; locale?
  * to a staff login would make the account's own module scope ambiguous.
  */
 const DEMO_ADMIN = { local: "demo", name: "Demo Administrator" };
+
+const BPS = "bps";
+
+/**
+ * The NORTH metric registry a seeded tenant starts with (ADR-0024). Module
+ * scope rather than local to `seed()` because it is another compiled table
+ * with a single delivery (CLAUDE.md sighting 9): the snapshotter iterates
+ * `north_metrics` rows, not its own REGISTRY, so a key added here after a
+ * tenant was provisioned is never computed there until `ensureSeedMetrics`
+ * writes its row.
+ */
+export const NORTH_METRICS: ReadonlyArray<{
+  key: string;
+  en: string;
+  ar: string;
+  def: string;
+  unit: "count" | "money" | "percent" | "ratio" | "duration_ms";
+  grain: "day" | "week" | "month";
+  direction: "up" | "down";
+  owner: string;
+  sensitivity?: "public" | "internal" | "restricted";
+  target: Record<string, unknown>;
+}> = [
+  {
+    key: "gwp",
+    en: "Gross written premium",
+    ar: "إجمالي الأقساط المكتتبة",
+    def: "v_exec_daily.premium_minor",
+    unit: "money",
+    grain: "month",
+    direction: "up",
+    owner: "faisal.omar",
+    target: { value: 230_000_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "net_commission",
+    en: "Net commission retained",
+    ar: "صافي العمولة المحتفظ بها",
+    def: "dist_commission_entries.net_commission_minor",
+    unit: "money",
+    grain: "month",
+    direction: "up",
+    owner: "faisal.omar",
+    target: { value: 21_000_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "active_policies",
+    en: "Policies in force",
+    ar: "الوثائق السارية",
+    def: "axis_policies WHERE status = 'active'",
+    unit: "count",
+    grain: "month",
+    direction: "up",
+    owner: "omar.farouk",
+    target: { value: 4_800, scale: "count" }
+  },
+  {
+    key: "renewal_retention",
+    en: "Renewal retention rate",
+    ar: "معدل الاحتفاظ عند التجديد",
+    def: "v_renewal_book: accepted / (accepted + lost)",
+    unit: "percent",
+    grain: "month",
+    direction: "up",
+    owner: "yusuf.karim",
+    target: { value: 8_500, scale: BPS }
+  },
+  {
+    key: "cac_per_policy",
+    en: "Acquisition cost per policy",
+    ar: "تكلفة اكتساب الوثيقة",
+    def: "v_cac_ltv.spend_minor / v_cac_ltv.binds",
+    unit: "money",
+    grain: "month",
+    direction: "down",
+    owner: "noor.jamal",
+    target: { value: 19_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "broker_channel_share",
+    en: "Share of premium through b2b channels",
+    ar: "حصة الأقساط عبر قنوات الأعمال",
+    def: "axis_policies JOIN dist_channels ON kind = 'b2b'",
+    unit: "percent",
+    grain: "month",
+    direction: "up",
+    owner: "dana.aziz",
+    target: { value: 4_000, scale: BPS }
+  },
+  {
+    key: "loss_ratio",
+    en: "Loss ratio — own paper",
+    ar: "نسبة الخسارة — الاكتتاب الذاتي",
+    def: "axis_claims / axis_policies WHERE provider is internal",
+    unit: "ratio",
+    grain: "month",
+    direction: "down",
+    owner: "faisal.omar",
+    // Only GONXT's own underwriting result, so it is not a number the panel
+    // partners or the b2b channels get to see.
+    sensitivity: "restricted",
+    target: { value: 6_000, scale: BPS }
+  },
+  {
+    key: "ai_cost_per_case",
+    en: "AI cost per case",
+    ar: "تكلفة الذكاء الاصطناعي لكل ملف",
+    def: "v_exec_daily.ai_cost_micro / v_exec_daily.cases_created",
+    unit: "money",
+    grain: "month",
+    direction: "down",
+    owner: "raed.samir",
+    target: { value: 100, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "policies_issued",
+    en: "Policies issued",
+    ar: "الوثائق المُصدرة",
+    def: "v_exec_daily.policies_issued",
+    unit: "count",
+    grain: "day",
+    direction: "up",
+    owner: "omar.farouk",
+    target: { value: 55, scale: "count" }
+  },
+  {
+    key: "quote_to_bind_rate",
+    en: "Quote to bind rate",
+    ar: "معدل التحويل من عرض إلى وثيقة",
+    def: "axis_policies / dist_quote_requests WHERE state = 'complete'",
+    unit: "percent",
+    grain: "day",
+    direction: "up",
+    owner: "layla.hassan",
+    target: { value: 2_400, scale: BPS }
+  },
+  {
+    key: "panel_response_rate",
+    en: "Panel response rate",
+    ar: "معدل استجابة لوحة المزوّدين",
+    def: "dist_quote_requests.responded_count / dist_quote_requests.fanout_count",
+    unit: "percent",
+    grain: "day",
+    direction: "up",
+    owner: "dana.aziz",
+    target: { value: 9_700, scale: BPS }
+  },
+  {
+    key: "quote_latency_p95",
+    en: "Quote latency p95",
+    ar: "زمن استجابة التسعير — المئين ٩٥",
+    def: "dist_quote_responses.latency_ms, p95",
+    unit: "duration_ms",
+    grain: "day",
+    direction: "down",
+    owner: "raed.samir",
+    sensitivity: "public",
+    target: { value: 2_500, scale: "ms" }
+  },
+  // AXIS task 15 (docs/specs/gap-axis-design.md §F); see ADR-0024/ADR-0034.
+  {
+    key: "gross_written_premium",
+    en: "Gross written premium",
+    ar: "إجمالي الأقساط المكتتبة",
+    def: "SUM(axis_policy_versions.premium_minor + tax_minor + fees_minor) WHERE effective_from in period AND state != 'voided'",
+    unit: "money",
+    grain: "day",
+    direction: "up",
+    owner: "faisal.omar",
+    target: { value: 7_500_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "net_written_premium",
+    en: "Net written premium",
+    ar: "صافي الأقساط المكتتبة",
+    def: "SUM(axis_policy_versions.premium_minor) WHERE effective_from in period AND state != 'voided'",
+    unit: "money",
+    grain: "day",
+    direction: "up",
+    owner: "faisal.omar",
+    target: { value: 6_800_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "expense_ratio",
+    en: "Expense ratio",
+    ar: "نسبة المصروفات",
+    def: "SUM(ledger_journal_lines WHERE account_code LIKE '5%') / earned_premium",
+    unit: "ratio",
+    grain: "month",
+    direction: "down",
+    owner: "faisal.omar",
+    sensitivity: "restricted",
+    target: { value: 1_500, scale: BPS }
+  },
+  {
+    key: "combined_ratio",
+    en: "Combined ratio",
+    ar: "النسبة المجمعة",
+    def: "loss_ratio + expense_ratio",
+    unit: "ratio",
+    grain: "month",
+    direction: "down",
+    owner: "faisal.omar",
+    sensitivity: "restricted",
+    target: { value: 9_500, scale: BPS }
+  },
+  {
+    key: "quote_hit_rate",
+    en: "Quote hit rate",
+    ar: "معدل تحويل العروض",
+    def: "COUNT(ledger_txns type='BIND' created) / COUNT(dist_quote_requests created)",
+    unit: "percent",
+    grain: "day",
+    direction: "up",
+    owner: "layla.hassan",
+    target: { value: 2_400, scale: BPS }
+  },
+  {
+    key: "avg_handling_time_claims",
+    en: "Avg handling time — claims",
+    ar: "متوسط زمن معالجة المطالبات",
+    def: "MEDIAN(axis_claims.closed_at - reported_at) WHERE closed_at in period",
+    unit: "duration_ms",
+    grain: "day",
+    direction: "down",
+    owner: "yusuf.karim",
+    target: { value: 5 * DAY, scale: "ms" }
+  },
+  {
+    key: "avg_handling_time_cases",
+    en: "Avg handling time — cases",
+    ar: "متوسط زمن معالجة الملفات",
+    def: "MEDIAN(axis_cases.closed_at - created_at) WHERE closed_at in period",
+    unit: "duration_ms",
+    grain: "day",
+    direction: "down",
+    owner: "raed.samir",
+    target: { value: 2 * DAY, scale: "ms" }
+  },
+  {
+    key: "reserve_adequacy",
+    en: "Reserve adequacy",
+    ar: "كفاية المخصصات",
+    def: "SUM(reserve at report+30d) / SUM(final paid) over axis_claims closed in period",
+    unit: "ratio",
+    grain: "month",
+    direction: "up",
+    owner: "yusuf.karim",
+    sensitivity: "restricted",
+    target: { value: 10_000, scale: BPS }
+  },
+  {
+    key: "sla_breach_rate",
+    en: "SLA breach rate",
+    ar: "معدل خرق اتفاقية مستوى الخدمة",
+    def: "COUNT(axis_cases + axis_claims closed past sla_due_at) / COUNT(closed)",
+    unit: "percent",
+    grain: "day",
+    direction: "down",
+    owner: "raed.samir",
+    target: { value: 500, scale: BPS }
+  },
+  {
+    key: "open_claim_count",
+    en: "Open claim count",
+    ar: "عدد المطالبات المفتوحة",
+    def: "COUNT(axis_claims WHERE closed_at IS NULL AND status NOT IN ('withdrawn', 'rejected'))",
+    unit: "count",
+    grain: "month",
+    direction: "down",
+    owner: "yusuf.karim",
+    target: { value: 120, scale: "count" }
+  },
+  {
+    key: "whitespace_promotion_rate",
+    en: "Whitespace promotion rate",
+    ar: "معدل ترقية الفجوات السوقية",
+    def: "COUNT(scout_whitespaces WHERE promoted_at IS NOT NULL) / COUNT(scout_whitespaces) over the month raised",
+    unit: "percent",
+    grain: "month",
+    direction: "up",
+    owner: "layla.hassan",
+    target: { value: 3_000, scale: BPS }
+  },
+  {
+    key: "campaign_return_on_spend",
+    en: "Campaign return on spend",
+    ar: "عائد الإنفاق على الحملات",
+    def: "SUM(signal_attribution_events.value_minor WHERE touch_type='bind') / SUM(signal_spend.amount_minor)",
+    unit: "ratio",
+    grain: "month",
+    direction: "up",
+    owner: "layla.hassan",
+    target: { value: 30_000, scale: BPS }
+  },
+  {
+    key: "outstanding_reserve",
+    en: "Outstanding reserve",
+    ar: "المخصصات المستحقة",
+    def: "SUM(axis_claims.reserve_minor)",
+    unit: "money",
+    grain: "month",
+    direction: "down",
+    owner: "yusuf.karim",
+    sensitivity: "restricted",
+    target: { value: 12_000_000, scale: "minor", currency: "AED" }
+  },
+  // The unit economics a buyer doing diligence asks for: what a lead costs,
+  // what an acquisition costs, and what each contract and each customer pays
+  // back against it. Noor Jamal owns the cost side (she already owns
+  // cac_per_policy) and the LTV proxy that is read against it; Faisal Omar
+  // owns the commission the finance book actually recognises.
+  {
+    key: "cost_per_lead",
+    en: "Cost per lead",
+    ar: "تكلفة العميل المحتمل",
+    def: "SUM(signal_spend.amount_minor) / COUNT(signal_attribution_events WHERE touch_type='lead')",
+    unit: "money",
+    grain: "month",
+    direction: "down",
+    owner: "noor.jamal",
+    target: { value: 3_500, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "cost_per_acquisition",
+    en: "Cost per acquisition",
+    ar: "تكلفة الاكتساب",
+    def: "SUM(signal_spend.amount_minor) / COUNT(signal_attribution_events WHERE touch_type='bind')",
+    unit: "money",
+    grain: "month",
+    direction: "down",
+    owner: "noor.jamal",
+    target: { value: 25_000, scale: "minor", currency: "AED" }
+  },
+  // docs/17 SIG-057, ADR-0109: the same figure's 95% interval, a snapshot per
+  // bound, so a success fee settled on the low end references a stored row.
+  {
+    key: "cost_per_acquisition_low",
+    en: "Cost per acquisition (low bound)",
+    ar: "تكلفة الاكتساب (الحد الأدنى)",
+    def: "cacRange(SUM(signal_spend.amount_minor), COUNT(signal_attribution_events WHERE touch_type='bind')).low — Garwood exact Poisson 95%, ADR-0109",
+    unit: "money",
+    grain: "month",
+    direction: "down",
+    owner: "noor.jamal",
+    target: { value: 25_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "cost_per_acquisition_high",
+    en: "Cost per acquisition (high bound)",
+    ar: "تكلفة الاكتساب (الحد الأعلى)",
+    def: "cacRange(SUM(signal_spend.amount_minor), COUNT(signal_attribution_events WHERE touch_type='bind')).high — Garwood exact Poisson 95%, ADR-0109",
+    unit: "money",
+    grain: "month",
+    direction: "down",
+    owner: "noor.jamal",
+    target: { value: 25_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "commission_per_policy",
+    en: "Commission per policy",
+    ar: "العمولة لكل وثيقة",
+    def: "SUM(dist_commission_entries.net_commission_minor WHERE earned_at in period) / COUNT(axis_policies bound in period)",
+    unit: "money",
+    grain: "month",
+    direction: "up",
+    owner: "faisal.omar",
+    target: { value: 48_000, scale: "minor", currency: "AED" }
+  },
+  {
+    key: "revenue_per_customer",
+    en: "Revenue per customer",
+    ar: "الإيراد لكل عميل",
+    def: "SUM(dist_commission_entries.net_commission_minor WHERE earned_at in period) / COUNT(DISTINCT axis_policies.customer_id bound in period)",
+    unit: "money",
+    grain: "month",
+    direction: "up",
+    owner: "noor.jamal",
+    target: { value: 58_000, scale: "minor", currency: "AED" }
+  }
+];
+
+/** One NORTH_METRICS entry as the row both `seed()` and `ensureSeedMetrics` write. */
+function northMetricRow(
+  metric: (typeof NORTH_METRICS)[number],
+  tenantId: string,
+  rowId: string,
+  now: number
+): typeof schema.northMetrics.$inferInsert {
+  return {
+    id: rowId,
+    tenantId,
+    key: metric.key,
+    nameJson: JSON.stringify({ en: metric.en, ar: metric.ar }),
+    definitionSqlRef: metric.def,
+    unit: metric.unit,
+    currency: metric.unit === "money" ? "AED" : null,
+    grain: metric.grain,
+    owner: metric.owner,
+    targetJson: JSON.stringify(metric.target),
+    sensitivity: metric.sensitivity ?? "internal",
+    direction: metric.direction,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+/**
+ * Write every NORTH_METRICS row the tenant lacks, by key, and nothing it has —
+ * a tenant that retuned a target keeps its own. The snapshotter only computes
+ * a metric that has a row, so this is how a key added after provisioning
+ * (ADR-0109's CPA bounds) ever gets a first snapshot. Same one-delivery shape
+ * as `ensureSeedPeople`; run from /v1/auth/demo/resync-roles.
+ */
+export async function ensureSeedMetrics(
+  db: CoreDb,
+  tenantId: string,
+  opts: { now?: number } = {}
+): Promise<{ created: string[] }> {
+  const now = opts.now ?? Date.now();
+  const existing = new Set(
+    (
+      await db.select({ key: schema.northMetrics.key }).from(schema.northMetrics).where(eq(schema.northMetrics.tenantId, tenantId))
+    ).map((r) => r.key)
+  );
+  const missing = NORTH_METRICS.filter((metric) => !existing.has(metric.key));
+  let n = 0;
+  if (missing.length) {
+    await db.insert(schema.northMetrics).values(missing.map((metric) => northMetricRow(metric, tenantId, id("mtr", now + n++), now)));
+  }
+  return { created: missing.map((metric) => metric.key) };
+}
 
 export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResult> {
   if (opts.environment === "production" && !opts.password) {
@@ -1245,374 +1678,8 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
   // Periods are derived from `now` (seed/period.ts), not written down: a demo
   // provisioned in August must not narrate January, and a rolling window on a
   // screen is empty if the data behind it is a year old.
-  const BPS = "bps";
-
-  const METRICS: ReadonlyArray<{
-    key: string;
-    en: string;
-    ar: string;
-    def: string;
-    unit: "count" | "money" | "percent" | "ratio" | "duration_ms";
-    grain: "day" | "week" | "month";
-    direction: "up" | "down";
-    owner: string;
-    sensitivity?: "public" | "internal" | "restricted";
-    target: Record<string, unknown>;
-  }> = [
-    {
-      key: "gwp",
-      en: "Gross written premium",
-      ar: "إجمالي الأقساط المكتتبة",
-      def: "v_exec_daily.premium_minor",
-      unit: "money",
-      grain: "month",
-      direction: "up",
-      owner: "faisal.omar",
-      target: { value: 230_000_000, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "net_commission",
-      en: "Net commission retained",
-      ar: "صافي العمولة المحتفظ بها",
-      def: "dist_commission_entries.net_commission_minor",
-      unit: "money",
-      grain: "month",
-      direction: "up",
-      owner: "faisal.omar",
-      target: { value: 21_000_000, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "active_policies",
-      en: "Policies in force",
-      ar: "الوثائق السارية",
-      def: "axis_policies WHERE status = 'active'",
-      unit: "count",
-      grain: "month",
-      direction: "up",
-      owner: "omar.farouk",
-      target: { value: 4_800, scale: "count" }
-    },
-    {
-      key: "renewal_retention",
-      en: "Renewal retention rate",
-      ar: "معدل الاحتفاظ عند التجديد",
-      def: "v_renewal_book: accepted / (accepted + lost)",
-      unit: "percent",
-      grain: "month",
-      direction: "up",
-      owner: "yusuf.karim",
-      target: { value: 8_500, scale: BPS }
-    },
-    {
-      key: "cac_per_policy",
-      en: "Acquisition cost per policy",
-      ar: "تكلفة اكتساب الوثيقة",
-      def: "v_cac_ltv.spend_minor / v_cac_ltv.binds",
-      unit: "money",
-      grain: "month",
-      direction: "down",
-      owner: "noor.jamal",
-      target: { value: 19_000, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "broker_channel_share",
-      en: "Share of premium through b2b channels",
-      ar: "حصة الأقساط عبر قنوات الأعمال",
-      def: "axis_policies JOIN dist_channels ON kind = 'b2b'",
-      unit: "percent",
-      grain: "month",
-      direction: "up",
-      owner: "dana.aziz",
-      target: { value: 4_000, scale: BPS }
-    },
-    {
-      key: "loss_ratio",
-      en: "Loss ratio — own paper",
-      ar: "نسبة الخسارة — الاكتتاب الذاتي",
-      def: "axis_claims / axis_policies WHERE provider is internal",
-      unit: "ratio",
-      grain: "month",
-      direction: "down",
-      owner: "faisal.omar",
-      // Only GONXT's own underwriting result, so it is not a number the panel
-      // partners or the b2b channels get to see.
-      sensitivity: "restricted",
-      target: { value: 6_000, scale: BPS }
-    },
-    {
-      key: "ai_cost_per_case",
-      en: "AI cost per case",
-      ar: "تكلفة الذكاء الاصطناعي لكل ملف",
-      def: "v_exec_daily.ai_cost_micro / v_exec_daily.cases_created",
-      unit: "money",
-      grain: "month",
-      direction: "down",
-      owner: "raed.samir",
-      target: { value: 100, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "policies_issued",
-      en: "Policies issued",
-      ar: "الوثائق المُصدرة",
-      def: "v_exec_daily.policies_issued",
-      unit: "count",
-      grain: "day",
-      direction: "up",
-      owner: "omar.farouk",
-      target: { value: 55, scale: "count" }
-    },
-    {
-      key: "quote_to_bind_rate",
-      en: "Quote to bind rate",
-      ar: "معدل التحويل من عرض إلى وثيقة",
-      def: "axis_policies / dist_quote_requests WHERE state = 'complete'",
-      unit: "percent",
-      grain: "day",
-      direction: "up",
-      owner: "layla.hassan",
-      target: { value: 2_400, scale: BPS }
-    },
-    {
-      key: "panel_response_rate",
-      en: "Panel response rate",
-      ar: "معدل استجابة لوحة المزوّدين",
-      def: "dist_quote_requests.responded_count / dist_quote_requests.fanout_count",
-      unit: "percent",
-      grain: "day",
-      direction: "up",
-      owner: "dana.aziz",
-      target: { value: 9_700, scale: BPS }
-    },
-    {
-      key: "quote_latency_p95",
-      en: "Quote latency p95",
-      ar: "زمن استجابة التسعير — المئين ٩٥",
-      def: "dist_quote_responses.latency_ms, p95",
-      unit: "duration_ms",
-      grain: "day",
-      direction: "down",
-      owner: "raed.samir",
-      sensitivity: "public",
-      target: { value: 2_500, scale: "ms" }
-    },
-    // AXIS task 15 (docs/specs/gap-axis-design.md §F); see ADR-0024/ADR-0034.
-    {
-      key: "gross_written_premium",
-      en: "Gross written premium",
-      ar: "إجمالي الأقساط المكتتبة",
-      def: "SUM(axis_policy_versions.premium_minor + tax_minor + fees_minor) WHERE effective_from in period AND state != 'voided'",
-      unit: "money",
-      grain: "day",
-      direction: "up",
-      owner: "faisal.omar",
-      target: { value: 7_500_000, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "net_written_premium",
-      en: "Net written premium",
-      ar: "صافي الأقساط المكتتبة",
-      def: "SUM(axis_policy_versions.premium_minor) WHERE effective_from in period AND state != 'voided'",
-      unit: "money",
-      grain: "day",
-      direction: "up",
-      owner: "faisal.omar",
-      target: { value: 6_800_000, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "expense_ratio",
-      en: "Expense ratio",
-      ar: "نسبة المصروفات",
-      def: "SUM(ledger_journal_lines WHERE account_code LIKE '5%') / earned_premium",
-      unit: "ratio",
-      grain: "month",
-      direction: "down",
-      owner: "faisal.omar",
-      sensitivity: "restricted",
-      target: { value: 1_500, scale: BPS }
-    },
-    {
-      key: "combined_ratio",
-      en: "Combined ratio",
-      ar: "النسبة المجمعة",
-      def: "loss_ratio + expense_ratio",
-      unit: "ratio",
-      grain: "month",
-      direction: "down",
-      owner: "faisal.omar",
-      sensitivity: "restricted",
-      target: { value: 9_500, scale: BPS }
-    },
-    {
-      key: "quote_hit_rate",
-      en: "Quote hit rate",
-      ar: "معدل تحويل العروض",
-      def: "COUNT(ledger_txns type='BIND' created) / COUNT(dist_quote_requests created)",
-      unit: "percent",
-      grain: "day",
-      direction: "up",
-      owner: "layla.hassan",
-      target: { value: 2_400, scale: BPS }
-    },
-    {
-      key: "avg_handling_time_claims",
-      en: "Avg handling time — claims",
-      ar: "متوسط زمن معالجة المطالبات",
-      def: "MEDIAN(axis_claims.closed_at - reported_at) WHERE closed_at in period",
-      unit: "duration_ms",
-      grain: "day",
-      direction: "down",
-      owner: "yusuf.karim",
-      target: { value: 5 * DAY, scale: "ms" }
-    },
-    {
-      key: "avg_handling_time_cases",
-      en: "Avg handling time — cases",
-      ar: "متوسط زمن معالجة الملفات",
-      def: "MEDIAN(axis_cases.closed_at - created_at) WHERE closed_at in period",
-      unit: "duration_ms",
-      grain: "day",
-      direction: "down",
-      owner: "raed.samir",
-      target: { value: 2 * DAY, scale: "ms" }
-    },
-    {
-      key: "reserve_adequacy",
-      en: "Reserve adequacy",
-      ar: "كفاية المخصصات",
-      def: "SUM(reserve at report+30d) / SUM(final paid) over axis_claims closed in period",
-      unit: "ratio",
-      grain: "month",
-      direction: "up",
-      owner: "yusuf.karim",
-      sensitivity: "restricted",
-      target: { value: 10_000, scale: BPS }
-    },
-    {
-      key: "sla_breach_rate",
-      en: "SLA breach rate",
-      ar: "معدل خرق اتفاقية مستوى الخدمة",
-      def: "COUNT(axis_cases + axis_claims closed past sla_due_at) / COUNT(closed)",
-      unit: "percent",
-      grain: "day",
-      direction: "down",
-      owner: "raed.samir",
-      target: { value: 500, scale: BPS }
-    },
-    {
-      key: "open_claim_count",
-      en: "Open claim count",
-      ar: "عدد المطالبات المفتوحة",
-      def: "COUNT(axis_claims WHERE closed_at IS NULL AND status NOT IN ('withdrawn', 'rejected'))",
-      unit: "count",
-      grain: "month",
-      direction: "down",
-      owner: "yusuf.karim",
-      target: { value: 120, scale: "count" }
-    },
-    {
-      key: "whitespace_promotion_rate",
-      en: "Whitespace promotion rate",
-      ar: "معدل ترقية الفجوات السوقية",
-      def: "COUNT(scout_whitespaces WHERE promoted_at IS NOT NULL) / COUNT(scout_whitespaces) over the month raised",
-      unit: "percent",
-      grain: "month",
-      direction: "up",
-      owner: "layla.hassan",
-      target: { value: 3_000, scale: BPS }
-    },
-    {
-      key: "campaign_return_on_spend",
-      en: "Campaign return on spend",
-      ar: "عائد الإنفاق على الحملات",
-      def: "SUM(signal_attribution_events.value_minor WHERE touch_type='bind') / SUM(signal_spend.amount_minor)",
-      unit: "ratio",
-      grain: "month",
-      direction: "up",
-      owner: "layla.hassan",
-      target: { value: 30_000, scale: BPS }
-    },
-    {
-      key: "outstanding_reserve",
-      en: "Outstanding reserve",
-      ar: "المخصصات المستحقة",
-      def: "SUM(axis_claims.reserve_minor)",
-      unit: "money",
-      grain: "month",
-      direction: "down",
-      owner: "yusuf.karim",
-      sensitivity: "restricted",
-      target: { value: 12_000_000, scale: "minor", currency: "AED" }
-    },
-    // The unit economics a buyer doing diligence asks for: what a lead costs,
-    // what an acquisition costs, and what each contract and each customer pays
-    // back against it. Noor Jamal owns the cost side (she already owns
-    // cac_per_policy) and the LTV proxy that is read against it; Faisal Omar
-    // owns the commission the finance book actually recognises.
-    {
-      key: "cost_per_lead",
-      en: "Cost per lead",
-      ar: "تكلفة العميل المحتمل",
-      def: "SUM(signal_spend.amount_minor) / COUNT(signal_attribution_events WHERE touch_type='lead')",
-      unit: "money",
-      grain: "month",
-      direction: "down",
-      owner: "noor.jamal",
-      target: { value: 3_500, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "cost_per_acquisition",
-      en: "Cost per acquisition",
-      ar: "تكلفة الاكتساب",
-      def: "SUM(signal_spend.amount_minor) / COUNT(signal_attribution_events WHERE touch_type='bind')",
-      unit: "money",
-      grain: "month",
-      direction: "down",
-      owner: "noor.jamal",
-      target: { value: 25_000, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "commission_per_policy",
-      en: "Commission per policy",
-      ar: "العمولة لكل وثيقة",
-      def: "SUM(dist_commission_entries.net_commission_minor WHERE earned_at in period) / COUNT(axis_policies bound in period)",
-      unit: "money",
-      grain: "month",
-      direction: "up",
-      owner: "faisal.omar",
-      target: { value: 48_000, scale: "minor", currency: "AED" }
-    },
-    {
-      key: "revenue_per_customer",
-      en: "Revenue per customer",
-      ar: "الإيراد لكل عميل",
-      def: "SUM(dist_commission_entries.net_commission_minor WHERE earned_at in period) / COUNT(DISTINCT axis_policies.customer_id bound in period)",
-      unit: "money",
-      grain: "month",
-      direction: "up",
-      owner: "noor.jamal",
-      target: { value: 58_000, scale: "minor", currency: "AED" }
-    }
-  ];
-
   let m = 0;
-  await db.insert(schema.northMetrics).values(
-    METRICS.map((metric) => ({
-      id: id("mtr", now + m++),
-      tenantId,
-      key: metric.key,
-      nameJson: JSON.stringify({ en: metric.en, ar: metric.ar }),
-      definitionSqlRef: metric.def,
-      unit: metric.unit,
-      currency: metric.unit === "money" ? "AED" : null,
-      grain: metric.grain,
-      owner: metric.owner,
-      targetJson: JSON.stringify(metric.target),
-      sensitivity: metric.sensitivity ?? "internal",
-      direction: metric.direction,
-      createdAt: now,
-      updatedAt: now
-    }))
-  );
+  await db.insert(schema.northMetrics).values(NORTH_METRICS.map((metric) => northMetricRow(metric, tenantId, id("mtr", now + m++), now)));
 
   /* --------------------------------------------------------- snapshots */
   // The nightly rollup runs at 02:00Z: a daily period is written the morning
@@ -1658,6 +1725,16 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
     panel_response_rate: [9_650, 9_720, 9_580, 9_240, 8_810],
     quote_latency_p95: [2_150, 2_080, 2_310, 3_040, 3_620]
   };
+  // ADR-0109: the bounds are derived from the point, never typed beside it.
+  // The binds behind each month's point (the open month is part-way through,
+  // hence few) give the spend, and cacRange turns spend and binds into the
+  // same interval the snapshotter would have written.
+  const CPA_BINDS = [62, 71, 83, 24] as const;
+  const cpaRanges = MONTHLY.cost_per_acquisition!.map((point, i) =>
+    cacRange({ spendMinor: point * CPA_BINDS[i]!, conversions: CPA_BINDS[i]! })!
+  );
+  MONTHLY.cost_per_acquisition_low = cpaRanges.map((r) => r.low) as unknown as readonly [number, number, number, number];
+  MONTHLY.cost_per_acquisition_high = cpaRanges.map((r) => r.high!) as unknown as readonly [number, number, number, number];
 
   // Readable and unique per dimension set, which is all the unique index needs.
   // ponytail: a digest buys nothing at this cardinality — swap it for one when

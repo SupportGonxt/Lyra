@@ -1,6 +1,7 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { type Ctx, type Envelope } from "@lyra/core";
+import { cacRange, type CacRange, type Ctx, type Envelope } from "@lyra/core";
+import { alias } from "drizzle-orm/sqlite-core";
 
 // The acquisition funnel. `signal_attribution_events` was a dead seam: the
 // table existed and north-snapshotter read it for CAC, but nothing ever wrote
@@ -153,4 +154,85 @@ export async function funnelByCampaign(
     byKey.set(key, agg);
   }
   return [...byKey.values()];
+}
+
+export interface AcquisitionCostRange {
+  since: number;
+  until: number;
+  channel: string | null;
+  currency: string | null;
+  spendMinor: number;
+  /** Binds credited last-touch — the reporting model, and the range's point. */
+  binds: number;
+  /** Null when nothing was acquired: there is no acquisition to price. */
+  range: CacRange | null;
+}
+
+/**
+ * docs/17 SIG-057, ADR-0109: what an acquisition cost, as an interval with its
+ * method named. Same basis as NORTH's `cost_per_acquisition` — spend over
+ * attributed `bind` touches in the window — so the range's point is that
+ * metric exactly.
+ *
+ * For one channel the credit is model-dependent, and the envelope names it:
+ * the fewest binds any single-credit model gives the channel are its
+ * last-touch binds whose customer touched no other channel first; the most are
+ * every bind whose customer touched it at all before binding. For SIGNAL as a
+ * whole every model credits every bind, so the envelope collapses.
+ */
+export async function acquisitionCostRange(
+  ctx: Ctx,
+  window: { since: number; until: number; channel?: string | null; currency?: string | null }
+): Promise<AcquisitionCostRange> {
+  const channel = window.channel ?? null;
+  const currency = window.currency ?? null;
+  // The bind row is aliased `b` and named by that alias in raw SQL: drizzle
+  // renders a column inside a select field unqualified, so `${column}` in the
+  // correlated subquery would resolve to the inner `p` and compare the scan
+  // against itself — true for every row.
+  const touches = alias(schema.signalAttributionEvents, "b");
+  const spend = schema.signalSpend;
+
+  // A prior non-bind touch by the same customer, at or before this bind.
+  const prior = (extra: ReturnType<typeof sql>) =>
+    sql<number>`exists (select 1 from signal_attribution_events p
+      where p.tenant_id = b.tenant_id and p.customer_id = b.customer_id
+        and p.touch_type <> 'bind' and p.ts <= b.ts and ${extra})`;
+
+  const [spent, binds] = await Promise.all([
+    ctx.db
+      .select({ v: sql<number>`coalesce(sum(${spend.amountMinor}), 0)` })
+      .from(spend)
+      .where(
+        and(
+          eq(spend.tenantId, ctx.tenantId),
+          gte(spend.ts, window.since),
+          lt(spend.ts, window.until),
+          channel === null ? undefined : eq(spend.channel, channel),
+          currency === null ? undefined : eq(spend.currency, currency)
+        )
+      )
+      .then((rows) => rows[0]?.v ?? 0),
+    ctx.db
+      .select({
+        channel: touches.channel,
+        mixed: prior(sql`p.channel <> b.channel`),
+        touched: prior(sql`p.channel = ${channel ?? ""}`)
+      })
+      .from(touches)
+      .where(and(eq(touches.tenantId, ctx.tenantId), eq(touches.touchType, "bind"), gte(touches.ts, window.since), lt(touches.ts, window.until)))
+  ]);
+
+  const credited = channel === null ? binds : binds.filter((bind) => bind.channel === channel);
+  const creditLow = channel === null ? binds.length : credited.filter((bind) => !bind.mixed).length;
+  const creditHigh = channel === null ? binds.length : binds.filter((bind) => bind.channel === channel || bind.touched).length;
+  return {
+    since: window.since,
+    until: window.until,
+    channel,
+    currency,
+    spendMinor: spent,
+    binds: credited.length,
+    range: cacRange({ spendMinor: spent, conversions: credited.length, creditLow, creditHigh })
+  };
 }

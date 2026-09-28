@@ -14,7 +14,7 @@ import { generateCreativeImage, generateCreatives } from "../engines/signal-crea
 import { attributeCounts, suggestTargeting } from "../engines/signal-audience.js";
 import { creativeContextFor, planAudience, planCampaign } from "../engines/signal-campaign-plan.js";
 import { runBudgetAutopilot } from "../engines/signal-autopilot.js";
-import { funnelByCampaign } from "../engines/signal-attribution.js";
+import { acquisitionCostRange, funnelByCampaign } from "../engines/signal-attribution.js";
 import { experimentReadout } from "../engines/signal-experiment.js";
 import { demoOnly } from "../auth.js";
 import type { App } from "../env.js";
@@ -328,6 +328,22 @@ signalRoutes.get("/attribution/funnel", async (c) => {
   const since = Number(c.req.query("since") ?? ctx.now - 30 * DAY_MS);
   const until = Number(c.req.query("until") ?? ctx.now);
   return c.json({ data: await funnelByCampaign(ctx, since, until) });
+});
+
+// docs/17 SIG-057, ADR-0109: cost per acquisition as a range with its method
+// named, never a bare point. A success fee references the lower bound, so the
+// window has to be a real one — a bad number is refused, not defaulted.
+signalRoutes.get("/attribution/range", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:attribution:read", { tenantId: ctx.tenantId, module: "signal" });
+  const since = Number(c.req.query("since") ?? ctx.now - 30 * DAY_MS);
+  const until = Number(c.req.query("until") ?? ctx.now);
+  if (!Number.isFinite(since)) throw badRequest("since must be epoch milliseconds", { since: "not a number" });
+  if (!Number.isFinite(until)) throw badRequest("until must be epoch milliseconds", { until: "not a number" });
+  if (since >= until) throw badRequest("since must be before until", { since: "not before until" });
+  return c.json(
+    await acquisitionCostRange(ctx, { since, until, channel: c.req.query("channel") || null, currency: c.req.query("currency") || null })
+  );
 });
 
 // docs/30 SIGNAL gap 1: spend actuals from an ad-platform export. Per-line

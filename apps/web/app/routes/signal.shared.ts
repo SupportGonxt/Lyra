@@ -1,6 +1,7 @@
 import { formatInstant, instantOf } from "@lyra/ui";
 import { vocabulary } from "../modules/vocabulary";
 import { pseudoText } from "../i18n";
+import type { CacRange } from "@lyra/core/attribution-range";
 
 // The bespoke SIGNAL screens share one labeller and one set of
 // derivations, for the same reason ledger.shared.ts exists: the cockpit, the
@@ -458,6 +459,21 @@ export function rollByChannel(
     roll.valueMinor += touch.valueMinor || 0;
   }
   return [...rolls.values()].sort((a, b) => b.spendMinor - a.spendMinor);
+}
+
+/**
+ * GET /v1/signal/attribution/range. Mirrors `AcquisitionCostRange` in
+ * apps/api/src/engines/signal-attribution.ts; `range` is packages/core's own
+ * `CacRange`, imported, so the half that carries the numbers cannot drift.
+ */
+export interface AcquisitionRange {
+  since: number;
+  until: number;
+  channel: string | null;
+  currency: string | null;
+  spendMinor: number;
+  binds: number;
+  range: CacRange | null;
 }
 
 /** Spend per acquisition. `null` when nothing converted: a CAC of infinity is
@@ -1206,6 +1222,13 @@ const LABELS: Record<string, Record<string, string>> = {
     impressions: "Impressions",
     conversions: "Conversions",
     cac: "Cost per acquisition",
+    "attribution.to": "to",
+    "attribution.unbounded": "no upper bound",
+    "attribution.method": "How this range is worked out",
+    "attribution.method.poisson_exact":
+      "A {pct}% range, not a single figure: the number of sign-ups in a period is itself a count that could have come out a little higher or lower, so the cost is shown between the most and fewest sign-ups that count plausibly stands for (exact Poisson interval). The figure in brackets is spend divided by the sign-ups actually counted.",
+    "attribution.method.poisson_exact_credit_envelope":
+      "A {pct}% range, not a single figure. Two things are uncertain: how many sign-ups this spend really bought (exact Poisson interval on the count), and which of them this channel deserves credit for — from only those whose every earlier contact came through it, to every one it touched at all. The range covers both. The figure in brackets credits the last contact before sign-up.",
     ltv: "Value per customer",
     multiple: "Value to cost",
     state: "State",
@@ -1821,6 +1844,13 @@ const LABELS: Record<string, Record<string, string>> = {
     impressions: "مرات الظهور",
     conversions: "التحويلات",
     cac: "تكلفة الاستحواذ",
+    "attribution.to": "إلى",
+    "attribution.unbounded": "بلا حد أعلى",
+    "attribution.method": "كيف يُحسب هذا النطاق",
+    "attribution.method.poisson_exact":
+      "نطاق بثقة {pct}٪ وليس رقمًا واحدًا: عدد الاشتراكات في الفترة هو نفسه عدٌّ كان يمكن أن يأتي أعلى أو أقل قليلًا، لذا تُعرض التكلفة بين أكثر عدد وأقل عدد من الاشتراكات يمثّلهما هذا العدّ بشكل معقول (فترة بواسون الدقيقة). الرقم بين القوسين هو الإنفاق مقسومًا على الاشتراكات المعدودة فعلًا.",
+    "attribution.method.poisson_exact_credit_envelope":
+      "نطاق بثقة {pct}٪ وليس رقمًا واحدًا. هناك أمران غير مؤكدين: كم اشتراكًا اشترى هذا الإنفاق فعلًا (فترة بواسون الدقيقة على العدّ)، وأيّها تستحق هذه القناة الفضل فيه — من تلك التي جاء كل تواصل سابق فيها عبرها فقط، إلى كل اشتراك لمسته أصلًا. النطاق يغطي الأمرين. الرقم بين القوسين ينسب الفضل لآخر تواصل قبل الاشتراك.",
     ltv: "القيمة لكل عميل",
     multiple: "القيمة مقابل التكلفة",
     state: "الوضع",

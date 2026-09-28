@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, ne, notInArray, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { earnedBetween, emit, isClosedPeriod, periodBounds, periodOf, previousPeriod, type Ctx } from "@lyra/core";
+import { cacRange, earnedBetween, emit, isClosedPeriod, periodBounds, periodOf, previousPeriod, type Ctx } from "@lyra/core";
 // docs/27 F49 / spec §E.2: NORTH's money metrics are adapters over the
 // ledger's own reports. packages/ledger is a shared package, not another
 // module, so this is not the cross-module import CLAUDE.md §6 forbids — and it
@@ -656,6 +656,20 @@ const costPerAcquisition: Compute = async (ctx, p) => {
 };
 
 /**
+ * docs/17 SIG-057, ADR-0109: the same figure's interval, one snapshot per
+ * bound, so a success fee settled on the lower bound references a stored,
+ * re-derivable row rather than a number a screen computed once. Same spend,
+ * same binds, same `cacRange` the API answers with — SIGNAL as a whole, so the
+ * credit envelope collapses and the width is the Poisson interval alone.
+ */
+const costPerAcquisitionBound =
+  (bound: "low" | "high"): Compute =>
+  async (ctx, p) => {
+    const [spendMinor, conversions] = await Promise.all([signalSpendMinor(ctx, p), attributedTouches(ctx, p, "bind")]);
+    return cacRange({ spendMinor, conversions })?.[bound] ?? null;
+  };
+
+/**
  * Revenue per contract written. Commission earned in the month over contracts
  * bound in it — the same mixed-cohort window `quote_to_bind_rate` uses, not a
  * cohort followed forward. A month that bound nothing still collects commission
@@ -719,6 +733,8 @@ export const REGISTRY: Record<string, Compute> = {
   campaign_return_on_spend: campaignReturnOnSpend,
   cost_per_lead: costPerLead,
   cost_per_acquisition: costPerAcquisition,
+  cost_per_acquisition_low: costPerAcquisitionBound("low"),
+  cost_per_acquisition_high: costPerAcquisitionBound("high"),
   commission_per_policy: commissionPerPolicy,
   revenue_per_customer: revenuePerCustomer
 };

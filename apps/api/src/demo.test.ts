@@ -132,6 +132,17 @@ describe("POST /v1/auth/demo/resync-roles", () => {
     const second = await call("staging", "POST", "/v1/auth/demo/resync-roles");
     expect(second.body.events).toEqual({ journeys: [], webhooks: [] });
   });
+
+  // ADR-0109: the CPA bounds are NORTH metrics the demo tenant was provisioned
+  // without; the snapshotter computes only metrics that have a row.
+  it("backfills a NORTH metric the tenant lacks, and a second call backfills nothing", async () => {
+    await database.delete(schema.northMetrics).where(eq(schema.northMetrics.key, "cost_per_acquisition_low"));
+    const first = await call("staging", "POST", "/v1/auth/demo/resync-roles");
+    expect(first.status).toBe(200);
+    expect(first.body.metrics).toEqual({ created: ["cost_per_acquisition_low"] });
+    const second = await call("staging", "POST", "/v1/auth/demo/resync-roles");
+    expect(second.body.metrics).toEqual({ created: [] });
+  });
 });
 
 // The session cookie's scope. Regression for the host-only cookie: web sits on
