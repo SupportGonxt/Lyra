@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { CHART_OF_ACCOUNTS, schema } from "@lyra/db";
 import { PROSPECT_CHURN_FLOOR } from "./prospects.js";
-import { backfillProspects, ensureDemoAdmin, ensureSeedPeople, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedCreativeCopy, syncSeedEventNames, syncSeedJourneyGraphs } from "./seed.js";
+import { backfillProspects, ensureDemoAdmin, ensureSeedMetrics, ensureSeedPeople, NORTH_METRICS, seed, SEED_TENANT_SLUG, syncChartOfAccounts, syncSeedCreativeCopy, syncSeedEventNames, syncSeedJourneyGraphs } from "./seed.js";
 import { SEED_CREATIVE_COPY } from "./seed/signal.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
 import { TENANT_ROLE_KEYS, isInternalRole, permissionsForRole } from "./rbac.js";
@@ -227,6 +227,34 @@ describe("seed", () => {
 
     // A second run touches nothing — every address is already taken.
     expect((await ensureSeedPeople(db, tenantId)).created).toEqual([]);
+  });
+
+  /**
+   * ADR-0109: `cost_per_acquisition_low`/`_high` were added to NORTH_METRICS
+   * after the demo tenant was provisioned. The snapshotter iterates the rows,
+   * so without a backfill the bound a success fee references is never written.
+   */
+  it("adds a NORTH metric the tenant was seeded before, and adds nothing twice", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    await db.delete(schema.northMetrics).where(eq(schema.northMetrics.key, "cost_per_acquisition_low"));
+    await db.delete(schema.northMetrics).where(eq(schema.northMetrics.key, "cost_per_acquisition_high"));
+
+    const first = await ensureSeedMetrics(db, tenantId, { now: 1_800_000_000_000 });
+    expect(first.created).toEqual(["cost_per_acquisition_low", "cost_per_acquisition_high"]);
+    const [low] = await db.select().from(schema.northMetrics).where(eq(schema.northMetrics.key, "cost_per_acquisition_low"));
+    expect(low).toMatchObject({ tenantId, unit: "money", currency: "AED", grain: "month", direction: "down", owner: "noor.jamal", sensitivity: "internal" });
+    expect(JSON.parse(low!.nameJson)).toEqual({ en: "Cost per acquisition (low bound)", ar: "تكلفة الاكتساب (الحد الأدنى)" });
+    expect((await db.select().from(schema.northMetrics)).filter((r) => r.tenantId === tenantId)).toHaveLength(NORTH_METRICS.length);
+
+    expect((await ensureSeedMetrics(db, tenantId)).created).toEqual([]);
+  });
+
+  it("backfills metrics into the tenant it is given, not another", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    const { created } = await ensureSeedMetrics(db, "tn_other");
+    expect(created).toHaveLength(NORTH_METRICS.length);
+    const mine = (await db.select().from(schema.northMetrics)).filter((r) => r.tenantId === tenantId);
+    expect(mine).toHaveLength(NORTH_METRICS.length);
   });
 
   /**
@@ -887,6 +915,22 @@ describe("seed", () => {
         sensitivity: "internal",
         target: { value: 25_000, scale: "minor", currency: "AED" }
       },
+      cost_per_acquisition_low: {
+        unit: "money",
+        grain: "month",
+        direction: "down",
+        owner: "noor.jamal",
+        sensitivity: "internal",
+        target: { value: 25_000, scale: "minor", currency: "AED" }
+      },
+      cost_per_acquisition_high: {
+        unit: "money",
+        grain: "month",
+        direction: "down",
+        owner: "noor.jamal",
+        sensitivity: "internal",
+        target: { value: 25_000, scale: "minor", currency: "AED" }
+      },
       commission_per_policy: {
         unit: "money",
         grain: "month",
@@ -935,6 +979,18 @@ describe("seed", () => {
     expect(totalsFor("broker_channel_share", "month")).toEqual([3_120, 3_380, 3_611, 3_740]);
     expect(totalsFor("loss_ratio", "month")).toEqual([6_140, 5_980, 6_420, 6_050]);
     expect(totalsFor("ai_cost_per_case", "month")).toEqual([118, 104, 96, 91]);
+    // ADR-0109: the seeded bounds are derived, not typed — each month's point
+    // is spend over binds, and the bounds are cacRange over the same two.
+    const points = totalsFor("cost_per_acquisition", "month");
+    const lows = totalsFor("cost_per_acquisition_low", "month");
+    const highs = totalsFor("cost_per_acquisition_high", "month");
+    expect(points).toEqual([28_600, 26_400, 24_100, 29_800]);
+    expect(lows).toHaveLength(4);
+    expect(highs).toHaveLength(4);
+    points.forEach((point, i) => {
+      expect(lows[i]).toBeLessThan(point);
+      expect(highs[i]).toBeGreaterThan(point);
+    });
 
     expect(totalsFor("policies_issued", "day")).toEqual([41, 38, 52, 61, 57]);
     expect(totalsFor("quote_to_bind_rate", "day")).toEqual([2_310, 2_280, 2_405, 2_360, 1_890]);

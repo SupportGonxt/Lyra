@@ -11,7 +11,8 @@
     "./seed": "./src/seed.ts",
     "./totp": "./src/totp.ts",
     "./words": "./src/words.ts",
-    "./wikilinks": "./src/wikilinks.ts"
+    "./wikilinks": "./src/wikilinks.ts",
+    "./attribution-range": "./src/attribution-range.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

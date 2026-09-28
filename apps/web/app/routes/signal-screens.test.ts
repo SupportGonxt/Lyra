@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ActionFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import type { Env } from "../env";
 import {
   LABEL_KEYS,
@@ -22,7 +22,8 @@ import {
   type SpendRow,
   type TouchRow
 } from "./signal.shared";
-import { action as cockpitAction } from "./signal-cockpit";
+import { action as cockpitAction, loader as cockpitLoader } from "./signal-cockpit";
+import { cacRange } from "@lyra/core/attribution-range";
 import { action as studioAction } from "./signal-studio";
 import { action as budgetAction } from "./signal-budget";
 import { action as analyticsAction } from "./signal-analytics";
@@ -379,6 +380,42 @@ describe("cockpit action", () => {
 
     expect(result.problem).toEqual({ title: "bad_intent", status: 400, code: "bad_intent" });
     expect(calls).toHaveLength(0);
+  });
+});
+
+// docs/17 SIG-057, ADR-0109: the cockpit's CPA is the API's range, asked for
+// the window and headline currency the screen shows — not a point the screen
+// divided out of a 200-row page of touches.
+describe("cockpit loader", () => {
+  it("reads the acquisition range for the window, in the headline currency", async () => {
+    const range = cacRange({ spendMinor: 100_000, conversions: 10 });
+    const campaign = campaignRow({ state: "live" });
+    const calls = stubFetch(json({ data: [campaign], spendMinor: 100_000, binds: 10, range }));
+    const before = Date.now();
+
+    const loaded = await cockpitLoader({
+      request: new Request("https://web.test/signal/cockpit?days=30"),
+      context: { get: () => ({ env, ctx: null }) },
+      params: {}
+    } as unknown as LoaderFunctionArgs);
+
+    const asked = calls.find((call) => call.url.startsWith("https://api.test/v1/signal/attribution/range?"));
+    expect(asked).toBeTruthy();
+    const query = new URL(asked!.url).searchParams;
+    expect(Number(query.get("since"))).toBeGreaterThanOrEqual(before - 30 * 86_400_000);
+    expect(Number(query.get("since"))).toBeLessThanOrEqual(Date.now() - 30 * 86_400_000);
+    expect(query.get("currency")).toBe(loaded.currency);
+    expect(loaded.acquisition).toEqual(range);
+  });
+
+  it("shows no range, rather than crashing, when the reader may not see attribution", async () => {
+    stubFetch(json({ title: "forbidden", status: 403 }, 403));
+    const loaded = await cockpitLoader({
+      request: new Request("https://web.test/signal/cockpit"),
+      context: { get: () => ({ env, ctx: null }) },
+      params: {}
+    } as unknown as LoaderFunctionArgs);
+    expect(loaded.acquisition).toBeNull();
   });
 });
 

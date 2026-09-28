@@ -28,13 +28,13 @@ import { ApiError, api, fetchMe } from "../api.server";
 import { arrowFor } from "../i18n";
 import { cloudflare } from "../context";
 import { Gate } from "./staff";
+import { CacMethod, CacRangeValue } from "../components/cac-range";
 import { channelColumns } from "./signal-studio";
 import { useSignalSessionData } from "./signal-shell";
 import {
   PERM,
   WINDOWS,
   budgetOf,
-  cacMinor,
   cockpitHeadline,
   dailySpend,
   explain,
@@ -49,6 +49,7 @@ import {
   windowDays,
   channelLabel,
   scaleRows,
+  type AcquisitionRange,
   type CampaignRow,
   type MoveRow,
   type OutreachRow,
@@ -102,7 +103,19 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const running = campaigns.data.filter((campaign) => RUNNING_STATES.includes(campaign.state));
   // One currency per headline — see mainCurrency in signal.shared.
   const currency = mainCurrency(running.length ? running : campaigns.data);
+  // docs/17 SIG-057, ADR-0109: what an acquisition cost, as the API's range —
+  // the same window, the headline currency, every bind rather than the first
+  // page of touches. Asked after the campaigns because the currency is theirs.
+  const acquisition = await safe(
+    () =>
+      api<AcquisitionRange>(`/v1/signal/attribution/range?since=${from}&currency=${encodeURIComponent(currency)}`, {
+        env,
+        request
+      }).then((reply) => reply.range),
+    null
+  );
   return {
+    acquisition,
     days,
     // The kill switch lives on the tenant policy, and /v1/me is the only read
     // that returns it (apps/api/src/routes/signal.ts setAutopilotPaused).
@@ -201,7 +214,6 @@ export default function GrowthCockpit() {
   const spent = totalSpendMinor(loaded.spend, loaded.currency);
   const rolls = rollByChannel(loaded.spend, loaded.touches);
   const binds = rolls.reduce((sum, roll) => sum + roll.binds, 0);
-  const cac = cacMinor(spent, binds);
   // The loop, folded per campaign: what went out and how much came back.
   const loop = loopSummary(loaded.outreach, loaded.touches);
   const converted = loaded.outreach.filter((one) => one.state === "converted");
@@ -255,9 +267,11 @@ export default function GrowthCockpit() {
           value={<Money amountMinor={loaded.plannedMinor} currency={currency} locale={locale} />}
         />
         <Stat label={l("binds")} value={binds} />
+        {/* docs/17 SIG-057: a range with its method, never the point alone. */}
         <Stat
           label={l("cac")}
-          value={cac === null ? l("none") : <Money amountMinor={cac} currency={currency} locale={locale} />}
+          value={<CacRangeValue range={loaded.acquisition} currency={currency} locale={locale} l={l} />}
+          hint={<CacMethod range={loaded.acquisition} l={l} />}
         />
       </KPIWall>
 

@@ -3243,6 +3243,7 @@ export interface Operations {
   "GET /v1/signal/attribution-events": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalAttributionEvents>>;
   "GET /v1/signal/attribution-events/{id}": Op<{ id: string }, never, never, SignalAttributionEvents>;
   "GET /v1/signal/attribution/funnel": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/signal/attribution/range": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/audiences": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalAudiences>>;
   "POST /v1/signal/audiences": Op<never, never, SignalAudiences, SignalAudiences>;
   "POST /v1/signal/audiences/suggest": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3401,7 +3402,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/auth/demo/clock": { tag: "auth", summary: "Advance the simulated clock used by non-production timestamps (non-production only)", permission: null, public: true },
   "POST /v1/auth/demo/login": { tag: "auth", summary: "Sign in as a seeded demo persona without a password (non-production only)", permission: null, public: true },
   "GET /v1/auth/demo/personas": { tag: "auth", summary: "Seeded demo personas offered as one-click sign-in (non-production only)", permission: null, public: true },
-  "POST /v1/auth/demo/resync-roles": { tag: "auth", summary: "Refresh the demo tenant's system role permissions, chart of accounts, seeded personas, tax rules and seeded event names to match the compiled tables (non-production only)", permission: null, public: true },
+  "POST /v1/auth/demo/resync-roles": { tag: "auth", summary: "Refresh the demo tenant's system role permissions, chart of accounts, seeded personas, tax rules, seeded event names and NORTH metric registry to match the compiled tables (non-production only)", permission: null, public: true },
   "POST /v1/auth/demo/seed": { tag: "auth", summary: "Seed one demo tenant with its personas and starting data (non-production only)", permission: null, public: true },
   "POST /v1/auth/login": { tag: "auth", summary: "Password login, returns a session cookie", permission: null, public: true },
   "POST /v1/auth/logout": { tag: "auth", summary: "End the current session", permission: null, public: true },
@@ -4083,6 +4084,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/signal/attribution-events": { tag: "signal", summary: "List attribution-events", permission: "signal:attribution:read", public: false },
   "GET /v1/signal/attribution-events/{id}": { tag: "signal", summary: "Fetch one attribution event", permission: "signal:attribution:read", public: false },
   "GET /v1/signal/attribution/funnel": { tag: "signal", summary: "The acquisition funnel aggregated per campaign and channel for a window — impressions, clicks, visits, leads, binds and value", permission: "signal:attribution:read", public: false },
+  "GET /v1/signal/attribution/range": { tag: "signal", summary: "Cost per acquisition as a range, never a bare point (docs/17 SIG-057, ADR-0109): ?since&until (epoch ms, default the last 30 days)&channel&currency. range {low, point, high, method, methodKey, confidence, conversions, countInterval} — Garwood exact Poisson 95% interval on attributed binds, widened for one channel to the envelope of every single-credit model; high is null when some model credits nothing; range is null when nothing bound", permission: "signal:attribution:read", public: false },
   "GET /v1/signal/audiences": { tag: "signal", summary: "List audiences", permission: "signal:audiences:read", public: false },
   "POST /v1/signal/audiences": { tag: "signal", summary: "Create a audience", permission: "signal:audiences:create", public: false },
   "POST /v1/signal/audiences/suggest": { tag: "signal", summary: "Propose a targetable audience for a subject from k-anonymous attribute counts, with the reason each band was chosen (docs/17 §SIG-025; protected attributes excluded per §SIG-034)", permission: "signal:audiences:estimate", public: false },
