@@ -493,6 +493,20 @@ export const NORTH_METRICS: ReadonlyArray<{
     target: { value: 25_000, scale: "minor", currency: "AED" }
   },
   {
+    // ADR-0110: the autopilot's uplift over the frozen-budget holdout, which the
+    // equity deal measures growth against. Target is the low end of the
+    // platform's CAC goal (docs/00 "Blended CAC −25–40%").
+    key: "autopilot_uplift_bps",
+    en: "Autopilot uplift vs holdout",
+    ar: "تحسّن الطيار الآلي مقارنة بمجموعة الضبط",
+    def: "holdoutReadout(acted, holdout).upliftBps — CAC of autopilot-acted campaigns vs frozen-budget holdout, ADR-0110",
+    unit: "percent",
+    grain: "month",
+    direction: "up",
+    owner: "noor.jamal",
+    target: { value: 2_500, scale: BPS }
+  },
+  {
     key: "commission_per_policy",
     en: "Commission per policy",
     ar: "العمولة لكل وثيقة",

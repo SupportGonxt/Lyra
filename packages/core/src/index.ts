@@ -31,6 +31,7 @@ export * from "./north-forecast.js";
 export * from "./north-scenario.js";
 export * from "./password.js";
 export * from "./signal-compliance.js";
+export * from "./signal-holdout.js";
 export * from "./orbit-auto-reply.js";
 export * from "./targeting.js";
 export * from "./totp.js";

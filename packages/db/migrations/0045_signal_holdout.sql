@@ -1,0 +1,1 @@
+ALTER TABLE `signal_campaigns` ADD `holdout` integer DEFAULT false NOT NULL;

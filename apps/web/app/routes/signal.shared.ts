@@ -127,9 +127,44 @@ export interface CampaignRow {
   guardrailChecksJson?: unknown;
   state: string;
   autonomyLevel: string;
+  /** ADR-0110: a frozen-budget holdout — the autopilot never moves it. Absent on rows read before the column existed. */
+  holdout?: boolean;
   startAt: number | null;
   endAt: number | null;
   ownerRef: string | null;
+}
+
+/** Mirrors packages/core/src/signal-holdout.ts `HoldoutCohort` — keep the two in step. */
+export interface HoldoutCohort {
+  campaigns: number;
+  spendMinor: number;
+  conversions: number;
+  cacMinor: number | null;
+}
+
+/** Mirrors packages/core/src/signal-holdout.ts `HoldoutReadout`, the body of GET /v1/signal/holdout/readout. */
+export interface HoldoutReadout {
+  status: "ok" | "no_holdout" | "no_conversions" | "no_spend";
+  since: number;
+  until: number;
+  acted: HoldoutCohort;
+  holdout: HoldoutCohort;
+  upliftBps: number | null;
+}
+
+/**
+ * docs/17 SIG-046: the readout as one sentence. A positive uplift means the
+ * autopilot bought acquisitions cheaper than the frozen budget did; when the
+ * API states no figure, neither does this — a zero would read as "no effect".
+ */
+export function holdoutVerdict(readout: HoldoutReadout, l: Label, locale: string): string {
+  if (readout.status === "no_holdout") return l("budget.holdout.none");
+  if (readout.status === "no_conversions") return l("budget.holdout.noConversions");
+  if (readout.status === "no_spend" || readout.upliftBps === null) return l("budget.holdout.noSpend");
+  const pct = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(
+    Math.abs(readout.upliftBps) / 10_000
+  );
+  return l(readout.upliftBps >= 0 ? "budget.holdout.better" : "budget.holdout.worse", { pct });
 }
 
 export interface CreativeRow {
@@ -1563,6 +1598,20 @@ const LABELS: Record<string, Record<string, string>> = {
     "budget.noMoves.body": "Every shift between campaigns is recorded here, whether you made it or the autopilot did.",
     "budget.expired": "The window to undo this has closed.",
     "budget.pickCampaign": "Which campaign",
+    "budget.holdout": "The autopilot against a frozen budget",
+    "budget.holdout.lede": "Campaigns held out keep the budget they were given: the autopilot never moves money into or out of them. What an acquisition cost on each side is what the autopilot is worth.",
+    "budget.holdout.acted": "Where the autopilot ran",
+    "budget.holdout.frozen": "Held out, budget frozen",
+    "budget.holdout.campaigns": "{n} campaign(s), {conversions} acquisition(s)",
+    "budget.holdout.cac": "Cost per acquisition",
+    "budget.holdout.better": "Acquisitions cost {pct} less where the autopilot ran.",
+    "budget.holdout.worse": "Acquisitions cost {pct} more where the autopilot ran.",
+    "budget.holdout.none": "No campaign is held out yet.",
+    "budget.holdout.none.body": "Tick Holdout on a campaign to freeze its budget and measure the autopilot against it.",
+    "budget.holdout.noConversions": "Nothing to compare yet: one side has no acquisitions in this window.",
+    "budget.holdout.noSpend": "Nothing to compare yet: one side spent nothing in this window, so its cost per acquisition would be a fiction.",
+    "budget.holdout.badge": "Held out",
+    "budget.holdout.column": "Holdout",
     "budget.headroom": "Headroom",
     "budget.overspend": "Over plan",
     "budget.autoApproved": "Inside its bounds",
@@ -2184,6 +2233,20 @@ const LABELS: Record<string, Record<string, string>> = {
     "budget.noMoves.body": "يُسجَّل هنا كل تحويل بين الحملات، سواء نفّذته أنت أو الطيار الآلي.",
     "budget.expired": "انتهت مدة عكس هذا التحويل.",
     "budget.pickCampaign": "أي حملة",
+    "budget.holdout": "الطيار الآلي مقابل ميزانية مجمّدة",
+    "budget.holdout.lede": "الحملات المستبعدة تحتفظ بالميزانية المخصصة لها: لا يحرّك الطيار الآلي أي مبلغ إليها أو منها. والفرق في تكلفة الاكتساب بين الجانبين هو قيمة الطيار الآلي.",
+    "budget.holdout.acted": "حيث عمل الطيار الآلي",
+    "budget.holdout.frozen": "مستبعدة، ميزانيتها مجمّدة",
+    "budget.holdout.campaigns": "{n} حملة، {conversions} اكتساب",
+    "budget.holdout.cac": "تكلفة الاكتساب",
+    "budget.holdout.better": "كانت تكلفة الاكتساب أقل بنسبة {pct} حيث عمل الطيار الآلي.",
+    "budget.holdout.worse": "كانت تكلفة الاكتساب أعلى بنسبة {pct} حيث عمل الطيار الآلي.",
+    "budget.holdout.none": "لا توجد حملة مستبعدة بعد.",
+    "budget.holdout.none.body": "فعّل خيار الاستبعاد على حملة لتجميد ميزانيتها وقياس الطيار الآلي مقابلها.",
+    "budget.holdout.noConversions": "لا شيء للمقارنة بعد: أحد الجانبين بلا اكتساب في هذه الفترة.",
+    "budget.holdout.noSpend": "لا شيء للمقارنة بعد: أحد الجانبين لم ينفق شيئًا في هذه الفترة، فتكلفة الاكتساب لديه ستكون وهمًا.",
+    "budget.holdout.badge": "مستبعدة",
+    "budget.holdout.column": "الاستبعاد",
     "budget.headroom": "المتبقي",
     "budget.overspend": "تجاوز الخطة",
     "budget.autoApproved": "داخل حدوده",

@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, ne, notInArray, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { cacRange, earnedBetween, emit, isClosedPeriod, periodBounds, periodOf, previousPeriod, type Ctx } from "@lyra/core";
+import { cacRange, earnedBetween, emit, holdoutReadout, isClosedPeriod, periodBounds, periodOf, previousPeriod, type Ctx } from "@lyra/core";
 // docs/27 F49 / spec §E.2: NORTH's money metrics are adapters over the
 // ledger's own reports. packages/ledger is a shared package, not another
 // module, so this is not the cross-module import CLAUDE.md §6 forbids — and it
@@ -670,6 +670,15 @@ const costPerAcquisitionBound =
   };
 
 /**
+ * docs/17 SIG-046, ADR-0110: basis points the autopilot-acted campaigns' CAC
+ * beat the frozen-budget holdout's in the window. The same reader SIGNAL's
+ * readout route answers from, so the board and the screen cannot disagree.
+ * No holdout, or a side with nothing bought or nothing spent, is no figure —
+ * never a 0 that would read as "no uplift".
+ */
+const autopilotUpliftBps: Compute = async (ctx, p) => (await holdoutReadout(ctx, p.since, p.until)).upliftBps;
+
+/**
  * Revenue per contract written. Commission earned in the month over contracts
  * bound in it — the same mixed-cohort window `quote_to_bind_rate` uses, not a
  * cohort followed forward. A month that bound nothing still collects commission
@@ -735,6 +744,7 @@ export const REGISTRY: Record<string, Compute> = {
   cost_per_acquisition: costPerAcquisition,
   cost_per_acquisition_low: costPerAcquisitionBound("low"),
   cost_per_acquisition_high: costPerAcquisitionBound("high"),
+  autopilot_uplift_bps: autopilotUpliftBps,
   commission_per_policy: commissionPerPolicy,
   revenue_per_customer: revenuePerCustomer
 };

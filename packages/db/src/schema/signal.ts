@@ -38,6 +38,10 @@ export const campaigns = sqliteTable(
     // typed straight in never had a plan, and that is not a defect.
     planJson: text("plan_json"),
     autonomyLevel: text("autonomy_level").notNull().default("act_with_approval"),
+    // docs/17 SIG-046, ADR-0110: the frozen-budget holdout. The autopilot never
+    // evaluates or moves a holdout campaign; its CAC is the baseline
+    // `autopilot_uplift_bps` measures the acted-on campaigns against.
+    holdout: integer("holdout", { mode: "boolean" }).notNull().default(false),
     startAt: integer("start_at"),
     endAt: integer("end_at"),
     ownerRef: text("owner_ref").notNull(),

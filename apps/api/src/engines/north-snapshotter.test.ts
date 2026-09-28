@@ -1501,6 +1501,50 @@ describe("runSnapshotter: acquisition unit economics", () => {
     expect(result.written).toBe(0);
   });
 
+  // docs/17 SIG-046, ADR-0110: the figure the equity deal measures growth
+  // against, snapshotted from the same reader as GET /v1/signal/holdout/readout.
+  const campaignRow = (id: string, holdout: boolean) => ({
+    id,
+    tenantId: ctx.tenantId,
+    name: id,
+    objective: "acq",
+    channelsJson: "[]",
+    budgetJson: "{}",
+    state: "live",
+    autonomyLevel: "act",
+    holdout,
+    ownerRef: "user:1",
+    createdAt: ctx.now,
+    updatedAt: ctx.now
+  });
+
+  it("autopilot_uplift_bps compares the month's acted-on CAC against the frozen-budget holdout", async () => {
+    await seedMetric("autopilot_uplift_bps", "month");
+    await ctx.db.insert(schema.signalCampaigns).values([campaignRow("cmp_1", false), campaignRow("cmp_h", true)]);
+    await ctx.db.insert(schema.signalSpend).values([
+      spendRow("sp_1", 40_000, MONTH_START),
+      { ...spendRow("sp_h", 40_000, MONTH_START), campaignId: "cmp_h" }
+    ]);
+    await ctx.db.insert(schema.signalAttributionEvents).values([
+      touch("at_1", "bind", MONTH_START + 1),
+      touch("at_2", "bind", MONTH_START + 2),
+      touch("at_h", "bind", MONTH_START + 1, { campaignId: "cmp_h" })
+    ]);
+    const result = await runSnapshotter(ctx);
+    expect(result.written).toBe(1);
+    // Acted: 40,000 / 2 = 20,000. Holdout: 40,000 / 1. The autopilot bought at half the price.
+    expect(await valueOf("autopilot_uplift_bps")).toBe(5_000);
+  });
+
+  it("autopilot_uplift_bps writes nothing for a month with no holdout designated", async () => {
+    await seedMetric("autopilot_uplift_bps", "month");
+    await ctx.db.insert(schema.signalCampaigns).values([campaignRow("cmp_1", false)]);
+    await ctx.db.insert(schema.signalSpend).values([spendRow("sp_1", 40_000, MONTH_START)]);
+    await ctx.db.insert(schema.signalAttributionEvents).values([touch("at_1", "bind", MONTH_START + 1)]);
+    const result = await runSnapshotter(ctx);
+    expect(result.written).toBe(0);
+  });
+
   it("commission_per_policy nets the clawback against the month the entry was earned in", async () => {
     await seedMetric("commission_per_policy", "month");
     await seedProviderAndCustomer();

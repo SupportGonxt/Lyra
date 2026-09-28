@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { audit, emit, gate, AppError, type Ctx } from "@lyra/core";
+import { AUTOPILOT_LEVELS, audit, emit, gate, AppError, type Ctx } from "@lyra/core";
 import { pushBudgetMove, type AdPlatforms } from "./signal-ad-platforms.js";
 
 // docs/modules/signal.md §2.3 "autopilot" — CAC/LTV-driven budget reallocation
@@ -127,41 +127,6 @@ export function proposeReallocation(cac: readonly ChannelCac[]): ReallocationPro
   const amountMinor = Math.round(priciest.spendMinor * REALLOCATE_FRACTION);
   if (amountMinor <= 0) return null;
   return { fromChannel: priciest.channel, toChannel: cheapest.channel, amountMinor, cac: priced };
-}
-
-export interface HoldoutComparison {
-  readonly actedCacMinor: number;
-  readonly holdoutCacMinor: number;
-  readonly actedConversions: number;
-  readonly holdoutConversions: number;
-  /** Basis points the acted-on cohort's CAC beats the holdout's; 0 if either side has no conversions. */
-  readonly upliftBps: number;
-}
-
-/**
- * docs/modules/signal.md §7 KPI: "autopilot uplift vs frozen-budget holdout".
- * A comparison over caller-supplied cohorts, not an experiment-management
- * system — the caller decides which spend rows are the frozen-budget holdout
- * and which the autopilot acted on.
- */
-export function compareHoldout(
-  acted: readonly { amountMinor: number; conversions: number }[],
-  holdout: readonly { amountMinor: number; conversions: number }[]
-): HoldoutComparison {
-  const sum = (rows: readonly { amountMinor: number; conversions: number }[]) =>
-    rows.reduce((a, r) => ({ spend: a.spend + r.amountMinor, conversions: a.conversions + r.conversions }), {
-      spend: 0,
-      conversions: 0
-    });
-  const a = sum(acted);
-  const h = sum(holdout);
-  const actedCacMinor = a.conversions > 0 ? Math.round(a.spend / a.conversions) : 0;
-  const holdoutCacMinor = h.conversions > 0 ? Math.round(h.spend / h.conversions) : 0;
-  const upliftBps =
-    actedCacMinor > 0 && holdoutCacMinor > 0
-      ? Math.round(((holdoutCacMinor - actedCacMinor) / holdoutCacMinor) * 10_000)
-      : 0;
-  return { actedCacMinor, holdoutCacMinor, actedConversions: a.conversions, holdoutConversions: h.conversions, upliftBps };
 }
 
 interface BudgetJson {
@@ -385,7 +350,9 @@ export async function runBudgetAutopilot(ctx: Ctx, push: AdPushOptions = {}): Pr
       and(
         eq(schema.signalCampaigns.tenantId, ctx.tenantId),
         eq(schema.signalCampaigns.state, "live"),
-        inArray(schema.signalCampaigns.autonomyLevel, ["act", "act_with_approval"]),
+        inArray(schema.signalCampaigns.autonomyLevel, [...AUTOPILOT_LEVELS]),
+        // ADR-0110: a holdout's budget is frozen — never evaluated, never moved.
+        eq(schema.signalCampaigns.holdout, false),
         isNull(schema.signalCampaigns.deletedAt)
       )
     );

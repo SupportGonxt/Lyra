@@ -2359,6 +2359,7 @@ export interface SignalCampaigns {
   guardrailChecksJson?: string;
   planJson?: string;
   autonomyLevel?: string;
+  holdout?: boolean;
   startAt?: number;
   endAt?: number;
   ownerRef: string;
@@ -3270,6 +3271,7 @@ export interface Operations {
   "GET /v1/signal/creatives/{id}/image": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/signal/demo/spend-tick": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/experiments/{id}/readout": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "GET /v1/signal/holdout/readout": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalOutreach>>;
   "POST /v1/signal/outreach/run": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach/{id}": Op<{ id: string }, never, never, SignalOutreach>;
@@ -4111,6 +4113,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/signal/creatives/{id}/image": { tag: "signal", summary: "Re-stream a previously generated creative image's bytes", permission: "signal:creatives:read", public: false },
   "POST /v1/signal/demo/spend-tick": { tag: "signal", summary: "Insert a spend row per channel per live campaign, keyed off the simulated clock (non-production only)", permission: "signal:autopilot:run", public: false },
   "GET /v1/signal/experiments/{id}/readout": { tag: "signal", summary: "Where an experiment stands: per-arm samples and rates from attribution touches, probability to beat control, verdict (docs/30 SIGNAL 4)", permission: "signal:experiments:read", public: false },
+  "GET /v1/signal/holdout/readout": { tag: "signal", summary: "Autopilot uplift against the frozen-budget holdout (docs/17 SIG-046, ADR-0110): spend, attributed binds and CAC for the acted-on and holdout campaigns over ?since&until (epoch ms, default the trailing 30 days), and upliftBps — null unless status is ok (no_holdout, no_conversions and no_spend say why)", permission: "signal:attribution:read", public: false },
   "GET /v1/signal/outreach": { tag: "signal", summary: "List outreach", permission: "signal:outreach:read", public: false },
   "POST /v1/signal/outreach/run": { tag: "signal", summary: "Run the acquisition outreach sweep now — draft, consent-gate, approval-gate, send, and record the lead touch (also runs on the nightly tick)", permission: "signal:outreach:send", public: false },
   "GET /v1/signal/outreach/{id}": { tag: "signal", summary: "Fetch one outreach", permission: "signal:outreach:read", public: false },

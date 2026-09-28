@@ -4,7 +4,7 @@ import { importSpend } from "../engines/signal-spend-import.js";
 import { pullAdSpend, spendPullWindow, SPEND_PULL_MAX_DAYS } from "../engines/signal-ad-platforms.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { require_, audit, badRequest, emit, notFound, type Ctx } from "@lyra/core";
+import { require_, audit, badRequest, emit, holdoutReadout, notFound, type Ctx } from "@lyra/core";
 import { schema, DesignJson, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
 import { z } from "zod";
 import { body, csvBody } from "../http.js";
@@ -344,6 +344,20 @@ signalRoutes.get("/attribution/range", async (c) => {
   return c.json(
     await acquisitionCostRange(ctx, { since, until, channel: c.req.query("channel") || null, currency: c.req.query("currency") || null })
   );
+});
+
+// docs/17 SIG-046, ADR-0110: autopilot uplift against the frozen-budget
+// holdout. A measurement over spend and attributed binds, so it reads under
+// the same scope as the funnel beside it.
+signalRoutes.get("/holdout/readout", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:attribution:read", { tenantId: ctx.tenantId, module: "signal" });
+  const since = Number(c.req.query("since") ?? ctx.now - 30 * DAY_MS);
+  const until = Number(c.req.query("until") ?? ctx.now);
+  if (!Number.isFinite(since) || !Number.isFinite(until) || since >= until) {
+    throw badRequest("since and until are epoch milliseconds, since before until", { since: "not a window" });
+  }
+  return c.json(await holdoutReadout(ctx, since, until));
 });
 
 // docs/30 SIGNAL gap 1: spend actuals from an ad-platform export. Per-line

@@ -9,6 +9,7 @@ import {
   canLaunch,
   cohorts,
   explain,
+  holdoutVerdict,
   isReversible,
   labelsIn,
   ltvToCac,
@@ -18,6 +19,7 @@ import {
   type AudienceRow,
   type CampaignRow,
   type CreativeRow,
+  type HoldoutReadout,
   type MoveRow,
   type SpendRow,
   type TouchRow
@@ -243,6 +245,40 @@ describe("cost and value", () => {
     expect(windowDays("7")).toBe(7);
     expect(windowDays("365")).toBe(30);
     expect(windowDays(null)).toBe(30);
+  });
+});
+
+// docs/17 SIG-046, ADR-0110. The readout's fixture is in the server's shape
+// (packages/core/src/signal-holdout.ts HoldoutReadout), not an assumed one.
+describe("holdoutVerdict", () => {
+  const side = (cacMinor: number | null) => ({ campaigns: 1, spendMinor: 100_000, conversions: cacMinor ? 10 : 0, cacMinor });
+  const readout = (over: Partial<HoldoutReadout>): HoldoutReadout => ({
+    status: "ok",
+    since: 0,
+    until: 1,
+    acted: side(5_000),
+    holdout: side(10_000),
+    upliftBps: 5_000,
+    ...over
+  });
+  const l = labelsIn("en");
+
+  it("says how much cheaper an acquisition was where the autopilot ran", () => {
+    expect(holdoutVerdict(readout({}), l, "en")).toBe("Acquisitions cost 50% less where the autopilot ran.");
+  });
+
+  it("says so plainly when the autopilot did worse than the frozen budget", () => {
+    expect(holdoutVerdict(readout({ upliftBps: -1_250 }), l, "en")).toBe("Acquisitions cost 12.5% more where the autopilot ran.");
+  });
+
+  it("states no figure, never a zero, when there is nothing to compare", () => {
+    expect(holdoutVerdict(readout({ status: "no_holdout", upliftBps: null }), l, "en")).toBe(l("budget.holdout.none"));
+    expect(holdoutVerdict(readout({ status: "no_conversions", upliftBps: null }), l, "en")).toBe(l("budget.holdout.noConversions"));
+    expect(holdoutVerdict(readout({ status: "no_spend", upliftBps: null }), l, "en")).toBe(l("budget.holdout.noSpend"));
+  });
+
+  it("speaks the reader's language", () => {
+    expect(holdoutVerdict(readout({}), labelsIn("ar"), "ar")).not.toContain("Acquisitions");
   });
 });
 
