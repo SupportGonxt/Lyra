@@ -8,10 +8,15 @@ import {
   gate,
   inQuietHours,
   AppError,
+  CONSENT_PURPOSES,
+  LOOKALIKE_PURPOSES,
+  consentCovers,
+  type ConsentPurpose,
   type Ctx
 } from "@lyra/core";
 import { promptNouns, type Gateway, type PromptNouns } from "@lyra/model-gateway";
 import { recordTouch } from "./signal-attribution.js";
+import { currentPurposes, suppressedCustomerIds } from "./signal-consent.js";
 import { markProspectsContacted } from "./signal-prospects.js";
 import { recordResponse } from "./signal-responses.js";
 
@@ -157,6 +162,8 @@ export function audienceRuleProblem(def: unknown): string | null {
     }
     // Suppression's own rule: it excludes, it is never sent to.
     if (l.field === "consent.marketing" && l.op === "eq" && l.value === false) continue;
+    // A lookalike's members (ADR-0113): a table only expansion fills.
+    if (l.field === "lookalike.member" && l.op === "eq" && l.value === true) continue;
     return `cannot resolve ${l.field} ${l.op}`;
   }
   if (leaves.some((l) => l.field === "prospect.score") && !leaves.some((l) => l.field === "prospect.reason")) {
@@ -166,9 +173,10 @@ export function audienceRuleProblem(def: unknown): string | null {
 }
 
 /** Resolve an audience definition's member ids: tag leaves over customers,
- *  prospect leaves over SIGNAL's own prospects, intersected under `all` and
- *  joined under `any`. Anything else resolves to nobody — fail closed. */
-async function audienceMemberIds(ctx: Ctx, audienceId: string): Promise<string[]> {
+ *  prospect leaves over SIGNAL's own prospects, a lookalike leaf over its
+ *  member snapshot, intersected under `all` and joined under `any`. Anything
+ *  else resolves to nobody — fail closed. */
+export async function audienceMemberIds(ctx: Ctx, audienceId: string): Promise<string[]> {
   const [audience] = await ctx.db
     .select()
     .from(schema.signalAudiences)
@@ -221,12 +229,50 @@ async function audienceMemberIds(ctx: Ctx, audienceId: string): Promise<string[]
       )
     );
   }
+  if (leaves.some((l) => l.field === "lookalike.member")) {
+    sets.push(await lookalikeMemberIds(ctx, audienceId, audience.consentPurposes));
+  }
   if (!sets.length) return [];
   const [first, ...rest] = sets;
   const out = any
     ? new Set(sets.flatMap((x) => [...x]))
     : new Set([...first!].filter((id) => rest.every((x) => x.has(id))));
   return [...out];
+}
+
+/**
+ * A lookalike's snapshot, re-checked against *current* consent (ADR-0113): a
+ * member stays reachable only while they still grant every purpose the
+ * audience's basis names — never fewer than the two being scored needed — and
+ * are neither erased nor suppressed. The basis was the strictest the members
+ * shared at expansion; a withdrawal since then is a withdrawal now.
+ */
+async function lookalikeMemberIds(ctx: Ctx, audienceId: string, consentPurposes: string): Promise<Set<string>> {
+  const rows = await ctx.db
+    .select({ id: schema.signalAudienceMembers.customerId })
+    .from(schema.signalAudienceMembers)
+    .innerJoin(
+      schema.customers,
+      and(
+        eq(schema.customers.tenantId, schema.signalAudienceMembers.tenantId),
+        eq(schema.customers.id, schema.signalAudienceMembers.customerId)
+      )
+    )
+    .where(
+      and(
+        eq(schema.signalAudienceMembers.tenantId, ctx.tenantId),
+        eq(schema.signalAudienceMembers.audienceId, audienceId),
+        isNull(schema.customers.deletedAt)
+      )
+    );
+  const ids = rows.map((r) => r.id);
+  const named = consentPurposes.split(",").map((p) => p.trim());
+  const required: ConsentPurpose[] = [
+    ...new Set<ConsentPurpose>([...LOOKALIKE_PURPOSES, ...CONSENT_PURPOSES.filter((p) => named.includes(p))])
+  ];
+  const purposes = await currentPurposes(ctx, ids);
+  const suppressed = await suppressedCustomerIds(ctx);
+  return new Set(ids.filter((id) => !suppressed.has(id) && consentCovers(purposes.get(id) ?? null, required)));
 }
 
 async function paged(page: (offset: number) => Promise<{ id: string }[]>): Promise<Set<string>> {

@@ -34,6 +34,7 @@ export * from "./signal-compliance.js";
 export * from "./signal-holdout.js";
 export * from "./orbit-auto-reply.js";
 export * from "./targeting.js";
+export * from "./lookalike.js";
 export * from "./totp.js";
 export * from "./seed.js";
 export * from "./seed/period.js";

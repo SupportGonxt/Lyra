@@ -76,7 +76,12 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
   // the API does work either side of the column it sets, so the generic update
   // path must never claim one. Permission is re-checked there, not here.
   const declared = (tab.actions ?? []).find((entry) => entry.intent === intent);
-  if (declared) return runAction(tab, declared, id, form, { env, request });
+  if (declared) {
+    const ran = await runAction(tab, declared, id, form, { env, request });
+    // A declared `opensCreated` action made a new record of this resource.
+    if (ran.opened) return redirect(`${spec.path}/${tab.key}/${encodeURIComponent(ran.opened)}`);
+    return { problem: ran.problem, done: ran.done };
+  }
 
   try {
     if (intent === "delete") {

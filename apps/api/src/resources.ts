@@ -35,6 +35,7 @@ import { assertCanGrant, bundleOf } from "./engines/staff.js";
 import { onExperimentConcluded } from "./engines/scout-validate.js";
 import { audienceRuleProblem } from "./engines/signal-outreach.js";
 import { creativePreflightGuard, recordCreativeDisclosure } from "./engines/signal-disclosure.js";
+import { lookalikeWriteProblem } from "./engines/signal-lookalike.js";
 import { must } from "./rows.js";
 import {
   assertDeliverableSchedule,
@@ -904,6 +905,9 @@ export const SIGNAL = register(
     // time, silently. Refused when a person writes one; rules already stored
     // are left alone until someone edits the rule itself.
     beforeWrite: (_ctx, values, existing) => {
+      // ADR-0113: a lookalike's rule and consent basis come from expansion only.
+      const lookalike = lookalikeWriteProblem(values, existing);
+      if (lookalike) throw badRequest(lookalike.problem, { [lookalike.field]: lookalike.problem });
       if (!("definitionJson" in values)) return values;
       let def: unknown;
       try {

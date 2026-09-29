@@ -5,7 +5,7 @@ import { pullAdSpend, spendPullWindow, SPEND_PULL_MAX_DAYS } from "../engines/si
 import { exportConversions, listConversionExports } from "../engines/signal-conversions.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { require_, audit, badRequest, emit, holdoutReadout, notFound, type Ctx } from "@lyra/core";
+import { require_, audit, badRequest, emit, holdoutReadout, notFound, LOOKALIKE_MAX_SIZE, type Ctx } from "@lyra/core";
 import { schema, DesignJson, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
 import { z } from "zod";
 import { body, csvBody, parse } from "../http.js";
@@ -13,6 +13,7 @@ import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateCreativeImage, generateCreatives } from "../engines/signal-creative.js";
 import { attributeCounts, suggestTargeting } from "../engines/signal-audience.js";
+import { expandAudience } from "../engines/signal-lookalike.js";
 import { creativeContextFor, planAudience, planCampaign } from "../engines/signal-campaign-plan.js";
 import { runBudgetAutopilot } from "../engines/signal-autopilot.js";
 import { acquisitionCostRange, funnelByCampaign } from "../engines/signal-attribution.js";
@@ -91,6 +92,28 @@ signalRoutes.post("/audiences/suggest", async (c) => {
     subject: input.subject,
     momentum: null,
     signalCount: null
+  });
+  return c.json(result, 201);
+});
+
+const LookalikeBody = z.object({
+  size: z.number().int().min(1).max(LOOKALIKE_MAX_SIZE),
+  name: z.string().trim().min(1).max(200).optional()
+});
+
+// docs/17 §SIG-028, ADR-0113: grow a seed audience into the customers most like
+// it, over the pack's targetable axes only, among people who consented to be
+// profiled and marketed to. Not consequential (CLAUDE.md rule 4): the result is
+// an audience — a definition — and anything sent to it still runs consent at
+// send time and its own approval. The permission is the one that writes an
+// audience at all.
+signalRoutes.post("/audiences/:id/lookalike", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:audiences:create", { tenantId: ctx.tenantId, module: "signal" });
+  const input = await body(c, LookalikeBody);
+  const result = await expandAudience(ctx, c.req.param("id"), {
+    size: input.size,
+    ...(input.name !== undefined ? { name: input.name } : {})
   });
   return c.json(result, 201);
 });

@@ -26,9 +26,17 @@ Reviewer · SIGNAL Module Admin · Developer (pixel/feeds).
   generation ("winning-pattern memory" per tenant).
 
 ### 2.2 Audience & LTV intelligence
-- Audience builder over the consent-aware spine (rule tree + lookalike scoring
-  via embeddings); size/reach estimator; suppression lists always applied
+- Audience builder over the consent-aware spine (rule tree + lookalike
+  scoring); size/reach estimator; suppression lists always applied
   (recent purchasers, do-not-contact, complainers).
+- **Lookalikes** (ADR-0113, SIG-028). A seed audience is expanded into its
+  top-N most similar customers. Similarity is share-weighted overlap on the
+  domain pack's targetable axes, not an embedding, so SIG-034 can be proved.
+  Only people who consented to marketing and profiling are scored, and
+  suppression always applies. The new audience's `consentPurposes` is the
+  strictest basis its members share. It cannot be edited, and it is
+  re-checked against current consent at send time. Pushing a seed to an ad
+  platform's own lookalike is not built yet; ADR-0113 sets its consent rule.
 - Bind-probability + predicted-LTV models score prospects; value-based bidding
   exports to ad platforms (Google/Meta APIs via connectors; TikTok v1.1).
 - Marketing at three scales (ADR-0091). **Prospects** are identified people

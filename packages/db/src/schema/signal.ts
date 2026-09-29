@@ -310,3 +310,29 @@ export const responses = sqliteTable(
     index("signal_responses_customer_idx").on(t.tenantId, t.customerId, t.ts)
   ]
 );
+
+/**
+ * Who a lookalike audience holds (ADR-0113, docs/17 §SIG-028). A lookalike is a
+ * ranked top-N, which no rule over tags can express, so its members are a
+ * snapshot written at expansion and read by the outreach resolver through the
+ * `lookalike.member` leaf. `score` 0..1000 and `matchedJson` (the seed cells
+ * this person shares) are the inspectable "why" behind each row; the audience's
+ * own `consentPurposes` is the strictest basis these members share, and the
+ * resolver re-checks it against current consent at send time.
+ */
+export const audienceMembers = sqliteTable(
+  "signal_audience_members",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    audienceId: text("audience_id").notNull(),
+    customerId: text("customer_id").notNull(),
+    score: integer("score").notNull(),
+    matchedJson: text("matched_json").notNull().default("[]"),
+    createdAt: integer("created_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("signal_audience_members_uq").on(t.tenantId, t.audienceId, t.customerId),
+    index("signal_audience_members_customer_idx").on(t.tenantId, t.customerId)
+  ]
+);

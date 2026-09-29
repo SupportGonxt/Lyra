@@ -849,6 +849,15 @@ reaches the page. No modal, no auto-run, no toast.
 | `responses` | `/v1/signal/responses` | `signal:campaigns:read` |  |  |  |  |  |
 | `spend` | `/v1/signal/spend` | `signal:spend:read` | ✓ | ✓ |  |  |  |
 
+The `audiences` record offers one action, **Expand as lookalike** (ADR-0113,
+`signal:audiences:create`). It takes a size of 1 to 5000. The field hint states
+the consent rule: only people who consented to marketing and profiling are
+scored, suppression applies, and the result has the narrowest shared basis.
+On success the screen opens the new audience (`ActionSpec.opensCreated`). Its
+`sizeCached` and `consentPurposes` columns show the size and the basis. A
+refusal (seed under the k-floor, no shared cell, nobody alike) renders through
+`<Gate>` like any other action problem. Deterministic scoring, so no ✦.
+
 
 ---
 

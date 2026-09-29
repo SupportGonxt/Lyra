@@ -24,9 +24,10 @@ export async function runAction(
   id: string,
   form: FormData,
   options: ApiOptions
-): Promise<{ problem: ProblemShape | null; done: string | null }> {
+): Promise<{ problem: ProblemShape | null; done: string | null; opened?: string }> {
+  let answer: unknown;
   try {
-    await api(actionUrl(tab, spec, id), {
+    answer = await api<unknown>(actionUrl(tab, spec, id), {
       ...options,
       method: spec.method,
       body: bodyFrom(spec.fields ?? [], form)
@@ -35,7 +36,11 @@ export async function runAction(
     if (error instanceof ApiError) return { problem: error.problem, done: null };
     throw error;
   }
-  return { problem: null, done: spec.intent };
+  // `opensCreated`: the answer names a new record of this resource by `id`.
+  const opened = spec.opensCreated ? (answer as { id?: unknown } | null)?.id : undefined;
+  return typeof opened === "string" && opened
+    ? { problem: null, done: spec.intent, opened }
+    : { problem: null, done: spec.intent };
 }
 
 /**

@@ -485,7 +485,7 @@ no out-of-band tooling. Verification is a scripted role walkthrough per release.
 | SIG-025 | Audience builder over consented data with rule tree and size estimation | M | M4 | T | ☐ |
 | SIG-026 | Suppression lists always applied and always visible in the builder | M | M4 | T,D | ☐ |
 | SIG-027 | Bind-probability and predicted-LTV scoring available for targeting and bidding | M | M4 | T | ☐ |
-| SIG-028 | Lookalike expansion with consent basis preserved | S | M4 | T | ☐ |
+| SIG-028 | Lookalike expansion with consent basis preserved | S | M4 | T | ☑ ADR-0113 |
 | SIG-029 | Audiences shareable to ORBIT journeys and SCOUT experiments | M | M4 | T | ☐ |
 | SIG-030 | Campaign management across paid search, paid social, owned email and messaging | M | M4 | T | ☐ |
 | SIG-031 | At least two major ad platform connectors ship in v1 | M | M4 | T | ☐ |

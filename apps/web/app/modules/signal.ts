@@ -56,6 +56,11 @@ export const signal: WorkspaceSpec = {
       sizeCached: "Size",
       refreshPolicy: "Refresh",
       consentPurposes: "Consent purposes",
+      // ADR-0113 (docs/17 §SIG-028): expand a seed audience as a lookalike.
+      "audiences.lookalike": "Expand as lookalike",
+      size: "How many",
+      "audiences.lookalike.size.hint":
+        "The closest people to this audience, up to 5,000. Only people who consented to marketing and to profiling are scored, suppression always applies, and the new audience's consent purposes are the narrowest its members share.",
       lastRefreshedAt: "Last refreshed",
       definitionJson: "Definition",
       objective: "Objective",
@@ -190,6 +195,10 @@ export const signal: WorkspaceSpec = {
       sizeCached: "الحجم",
       refreshPolicy: "التحديث",
       consentPurposes: "أغراض الموافقة",
+      "audiences.lookalike": "توسيع كجمهور مشابه",
+      size: "العدد",
+      "audiences.lookalike.size.hint":
+        "أقرب الأشخاص إلى هذا الجمهور، حتى 5,000. لا يُقيَّم إلا من وافق على التسويق وعلى التنميط، ويُطبَّق الحجب دائمًا، وأغراض موافقة الجمهور الجديد هي أضيق ما يشترك فيه أعضاؤه.",
       lastRefreshedAt: "آخر تحديث",
       definitionJson: "التعريف",
       objective: "الهدف",
@@ -320,6 +329,20 @@ export const signal: WorkspaceSpec = {
         { name: "definitionJson", type: "json", editor: "audienceRule" },
         { name: "refreshPolicy", type: "select", options: ["manual", "hourly", "daily"] },
         { name: "consentPurposes", type: "text" }
+      ],
+      // ADR-0113: grow this audience into the people most like it. The API
+      // answers with the new audience, and the record screen opens it — its
+      // size and consent purposes are that record's own columns.
+      actions: [
+        {
+          intent: "lookalike",
+          method: "POST",
+          path: "/{id}/lookalike",
+          labelKey: "audiences.lookalike",
+          permission: "signal:audiences:create",
+          opensCreated: true,
+          fields: [{ name: "size", type: "number", required: true, hintKey: "audiences.lookalike.size.hint" }]
+        }
       ]
     },
     {
