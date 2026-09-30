@@ -1219,7 +1219,7 @@ portalRoutes.post("/:tenantSlug/track", async (c) => {
   const ctx = await portalCtx(c, tenant.id, now, "portal-track");
 
   if (signature) {
-    await verifyTrackSignature(ctx, { keyId: c.req.header("x-lyra-key-id") ?? "", timestamp: c.req.header("x-lyra-timestamp") ?? "", signature }, raw);
+    await verifyTrackSignature(ctx, { keyId: c.req.header("x-lyra-key-id") ?? "", timestamp: c.req.header("x-lyra-timestamp") ?? "", signature }, raw, Date.now());
     const out = await recordSignedConversion(ctx, parse(SignedTrackBody, json));
     return c.json({ id: out.id, duplicate: out.duplicate }, out.duplicate ? 200 : 201);
   }
