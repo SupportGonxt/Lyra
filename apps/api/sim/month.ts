@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { BENCH } from "./bench.js";
 import { allFindings, call, find, latencyTable, pool, recordTo, totalCalls, type Client } from "./lib.js";
-import { flows } from "./flows.js";
+import { flows, funnel } from "./flows.js";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 const DIR = resolve(process.env.SIM_DIR ?? join(ROOT, ".sim"));
@@ -58,6 +58,14 @@ export interface Seat extends Client {
   email: string;
   roleKey: string;
   permissions: Set<string>;
+}
+
+/** Sessions live on the virtual clock, so every clock move can expire them. */
+async function relogin(people: Seat[]): Promise<void> {
+  for (const seat of people) {
+    const login = await call(anon, "POST", "/v1/auth/demo/login", { email: seat.email });
+    if (login.status === 200) seat.token = login.json.token;
+  }
 }
 
 async function seats(): Promise<Seat[]> {
@@ -131,6 +139,10 @@ async function rbacMatrix(people: Seat[]): Promise<void> {
       checked++;
       const held = op.permission === null || seat.permissions.has(op.permission);
       const route = `${op.method} ${op.path}`;
+      if (res.status === 401) {
+        find({ severity: "high", kind: "session-lost", route, persona: seat.email, status: 401, detail: "a freshly signed-in session was refused" });
+        return;
+      }
       if (!held && res.status !== 403 && res.status < 500) {
         find({
           severity: res.status < 300 ? "critical" : "medium",
@@ -153,7 +165,8 @@ async function rbacMatrix(people: Seat[]): Promise<void> {
 
 const HOSTILE: Record<string, unknown> = {
   "1MB string": { name: "x".repeat(1_000_000) },
-  "deep nesting": JSON.parse("[".repeat(5000) + "]".repeat(5000)),
+  // Sent as raw text: JSON.stringify of it would overflow this process first.
+  "deep nesting": "[".repeat(5000) + "]".repeat(5000),
   "wrong types": { name: 12, amountMinor: "a lot", currency: ["AED"], id: null },
   "injection": { name: "'; DROP TABLE core_customers; --", q: "%' OR 1=1 --", email: "a@b.c<script>alert(1)</script>" },
   "unicode": { name: "‮أحمد\u0000￿😀", notes: "\uD800" },
@@ -209,18 +222,20 @@ for (let day = 1; day <= BENCH.days; day++) {
   await clockTo(dayStart + 2 * 3_600_000 + 5 * 60_000);
   await tick(env);
   await clockTo(dayStart + 9 * 3_600_000);
+  await relogin(people);
   await run.day(day);
   console.log(`day ${day}: tick ${Math.round(tickMs)}ms, ${totalCalls()} calls so far, ${allFindings().length} findings`);
 }
 
 await run.close();
+await relogin(people);
 console.log("rbac matrix…");
 await rbacMatrix(people);
 console.log("fuzzing…");
 await fuzz(admin);
 await run.invariants();
 
-const report = { calls: totalCalls(), findings: allFindings(), latency: latencyTable().slice(0, 40) };
+const report = { calls: totalCalls(), funnel: Object.fromEntries([...funnel.entries()].sort()), findings: allFindings(), latency: latencyTable().slice(0, 40) };
 writeFileSync(join(DIR, "report.json"), JSON.stringify(report, null, 2));
 console.log(`done: ${report.calls} calls, ${report.findings.length} findings → ${join(DIR, "report.json")}`);
 if (process.env.SIM_SERVE !== "1") {
