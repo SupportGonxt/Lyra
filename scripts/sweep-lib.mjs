@@ -256,7 +256,20 @@ export async function sweepRoute(page, path, { walls = true, quiet = false, layo
     status = res?.status() ?? "?";
     text = await page.locator("main").first().innerText({ timeout: 10_000 }).catch(() => "");
   } catch (err) {
-    console.log(`ERR  ${path}  ${err.message.split("\n")[0]}`);
+    // A navigation that did not render a page — a file download, or an error
+    // status with no HTML (Chrome swaps in its own error page) — says nothing
+    // about the route until its real status is read. Reset the tab either way:
+    // a stranded chrome-error page interrupted every navigation after it and
+    // turned one route's refusal into seventy "broken" ones.
+    await page.goto("about:blank").catch(() => {});
+    const res = await page.request.get(`${BASE}${path}`, { maxRedirects: 0 }).catch(() => null);
+    const code = res?.status();
+    if (code && code < 300 && /attachment/i.test(res.headers()["content-disposition"] ?? "")) return quiet ? "ok" : (console.log(`ok   ${path}  [${code}]  file download`), "ok");
+    if (code === 401 || code === 403) {
+      console.log(`DENIED ${path}  [${code}]  not swept — persona cannot open it`);
+      return "denied";
+    }
+    console.log(`ERR  ${path}  [${code ?? "?"}]  ${err.message.split("\n")[0]}`);
     return "bad";
   }
   if (status === 401 || status === 403) {
