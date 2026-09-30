@@ -44,7 +44,8 @@ const PUBLIC = new Set([
 
 export const withContext: MiddlewareHandler<App> = async (c, next) => {
   const now = await simNow(c.env);
-  c.set("startedAt", now);
+  // Latency is real elapsed time, never the (possibly advanced) virtual clock.
+  c.set("startedAt", Date.now());
 
   // `/v1/auth/sso/*`, `/v1/portal/*` and `/v1/channels/*` are public by shape
   // rather than by name: each carries a dynamic id segment (provider / tenant

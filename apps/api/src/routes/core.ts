@@ -15,6 +15,7 @@ import {
   notFound,
   replayDead,
   require_,
+  requireAny,
   requiresMfa,
   scoped,
   sha256Hex,
@@ -67,6 +68,7 @@ coreRoutes.post("/customers/import", async (c) => {
 
 coreRoutes.post("/api-keys", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["core:api_keys:create", "dev:keys_test:issue", "dev:keys_live:issue"], { tenantId: ctx.tenantId, module: "core" });
   const input = await body(c, KeyBody);
   // J-D1 (docs/06): a developer mints test keys; going live is dev.admin's
   // call. A live key needs `dev:keys_live:issue` whoever asks — core:*:* on a

@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { schema } from "@lyra/db";
-import { badRequest, require_, withIdempotency, type Ctx } from "@lyra/core";
+import { badRequest, require_,
+  requireAny, withIdempotency, type Ctx } from "@lyra/core";
 import { portalLink } from "../portal-link.js";
 import { body } from "../http.js";
 import { must } from "../rows.js";
@@ -254,6 +255,7 @@ orbitRoutes.post("/partners/:id/quotes", async (c) => {
  */
 orbitRoutes.get("/portal-links/:kind/:id", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["orbit:renewals:read", "orbit:conversations:read"], { tenantId: ctx.tenantId, module: "orbit" });
   const kind = c.req.param("kind");
   if (kind !== "renewal" && kind !== "feedback") throw badRequest("kind must be renewal or feedback");
   const rowId = c.req.param("id");

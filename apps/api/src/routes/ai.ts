@@ -13,6 +13,7 @@ import {
   recallMemories,
   remember,
   require_,
+  requireAny,
   MODULES,
   type Ctx
 } from "@lyra/core";
@@ -62,8 +63,12 @@ const RunBody = z.object({
  * the prompt reference, so raising a model or loosening autonomy is a data
  * change with an approval behind it — never a deploy.
  */
+/** Every module's invoke permission: an agent run is authorised by its agent's module. */
+const AI_INVOKE = ["axis", "core", "dist", "ledger", "north", "orbit", "scout", "signal"].map((m) => `${m}:ai:invoke`);
+
 aiRoutes.post("/runs", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, AI_INVOKE, { tenantId: ctx.tenantId });
   const input = await body(c, RunBody);
   const agent = await agentByKey(ctx, input.agentKey);
   require_(ctx.actor, `${agent.module}:ai:invoke`, { tenantId: ctx.tenantId, module: agent.module });
@@ -299,6 +304,7 @@ aiRoutes.post("/runs", async (c) => {
  */
 aiRoutes.post("/runs/stream", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, AI_INVOKE, { tenantId: ctx.tenantId });
   const input = await body(c, RunBody);
   const agent = await agentByKey(ctx, input.agentKey);
   require_(ctx.actor, `${agent.module}:ai:invoke`, { tenantId: ctx.tenantId, module: agent.module });
@@ -787,6 +793,7 @@ const CommandBody = z.object({
 
 aiRoutes.post("/command/runs", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, AI_INVOKE, { tenantId: ctx.tenantId });
   const input = await body(c, CommandBody);
   const agent = await agentByKey(ctx, input.agentKey);
   require_(ctx.actor, `${agent.module}:ai:invoke`, { tenantId: ctx.tenantId, module: agent.module });
@@ -902,6 +909,9 @@ aiRoutes.post("/command/proposals/:id/dismiss", async (c) => {
  */
 aiRoutes.post("/command/proposals/:id/action", async (c) => {
   const ctx = ctxOf(c);
+  // Documented as core:approvals:decide and never checked: actioning a proposal
+  // is deciding it (sim RBAC matrix). The tool's own permission still applies.
+  require_(ctx.actor, "core:approvals:decide", { tenantId: ctx.tenantId, module: "core" });
   const id = c.req.param("id");
   const row = (
     await ctx.db

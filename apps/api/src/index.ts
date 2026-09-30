@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { PolicyJson, EntitlementsJson } from "@lyra/db";
 import { moduleEnabled, notFound, pruneIdempotency, type Envelope } from "@lyra/core";
 import { drainOutbox, deliverQueued } from "./dispatch.js";
+import { simNow } from "./clock.js";
 import { sweepPolicyLifecycle } from "./engines/axis-lifecycle.js";
 import { sweepPremiumFinancing } from "./engines/premium-financing.js";
 import { sweepRenewals } from "./engines/renewals.js";
@@ -191,7 +192,7 @@ export default {
             policy: PolicyJson.parse({}),
             entitlements: EntitlementsJson.parse({})
           },
-          Date.now()
+          await simNow(env)
         );
         await deliverQueued(ctx, event);
         message.ack();
@@ -218,7 +219,7 @@ export default {
    * latency and nothing else.
    */
   async scheduled(_event: unknown, env: Env, ctxExec: { waitUntil(p: Promise<unknown>): void }) {
-    const now = Date.now();
+    const now = await simNow(env);
     // Cron fires every 5-15min (wrangler.jsonc); the nightly jobs below only need
     // one of those ticks a day, so they gate on a fixed UTC hour instead of their
     // own scheduler.

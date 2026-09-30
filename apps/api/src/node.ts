@@ -93,6 +93,8 @@ export function makeEnv(): Env {
   const env = {
     DB_CLIENT: makeLibsqlDb(need("LIBSQL_URL"), process.env.LIBSQL_AUTH_TOKEN || undefined) as unknown as Db,
     KV: kv(),
+    // The virtual clock's offset (clock.ts): without it the sim cannot run on-prem.
+    CONFIG: kv(),
     FILES: files(resolve(process.env.FILES_DIR ?? "/var/lib/lyra/files")),
     ENVIRONMENT: process.env.ENVIRONMENT ?? "onprem",
     ...(process.env.APP_ORIGIN ? { APP_ORIGIN: process.env.APP_ORIGIN } : {}),

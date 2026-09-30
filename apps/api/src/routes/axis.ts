@@ -20,6 +20,7 @@ import {
   notFound,
   openFields,
   require_,
+  requireAny,
   scoped,
   sealFields,
   sha256Hex,
@@ -39,7 +40,7 @@ import {
   visionExtractionMessages,
   visionExtractionSchema
 } from "@lyra/model-gateway";
-import { body, csvBody, InstantMs, parse } from "../http.js";
+import { body, csvBody, formOf, InstantMs, jsonOf, parse } from "../http.js";
 import { readUpload } from "../upload.js";
 import { must } from "../rows.js";
 import { EndorseBody, changeSetHashOf, endorsePolicy, priceEndorsement } from "../engines/axis-endorse.js";
@@ -134,7 +135,7 @@ const DOC_TYPES = new Set(["eid", "mulkiya", "census", "medical", "tradelicense"
 axisRoutes.post("/documents/upload", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "axis:documents:upload", { tenantId: ctx.tenantId, module: "axis" });
-  const form = await c.req.formData();
+  const form = await formOf(c);
   const caseId = form.get("caseId");
   const docType = form.get("docType");
   if (typeof caseId !== "string" || !caseId) throw badRequest("caseId is required");
@@ -477,6 +478,7 @@ axisRoutes.post("/cases/:id/sla-predict", async (c) => {
  */
 axisRoutes.post("/cases/:id/transition", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["axis:cases:update", "axis:cases:approve"], { tenantId: ctx.tenantId, module: "axis" });
   const input = await body(c, CaseTransitionBody);
   require_(ctx.actor, permissionForCaseTransition(input.to), { tenantId: ctx.tenantId, module: "axis" });
   const kase = await must(ctx, schema.axisCases, c.req.param("id"), "cases");
@@ -1442,6 +1444,7 @@ axisRoutes.post("/claims", async (c) => {
  */
 axisRoutes.post("/claims/:id/transition", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["axis:claims:update", "axis:claims:triage", "axis:claims:approve", "axis:claims:close", "axis:claims:reopen", "axis:claims:recover"], { tenantId: ctx.tenantId, module: "axis" });
   const input = await body(c, ClaimTransitionBody);
   // The right you need depends on where you are going — triaging is a handler's
   // job, declining is not.
@@ -1604,8 +1607,8 @@ axisRoutes.post("/bordereaux/import", async (c) => {
   // csvBody has read the body; Hono caches it, so the header is read again here.
   const multipart = (c.req.header("content-type") ?? "").includes("multipart/form-data");
   const fields: unknown = multipart
-    ? Object.fromEntries([...(await c.req.formData()).entries()].filter(([, v]) => typeof v === "string"))
-    : await c.req.json();
+    ? Object.fromEntries([...(await formOf(c)).entries()].filter(([, v]) => typeof v === "string"))
+    : await jsonOf(c);
   const input = parse(ImportBordereauBody, fields);
   return c.json(await importInboundBordereau(ctx, input, csv), 201);
 });
@@ -1656,6 +1659,7 @@ axisRoutes.post("/cases/import", async (c) => {
 // not happen (engines/axis-bulk.ts).
 axisRoutes.post("/cases/bulk", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["axis:cases:update", "axis:cases:assign"], { tenantId: ctx.tenantId, module: "axis" });
   const input = await body(
     c,
     z.object({
