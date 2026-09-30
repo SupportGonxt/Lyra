@@ -72,7 +72,6 @@ export function flows(ctx: FlowContext) {
 
   let webhook: { id: string; secret: string } | null = null;
   let motorProduct = "";
-  let webChannel = "";
   const campaigns: string[] = [];
   const policies: string[] = [];
   const customers: string[] = [];
@@ -87,8 +86,6 @@ export function flows(ctx: FlowContext) {
 
     const site = await call(ctx.anon, "GET", `/v1/portal/${SLUG}/site`);
     motorProduct = (site.json?.products ?? []).find((p: any) => p.line === "motor")?.id ?? site.json?.products?.[0]?.id ?? "";
-    const ch = await call(lead, "GET", "/v1/dist/channels?key=gonxt-web");
-    webChannel = ch.json?.data?.[0]?.id ?? "";
 
     const chat = await call(orbitAdmin, "POST", "/v1/orbit/channel-connectors", { provider: "lyra-webchat", transport: "web", label: "Web chat", secretsJson: {}, configJson: {}, status: "active" });
     if (chat.status >= 300) find({ severity: "medium", kind: "setup", route: "POST /v1/orbit/channel-connectors", persona: orbitAdmin.persona, status: chat.status, detail: chat.text.slice(0, 200) });
@@ -226,12 +223,35 @@ export function flows(ctx: FlowContext) {
       bump(s.status < 300 ? "partner:signup" : `partner-refused:${s.status}`);
     }
     const list = await call(partners, "GET", "/v1/orbit/partners?limit=20");
-    const ids = (list.json?.data ?? []).map((p: any) => p.id);
+    const ids = (list.json?.data ?? []).filter((p: any) => p.status === "active").map((p: any) => p.id);
     await pool(Array.from({ length: Math.min(ctx.bench.perDay.partnerQuotes, 200) }, (_, i) => i), 6, async (i) => {
       if (!ids.length) return;
       const q = await call(partners, "POST", `/v1/orbit/partners/${ids[i % ids.length]}/quotes`, { productLine: "motor", amountMinor: 100_000 + i, currency: "AED" });
       bump(q.status < 300 ? "partner:quote" : `partner-quote-refused:${q.status}:${why(q)}`);
     });
+  }
+
+  /**
+   * The commission approvers work their inbox: every bind raises a
+   * dist.commission_accrue approval, and nothing accrues until one is decided.
+   * Two deciders, so dual control above the threshold can complete.
+   */
+  async function commissionInbox(): Promise<void> {
+    const deciders = ctx.people.filter((p) => p.permissions.has("dist:commissions:adjust")).slice(0, 2);
+    for (const decider of deciders) {
+      for (let page = 0; page < 50; page++) {
+        const inbox = await call(decider, "GET", "/v1/me/inbox?limit=100");
+        const due = (inbox.json?.approvals ?? []).filter((a: any) => a.policyKey === "dist.commission_accrue");
+        if (!due.length) break;
+        let moved = 0;
+        await pool(due, 4, async (a: any) => {
+          const d = await call(decider, "POST", `/v1/me/approvals/${a.id}/decide`, { decision: "approved" });
+          if (d.status < 300) moved++;
+          bump(d.status < 300 ? "commission:approved" : `commission-refused:${d.status}:${why(d)}`);
+        });
+        if (!moved) break;
+      }
+    }
   }
 
   async function backOffice(day: number): Promise<void> {
@@ -277,6 +297,7 @@ export function flows(ctx: FlowContext) {
     await service(n);
     await partnerDesk(n);
     await backOffice(n);
+    await commissionInbox();
     await staffReads();
   }
 
@@ -284,11 +305,19 @@ export function flows(ctx: FlowContext) {
     // Month end: settlement run, period soft close, and the deal's pinned metric.
     // The month being closed is the simulated one, not the wall clock's.
     const period = new Date(ctx.now() - DAY).toISOString().slice(0, 7);
-    const run = await call(controller2, "POST", "/v1/settlement/runs", { counterpartyKind: "partner", counterpartyRef: `channel:${webChannel}`, period });
-    bump(run.status < 300 ? "settlement:drafted" : `settlement-refused:${run.status}:${why(run)}`);
-    const sid = run.json?.id ?? run.json?.settlement?.id;
-    if (sid) {
-      const ap = await gated(controller2, controller, "POST", `/v1/settlement/settlements/${sid}/approve`, {});
+    // Every channel is drafted; only one that is owed something is approved.
+    // A direct channel (the harness's own site) correctly owes nothing.
+    const channels = (await call(controller2, "GET", "/v1/dist/channels?limit=100")).json?.data ?? [];
+    for (const ch of channels) {
+      const run = await call(controller2, "POST", "/v1/settlement/runs", { counterpartyKind: "partner", counterpartyRef: `channel:${ch.id}`, period });
+      if (run.status >= 300) {
+        bump(`settlement-refused:${run.status}:${why(run)}`);
+        continue;
+      }
+      bump("settlement:drafted");
+      const s = run.json?.settlement ?? run.json;
+      if (!s?.id || !(s.netMinor > 0)) continue;
+      const ap = await gated(controller2, controller, "POST", `/v1/settlement/settlements/${s.id}/approve`, {});
       bump(ap.status < 300 ? "settlement:approved" : `settlement-approve-refused:${ap.status}:${why(ap)}`);
     }
     const closeP = await gated(controller, controller2, "POST", `/v1/ledger/periods/${period}/close`, { to: "soft_closed" });

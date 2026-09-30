@@ -67,6 +67,12 @@ describe("verifyTrackSignature", () => {
     const signature = override === "other" ? await sign("{}", Number(headers.timestamp)) : (override ?? (await sign(raw, Number(headers.timestamp) || NOW)));
     await expect(verifyTrackSignature(ctx, { ...headers, signature }, raw)).rejects.toMatchObject({ status: 401 });
   });
+  // Found by the month simulation: the sender signs with its real clock, so on
+  // a virtual clock ten days ahead every signed conversion was refused.
+  it("judges the window against the time the request was received, not the context's clock", async () => {
+    const ahead = { ...ctx, now: NOW + 10 * 86_400_000 };
+    await expect(verifyTrackSignature(ahead, { keyId: "whk_1", timestamp: String(NOW), signature: await sign(raw) }, raw, NOW)).resolves.toBeUndefined();
+  });
 });
 
 describe("recordSignedConversion", () => {

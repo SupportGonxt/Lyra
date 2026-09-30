@@ -17,11 +17,15 @@ export interface TrackSignature {
   signature: string;
 }
 
-/** Resolves when the signature is good; a 401 otherwise, never saying which part failed. */
-export async function verifyTrackSignature(ctx: Ctx, sig: TrackSignature, raw: string): Promise<void> {
+/**
+ * Resolves when the signature is good; a 401 otherwise, never saying which part failed.
+ * The window is judged at `receivedAt` — the sender signed with its real clock,
+ * which a virtual clock (clock.ts) must not move.
+ */
+export async function verifyTrackSignature(ctx: Ctx, sig: TrackSignature, raw: string, receivedAt = ctx.now): Promise<void> {
   const refuse = () => unauthorized("track signature not valid");
   const ts = Number(sig.timestamp);
-  if (!sig.timestamp || !Number.isFinite(ts) || Math.abs(ctx.now - ts) > WINDOW_MS) throw refuse();
+  if (!sig.timestamp || !Number.isFinite(ts) || Math.abs(receivedAt - ts) > WINDOW_MS) throw refuse();
   const [hook] = await ctx.db
     .select({ secret: schema.webhooks.secret })
     .from(schema.webhooks)
