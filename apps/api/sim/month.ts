@@ -229,7 +229,7 @@ console.log(`personas: ${people.length} signed in`);
 const admin = people.find((p) => p.permissions.size === Math.max(...people.map((x) => x.permissions.size)))!;
 
 simNowMs = (await call(anon, "POST", "/v1/auth/demo/clock", { advanceMs: 0 })).json.simNow;
-const run = flows({ base: BASE, anon, people, admin, bench: BENCH });
+const run = flows({ base: BASE, anon, people, admin, bench: BENCH, now: () => simNowMs });
 await run.setup();
 
 for (let day = 1; day <= BENCH.days; day++) {

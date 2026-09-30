@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { simNow } from "../clock.js";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, BrandJson, EntitlementsJson, PolicyJson } from "@lyra/db";
@@ -178,7 +179,7 @@ async function findOrCreateCustomer(
 }
 
 portalRoutes.post("/:tenantSlug/leads", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, LeadBody);
   const email = input.email.toLowerCase();
   await throttle(c.env, `portal-lead:${email}`, LEAD_MAX, LEAD_WINDOW_SEC);
@@ -364,7 +365,7 @@ const RegistrationBody = z.discriminatedUnion("kind", [
 ]);
 
 portalRoutes.post("/:tenantSlug/registrations", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, RegistrationBody);
   const email = input.email.toLowerCase();
   await throttle(c.env, `portal-register:${email}`, REGISTER_MAX, REGISTER_WINDOW_SEC);
@@ -649,7 +650,7 @@ async function portalCtx(c: Context<App>, tenantId: string, now: number, who: st
 }
 
 portalRoutes.get("/:tenantSlug/quote-requests/:id", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
   const request = await requestForToken(database, tenant.id, c.req.param("id"), c.req.query("token"));
@@ -676,7 +677,7 @@ const RepriceBody = z
   .strict();
 
 portalRoutes.post("/:tenantSlug/quote-requests/:id/reprice", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, RepriceBody);
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
@@ -737,7 +738,7 @@ portalRoutes.post("/:tenantSlug/quote-requests/:id/reprice", async (c) => {
 const AcceptBody = z.object({ token: z.string().min(1), offeringId: z.string().min(1) }).strict();
 
 portalRoutes.post("/:tenantSlug/quote-requests/:id/accept", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, AcceptBody);
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
@@ -789,7 +790,7 @@ portalRoutes.post("/:tenantSlug/quote-requests/:id/accept", async (c) => {
 });
 
 portalRoutes.post("/:tenantSlug/quote-requests/:id/documents", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
   const form = await formOf(c);
@@ -888,7 +889,7 @@ async function customerIdForEmail(
 }
 
 portalRoutes.post("/:tenantSlug/privacy-requests", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, PrivacyRequestBody);
   const email = input.email.toLowerCase();
   await throttle(c.env, `portal-dsar:${email}`, DSAR_MAX, LEAD_WINDOW_SEC);
@@ -1053,7 +1054,7 @@ const RenewalAcceptBody = z.object({ token: z.string().min(1) }).strict();
  * machine already makes a second tap a no-op that returns the same body.
  */
 portalRoutes.post("/:tenantSlug/renewals/:id/accept", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, RenewalAcceptBody);
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
@@ -1124,7 +1125,7 @@ portalRoutes.get("/:tenantSlug/feedback/:id", async (c) => {
 });
 
 portalRoutes.post("/:tenantSlug/feedback/:id", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, FeedbackBody);
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
@@ -1200,7 +1201,7 @@ const SignedTrackBody = z
   .strict();
 
 portalRoutes.post("/:tenantSlug/track", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const raw = await c.req.text();
   let json: unknown;
   try {
@@ -1352,7 +1353,7 @@ portalRoutes.get("/:tenantSlug/chat", async (c) => {
 });
 
 portalRoutes.post("/:tenantSlug/chat/messages", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, ChatBody);
   const ip = c.req.header("cf-connecting-ip");
   if (ip) await throttle(c.env, `portal-chat-ip:${ip}`, CHAT_IP_MAX, CHAT_WINDOW_SEC);
