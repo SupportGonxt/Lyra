@@ -5,7 +5,7 @@ import {
   useLoaderData,
   useNavigation,
   type ActionFunctionArgs,
-  type LoaderFunctionArgs
+  type LoaderFunctionArgs,
 } from "react-router";
 import {
   AGENT_MARK,
@@ -25,7 +25,7 @@ import {
   Table,
   Textarea,
   type BadgeTone,
-  type Column
+  type Column,
 } from "@lyra/ui";
 import { ApiError, api, names } from "../api.server";
 import { who, type Names } from "../names";
@@ -52,7 +52,12 @@ import { useShellData } from "./workspace";
  * much the agent may do without asking. Offering a fifth option would be a 400
  * the operator cannot act on, so this list is copied, never invented.
  */
-const AUTONOMY_LEVELS = ["suggest", "act_with_approval", "act_within_limits", "autonomous"] as const;
+const AUTONOMY_LEVELS = [
+  "suggest",
+  "act_with_approval",
+  "act_within_limits",
+  "autonomous",
+] as const;
 type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number];
 
 /**
@@ -69,7 +74,7 @@ const AUTONOMY_SYNONYMS: Record<string, AutonomyLevel> = {
   act: "act_within_limits",
   act_and_report: "act_within_limits",
   act_and_notify: "act_within_limits",
-  act_autonomously: "autonomous"
+  act_autonomously: "autonomous",
 };
 
 /** A stored autonomy value as a rung of the ladder. */
@@ -78,7 +83,8 @@ export const autonomyRung = (level: string): AutonomyLevel =>
     ? (level as AutonomyLevel)
     : (AUTONOMY_SYNONYMS[level] ?? "suggest");
 
-const rankOf = (level: string): number => AUTONOMY_LEVELS.indexOf(autonomyRung(level));
+const rankOf = (level: string): number =>
+  AUTONOMY_LEVELS.indexOf(autonomyRung(level));
 
 /** A level nobody recognises ranks lowest, so any change off it asks first. */
 const raises = (from: string, to: string): boolean => rankOf(to) > rankOf(from);
@@ -105,14 +111,17 @@ const AUDIT_LIMIT = 50;
 const LABELS: Record<string, Record<string, string>> = {
   en: {
     title: "AI console",
-    intro: "What the agents are doing, what it costs, and what they were allowed to do.",
+    intro:
+      "What the agents are doing, what it costs, and what they were allowed to do.",
     "budget.title": "Budget",
     "budget.today": "Today",
     "budget.tokens": "Tokens",
     "budget.cost": "Cost",
     "budget.over.title": "Over budget",
-    "budget.over.tokens": "The daily token limit is spent. Agent runs are refused until the window resets or the cap is raised.",
-    "budget.over.cost": "The daily cost limit is spent. Agent runs are refused until the window resets or the cap is raised.",
+    "budget.over.tokens":
+      "The daily token limit is spent. Agent runs are refused until the window resets or the cap is raised.",
+    "budget.over.cost":
+      "The daily cost limit is spent. Agent runs are refused until the window resets or the cap is raised.",
     "budget.over.stopped": "This budget was stopped by an administrator.",
     "budget.near.title": "Approaching the budget cap",
     "budget.near.reason": "Used so far today:",
@@ -127,12 +136,15 @@ const LABELS: Record<string, Record<string, string>> = {
     "spend.errors": "Errors",
     "spend.total": "Total",
     "kill.title": "Kill switches",
-    "kill.intro": "Stop model calls for this tenant or for one module. Every switch is recorded against your name.",
+    "kill.intro":
+      "Stop model calls for this tenant or for one module. Every switch is recorded against your name.",
     "kill.global": "Platform-wide",
-    "kill.globalOn": "Platform operations has paused AI. Nothing here will release it.",
+    "kill.globalOn":
+      "Platform operations has paused AI. Nothing here will release it.",
     "kill.globalOff": "No platform-wide pause.",
     "kill.tenant": "This tenant",
-    "kill.tenantOn": "AI is paused for the whole tenant. Every model call is refused.",
+    "kill.tenantOn":
+      "AI is paused for the whole tenant. Every model call is refused.",
     "kill.tenantOff": "Running.",
     "kill.modules": "Paused modules",
     "kill.none": "None",
@@ -167,7 +179,8 @@ const LABELS: Record<string, Record<string, string>> = {
     "agents.setAutonomy": "Change autonomy",
     "agents.confirmRaise":
       "I understand this widens what the agent may do without asking, and that it is recorded against my name.",
-    "agents.confirmMissing": "A raise in autonomy needs the confirmation ticked.",
+    "agents.confirmMissing":
+      "A raise in autonomy needs the confirmation ticked.",
     "agents.pendingTitle": "Autonomy change is waiting for approval",
     "agents.pendingReason":
       "The level shown above is the one the API still holds. It changes only once the approval is granted.",
@@ -231,7 +244,8 @@ const LABELS: Record<string, Record<string, string>> = {
     "rule.comparison_claim_requires_source": "Comparison without a source",
     "rule.no_guarantee_of_cover": "Guarantee of cover",
     "audit.title": "AI audit log",
-    "audit.note": "Content is never stored here — every row carries hashes only.",
+    "audit.note":
+      "Content is never stored here — every row carries hashes only.",
     "audit.when": "When",
     "audit.actor": "Actor",
     "audit.module": "Module",
@@ -249,7 +263,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "outcome.error": "Error",
     "outcome.budget_exceeded": "Budget exceeded",
     "outcome.killed": "AI paused",
-    "unit.ms": "ms"
+    "unit.ms": "ms",
   },
   ar: {
     title: "لوحة الذكاء الاصطناعي",
@@ -277,12 +291,15 @@ const LABELS: Record<string, Record<string, string>> = {
     "spend.errors": "الأخطاء",
     "spend.total": "الإجمالي",
     "kill.title": "مفاتيح الإيقاف",
-    "kill.intro": "أوقف استدعاءات النماذج لهذه المؤسسة أو لوحدة واحدة. كل إيقاف يُسجَّل باسمك.",
+    "kill.intro":
+      "أوقف استدعاءات النماذج لهذه المؤسسة أو لوحدة واحدة. كل إيقاف يُسجَّل باسمك.",
     "kill.global": "على مستوى المنصة",
-    "kill.globalOn": "أوقفت عمليات المنصة الذكاء الاصطناعي. لا شيء هنا يرفع هذا الإيقاف.",
+    "kill.globalOn":
+      "أوقفت عمليات المنصة الذكاء الاصطناعي. لا شيء هنا يرفع هذا الإيقاف.",
     "kill.globalOff": "لا يوجد إيقاف على مستوى المنصة.",
     "kill.tenant": "هذه المؤسسة",
-    "kill.tenantOn": "الذكاء الاصطناعي موقوف للمستأجر بأكمله. تُرفض كل استدعاءات النماذج.",
+    "kill.tenantOn":
+      "الذكاء الاصطناعي موقوف للمستأجر بأكمله. تُرفض كل استدعاءات النماذج.",
     "kill.tenantOff": "يعمل.",
     "kill.modules": "الوحدات الموقوفة",
     "kill.none": "لا شيء",
@@ -392,8 +409,8 @@ const LABELS: Record<string, Record<string, string>> = {
     "outcome.error": "خطأ",
     "outcome.budget_exceeded": "تجاوز الميزانية",
     "outcome.killed": "الذكاء الاصطناعي موقوف",
-    "unit.ms": "مللي ثانية"
-  }
+    "unit.ms": "مللي ثانية",
+  },
 };
 
 type Label = (key: string, fallback?: string) => string;
@@ -532,7 +549,11 @@ async function readable<T>(call: Promise<T>): Promise<T | null> {
   try {
     return await call;
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) return null;
+    if (
+      error instanceof ApiError &&
+      (error.status === 403 || error.status === 404)
+    )
+      return null;
     throw error;
   }
 }
@@ -541,15 +562,30 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
   const opts = { env, request };
 
-  const [budget, spend, agents, runs, guardrails, audit, kill] = await Promise.all([
-    readable(api<BudgetCheck>("/v1/ai/budget", opts)),
-    readable(api<Spend>(`/v1/ai/audit/spend?days=${SPEND_DAYS}`, opts)),
-    readable(api<Page<Agent>>("/v1/ai/agents?sort=key&order=asc&limit=100", opts)),
-    readable(api<Page<Run>>(`/v1/ai/runs?sort=startedAt&order=desc&limit=${RUN_LIMIT}`, opts)),
-    readable(api<Page<GuardrailEvent>>(`/v1/ai/guardrail-events?sort=ts&order=desc&limit=${EVENT_LIMIT}`, opts)),
-    readable(api<{ data: AuditRow[] }>(`/v1/ai/audit?limit=${AUDIT_LIMIT}`, opts)),
-    readable(api<KillState>("/v1/ai/kill-switches", opts))
-  ]);
+  const [budget, spend, agents, runs, guardrails, audit, kill] =
+    await Promise.all([
+      readable(api<BudgetCheck>("/v1/ai/budget", opts)),
+      readable(api<Spend>(`/v1/ai/audit/spend?days=${SPEND_DAYS}`, opts)),
+      readable(
+        api<Page<Agent>>("/v1/ai/agents?sort=key&order=asc&limit=100", opts),
+      ),
+      readable(
+        api<Page<Run>>(
+          `/v1/ai/runs?sort=startedAt&order=desc&limit=${RUN_LIMIT}`,
+          opts,
+        ),
+      ),
+      readable(
+        api<Page<GuardrailEvent>>(
+          `/v1/ai/guardrail-events?sort=ts&order=desc&limit=${EVENT_LIMIT}`,
+          opts,
+        ),
+      ),
+      readable(
+        api<{ data: AuditRow[] }>(`/v1/ai/audit?limit=${AUDIT_LIMIT}`, opts),
+      ),
+      readable(api<KillState>("/v1/ai/kill-switches", opts)),
+    ]);
 
   // Every ref on this page is a person: who paused an agent, who asked for a
   // run, who a guardrail fired about. They arrived as `user:us_01KE9…` and
@@ -558,9 +594,9 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     [
       ...(agents?.data ?? []).map((agent) => agent.pausedBy),
       ...(audit?.data ?? []).flatMap((row) => [row.actorRef, row.subjectRef]),
-      ...(guardrails?.data ?? []).map((event) => event.subjectRef)
+      ...(guardrails?.data ?? []).map((event) => event.subjectRef),
     ],
-    opts
+    opts,
   );
 
   return {
@@ -571,7 +607,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     guardrails: guardrails?.data ?? [],
     audit: audit?.data ?? null,
     kill,
-    names: resolved
+    names: resolved,
   };
 }
 
@@ -583,7 +619,10 @@ interface ActionResult {
   pending: { agentKey: string; requested: string } | null;
 }
 
-export async function action({ request, context }: ActionFunctionArgs): Promise<ActionResult> {
+export async function action({
+  request,
+  context,
+}: ActionFunctionArgs): Promise<ActionResult> {
   const env = context.get(cloudflare).env;
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
@@ -602,14 +641,18 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
         method: "POST",
         body: {
           ...(module ? { module } : {}),
-          ...(pausing ? { reason: String(form.get("reason") ?? "") } : {})
-        }
+          ...(pausing ? { reason: String(form.get("reason") ?? "") } : {}),
+        },
       });
       return { problem: null, pending: null };
     }
 
     const key = String(form.get("agentKey") ?? "");
-    if (!key) return { problem: { title: "agent key missing", status: 400 }, pending: null };
+    if (!key)
+      return {
+        problem: { title: "agent key missing", status: 400 },
+        pending: null,
+      };
     const agent = `/v1/ai/agents/${encodeURIComponent(key)}`;
 
     if (intent === "pause") {
@@ -617,43 +660,58 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
         env,
         request,
         method: "POST",
-        body: { reason: String(form.get("reason") ?? "") }
+        body: { reason: String(form.get("reason") ?? "") },
       });
     } else if (intent === "resume") {
       await api(`${agent}/resume`, { env, request, method: "POST" });
     } else if (intent === "autonomy") {
       const level = String(form.get("autonomyLevel") ?? "");
       if (!AUTONOMY_LEVELS.includes(level as AutonomyLevel)) {
-        return { problem: { title: `unknown autonomy level ${level}`, status: 400 }, pending: null };
+        return {
+          problem: { title: `unknown autonomy level ${level}`, status: 400 },
+          pending: null,
+        };
       }
       // Raising autonomy is consequential (CLAUDE.md §4): the browser asked for
       // an explicit confirmation, and this re-checks it rather than trusting the
       // markup that carried it. The API's own approval gate is the real control;
       // this only stops an accidental raise from ever reaching it.
-      if (raises(String(form.get("currentLevel") ?? ""), level) && form.get("confirm") !== "on") {
-        return { problem: { title: "confirmation required", status: 400 }, pending: null };
+      if (
+        raises(String(form.get("currentLevel") ?? ""), level) &&
+        form.get("confirm") !== "on"
+      ) {
+        return {
+          problem: { title: "confirmation required", status: 400 },
+          pending: null,
+        };
       }
-      const result = await api<{ approval?: { id: string; decision: string } } | null>(
-        `${agent}/autonomy`,
-        {
-          env,
-          request,
-          method: "POST",
-          body: { autonomyLevel: level, reason: String(form.get("reason") ?? "") }
-        }
-      );
+      const result = await api<{
+        approval?: { id: string; decision: string };
+      } | null>(`${agent}/autonomy`, {
+        env,
+        request,
+        method: "POST",
+        body: {
+          autonomyLevel: level,
+          reason: String(form.get("reason") ?? ""),
+        },
+      });
       // 202: the gate holds an approval that is not granted yet, so the agent
       // row still carries the old level. Say so instead of showing the new one.
       if (result && "approval" in result && result.approval) {
         return { problem: null, pending: { agentKey: key, requested: level } };
       }
     } else {
-      return { problem: { title: "unknown intent", status: 400 }, pending: null };
+      return {
+        problem: { title: "unknown intent", status: 400 },
+        pending: null,
+      };
     }
   } catch (error) {
     // A refused write is information: an approval_required 403 belongs on the
     // page next to the agent it was refused for, not in an error boundary.
-    if (error instanceof ApiError) return { problem: error.problem, pending: null };
+    if (error instanceof ApiError)
+      return { problem: error.problem, pending: null };
     throw error;
   }
   return { problem: null, pending: null };
@@ -678,7 +736,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asList(value: unknown): string[] {
   const raw = typeof value === "string" ? safeParse(value) : value;
-  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+  return Array.isArray(raw)
+    ? raw.filter((v): v is string => typeof v === "string")
+    : [];
 }
 
 function safeParse(text: string): unknown {
@@ -704,9 +764,14 @@ function localised(value: unknown, locale: string): string | null {
  */
 export function agentNames(
   agents: readonly { key: string; nameJson: unknown }[],
-  locale: string
+  locale: string,
 ): Record<string, string> {
-  return Object.fromEntries(agents.map((agent) => [agent.key, localised(agent.nameJson, locale) ?? agent.key]));
+  return Object.fromEntries(
+    agents.map((agent) => [
+      agent.key,
+      localised(agent.nameJson, locale) ?? agent.key,
+    ]),
+  );
 }
 
 /**
@@ -714,7 +779,8 @@ export function agentNames(
  * a tenant wrote for itself is humanised rather than printed as
  * `hallucinated_placeholder`.
  */
-export const ruleLabel = (L: Label, rule: string): string => L(`rule.${rule}`, humanise(rule));
+export const ruleLabel = (L: Label, rule: string): string =>
+  L(`rule.${rule}`, humanise(rule));
 
 /**
  * One true line for the hero. A tenant- or global-level pause outranks
@@ -726,14 +792,16 @@ export const ruleLabel = (L: Label, rule: string): string => L(`rule.${rule}`, h
 export function consoleHeadline(
   kill: { global: boolean; tenant: boolean } | null,
   agents: readonly { status: string }[] | null,
-  L: Label
+  L: Label,
 ): string {
   if (kill?.global) return L("kill.globalOn");
   if (kill?.tenant) return L("kill.tenantOn");
   if (!agents) return L("agents.unavailable");
   if (agents.length === 0) return L("headline.noAgents");
   const active = agents.filter((agent) => agent.status === "active").length;
-  return active > 0 ? `${active} ${L("headline.agentsActive")}` : L("headline.allPaused");
+  return active > 0
+    ? `${active} ${L("headline.agentsActive")}`
+    : L("headline.allPaused");
 }
 
 const STATE_TONES: Record<string, BadgeTone> = {
@@ -753,7 +821,7 @@ const STATE_TONES: Record<string, BadgeTone> = {
   retired: "neutral",
   info: "info",
   warn: "warning",
-  block: "danger"
+  block: "danger",
 };
 
 const toneOf = (value: string): BadgeTone => STATE_TONES[value] ?? "neutral";
@@ -778,7 +846,10 @@ export default function AiConsole() {
   // actually runs agents in, plus anything already paused (an agent can be
   // retired while its module pause stands, and that pause must stay releasable).
   const moduleChoices = [
-    ...new Set([...(loaded.agents ?? []).map((agent) => agent.module), ...(loaded.kill?.modules ?? [])])
+    ...new Set([
+      ...(loaded.agents ?? []).map((agent) => agent.module),
+      ...(loaded.kill?.modules ?? []),
+    ]),
   ].sort();
 
   const named = agentNames(loaded.agents ?? [], locale);
@@ -787,7 +858,9 @@ export default function AiConsole() {
     {
       key: "startedAt",
       header: L("runs.when"),
-      render: (run) => <DateTime value={run.startedAt} locale={locale} precision="minute" />
+      render: (run) => (
+        <DateTime value={run.startedAt} locale={locale} precision="minute" />
+      ),
     },
     {
       key: "agentKey",
@@ -795,13 +868,25 @@ export default function AiConsole() {
       // docs/15: the single ✦ plus a "why" one interaction away. The glyph comes
       // from AGENT_MARK so there is exactly one sparkle in the product.
       render: (run) => (
-        <EvidenceLink sourceLabel={L("runs.why")} source={<RunWhy run={run} L={L} locale={locale} />}>
-          <span aria-hidden="true">{AGENT_MARK}</span> {named[run.agentKey] ?? run.agentKey}
+        <EvidenceLink
+          sourceLabel={L("runs.why")}
+          source={<RunWhy run={run} L={L} locale={locale} />}
+        >
+          <span aria-hidden="true">{AGENT_MARK}</span>{" "}
+          {named[run.agentKey] ?? run.agentKey}
         </EvidenceLink>
-      )
+      ),
     },
-    { key: "module", header: L("runs.askedBy"), render: (run) => moduleName(t, run.module) },
-    { key: "purpose", header: L("runs.purpose"), render: (run) => optionLabel(L, "purpose", run.purpose) },
+    {
+      key: "module",
+      header: L("runs.askedBy"),
+      render: (run) => moduleName(t, run.module),
+    },
+    {
+      key: "purpose",
+      header: L("runs.purpose"),
+      render: (run) => optionLabel(L, "purpose", run.purpose),
+    },
     {
       key: "state",
       header: L("runs.state"),
@@ -809,31 +894,53 @@ export default function AiConsole() {
         <Badge tone={toneOf(run.state)} size="sm">
           {L(`state.${run.state}`, run.state)}
         </Badge>
-      )
+      ),
     },
     {
       key: "latencyMs",
       header: L("runs.latency"),
       numeric: true,
-      render: (run) => `${nf.format(run.latencyMs)} ${L("unit.ms")}`
+      render: (run) => `${nf.format(run.latencyMs)} ${L("unit.ms")}`,
     },
     {
       key: "costMicro",
       header: L("runs.cost"),
       numeric: true,
       render: (run) => (
-        <Money amountMinor={minorOf(run.costMicro)} currency={COST_CURRENCY} locale={locale} />
-      )
-    }
+        <Money
+          amountMinor={minorOf(run.costMicro)}
+          currency={COST_CURRENCY}
+          locale={locale}
+        />
+      ),
+    },
   ];
 
   const spendColumns: Array<Column<SpendRow>> = [
     // Spend and the audit log are keyed by module code (`dist`, `core`); the
     // person reading the table navigates by the name on the rail.
-    { key: "module", header: L("spend.module"), render: (row) => moduleName(t, row.module) },
-    { key: "purpose", header: L("spend.purpose"), render: (row) => optionLabel(L, "purpose", row.purpose) },
-    { key: "calls", header: L("spend.calls"), numeric: true, render: (row) => nf.format(row.calls) },
-    { key: "tokens", header: L("spend.tokens"), numeric: true, render: (row) => nf.format(row.tokens) },
+    {
+      key: "module",
+      header: L("spend.module"),
+      render: (row) => moduleName(t, row.module),
+    },
+    {
+      key: "purpose",
+      header: L("spend.purpose"),
+      render: (row) => optionLabel(L, "purpose", row.purpose),
+    },
+    {
+      key: "calls",
+      header: L("spend.calls"),
+      numeric: true,
+      render: (row) => nf.format(row.calls),
+    },
+    {
+      key: "tokens",
+      header: L("spend.tokens"),
+      numeric: true,
+      render: (row) => nf.format(row.tokens),
+    },
     {
       key: "errors",
       header: L("spend.errors"),
@@ -845,28 +952,34 @@ export default function AiConsole() {
           </Badge>
         ) : (
           nf.format(0)
-        )
+        ),
     },
     {
       key: "costMicro",
       header: L("spend.cost"),
       numeric: true,
       render: (row) => (
-        <Money amountMinor={minorOf(row.costMicro)} currency={COST_CURRENCY} locale={locale} />
-      )
-    }
+        <Money
+          amountMinor={minorOf(row.costMicro)}
+          currency={COST_CURRENCY}
+          locale={locale}
+        />
+      ),
+    },
   ];
 
   const guardrailColumns: Array<Column<GuardrailEvent>> = [
     {
       key: "ts",
       header: L("guardrails.when"),
-      render: (event) => <DateTime value={event.ts} locale={locale} precision="minute" />
+      render: (event) => (
+        <DateTime value={event.ts} locale={locale} precision="minute" />
+      ),
     },
     {
       key: "rule",
       header: L("guardrails.rule"),
-      render: (event) => ruleLabel(L, event.rule)
+      render: (event) => ruleLabel(L, event.rule),
     },
     {
       key: "severity",
@@ -875,30 +988,49 @@ export default function AiConsole() {
         <Badge tone={toneOf(event.severity)} size="sm">
           {L(`severity.${event.severity}`, event.severity)}
         </Badge>
-      )
+      ),
     },
-    { key: "detail", header: L("guardrails.detail"), render: (event) => event.detail ?? "—" },
+    {
+      key: "detail",
+      header: L("guardrails.detail"),
+      render: (event) => event.detail ?? "—",
+    },
     {
       key: "runId",
       header: L("guardrails.run"),
-      render: (event) => <Ref value={event.runId} className="text-12" />
+      render: (event) => <Ref value={event.runId} className="text-12" />,
     },
     {
       key: "subjectRef",
       header: L("guardrails.subject"),
-      render: (event) => (event.subjectRef ? who(event.subjectRef, loaded.names) : "—")
-    }
+      render: (event) =>
+        event.subjectRef ? who(event.subjectRef, loaded.names) : "—",
+    },
   ];
 
   const auditColumns: Array<Column<AuditRow>> = [
     {
       key: "ts",
       header: L("audit.when"),
-      render: (row) => <DateTime value={row.ts} locale={locale} precision="second" />
+      render: (row) => (
+        <DateTime value={row.ts} locale={locale} precision="second" />
+      ),
     },
-    { key: "actorRef", header: L("audit.actor"), render: (row) => who(row.actorRef, loaded.names) },
-    { key: "module", header: L("audit.module"), render: (row) => moduleName(t, row.module) },
-    { key: "purpose", header: L("audit.purpose"), render: (row) => optionLabel(L, "purpose", row.purpose) },
+    {
+      key: "actorRef",
+      header: L("audit.actor"),
+      render: (row) => who(row.actorRef, loaded.names),
+    },
+    {
+      key: "module",
+      header: L("audit.module"),
+      render: (row) => moduleName(t, row.module),
+    },
+    {
+      key: "purpose",
+      header: L("audit.purpose"),
+      render: (row) => optionLabel(L, "purpose", row.purpose),
+    },
     {
       key: "model",
       header: L("audit.model"),
@@ -908,12 +1040,20 @@ export default function AiConsole() {
           sourceLabel={L("audit.hashes")}
           source={
             <dl className="flex flex-col gap-1 font-ui text-12">
-              <Pair term={L("audit.inputHash")} detail={<code className="font-mono">{row.inputHash}</code>} />
+              <Pair
+                term={L("audit.inputHash")}
+                detail={<code className="font-mono">{row.inputHash}</code>}
+              />
               <Pair
                 term={L("audit.outputHash")}
-                detail={<code className="font-mono">{row.outputHash ?? "—"}</code>}
+                detail={
+                  <code className="font-mono">{row.outputHash ?? "—"}</code>
+                }
               />
-              <Pair term={L("runs.provider")} detail={`${row.provider} · ${row.tier}`} />
+              <Pair
+                term={L("runs.provider")}
+                detail={`${row.provider} · ${row.tier}`}
+              />
               <Pair
                 term={L("audit.latency")}
                 detail={`${nf.format(row.latencyMs)} ${L("unit.ms")}`}
@@ -927,7 +1067,7 @@ export default function AiConsole() {
         >
           {row.model}
         </EvidenceLink>
-      )
+      ),
     },
     {
       key: "outcome",
@@ -936,25 +1076,33 @@ export default function AiConsole() {
         <Badge tone={toneOf(row.outcome)} size="sm">
           {L(`outcome.${row.outcome}`, row.outcome)}
         </Badge>
-      )
+      ),
     },
     {
       key: "costMicro",
       header: L("audit.cost"),
       numeric: true,
       render: (row) => (
-        <Money amountMinor={minorOf(row.costMicro)} currency={COST_CURRENCY} locale={locale} />
-      )
-    }
+        <Money
+          amountMinor={minorOf(row.costMicro)}
+          currency={COST_CURRENCY}
+          locale={locale}
+        />
+      ),
+    },
   ];
 
-  const emptyState = <EmptyState title={t("common.empty.title")} body={t("common.empty.body")} />;
+  const emptyState = (
+    <EmptyState title={t("common.empty.title")} body={t("common.empty.body")} />
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
         <h1 className="page-title">{L("title")}</h1>
-        <p className="font-ui text-13 text-muted">{consoleHeadline(loaded.kill, loaded.agents, L)}</p>
+        <p className="font-ui text-13 text-muted">
+          {consoleHeadline(loaded.kill, loaded.agents, L)}
+        </p>
       </header>
 
       {/* Over budget is the first thing an operator must read, before any chart:
@@ -965,10 +1113,13 @@ export default function AiConsole() {
           title={L("budget.over.title")}
           reason={
             <span>
-              {budget.reason === "tokens" ? L("budget.over.tokens") : L("budget.over.cost")}{" "}
+              {budget.reason === "tokens"
+                ? L("budget.over.tokens")
+                : L("budget.over.cost")}{" "}
               {budget.reason === "tokens" ? (
                 <span className="tabular-nums">
-                  {nf.format(budget.state.tokensUsed)} / {nf.format(budget.state.tokensLimit)}
+                  {nf.format(budget.state.tokensUsed)} /{" "}
+                  {nf.format(budget.state.tokensLimit)}
                 </span>
               ) : (
                 <span>
@@ -985,7 +1136,9 @@ export default function AiConsole() {
                   />
                 </span>
               )}
-              {budget.state.stoppedAt ? <span> {L("budget.over.stopped")}</span> : null}
+              {budget.state.stoppedAt ? (
+                <span> {L("budget.over.stopped")}</span>
+              ) : null}
             </span>
           }
         />
@@ -1002,7 +1155,11 @@ export default function AiConsole() {
       {/* ------------------------------------------------------------ budget */}
       <Card
         title={L("budget.title")}
-        description={budget ? `${L("budget.today")} · ${budget.state.day}` : L("budget.unavailable")}
+        description={
+          budget
+            ? `${L("budget.today")} · ${budget.state.day}`
+            : L("budget.unavailable")
+        }
       >
         {budget ? (
           <div className="grid gap-6 sm:grid-cols-2">
@@ -1054,8 +1211,9 @@ export default function AiConsole() {
             footer={
               <div className="flex flex-wrap items-center justify-between gap-3 pt-3 font-ui text-12 text-subtle">
                 <span>
-                  {L("spend.total")} · {nf.format(loaded.spend.totals.calls)} {L("spend.calls")} ·{" "}
-                  {nf.format(loaded.spend.totals.tokens)} {L("spend.tokens")}
+                  {L("spend.total")} · {nf.format(loaded.spend.totals.calls)}{" "}
+                  {L("spend.calls")} · {nf.format(loaded.spend.totals.tokens)}{" "}
+                  {L("spend.tokens")}
                 </span>
                 <Money
                   amountMinor={minorOf(loaded.spend.totals.costMicro)}
@@ -1080,32 +1238,31 @@ export default function AiConsole() {
       />
 
       {/* ------------------------------------------------------------ agents */}
-      <section className="flex flex-col gap-4">
-        <h2 className="eyebrow">{L("agents.title")}</h2>
-        {loaded.agents ? (
-          loaded.agents.length ? (
-            loaded.agents.map((agent) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                L={L}
-                locale={locale}
-                busy={busy}
-                canPause={held.has("ai:agents:pause")}
-                canWrite={held.has("ai:agents:write")}
-                resolved={loaded.names}
-                pending={
-                  result?.pending && result.pending.agentKey === agent.key ? result.pending : null
-                }
-              />
-            ))
-          ) : (
-            emptyState
-          )
-        ) : (
-          <p className="font-ui text-13 text-subtle">{L("agents.unavailable")}</p>
-        )}
-      </section>
+      {/* Denied, the headline above already says so — once (D4). */}
+      {loaded.agents ? (
+        <section className="flex flex-col gap-4">
+          <h2 className="eyebrow">{L("agents.title")}</h2>
+          {loaded.agents.length
+            ? loaded.agents.map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  L={L}
+                  locale={locale}
+                  busy={busy}
+                  canPause={held.has("ai:agents:pause")}
+                  canWrite={held.has("ai:agents:write")}
+                  resolved={loaded.names}
+                  pending={
+                    result?.pending && result.pending.agentKey === agent.key
+                      ? result.pending
+                      : null
+                  }
+                />
+              ))
+            : emptyState}
+        </section>
+      ) : null}
 
       {/* -------------------------------------------------------------- runs */}
       <Card title={L("runs.title")}>
@@ -1153,7 +1310,9 @@ export default function AiConsole() {
             empty={emptyState}
           />
         ) : (
-          <p className="font-ui text-13 text-subtle">{L("audit.unavailable")}</p>
+          <p className="font-ui text-13 text-subtle">
+            {L("audit.unavailable")}
+          </p>
         )}
       </Card>
     </div>
@@ -1179,8 +1338,14 @@ function RunWhy({ run, L, locale }: { run: Run; L: Label; locale: string }) {
   return (
     <div className="flex max-w-xs flex-col gap-2">
       <dl className="flex flex-col gap-1 font-ui text-12">
-        <Pair term={L("runs.model")} detail={String(evidence?.["model"] ?? "—")} />
-        <Pair term={L("runs.provider")} detail={String(evidence?.["provider"] ?? "—")} />
+        <Pair
+          term={L("runs.model")}
+          detail={String(evidence?.["model"] ?? "—")}
+        />
+        <Pair
+          term={L("runs.provider")}
+          detail={String(evidence?.["provider"] ?? "—")}
+        />
         <Pair term={L("runs.trigger")} detail={run.trigger} />
         <Pair
           term={L("runs.autonomyAtRun")}
@@ -1192,19 +1357,34 @@ function RunWhy({ run, L, locale }: { run: Run; L: Label; locale: string }) {
         />
         <Pair
           term={L("runs.cost")}
-          detail={<Money amountMinor={minorOf(run.costMicro)} currency={COST_CURRENCY} locale={locale} />}
+          detail={
+            <Money
+              amountMinor={minorOf(run.costMicro)}
+              currency={COST_CURRENCY}
+              locale={locale}
+            />
+          }
         />
-        {flags.length ? <Pair term={L("runs.flags")} detail={flags.join(", ")} /> : null}
-        {run.errorCode ? <Pair term={L("runs.error")} detail={run.errorCode} /> : null}
+        {flags.length ? (
+          <Pair term={L("runs.flags")} detail={flags.join(", ")} />
+        ) : null}
+        {run.errorCode ? (
+          <Pair term={L("runs.error")} detail={run.errorCode} />
+        ) : null}
         {run.outputRef ? (
           <Pair
             term={L("runs.auditRef")}
-            detail={<code className="font-mono">{shortRef(run.outputRef)}</code>}
+            detail={
+              <code className="font-mono">{shortRef(run.outputRef)}</code>
+            }
           />
         ) : null}
       </dl>
       {run.confidence === null ? null : (
-        <ConfidenceMeter value={run.confidence / 100} label={L("runs.confidence")} />
+        <ConfidenceMeter
+          value={run.confidence / 100}
+          label={L("runs.confidence")}
+        />
       )}
     </div>
   );
@@ -1229,7 +1409,14 @@ interface KillSwitchesProps {
  * same split the API enforces: the party that stops AI mid-incident is not
  * automatically the party that decides the incident is over.
  */
-function KillSwitches({ kill, L, busy, canPause, canResume, modules }: KillSwitchesProps) {
+function KillSwitches({
+  kill,
+  L,
+  busy,
+  canPause,
+  canResume,
+  modules,
+}: KillSwitchesProps) {
   if (!kill) {
     return (
       <Card title={L("kill.title")}>
@@ -1244,8 +1431,20 @@ function KillSwitches({ kill, L, busy, canPause, canResume, modules }: KillSwitc
   return (
     <Card title={L("kill.title")} description={L("kill.intro")}>
       <div className="flex flex-col gap-4">
-        {kill.global ? <GuardrailNotice tone="danger" title={L("kill.global")} reason={L("kill.globalOn")} /> : null}
-        {kill.tenant ? <GuardrailNotice tone="danger" title={L("kill.tenant")} reason={L("kill.tenantOn")} /> : null}
+        {kill.global ? (
+          <GuardrailNotice
+            tone="danger"
+            title={L("kill.global")}
+            reason={L("kill.globalOn")}
+          />
+        ) : null}
+        {kill.tenant ? (
+          <GuardrailNotice
+            tone="danger"
+            title={L("kill.tenant")}
+            reason={L("kill.tenantOn")}
+          />
+        ) : null}
 
         <dl className="grid gap-x-8 gap-y-2 font-ui text-13 sm:grid-cols-2">
           <Pair
@@ -1298,7 +1497,13 @@ function KillSwitches({ kill, L, busy, canPause, canResume, modules }: KillSwitc
                     <input type="hidden" name="intent" value="ai-pause" />
                     <label className="flex flex-col gap-1 font-ui text-12 text-subtle">
                       <span>{L("kill.reason")}</span>
-                      <Textarea name="reason" required minLength={3} maxLength={500} rows={2} />
+                      <Textarea
+                        name="reason"
+                        required
+                        minLength={3}
+                        maxLength={500}
+                        rows={2}
+                      />
                     </label>
                     <div>
                       <Button type="submit" variant="danger" loading={busy}>
@@ -1329,7 +1534,10 @@ function KillSwitches({ kill, L, busy, canPause, canResume, modules }: KillSwitc
                   <Select
                     name="module"
                     aria-label={L("kill.module")}
-                    options={pausable.map((module) => ({ value: module, label: module }))}
+                    options={pausable.map((module) => ({
+                      value: module,
+                      label: module,
+                    }))}
                   />
                   <Button type="submit" variant="danger" loading={busy}>
                     {L("kill.pauseModule")}
@@ -1337,7 +1545,13 @@ function KillSwitches({ kill, L, busy, canPause, canResume, modules }: KillSwitc
                 </div>
                 <label className="flex flex-col gap-1 font-ui text-12 text-subtle">
                   <span>{L("kill.reason")}</span>
-                  <Textarea name="reason" required minLength={3} maxLength={500} rows={2} />
+                  <Textarea
+                    name="reason"
+                    required
+                    minLength={3}
+                    maxLength={500}
+                    rows={2}
+                  />
                 </label>
               </Form>
             ) : null}
@@ -1362,7 +1576,16 @@ interface AgentCardProps {
   resolved: Names;
 }
 
-function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolved }: AgentCardProps) {
+function AgentCard({
+  agent,
+  L,
+  locale,
+  busy,
+  canPause,
+  canWrite,
+  pending,
+  resolved,
+}: AgentCardProps) {
   const name = localised(agent.nameJson, locale) ?? agent.key;
   const description = localised(agent.descriptionJson, locale);
   const tools = asList(agent.toolsJson);
@@ -1380,7 +1603,9 @@ function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolv
         `${L("agents.module")}: ${moduleName(translator(locale), agent.module)} · ${L("agents.tier")}: ${L(`tier.${agent.tier}`, agent.tier)}`
       }
       actions={
-        <Badge tone={toneOf(agent.status)}>{L(`agentStatus.${agent.status}`, agent.status)}</Badge>
+        <Badge tone={toneOf(agent.status)}>
+          {L(`agentStatus.${agent.status}`, agent.status)}
+        </Badge>
       }
     >
       <div className="flex flex-col gap-4">
@@ -1397,15 +1622,31 @@ function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolv
           />
           <Pair
             term={L("agents.updated")}
-            detail={<DateTime value={agent.updatedAt} locale={locale} precision="minute" />}
+            detail={
+              <DateTime
+                value={agent.updatedAt}
+                locale={locale}
+                precision="minute"
+              />
+            }
           />
-          <Pair term={L("agents.module")} detail={moduleName(translator(locale), agent.module)} />
-          <Pair term={L("agents.tier")} detail={L(`tier.${agent.tier}`, agent.tier)} />
+          <Pair
+            term={L("agents.module")}
+            detail={moduleName(translator(locale), agent.module)}
+          />
+          <Pair
+            term={L("agents.tier")}
+            detail={L(`tier.${agent.tier}`, agent.tier)}
+          />
           {/* The prompt reference, never the prompt: ai_prompts.body is the
               system text and this screen does not load it. */}
           <Pair
             term={L("agents.prompt")}
-            detail={<code className="font-mono text-12">{agent.promptRef ? shortRef(agent.promptRef) : "—"}</code>}
+            detail={
+              <code className="font-mono text-12">
+                {agent.promptRef ? shortRef(agent.promptRef) : "—"}
+              </code>
+            }
           />
           {tools.length ? (
             <Pair
@@ -1425,7 +1666,10 @@ function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolv
             <Pair term={L("agents.pausedReason")} detail={agent.pausedReason} />
           ) : null}
           {agent.pausedBy ? (
-            <Pair term={L("agents.pausedBy")} detail={who(agent.pausedBy, resolved)} />
+            <Pair
+              term={L("agents.pausedBy")}
+              detail={who(agent.pausedBy, resolved)}
+            />
           ) : null}
         </dl>
 
@@ -1435,7 +1679,8 @@ function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolv
             title={L("agents.pendingTitle")}
             reason={
               <span>
-                {L(`autonomy.${pending.requested}`, pending.requested)} — {L("agents.pendingReason")}
+                {L(`autonomy.${pending.requested}`, pending.requested)} —{" "}
+                {L("agents.pendingReason")}
               </span>
             }
           />
@@ -1460,7 +1705,13 @@ function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolv
                     <input type="hidden" name="agentKey" value={agent.key} />
                     <label className="flex flex-col gap-1 font-ui text-12 text-subtle">
                       <span>{L("agents.reason")}</span>
-                      <Textarea name="reason" required minLength={3} maxLength={500} rows={2} />
+                      <Textarea
+                        name="reason"
+                        required
+                        minLength={3}
+                        maxLength={500}
+                        rows={2}
+                      />
                     </label>
                     <div>
                       <Button type="submit" variant="danger" loading={busy}>
@@ -1473,7 +1724,9 @@ function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolv
             {canWrite ? <AutonomyForm agent={agent} L={L} busy={busy} /> : null}
           </div>
         ) : (
-          <p className="font-ui text-12 text-subtle">{L("agents.noControls")}</p>
+          <p className="font-ui text-12 text-subtle">
+            {L("agents.noControls")}
+          </p>
         )}
       </div>
     </Card>
@@ -1486,7 +1739,15 @@ function AgentCard({ agent, L, locale, busy, canPause, canWrite, pending, resolv
  * with no dialog, which is also what docs/15 wants (never a modal), and the
  * action re-checks it server-side.
  */
-function AutonomyForm({ agent, L, busy }: { agent: Agent; L: Label; busy: boolean }) {
+function AutonomyForm({
+  agent,
+  L,
+  busy,
+}: {
+  agent: Agent;
+  L: Label;
+  busy: boolean;
+}) {
   const level = autonomyRung(agent.autonomyLevel);
   const [next, setNext] = React.useState<string>(level);
   const raising = raises(level, next);
@@ -1504,7 +1765,7 @@ function AutonomyForm({ agent, L, busy }: { agent: Agent; L: Label; busy: boolea
           aria-label={L("agents.setAutonomy")}
           options={AUTONOMY_LEVELS.map((level) => ({
             value: level,
-            label: L(`autonomy.${level}`, level)
+            label: L(`autonomy.${level}`, level),
           }))}
         />
         <Button
@@ -1518,7 +1779,13 @@ function AutonomyForm({ agent, L, busy }: { agent: Agent; L: Label; busy: boolea
       </div>
       <label className="flex flex-col gap-1 font-ui text-12 text-subtle">
         <span>{L("agents.reason")}</span>
-        <Textarea name="reason" required minLength={3} maxLength={500} rows={2} />
+        <Textarea
+          name="reason"
+          required
+          minLength={3}
+          maxLength={500}
+          rows={2}
+        />
       </label>
       {raising ? (
         <label className="flex items-start gap-2 font-ui text-13 text-warning">

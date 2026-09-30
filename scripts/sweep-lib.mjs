@@ -6,6 +6,9 @@
 // weeks. One home means a check added for one sweep is live in both.
 import { readdirSync, readFileSync } from "node:fs";
 
+/** Routes that answer with a file, not a page (audit and vault exports). */
+const FILE_ROUTE = /\/(audit-export|export)$/;
+
 export const BASE = process.env.SWEEP_BASE ?? "https://lyra.vantax.co.za";
 
 /**
@@ -251,11 +254,26 @@ export async function sweepRoute(page, path, { walls = true, quiet = false, layo
   );
   let text = "";
   let status = "";
+  // A file route is fetched, never navigated: a download aborts the tab's
+  // navigation and races the next route's (sweep of 2026-09-30 reported
+  // /admin/staff broken for exactly that reason, after /admin/audit-export).
+  if (FILE_ROUTE.test(path)) {
+    const cookie = (await page.context().cookies()).map((c) => `${c.name}=${c.value}`).join("; ");
+    const res = await page.request.get(`${BASE}${path}`, { headers: { cookie }, maxRedirects: 0 }).catch(() => null);
+    const code = res?.status() ?? "?";
+    if (code === 401 || code === 403) return quiet ? "denied" : (console.log(`DENIED ${path}  [${code}]  not swept — persona cannot open it`), "denied");
+    if (typeof code === "number" && code < 300) return quiet ? "ok" : (console.log(`ok   ${path}  [${code}]  file`), "ok");
+    console.log(`FAIL ${path}  [${code}]  file route`);
+    return "bad";
+  }
   try {
     const res = await page.goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: 45_000 });
     status = res?.status() ?? "?";
     text = await page.locator("main").first().innerText({ timeout: 10_000 }).catch(() => "");
   } catch (err) {
+    // Reset the tab: a stranded chrome-error page interrupted every navigation
+    // after it and turned one route's refusal into seventy "broken" ones.
+    await page.goto("about:blank").catch(() => {});
     console.log(`ERR  ${path}  ${err.message.split("\n")[0]}`);
     return "bad";
   }

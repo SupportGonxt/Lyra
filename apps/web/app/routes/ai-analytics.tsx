@@ -1,6 +1,13 @@
 import type { ReactNode } from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import { EmptyState, LineChart, Money, Stat, Table, type Column } from "@lyra/ui";
+import {
+  EmptyState,
+  LineChart,
+  Money,
+  Stat,
+  Table,
+  type Column,
+} from "@lyra/ui";
 import { ApiError, api, fetchMe } from "../api.server";
 import { builderHref, type ReportDefinition } from "../analytics-def";
 import { cloudflare } from "../context";
@@ -37,7 +44,7 @@ export const PANELS = [
   "runsByDay",
   "runsByModule",
   "evalsByDay",
-  "evalsBySuite"
+  "evalsBySuite",
 ] as const;
 export type PanelKey = (typeof PANELS)[number];
 export type Panels = Record<PanelKey, PanelResult | null>;
@@ -59,19 +66,42 @@ export function microToMinor(micro: number): number {
 }
 
 /** Every figure on the screen, as the definition it is drawn from. */
-export function panelDefinitions(from: number): Record<PanelKey, ReportDefinition> {
+export function panelDefinitions(
+  from: number,
+): Record<PanelKey, ReportDefinition> {
   return {
-    quality: { dataset: "aiSuggestions", metrics: ["shown", "acceptanceRate"], from },
-    spend: { dataset: "aiSpend", metrics: ["calls", "costMicro", "refusalRate", "latency"], from },
-    guardrails: { dataset: "aiGuardrails", metrics: ["events", "blocks"], from },
-    evals: { dataset: "aiEvals", metrics: ["cases", "avgScore", "passRate"], from },
-    costByDay: { dataset: "aiSpend", metrics: ["costMicro", "calls"], grain: "day", from },
+    quality: {
+      dataset: "aiSuggestions",
+      metrics: ["shown", "acceptanceRate"],
+      from,
+    },
+    spend: {
+      dataset: "aiSpend",
+      metrics: ["calls", "costMicro", "refusalRate", "latency"],
+      from,
+    },
+    guardrails: {
+      dataset: "aiGuardrails",
+      metrics: ["events", "blocks"],
+      from,
+    },
+    evals: {
+      dataset: "aiEvals",
+      metrics: ["cases", "avgScore", "passRate"],
+      from,
+    },
+    costByDay: {
+      dataset: "aiSpend",
+      metrics: ["costMicro", "calls"],
+      grain: "day",
+      from,
+    },
     costByModule: {
       dataset: "aiSpend",
       metrics: ["costMicro", "calls", "refusalRate"],
       dimensions: ["module"],
       sort: { field: "costMicro", dir: "desc" },
-      from
+      from,
     },
     costByPurpose: {
       dataset: "aiSpend",
@@ -79,24 +109,34 @@ export function panelDefinitions(from: number): Record<PanelKey, ReportDefinitio
       dimensions: ["purpose"],
       sort: { field: "costMicro", dir: "desc" },
       limit: 10,
-      from
+      from,
     },
-    runsByDay: { dataset: "aiRuns", metrics: ["runs", "latency"], grain: "day", from },
+    runsByDay: {
+      dataset: "aiRuns",
+      metrics: ["runs", "latency"],
+      grain: "day",
+      from,
+    },
     runsByModule: {
       dataset: "aiRuns",
       metrics: ["runs", "latency", "failureRate", "refusalRate"],
       dimensions: ["module"],
       sort: { field: "runs", dir: "desc" },
-      from
+      from,
     },
-    evalsByDay: { dataset: "aiEvals", metrics: ["avgScore", "passRate"], grain: "day", from },
+    evalsByDay: {
+      dataset: "aiEvals",
+      metrics: ["avgScore", "passRate"],
+      grain: "day",
+      from,
+    },
     evalsBySuite: {
       dataset: "aiEvals",
       metrics: ["avgScore", "passRate", "cases"],
       dimensions: ["suite"],
       sort: { field: "passRate", dir: "asc" },
-      from
-    }
+      from,
+    },
   };
 }
 
@@ -135,14 +175,15 @@ export function kpisOf(panels: Partial<Panels>): Kpis {
     blocks: read("guardrails", "blocks"),
     events: read("guardrails", "events"),
     passRate: read("evals", "passRate"),
-    avgScore: read("evals", "avgScore")
+    avgScore: read("evals", "avgScore"),
   };
 }
 
 const LABELS: Record<string, Record<string, string>> = {
   en: {
     title: "AI operations",
-    intro: "Whether AI is earning its place: how often its suggestions are kept, what it costs, how much of it runs and how fast, and whether the evals hold.",
+    intro:
+      "Whether AI is earning its place: how often its suggestions are kept, what it costs, how much of it runs and how fast, and whether the evals hold.",
     window: "Window",
     days: "{n} days",
     acceptance: "Suggestions kept",
@@ -179,11 +220,12 @@ const LABELS: Record<string, Record<string, string>> = {
     "col.refusalRate": "Refused %",
     "col.avgScore": "Average score",
     "col.passRate": "Pass %",
-    "col.cases": "Cases"
+    "col.cases": "Cases",
   },
   ar: {
     title: "عمليات الذكاء الاصطناعي",
-    intro: "هل يستحق الذكاء الاصطناعي مكانه: كم مرة تُعتمد اقتراحاته، وكم يكلّف، وكم يعمل وبأي سرعة، وهل تصمد التقييمات.",
+    intro:
+      "هل يستحق الذكاء الاصطناعي مكانه: كم مرة تُعتمد اقتراحاته، وكم يكلّف، وكم يعمل وبأي سرعة، وهل تصمد التقييمات.",
     window: "الفترة",
     days: "{n} يومًا",
     acceptance: "الاقتراحات المعتمدة",
@@ -220,8 +262,8 @@ const LABELS: Record<string, Record<string, string>> = {
     "col.refusalRate": "المرفوضة %",
     "col.avgScore": "متوسط الدرجة",
     "col.passRate": "النجاح %",
-    "col.cases": "الحالات"
-  }
+    "col.cases": "الحالات",
+  },
 };
 
 const labelsIn = labelsFrom(LABELS);
@@ -233,7 +275,13 @@ async function panel(call: Promise<PanelResult>): Promise<PanelResult | null> {
   try {
     return await call;
   } catch (error) {
-    if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 401) return null;
+    if (
+      error instanceof ApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      error.status !== 401
+    )
+      return null;
     throw error;
   }
 }
@@ -249,10 +297,19 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
   const results = await Promise.all(
     PANELS.map((key) =>
-      panel(api<PanelResult>("/v1/analytics/run", { env, request, method: "POST", body: { ...defs[key], totals: false } }))
-    )
+      panel(
+        api<PanelResult>("/v1/analytics/run", {
+          env,
+          request,
+          method: "POST",
+          body: { ...defs[key], totals: false },
+        }),
+      ),
+    ),
   );
-  const panels = Object.fromEntries(PANELS.map((key, i) => [key, results[i] ?? null])) as Panels;
+  const panels = Object.fromEntries(
+    PANELS.map((key, i) => [key, results[i] ?? null]),
+  ) as Panels;
   return { may, days, defs, panels };
 }
 
@@ -265,16 +322,28 @@ export default function AiAnalytics() {
   const t = translator(locale);
   const l = labelsIn(locale, shell?.domainPack);
   const nf = new Intl.NumberFormat(locale);
-  const say = (key: string, n: number | null) => l(key, { n: n === null ? "—" : nf.format(n) });
+  const say = (key: string, n: number | null) =>
+    l(key, { n: n === null ? "—" : nf.format(n) });
 
-  if (!may || !panels) return <EmptyState title={l("title")} body={l("noRun")} />;
+  if (!may || !panels)
+    return <EmptyState title={l("title")} body={l("noRun")} />;
   const k = kpisOf(panels);
   const pct = (n: number | null) => (n === null ? "—" : `${nf.format(n)}%`);
 
-  const series = (key: PanelKey, metric: string, title: string, transform: (n: number) => number = (n) => n) => {
+  const series = (
+    key: PanelKey,
+    metric: string,
+    title: string,
+    transform: (n: number) => number = (n) => n,
+  ) => {
     const rows = panels[key]?.rows ?? null;
     return (
-      <Panel title={title} href={figureHref(defs[key])} l={l} hidden={rows === null}>
+      <Panel
+        title={title}
+        href={figureHref(defs[key])}
+        l={l}
+        hidden={rows === null}
+      >
         {rows && rows.length ? (
           <LineChart
             values={rows.map((row) => transform(Number(row[metric]) || 0))}
@@ -289,14 +358,34 @@ export default function AiAnalytics() {
     );
   };
 
-  const cost = (row: Row) => <Money amountMinor={microToMinor(Number(row.costMicro) || 0)} currency={COST_CURRENCY} locale={locale} />;
-  const num = (key: string) => (row: Row) => (row[key] === null || row[key] === undefined ? "—" : nf.format(Number(row[key])));
+  const cost = (row: Row) => (
+    <Money
+      amountMinor={microToMinor(Number(row.costMicro) || 0)}
+      currency={COST_CURRENCY}
+      locale={locale}
+    />
+  );
+  const num = (key: string) => (row: Row) =>
+    row[key] === null || row[key] === undefined
+      ? "—"
+      : nf.format(Number(row[key]));
   const table = (key: PanelKey, title: string, columns: Array<Column<Row>>) => {
     const rows = panels[key]?.rows ?? null;
     return (
-      <Panel title={title} href={figureHref(defs[key])} l={l} hidden={rows === null}>
+      <Panel
+        title={title}
+        href={figureHref(defs[key])}
+        l={l}
+        hidden={rows === null}
+      >
         {rows && rows.length ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => JSON.stringify(row)} caption={title} density="compact" />
+          <Table
+            columns={columns}
+            rows={rows}
+            rowKey={(row) => JSON.stringify(row)}
+            caption={title}
+            density="compact"
+          />
         ) : (
           <p className="font-ui text-13 text-subtle">{l("quiet")}</p>
         )}
@@ -329,28 +418,61 @@ export default function AiAnalytics() {
         </nav>
       </header>
 
+      {PANELS.some((key) => !panels[key]) ? (
+        <p className="font-ui text-13 text-subtle">{l("hidden")}</p>
+      ) : null}
+
       {/* Data in the top half (ui.md §4.1): the six headline figures, each a link to the query behind it. */}
       <div className="grid grid-cols-2 gap-4 rounded-md border border-border p-4 md:grid-cols-3 xl:grid-cols-6">
         <Figure href={figureHref(defs.quality)}>
-          <Stat label={l("acceptance")} value={pct(k.acceptanceRate)} hint={say("acceptanceHint", k.shown)} />
+          <Stat
+            label={l("acceptance")}
+            value={pct(k.acceptanceRate)}
+            hint={say("acceptanceHint", k.shown)}
+          />
         </Figure>
         <Figure href={figureHref(defs.spend)}>
-          <Stat label={l("refusals")} value={pct(k.refusalRate)} hint={say("refusalsHint", k.calls)} />
+          <Stat
+            label={l("refusals")}
+            value={pct(k.refusalRate)}
+            hint={say("refusalsHint", k.calls)}
+          />
         </Figure>
         <Figure href={figureHref(defs.guardrails)}>
-          <Stat label={l("blocks")} value={k.blocks === null ? "—" : nf.format(k.blocks)} hint={say("blocksHint", k.events)} />
+          <Stat
+            label={l("blocks")}
+            value={k.blocks === null ? "—" : nf.format(k.blocks)}
+            hint={say("blocksHint", k.events)}
+          />
         </Figure>
         <Figure href={figureHref(defs.evals)}>
-          <Stat label={l("passRate")} value={pct(k.passRate)} hint={say("passRateHint", k.avgScore)} />
+          <Stat
+            label={l("passRate")}
+            value={pct(k.passRate)}
+            hint={say("passRateHint", k.avgScore)}
+          />
         </Figure>
         <Figure href={figureHref(defs.spend)}>
           <Stat
             label={l("cost")}
-            value={k.costMinor === null ? "—" : <Money amountMinor={k.costMinor} currency={COST_CURRENCY} locale={locale} />}
+            value={
+              k.costMinor === null ? (
+                "—"
+              ) : (
+                <Money
+                  amountMinor={k.costMinor}
+                  currency={COST_CURRENCY}
+                  locale={locale}
+                />
+              )
+            }
           />
         </Figure>
         <Figure href={figureHref(defs.spend)}>
-          <Stat label={l("latency")} value={k.latency === null ? "—" : say("ms", k.latency)} />
+          <Stat
+            label={l("latency")}
+            value={k.latency === null ? "—" : say("ms", k.latency)}
+          />
         </Figure>
       </div>
 
@@ -363,29 +485,110 @@ export default function AiAnalytics() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {table("costByModule", l("byModule"), [
-          { key: "module", header: l("col.module"), render: (row) => moduleName(t, String(row.module ?? "")) },
-          { key: "costMicro", header: l("col.cost"), numeric: true, render: cost },
-          { key: "calls", header: l("col.calls"), numeric: true, render: num("calls") },
-          { key: "refusalRate", header: l("col.refusalRate"), numeric: true, render: num("refusalRate") }
+          {
+            key: "module",
+            header: l("col.module"),
+            render: (row) => moduleName(t, String(row.module ?? "")),
+          },
+          {
+            key: "costMicro",
+            header: l("col.cost"),
+            numeric: true,
+            render: cost,
+          },
+          {
+            key: "calls",
+            header: l("col.calls"),
+            numeric: true,
+            render: num("calls"),
+          },
+          {
+            key: "refusalRate",
+            header: l("col.refusalRate"),
+            numeric: true,
+            render: num("refusalRate"),
+          },
         ])}
         {table("costByPurpose", l("byPurpose"), [
-          { key: "purpose", header: l("col.purpose"), render: (row) => String(row.purpose ?? "—") },
-          { key: "costMicro", header: l("col.cost"), numeric: true, render: cost },
-          { key: "calls", header: l("col.calls"), numeric: true, render: num("calls") },
-          { key: "latency", header: l("col.latency"), numeric: true, render: num("latency") }
+          {
+            key: "purpose",
+            header: l("col.purpose"),
+            render: (row) => String(row.purpose ?? "—"),
+          },
+          {
+            key: "costMicro",
+            header: l("col.cost"),
+            numeric: true,
+            render: cost,
+          },
+          {
+            key: "calls",
+            header: l("col.calls"),
+            numeric: true,
+            render: num("calls"),
+          },
+          {
+            key: "latency",
+            header: l("col.latency"),
+            numeric: true,
+            render: num("latency"),
+          },
         ])}
         {table("runsByModule", l("runsByModule"), [
-          { key: "module", header: l("col.module"), render: (row) => moduleName(t, String(row.module ?? "")) },
-          { key: "runs", header: l("col.runs"), numeric: true, render: num("runs") },
-          { key: "latency", header: l("col.latency"), numeric: true, render: num("latency") },
-          { key: "failureRate", header: l("col.failureRate"), numeric: true, render: num("failureRate") },
-          { key: "refusalRate", header: l("col.refusalRate"), numeric: true, render: num("refusalRate") }
+          {
+            key: "module",
+            header: l("col.module"),
+            render: (row) => moduleName(t, String(row.module ?? "")),
+          },
+          {
+            key: "runs",
+            header: l("col.runs"),
+            numeric: true,
+            render: num("runs"),
+          },
+          {
+            key: "latency",
+            header: l("col.latency"),
+            numeric: true,
+            render: num("latency"),
+          },
+          {
+            key: "failureRate",
+            header: l("col.failureRate"),
+            numeric: true,
+            render: num("failureRate"),
+          },
+          {
+            key: "refusalRate",
+            header: l("col.refusalRate"),
+            numeric: true,
+            render: num("refusalRate"),
+          },
         ])}
         {table("evalsBySuite", l("bySuite"), [
-          { key: "suite", header: l("col.suite"), render: (row) => String(row.suite ?? "—") },
-          { key: "avgScore", header: l("col.avgScore"), numeric: true, render: num("avgScore") },
-          { key: "passRate", header: l("col.passRate"), numeric: true, render: num("passRate") },
-          { key: "cases", header: l("col.cases"), numeric: true, render: num("cases") }
+          {
+            key: "suite",
+            header: l("col.suite"),
+            render: (row) => String(row.suite ?? "—"),
+          },
+          {
+            key: "avgScore",
+            header: l("col.avgScore"),
+            numeric: true,
+            render: num("avgScore"),
+          },
+          {
+            key: "passRate",
+            header: l("col.passRate"),
+            numeric: true,
+            render: num("passRate"),
+          },
+          {
+            key: "cases",
+            header: l("col.cases"),
+            numeric: true,
+            render: num("cases"),
+          },
         ])}
       </div>
     </div>
@@ -395,7 +598,10 @@ export default function AiAnalytics() {
 /** A headline figure is a link to the query that produced it (ui.md §5 Drill-down). */
 function Figure({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <Link to={href} className="rounded-md p-1 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent">
+    <Link
+      to={href}
+      className="rounded-md p-1 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+    >
       <span data-stat>{children}</span>
     </Link>
   );
@@ -406,7 +612,7 @@ function Panel({
   href,
   l,
   hidden,
-  children
+  children,
 }: {
   title: string;
   href: string;
@@ -414,17 +620,23 @@ function Panel({
   hidden: boolean;
   children: ReactNode;
 }) {
+  // A hidden panel is left out; the screen says "hidden" once, not per panel (D4).
+  if (hidden) return null;
   return (
-    <section aria-label={title} className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-4">
+    <section
+      aria-label={title}
+      className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-4"
+    >
       <header className="flex items-baseline justify-between gap-3">
         <h2 className="eyebrow">{title}</h2>
-        {hidden ? null : (
-          <Link to={href} className="font-ui text-12 text-accent underline-offset-2 hover:underline">
-            {l("openInBuilder")}
-          </Link>
-        )}
+        <Link
+          to={href}
+          className="font-ui text-12 text-accent underline-offset-2 hover:underline"
+        >
+          {l("openInBuilder")}
+        </Link>
       </header>
-      {hidden ? <p className="font-ui text-13 text-subtle">{l("hidden")}</p> : children}
+      {children}
     </section>
   );
 }

@@ -25,7 +25,14 @@ export default async function globalSetup(): Promise<void> {
   mkdirSync(FILES_DIR, { recursive: true });
   writeFileSync(resolve(root, "apps/web/.dev.vars"), `API_ORIGIN=${API_ORIGIN}\n`);
 
+  const dbEnv = { ...process.env, LIBSQL_URL, DATABASE_URL: LIBSQL_URL };
   if (existsSync(DB_PATH)) {
+    // A reused file still takes the tree's migrations: they are forward-only
+    // and in place, so the live connection above survives them, and a DB left
+    // by an older checkout otherwise lacks every newer column — the month
+    // simulation's UI sweep met /axis/bordereaux answering 500 on
+    // `no such column: tolerance_minor` from a file three days old.
+    execFileSync("pnpm", ["--filter", "@lyra/db", "migrate"], { cwd: root, env: dbEnv, stdio: "inherit" });
     // login.spec.ts's password-sign-in test enrols amina.saleh's TOTP from
     // scratch every run (login.tsx only shows the enrolment screen while
     // mfaEnrolled is false) and re-seeding is skipped above, so without this
@@ -111,7 +118,6 @@ export default async function globalSetup(): Promise<void> {
   }
 
   mkdirSync(dirname(DB_PATH), { recursive: true });
-  const dbEnv = { ...process.env, LIBSQL_URL, DATABASE_URL: LIBSQL_URL };
   execFileSync("pnpm", ["--filter", "@lyra/db", "migrate"], { cwd: root, env: dbEnv, stdio: "inherit" });
   execFileSync("pnpm", ["--filter", "@lyra/core", "seed"], { cwd: root, env: dbEnv, stdio: "inherit" });
 }

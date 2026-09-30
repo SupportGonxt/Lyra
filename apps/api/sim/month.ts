@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { sql } from "drizzle-orm";
 import { BENCH } from "./bench.js";
-import { allFindings, call, find, latencyTable, pool, totalCalls, type Client } from "./lib.js";
+import { allFindings, call, find, latencyTable, pool, template, totalCalls, type Client } from "./lib.js";
 import { flows, funnel } from "./flows.js";
 import { ALSO_NEEDS, ANY_OF } from "../src/rbac-exceptions.js";
 
@@ -181,11 +181,14 @@ const HOSTILE: Record<string, unknown> = {
 async function fuzz(admin: Seat): Promise<void> {
   const ops = (await operations()).filter((o) => o.method === "POST" || o.method === "PATCH");
   const lists = (await operations()).filter((o) => o.method === "GET" && !o.path.includes("{"));
+  // A hostile body is slow only against the route's own normal: a batch sweep
+  // that takes seconds on a valid body is not made slow by a bad one.
+  const normal = new Map(latencyTable().map((l) => [l.route, l.p95]));
   await pool(ops, 6, async (op) => {
     const path = op.path.replace(/\{[^}]+\}/g, "zz_sim_missing");
     for (const [label, body] of Object.entries(HOSTILE)) {
       const res = await call(admin, op.method, path, body);
-      if (res.ms > 2_000) {
+      if (res.ms > 2_000 && res.ms > 3 * (normal.get(`${op.method} ${template(path)}`) ?? 0)) {
         find({ severity: "high", kind: "fuzz-slow", route: `${op.method} ${op.path}`, status: res.status, detail: `${label}: ${Math.round(res.ms)}ms` });
       }
       if (res.status >= 500) {
