@@ -218,7 +218,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/dist/quote-responses/{id}/sale", summary: "Confirm the chosen quote as a sale and accrue its channel commission (ADR-0094, tenants without AXIS)", permission: "dist:commissions:adjust", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/commission-entries/{id}/clawback", summary: "Claw back an accrued commission after a cancellation", permission: "dist:commissions:adjust", tag: "dist", requestBody: true },
   { method: "get", path: "/v1/dist/commission-entries/statement", summary: "Commission statement for a channel over a period", permission: "dist:commissions:read", tag: "dist" },
-  { method: "post", path: "/v1/dist/next-best-offers/propose", summary: "Rank cross-sell and upsell offers for a customer", permission: "dist:offers:surface", tag: "dist", requestBody: true },
+  { method: "post", path: "/v1/dist/next-best-offers/propose", summary: "Rank cross-sell and upsell offers for a customer", permission: "dist:offers:read", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/next-best-offers/{id}/surface", summary: "Record that an offer was shown, and where", permission: "dist:offers:surface", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/next-best-offers/{id}/decide", summary: "Record the customer's decision on a surfaced offer", permission: "dist:offers:override", tag: "dist", requestBody: true },
 

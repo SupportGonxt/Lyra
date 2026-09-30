@@ -521,7 +521,7 @@ async function tickDemoSpend(ctx: Ctx): Promise<{ inserted: number }> {
       // instead of the gap always landing under MIN_GAP_BPS.
       const wobble = (dayIndex + channelIndex) % 3 === 0 ? 0.7 : 1.15;
       const conversions = Math.max(1, Math.round((e.conversions / e.n) * wobble));
-      await ctx.db.insert(schema.signalSpend).values({
+      const res = await ctx.db.insert(schema.signalSpend).values({
         id: newId("spd", ctx.now + channelIndex),
         tenantId: ctx.tenantId,
         campaignId: campaign.id,
@@ -532,8 +532,9 @@ async function tickDemoSpend(ctx: Ctx): Promise<{ inserted: number }> {
         conversions,
         source: "manual",
         ts: ctx.now
-      });
-      inserted++;
+      }).onConflictDoNothing().returning({ id: schema.signalSpend.id });
+      // A second tick on the same day finds the row already there (signal_spend_uq).
+      inserted += res.length;
       channelIndex++;
     }
   }
