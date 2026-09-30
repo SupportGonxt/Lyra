@@ -25,7 +25,7 @@ import { BASE, personas, routePatterns, signIn, signOut, sweepRoute, report } fr
 const ROUTES = routePatterns({ param: false });
 if (!ROUTES.includes("/")) ROUTES.unshift("/");
 
-const browser = await chromium.launch();
+const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
 const page = await browser.newPage();
 
 const seats = await personas(page);
