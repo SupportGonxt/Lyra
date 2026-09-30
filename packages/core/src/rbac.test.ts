@@ -11,6 +11,7 @@ import {
   isValidGrantString,
   permissionsForRole,
   require_,
+  requireAny,
   requiresMfa,
   type Actor
 } from "./rbac.js";
@@ -23,6 +24,27 @@ function actor(roleKey: string, scope?: Actor["grants"][number]["scope"]): Actor
     grants: [{ roleKey, permissions: permissionsForRole(roleKey), ...(scope ? { scope } : {}) }]
   };
 }
+
+describe("requireAny", () => {
+  it("passes when any one listed permission is held", () => {
+    expect(() => requireAny(actor("axis.agent"), ["ledger:periods:close", "axis:cases:read"], { tenantId: "t_1" })).not.toThrow();
+  });
+
+  it("refuses naming the first listed permission when none is held", () => {
+    try {
+      requireAny(actor("axis.agent"), ["ledger:periods:close", "ledger:journals:read"]);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(ForbiddenError);
+      expect((err as ForbiddenError).permission).toBe("ledger:periods:close");
+    }
+  });
+
+  it("refuses an empty list and another tenant's subject", () => {
+    expect(() => requireAny(actor("platform.admin"), [])).toThrow(ForbiddenError);
+    expect(() => requireAny(actor("platform.admin"), ["core:users:read"], { tenantId: "t_2" })).toThrow(ForbiddenError);
+  });
+});
 
 describe("can", () => {
   it("matches wildcards segment-wise", () => {

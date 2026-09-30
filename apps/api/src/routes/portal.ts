@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, BrandJson, EntitlementsJson, PolicyJson } from "@lyra/db";
 import { audit, badRequest, conflict, emit, notFound, randomToken, recordConsent, sha256Hex, timingSafeEqual, type Envelope } from "@lyra/core";
-import { body, parse } from "../http.js";
+import { body, formOf, parse } from "../http.js";
 import { readUpload } from "../upload.js";
 import { verifyTurnstile } from "../turnstile.js";
 import { ctxFor, db as rawDb, throttle } from "../auth.js";
@@ -792,7 +792,7 @@ portalRoutes.post("/:tenantSlug/quote-requests/:id/documents", async (c) => {
   const now = Date.now();
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
-  const form = await c.req.formData();
+  const form = await formOf(c);
   const token = form.get("token");
   const request = await requestForToken(
     database,

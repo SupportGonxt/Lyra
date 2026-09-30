@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { schema } from "@lyra/db";
-import { require_, type Ctx } from "@lyra/core";
+import { require_,
+  requireAny, type Ctx } from "@lyra/core";
 import { body, created, InstantMs, listParams } from "../http.js";
 import {
   changeRoles,
@@ -45,6 +46,7 @@ const InviteBody = z
 /** Joiner: account, roles, teams and the checklist that has to clear. */
 staffRoutes.post("/invitations", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["core:users:create"], { tenantId: ctx.tenantId, module: "core" });
   const input = await body(c, InviteBody);
   const out = await inviteStaff(ctx, input);
   return created(c, { ...out.user, steps: out.steps });
@@ -69,6 +71,7 @@ const RolesBody = z
 /** Mover. Refused outright if it would grant something the caller lacks. */
 staffRoutes.post("/users/:id/roles", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["core:roles:assign"], { tenantId: ctx.tenantId, module: "core" });
   return c.json(await changeRoles(ctx, c.req.param("id"), await body(c, RolesBody)));
 });
 
@@ -83,6 +86,7 @@ const OffboardBody = z
 /** Leaver. Every credential dies, every open item gets a named owner. */
 staffRoutes.post("/users/:id/offboard", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["core:users:update"], { tenantId: ctx.tenantId, module: "core" });
   return c.json(await offboardStaff(ctx, c.req.param("id"), await body(c, OffboardBody)));
 });
 
@@ -121,6 +125,7 @@ const DelegationBody = z
 /** Gated on `core.delegation_grant`: 403 + approval_id until it is approved. */
 staffRoutes.post("/delegations", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["core:delegations:write"], { tenantId: ctx.tenantId, module: "core" });
   return created(c, await grantDelegation(ctx, await body(c, DelegationBody)));
 });
 
@@ -145,6 +150,7 @@ staffRoutes.get("/delegations", async (c) => {
 
 staffRoutes.post("/delegations/:id/revoke", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["core:delegations:write"], { tenantId: ctx.tenantId, module: "core" });
   const input = await body(c, z.object({ reason: z.string().max(500).optional() }).strict());
   return c.json(await revokeDelegation(ctx, c.req.param("id"), input.reason));
 });

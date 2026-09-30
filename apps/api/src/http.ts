@@ -270,14 +270,32 @@ export function created<T extends { id: string }>(c: Context<App>, row: T): Resp
 
 export { AppError };
 
+/** A multipart body, or the caller's 400: a non-multipart body throws inside Hono. */
+export async function formOf(c: Context): Promise<FormData> {
+  try {
+    return await c.req.formData();
+  } catch {
+    throw badRequest("body must be multipart/form-data");
+  }
+}
+
+/** A JSON body, or the caller's 400 when it does not parse. */
+export async function jsonOf(c: Context): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    throw badRequest("body is not valid JSON");
+  }
+}
+
 /** A CSV upload: a multipart "file" field, or JSON `{ csv }` — what every import route accepts. */
 export async function csvBody(c: Context): Promise<string> {
   if ((c.req.header("content-type") ?? "").includes("multipart/form-data")) {
-    const file = (await c.req.formData()).get("file");
+    const file = (await formOf(c)).get("file");
     if (!(file instanceof File)) throw badRequest('attach the CSV as a "file" field');
     return file.text();
   }
-  const input = (await c.req.json()) as { csv?: unknown };
+  const input = ((await jsonOf(c)) ?? {}) as { csv?: unknown };
   if (typeof input.csv !== "string" || !input.csv) throw badRequest("body must carry a csv string");
   return input.csv;
 }

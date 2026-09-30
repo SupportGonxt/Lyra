@@ -112,7 +112,7 @@ async function operations(): Promise<Op[]> {
   for (const [path, byMethod] of Object.entries(spec.paths as Record<string, Record<string, any>>)) {
     // Pre-session, public, provider-signed and SCIM-token surfaces have their
     // own credentials; the matrix is about sessions and roles.
-    if (/^\/v1\/(auth|portal|channels|scim)\b|^\/carrier-sandbox|^\/health|^\/openapi/.test(path)) continue;
+    if (/^\/v1\/(auth|portal|channels|scim|realtime)\b|^\/carrier-sandbox|^\/health|^\/openapi/.test(path)) continue;
     for (const [method, op] of Object.entries(byMethod)) {
       if (!op.security) continue;
       ops.push({ method: method.toUpperCase(), path, permission: op.security[0]?.session?.[0] ?? null });
@@ -153,7 +153,8 @@ async function rbacMatrix(people: Seat[]): Promise<void> {
           detail: `lacks ${op.permission} but got ${res.status}${res.status < 300 ? "" : " (not 403: a check runs after lookup/validation)"}`
         });
       }
-      if (held && res.status === 403) {
+      // An approval gate is the permission working, not a refusal of it.
+      if (held && res.status === 403 && !/approval_required/.test(res.text)) {
         find({ severity: "medium", kind: "rbac-denied", route, persona: seat.email, status: 403, detail: `holds ${op.permission ?? "(session only)"} yet refused: ${res.text.slice(0, 160)}` });
       }
     });

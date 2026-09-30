@@ -766,6 +766,17 @@ export function require_(actor: Actor, permission: Permission, subject?: Subject
   if (!can(actor, permission, subject)) throw new ForbiddenError(permission);
 }
 
+/**
+ * The coarse gate for a route whose exact permission depends on its input (the
+ * agent's module, the target state, the report): the caller must hold at least
+ * one permission that could authorise it, checked before the body is parsed or
+ * a record is looked up — so a caller with none of them learns nothing about
+ * the input's shape or which ids exist. The exact check still runs after.
+ */
+export function requireAny(actor: Actor, permissions: readonly Permission[], subject?: Subject): void {
+  if (!permissions.some((p) => can(actor, p, subject))) throw new ForbiddenError(permissions[0] ?? "(none)");
+}
+
 /** Expand a role key to its permission bundle. Unknown role = no permissions. */
 export function permissionsForRole(roleKey: string): readonly Permission[] {
   return ROLES[roleKey] ?? [];

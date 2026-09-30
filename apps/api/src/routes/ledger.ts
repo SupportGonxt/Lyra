@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { actorRef, audit, badRequest, can, notFound, require_, scoped, sha256Hex, withIdempotency, type Ctx } from "@lyra/core";
+import { actorRef, audit, badRequest, can, notFound, require_,
+  requireAny, scoped, sha256Hex, withIdempotency, type Ctx } from "@lyra/core";
 import { id, schema } from "@lyra/db";
 import {
   RECIPES,
@@ -93,7 +94,11 @@ const RunBody = z.object({
 ledgerRoutes.post("/txn/:type", async (c) => {
   const ctx = ctxOf(c);
   const type = c.req.param("type").toUpperCase();
-  const def = txnType(type); // throws 400 for an unknown code
+  // Permission first, then the code: txnType throws a plain Error, so an
+  // unknown code is turned into the caller's 400 — after they may ask at all.
+  requireAny(ctx.actor, ["ledger:txns:create", "ledger:journals:draft"], { tenantId: ctx.tenantId, module: "ledger" });
+  if (!TXN_TYPES[type]) throw badRequest(`unknown transaction type ${type}`);
+  const def = txnType(type);
   // docs/27 F2. Drafting is the analyst's half of dual control: a transaction
   // that cannot settle without a second seat's approval may be *originated* by a
   // drafter, and nothing else may. Everything that settles on its own still
@@ -265,6 +270,7 @@ const ClosePeriodBody = z
 
 ledgerRoutes.post("/periods/:code/close", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["ledger:periods:close", "ledger:periods:force_close"], { tenantId: ctx.tenantId, module: "ledger" });
   const input = await body(c, ClosePeriodBody);
   return c.json(
     await closePeriod(ctx, c.req.param("code"), input.to, {
@@ -276,6 +282,7 @@ ledgerRoutes.post("/periods/:code/close", async (c) => {
 
 ledgerRoutes.post("/periods/:code/reopen", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["ledger:periods:reopen"], { tenantId: ctx.tenantId, module: "ledger" });
   // A month that was signed off and is now open again says why, on the same
   // terms as a forced close.
   const input = await body(c, z.object({ reason: z.string().min(FORCE_REASON_MIN).max(500) }));
@@ -923,6 +930,7 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
  */
 ledgerRoutes.get("/reports/:report/export", async (c) => {
   const ctx = ctxOf(c);
+  requireAny(ctx.actor, ["ledger:journals:read"], { tenantId: ctx.tenantId, module: "ledger" });
   const key = c.req.param("report");
   const spec = REPORT_EXPORTS[key];
   if (!spec) throw notFound(`report ${key}`);
