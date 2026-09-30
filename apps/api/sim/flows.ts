@@ -110,7 +110,7 @@ export function flows(ctx: FlowContext) {
 
     const spec = (await call(ctx.anon, "GET", "/openapi.json")).json;
     const lists = Object.entries(spec.paths as Record<string, any>)
-      .filter(([p, m]) => m.get && !p.includes("{") && !/^\/v1\/(auth|portal|channels|scim)/.test(p))
+      .filter(([p, m]) => m.get && !p.includes("{") && !/^\/v1\/(auth|portal|channels|scim|realtime)/.test(p))
       .map(([p, m]) => ({ p, perm: m.get.security?.[0]?.session?.[0] as string | undefined }));
     for (const seat of ctx.people) readable.set(seat.email, lists.filter((l) => !l.perm || seat.permissions.has(l.perm)).map((l) => l.p));
   }
