@@ -11,11 +11,11 @@
  * Never point this at a deployed environment: it writes, fuzzes and deletes.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { BENCH } from "./bench.js";
-import { allFindings, call, find, latencyTable, pool, recordTo, totalCalls, type Client } from "./lib.js";
+import { allFindings, call, find, latencyTable, pool, totalCalls, type Client } from "./lib.js";
 import { flows, funnel } from "./flows.js";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
@@ -42,7 +42,6 @@ function boot(): void {
 }
 
 boot();
-recordTo(join(DIR, "findings.jsonl"));
 // Imported after boot: node.ts reads LIBSQL_URL when the env is built.
 const { makeEnv, tick } = await import("../src/node.js");
 const worker = (await import("../src/index.js")).default;
@@ -237,8 +236,8 @@ await fuzz(admin);
 await run.invariants();
 
 const report = { calls: totalCalls(), funnel: Object.fromEntries([...funnel.entries()].sort()), findings: allFindings(), latency: latencyTable().slice(0, 40) };
-writeFileSync(join(DIR, "report.json"), JSON.stringify(report, null, 2));
-console.log(`done: ${report.calls} calls, ${report.findings.length} findings → ${join(DIR, "report.json")}`);
+console.log(`REPORT ${JSON.stringify(report)}`);
+console.log(`done: ${report.calls} calls, ${report.findings.length} findings (grep '^REPORT ' for the full report)`);
 if (process.env.SIM_SERVE !== "1") {
   server.close();
   process.exit(0);

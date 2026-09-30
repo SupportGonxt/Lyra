@@ -1,5 +1,3 @@
-import { appendFileSync, writeFileSync } from "node:fs";
-
 /** One API call's outcome, kept for latency percentiles and error rates per route. */
 interface Sample {
   route: string;
@@ -18,18 +16,14 @@ export interface Finding {
 
 const samples: Sample[] = [];
 const findings: Finding[] = [];
-let findingsFile: string | null = null;
-
-export function recordTo(path: string): void {
-  findingsFile = path;
-  writeFileSync(path, "");
-}
 
 export function find(f: Finding): void {
   const key = `${f.kind}|${f.route}|${f.persona ?? ""}|${f.status ?? ""}`;
   if (findings.some((x) => `${x.kind}|${x.route}|${x.persona ?? ""}|${x.status ?? ""}` === key)) return;
   findings.push(f);
-  if (findingsFile) appendFileSync(findingsFile, JSON.stringify(f) + "\n");
+  // One tagged line per finding on stdout — the run's log is the record
+  // (`grep '^FINDING '`); the harness writes no files from response data.
+  console.log(`FINDING ${JSON.stringify(f)}`);
 }
 
 export const allFindings = () => findings;
