@@ -3761,7 +3761,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/dist/next-best-offers/{id}": { tag: "dist", summary: "Fetch one next best offer", permission: "dist:offers:read", public: false },
   "PATCH /v1/dist/next-best-offers/{id}": { tag: "dist", summary: "Update a next best offer", permission: "dist:offers:override", public: false },
   "POST /v1/dist/next-best-offers/{id}/decide": { tag: "dist", summary: "Record the customer's decision on a surfaced offer", permission: "dist:offers:override", public: false },
-  "POST /v1/dist/next-best-offers/{id}/surface": { tag: "dist", summary: "Record that an offer was shown, and where", permission: "dist:offers:override", public: false },
+  "POST /v1/dist/next-best-offers/{id}/surface": { tag: "dist", summary: "Record that an offer was shown, and where", permission: "dist:offers:surface", public: false },
   "GET /v1/dist/offerings": { tag: "dist", summary: "List offerings", permission: "dist:offerings:read", public: false },
   "POST /v1/dist/offerings": { tag: "dist", summary: "Create a offering", permission: "dist:offerings:write", public: false },
   "GET /v1/dist/offerings/{id}": { tag: "dist", summary: "Fetch one offering", permission: "dist:offerings:read", public: false },
