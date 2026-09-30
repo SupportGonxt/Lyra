@@ -51,7 +51,7 @@ beforeAll(async () => {
       }
     }
   } as unknown as Env;
-  for (const who of ["omar.farouk", "faisal.omar", "layla.hassan"]) {
+  for (const who of ["omar.farouk", "faisal.omar", "layla.hassan", "noor.jamal"]) {
     const res = await app.fetch(
       new Request("http://api.test/v1/auth/demo/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${who}@gonxt.ae` }) }),
       env as never,
@@ -80,5 +80,15 @@ describe("a malformed body is a 400, never a 500", () => {
 
   it("a ledger transaction of a type that does not exist", async () => {
     expect(await call("faisal.omar", "POST", "/v1/ledger/txn/NOT-A-TYPE", "{}", "application/json")).toBe(400);
+  });
+});
+
+// Found by the month simulation: the demo spend tick inserted one row per
+// campaign, channel and day, so a second tick on the same day hit
+// signal_spend_uq and answered 500.
+describe("the demo spend tick is idempotent within a day", () => {
+  it("a second tick on the same day is a 200, not a unique-index crash", async () => {
+    expect(await call("noor.jamal", "POST", "/v1/signal/demo/spend-tick", "{}", "application/json")).toBe(200);
+    expect(await call("noor.jamal", "POST", "/v1/signal/demo/spend-tick", "{}", "application/json")).toBe(200);
   });
 });

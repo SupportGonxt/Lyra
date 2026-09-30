@@ -9,6 +9,8 @@ export interface FlowContext {
   people: Seat[];
   admin: Seat;
   bench: typeof BENCH;
+  /** The simulated clock: business dates follow it, never the wall clock. */
+  now: () => number;
 }
 
 /** How far each funnel got — the report's "did the business actually run". */
@@ -18,6 +20,8 @@ const bump = (k: string, n = 1) => funnel.set(k, (funnel.get(k) ?? 0) + n);
 const DAY = 86_400_000;
 const SLUG = "gonxt";
 let seq = 0;
+/** The refusal's own words, so a funnel drop-off names its cause. */
+const why = (res: { json: any }) => String(res.json?.detail ?? res.json?.code ?? "").slice(0, 80);
 const uid = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;
 
 /**
@@ -170,8 +174,8 @@ export function flows(ctx: FlowContext) {
       const quoted = (rs.json?.data ?? []).filter((r: any) => r.state === "quoted" && r.premiumMinor > 0).sort((a: any, b: any) => a.premiumMinor - b.premiumMinor)[0];
       if (!quoted) return void bump("bind:no-quote");
       const sel = await call(lead, "POST", `/v1/dist/quote-requests/${l.quoteRequestId}/select`, { responseId: quoted.id });
-      if (sel.status >= 300) return void bump(`bind:select-refused:${sel.status}`);
-      const start = Date.now() + DAY;
+      if (sel.status >= 300) return void bump(`bind:select-refused:${sel.status}:${why(sel)}`);
+      const start = ctx.now() + DAY;
       const bound = await gated(lead, demo, "POST", `/v1/axis/quote-responses/${quoted.id}/bind`, { policyNo: `SIM-${uid()}`.toUpperCase(), startAt: start, endAt: start + 365 * DAY });
       if (bound.status < 300) {
         bump("bind");
@@ -182,17 +186,17 @@ export function flows(ctx: FlowContext) {
     });
   }
 
-  async function marketing(day: number): Promise<void> {
-    const date = new Date(Date.now() + (day - 1) * DAY).toISOString().slice(0, 10);
+  async function marketing(_day: number): Promise<void> {
+    const date = new Date(ctx.now()).toISOString().slice(0, 10);
     const perChannel = Math.round(ctx.bench.spendMinorPerMonth / 30 / 4);
     const rows = ctx.bench.channels.map((ch, i) => `${date},${campaigns[i] ?? ""},${ch},${perChannel},AED,${perChannel / 10},${perChannel / 400},0`);
     const csv = ["day,campaignId,channel,amountMinor,currency,impressions,clicks,conversions", ...rows].join("\n");
     const imp = await call(marketer, "POST", "/v1/signal/spend/import", { csv });
     bump(imp.status < 300 ? "spend:imported" : `spend-refused:${imp.status}`);
     await gated(marketer, demo, "POST", "/v1/signal/autopilot/run", {});
-    const since = Date.now() - 30 * DAY;
+    const since = ctx.now() - 30 * DAY;
     await call(marketer, "GET", `/v1/signal/attribution/range?since=${since}&currency=AED`);
-    await call(marketer, "GET", `/v1/signal/holdout/readout?since=${since}&until=${Date.now() + 40 * DAY}`);
+    await call(marketer, "GET", `/v1/signal/holdout/readout?since=${since}&until=${ctx.now()}`);
   }
 
   async function service(day: number): Promise<void> {
@@ -226,7 +230,7 @@ export function flows(ctx: FlowContext) {
     await pool(Array.from({ length: Math.min(ctx.bench.perDay.partnerQuotes, 200) }, (_, i) => i), 6, async (i) => {
       if (!ids.length) return;
       const q = await call(partners, "POST", `/v1/orbit/partners/${ids[i % ids.length]}/quotes`, { productLine: "motor", amountMinor: 100_000 + i, currency: "AED" });
-      bump(q.status < 300 ? "partner:quote" : `partner-quote-refused:${q.status}`);
+      bump(q.status < 300 ? "partner:quote" : `partner-quote-refused:${q.status}:${why(q)}`);
     });
   }
 
@@ -278,16 +282,17 @@ export function flows(ctx: FlowContext) {
 
   async function close(): Promise<void> {
     // Month end: settlement run, period soft close, and the deal's pinned metric.
-    const period = new Date().toISOString().slice(0, 7);
+    // The month being closed is the simulated one, not the wall clock's.
+    const period = new Date(ctx.now() - DAY).toISOString().slice(0, 7);
     const run = await call(controller2, "POST", "/v1/settlement/runs", { counterpartyKind: "partner", counterpartyRef: `channel:${webChannel}`, period });
-    bump(run.status < 300 ? "settlement:drafted" : `settlement-refused:${run.status}`);
+    bump(run.status < 300 ? "settlement:drafted" : `settlement-refused:${run.status}:${why(run)}`);
     const sid = run.json?.id ?? run.json?.settlement?.id;
     if (sid) {
       const ap = await gated(controller2, controller, "POST", `/v1/settlement/settlements/${sid}/approve`, {});
-      bump(ap.status < 300 ? "settlement:approved" : `settlement-approve-refused:${ap.status}`);
+      bump(ap.status < 300 ? "settlement:approved" : `settlement-approve-refused:${ap.status}:${why(ap)}`);
     }
     const closeP = await gated(controller, controller2, "POST", `/v1/ledger/periods/${period}/close`, { to: "soft_closed" });
-    bump(closeP.status < 300 ? "period:closed" : `period-close-refused:${closeP.status}`);
+    bump(closeP.status < 300 ? "period:closed" : `period-close-refused:${closeP.status}:${why(closeP)}`);
     const snaps = await call(analyst, "GET", "/v1/north/snapshots?limit=50");
     const s = (snaps.json?.data ?? [])[0];
     if (s) {
@@ -306,7 +311,7 @@ export function flows(ctx: FlowContext) {
   async function invariants(): Promise<void> {
     const tb = await call(controller, "GET", "/v1/ledger/reports/trial-balance");
     if (!tb.json?.balanced) find({ severity: "critical", kind: "ledger-unbalanced", route: "GET /v1/ledger/reports/trial-balance", detail: JSON.stringify({ d: tb.json?.totalDebitMinor, c: tb.json?.totalCreditMinor }) });
-    const bs = await call(controller, "GET", `/v1/ledger/reports/balance-sheet?asOf=${Date.now() + 40 * DAY}`);
+    const bs = await call(controller, "GET", `/v1/ledger/reports/balance-sheet?asOf=${ctx.now()}`);
     if (bs.status < 300 && bs.json?.balanced === false) find({ severity: "critical", kind: "balance-sheet-unbalanced", route: "GET /v1/ledger/reports/balance-sheet", detail: "balanced: false" });
     // Every bind the sim counted must exist as a policy.
     let found = 0;

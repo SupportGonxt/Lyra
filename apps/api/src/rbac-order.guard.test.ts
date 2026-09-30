@@ -7,6 +7,7 @@ import { seed } from "@lyra/core";
 import type { Db } from "@lyra/db";
 import { app } from "./index.js";
 import type { Env } from "./env.js";
+import { ANY_OF } from "./rbac-exceptions.js";
 
 // Found by the month simulation's RBAC matrix (apps/api/sim): fifteen routes
 // validated the body or looked the record up before asking whether the caller
@@ -19,34 +20,11 @@ import type { Env } from "./env.js";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "..", "packages", "db", "migrations");
 const exec = { waitUntil() {}, passThroughOnException() {} };
-/** Low-privilege seats: a provider's read-only viewer and a front-line agent. */
-const SEATS = ["yasmin.faris", "layla.hassan"];
+/** Low-privilege seats: a provider's read-only viewer, a front-line agent and retention. */
+const SEATS = ["yasmin.faris", "layla.hassan", "yusuf.karim"];
 /** Surfaces with their own credential (visitor, provider signature, SCIM token) or a stream. */
 const OWN_CREDENTIAL = /^\/v1\/(auth|portal|channels|scim|realtime)\b|^\/carrier-sandbox|^\/health|^\/openapi/;
 
-/**
- * Operations whose real rule is "any one of several permissions", which the
- * spec's single scope cannot say. Each names the family and why; a caller
- * holding any member legitimately passes to validation.
- */
-const ANY_OF: Record<string, { family: string[]; why: string }> = {
-  "GET /v1/scout/config": {
-    family: ["scout:signals:read", "scout:data_products:read", "scout:panel_bench:read"],
-    why: "the k-anonymity floor every SCOUT reader's screen needs"
-  },
-  "POST /v1/ai/runs": { family: ["axis", "core", "dist", "ledger", "north", "orbit", "scout", "signal"].map((m) => `${m}:ai:invoke`), why: "authorised by the agent's module" },
-  "POST /v1/ai/runs/stream": { family: ["axis", "core", "dist", "ledger", "north", "orbit", "scout", "signal"].map((m) => `${m}:ai:invoke`), why: "authorised by the agent's module" },
-  "POST /v1/ai/command/runs": { family: ["axis", "core", "dist", "ledger", "north", "orbit", "scout", "signal"].map((m) => `${m}:ai:invoke`), why: "authorised by the agent's module" },
-  "POST /v1/axis/cases/{id}/transition": { family: ["axis:cases:update", "axis:cases:approve"], why: "the permission depends on the target state" },
-  "POST /v1/axis/claims/{id}/transition": {
-    family: ["axis:claims:update", "axis:claims:triage", "axis:claims:approve", "axis:claims:close", "axis:claims:reopen", "axis:claims:recover"],
-    why: "the permission depends on the target state"
-  },
-  "POST /v1/axis/cases/bulk": { family: ["axis:cases:update", "axis:cases:assign"], why: "per-action, checked per row" },
-  "POST /v1/core/api-keys": { family: ["core:api_keys:create", "dev:keys_test:issue", "dev:keys_live:issue"], why: "a test key and a live key need different grants" },
-  "POST /v1/ledger/txn/{type}": { family: ["ledger:txns:create", "ledger:journals:draft"], why: "a drafter may originate a gated transaction" },
-  "GET /v1/orbit/portal-links/{kind}/{id}": { family: ["orbit:renewals:read", "orbit:conversations:read"], why: "a renewal link and a feedback link" }
-};
 
 let env: Env;
 

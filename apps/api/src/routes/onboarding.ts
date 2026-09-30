@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { simNow } from "../clock.js";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, EntitlementsJson, PolicyJson } from "@lyra/db";
@@ -170,7 +171,7 @@ const SIGNUP_SECRET_BYTES = 32;
 const SIGNUP_WINDOW_SEC = 24 * 60 * 60;
 
 onboardingRoutes.post("/partners/signup", async (c) => {
-  const now = Date.now();
+  const now = await simNow(c.env);
   const input = await body(c, SignupBody);
   const email = input.contactEmail.toLowerCase();
   // ponytail: one signup per email per day, reusing auth.ts's KV fixed-window

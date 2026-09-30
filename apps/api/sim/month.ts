@@ -14,9 +14,11 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
+import { sql } from "drizzle-orm";
 import { BENCH } from "./bench.js";
 import { allFindings, call, find, latencyTable, pool, totalCalls, type Client } from "./lib.js";
 import { flows, funnel } from "./flows.js";
+import { ALSO_NEEDS, ANY_OF } from "../src/rbac-exceptions.js";
 
 const ROOT = resolve(import.meta.dirname, "../../..");
 const DIR = resolve(process.env.SIM_DIR ?? join(ROOT, ".sim"));
@@ -136,8 +138,9 @@ async function rbacMatrix(people: Seat[]): Promise<void> {
       const body = op.method === "GET" || op.method === "DELETE" ? undefined : {};
       const res = await call(seat, op.method, path, body);
       checked++;
-      const held = op.permission === null || seat.permissions.has(op.permission);
       const route = `${op.method} ${op.path}`;
+      const held = op.permission === null || seat.permissions.has(op.permission) || !!ANY_OF[route]?.family.some((p) => seat.permissions.has(p));
+      const also = ALSO_NEEDS[route];
       if (res.status === 401) {
         find({ severity: "high", kind: "session-lost", route, persona: seat.email, status: 401, detail: "a freshly signed-in session was refused" });
         return;
@@ -153,7 +156,7 @@ async function rbacMatrix(people: Seat[]): Promise<void> {
         });
       }
       // An approval gate is the permission working, not a refusal of it.
-      if (held && res.status === 403 && !/approval_required/.test(res.text)) {
+      if (held && res.status === 403 && !(also && !seat.permissions.has(also.permission)) && !/approval_required/.test(res.text)) {
         find({ severity: "medium", kind: "rbac-denied", route, persona: seat.email, status: 403, detail: `holds ${op.permission ?? "(session only)"} yet refused: ${res.text.slice(0, 160)}` });
       }
     });
@@ -201,12 +204,32 @@ async function fuzz(admin: Seat): Promise<void> {
 
 /* ------------------------------------------------------------ the month */
 
+const pendingEvents = async (): Promise<number> =>
+  Number(((await (env.DB_CLIENT as any).all(sql`select count(*) as n from core_event_outbox where published_at is null`)) as { n: number }[])[0]?.n ?? 0);
+
+/**
+ * Production cron ticks every 5 minutes (288 a day), each draining up to 100
+ * outbox events per tenant; two nightly ticks alone would starve every
+ * consumer. Tick on that cadence from `from` until the outbox is empty, and
+ * report a backlog the real cadence could not clear either.
+ */
+async function drain(from: number): Promise<number> {
+  let ticks = 0;
+  for (; ticks < 72 && (await pendingEvents()) > 0; ticks++) {
+    await clockTo(from + ticks * 5 * 60_000);
+    await tick(env);
+  }
+  const left = await pendingEvents();
+  if (left > 0) find({ severity: "high", kind: "outbox-backlog", route: "scheduled", detail: `${left} events unpublished after ${ticks} ticks (6h of cron)` });
+  return ticks;
+}
+
 const people = await seats();
 console.log(`personas: ${people.length} signed in`);
 const admin = people.find((p) => p.permissions.size === Math.max(...people.map((x) => x.permissions.size)))!;
 
 simNowMs = (await call(anon, "POST", "/v1/auth/demo/clock", { advanceMs: 0 })).json.simNow;
-const run = flows({ base: BASE, anon, people, admin, bench: BENCH });
+const run = flows({ base: BASE, anon, people, admin, bench: BENCH, now: () => simNowMs });
 await run.setup();
 
 for (let day = 1; day <= BENCH.days; day++) {
@@ -224,7 +247,8 @@ for (let day = 1; day <= BENCH.days; day++) {
   await clockTo(dayStart + 9 * 3_600_000);
   await relogin(people);
   await run.day(day);
-  console.log(`day ${day}: tick ${Math.round(tickMs)}ms, ${totalCalls()} calls so far, ${allFindings().length} findings`);
+  const drained = await drain(dayStart + 18 * 3_600_000);
+  console.log(`day ${day}: drain ${drained} ticks, tick ${Math.round(tickMs)}ms, ${totalCalls()} calls so far, ${allFindings().length} findings`);
 }
 
 await run.close();

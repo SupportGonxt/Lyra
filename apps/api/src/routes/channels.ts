@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { simNow } from "../clock.js";
 import { and, eq } from "drizzle-orm";
 import { schema, EntitlementsJson, PolicyJson } from "@lyra/db";
 import { consume, moduleEnabled, notFound, openFields, unauthorized, type ConnectorSecrets, type Ctx, type Envelope } from "@lyra/core";
@@ -85,8 +86,9 @@ channelsRoutes.post("/:connectorId/webhook", async (c) => {
     : JSON.stringify(await c.req.parseBody());
   const req = { rawBody, headers: c.req.raw.headers, query: new URL(c.req.url).searchParams };
 
-  const now = Date.now();
-  await adapter.verify(req, await open(), now);
+  // The provider signed with its real clock; the context runs on ours (simNow).
+  await adapter.verify(req, await open(), Date.now());
+  const now = await simNow(c.env);
   const events = adapter.parse(req);
 
   const ctx = await ctxFor(
@@ -139,7 +141,7 @@ export function kickAutoReply(
 }
 
 async function replyNow(env: Env, tenantId: string, events: Envelope[]): Promise<void> {
-  const now = Date.now();
+  const now = await simNow(env);
   const ctx = await ctxFor(
     env,
     {

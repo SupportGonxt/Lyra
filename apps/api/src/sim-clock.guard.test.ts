@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import worker from "./index.js";
 import { kv } from "./node.js";
@@ -33,5 +33,18 @@ describe("the virtual clock reaches every entry point", () => {
     const ms = Number(res.headers.get("x-response-time-ms"));
     expect(ms).toBeGreaterThanOrEqual(0);
     expect(ms).toBeLessThan(60_000);
+  });
+
+  // Found by the month simulation: the portal priced a quote valid for seven
+  // real days, then staff select compared it with the virtual clock, so from
+  // day seven every portal quote was born expired and nothing bound.
+  it("no route takes its business clock from Date.now()", () => {
+    // Verifying an IdP assertion is against the IdP's real clock, not ours.
+    const REAL_CLOCK: Record<string, string> = { "sso.ts": "IdP assertion and token lifetimes are real time" };
+    const dir = new URL("./routes/", import.meta.url);
+    const offenders = readdirSync(dir)
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && !REAL_CLOCK[f])
+      .filter((f) => /const now = Date\.now\(\)/.test(readFileSync(new URL(f, dir), "utf8")));
+    expect(offenders).toEqual([]);
   });
 });
