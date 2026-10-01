@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
 import { applyPpm, splitCommission } from "../commission.js";
 import { DAY, HOUR, MINUTE, accountByCode, type SeedContext } from "./context.js";
-import { monthKey, monthName, monthStart as utcMonthStart } from "./period.js";
+import { dayIntoMonth, monthKey, monthName, monthStart as utcMonthStart } from "./period.js";
 
 // docs/19 — the money the rest of the demo implies. Axis sells Rania Haddad a
 // motor policy; that sale is not real until the premium sits in client money,
@@ -54,6 +54,9 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
   // months its batches land in so the close screen has an open month, a month
   // waiting on adjustments and a frozen one.
   const monthStart = (delta: number): number => utcMonthStart(now, delta);
+  // "N days into the current open month" (docs: dayIntoMonth) — never the
+  // closed months above, whose arithmetic is already comfortably in the past.
+  const dayIn = (days: number): number => dayIntoMonth(now, 0, days);
   const thisMonth = monthKey(now);
   const lastMonth = monthKey(now, -1);
   const monthBefore = monthKey(now, -2);
@@ -1501,7 +1504,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       scheduleJson: instalments(2, monthStart(-1) + 9 * DAY, 236_250, 2),
       state: "completed",
       createdAt: monthStart(-1) + DAY,
-      updatedAt: monthStart(0) + 3 * DAY
+      updatedAt: dayIn(3)
     },
     {
       id: nid("ppl"),
@@ -1635,7 +1638,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       state: "approved",
       approvedBy: analyst,
       txnId: txPayoutAlpha,
-      createdAt: monthStart(0) + 2 * DAY,
+      createdAt: dayIn(2),
       updatedAt: now - HOUR
     },
     {
@@ -1667,8 +1670,8 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       netMinor: 494_000,
       currency: BASE,
       state: "draft",
-      createdAt: monthStart(0) + 2 * DAY,
-      updatedAt: monthStart(0) + 2 * DAY
+      createdAt: dayIn(2),
+      updatedAt: dayIn(2)
     },
     {
       id: nid("stl"),
@@ -1698,7 +1701,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       netMinor: 64_700,
       currency: BASE,
       state: "disputed",
-      createdAt: monthStart(0) + 2 * DAY,
+      createdAt: dayIn(2),
       updatedAt: now - 4 * DAY
     }
   ]);
@@ -1723,8 +1726,8 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       currency: BASE,
       state: "closed",
       closedBy: controller,
-      createdAt: monthStart(0) + DAY,
-      updatedAt: monthStart(0) + 2 * DAY
+      createdAt: dayIn(1),
+      updatedAt: dayIn(2)
     },
     {
       id: runFalcon,
@@ -1737,7 +1740,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       varianceMinor: 3_580,
       currency: BASE,
       state: "review",
-      createdAt: monthStart(0) + DAY,
+      createdAt: dayIn(1),
       updatedAt: now - 5 * HOUR
     },
     {
@@ -1780,8 +1783,8 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       varianceMinor: 0,
       currency: BASE,
       state: "failed",
-      createdAt: monthStart(0) + DAY,
-      updatedAt: monthStart(0) + DAY + MINUTE
+      createdAt: dayIn(1),
+      updatedAt: dayIn(1) + MINUTE
     }
   ]);
 
@@ -1801,8 +1804,8 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       confidence: 100,
       state: "confirmed",
       confirmedBy: "system:recon",
-      confirmedAt: monthStart(0) + DAY,
-      createdAt: monthStart(0) + DAY
+      confirmedAt: dayIn(1),
+      createdAt: dayIn(1)
     },
     {
       id: nid("rcm"),
@@ -1815,7 +1818,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       method: "tolerance",
       confidence: 90,
       state: "proposed",
-      createdAt: monthStart(0) + DAY
+      createdAt: dayIn(1)
     },
     {
       id: nid("rcm"),
@@ -1829,7 +1832,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       confidence: 74,
       state: "proposed",
       reasonCode: "narrative_match",
-      createdAt: monthStart(0) + DAY
+      createdAt: dayIn(1)
     },
     {
       // The unmatched line: a credit on the statement with nothing behind it.
@@ -1844,7 +1847,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       confidence: 38,
       state: "unmatched",
       reasonCode: "no_confident_match",
-      createdAt: monthStart(0) + DAY
+      createdAt: dayIn(1)
     },
     {
       id: nid("rcm"),

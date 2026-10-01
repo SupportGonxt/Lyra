@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
 import { splitCommission } from "../commission.js";
 import { DAY, HOUR, type SeedContext } from "./context.js";
+import { dayIntoMonth } from "./period.js";
 
 // docs/19 §5 — the payout side of the commission story the ledger seed tells.
 // Axis sells, dist accrues what the channel earned, and this seeder pays it:
@@ -58,6 +59,9 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
     const d = new Date(now);
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + delta, 1);
   };
+  // "N days into the current open month" (docs: dayIntoMonth) — never the
+  // closed months above, whose arithmetic is already comfortably in the past.
+  const dayIn = (days: number): number => dayIntoMonth(now, 0, days);
   const codeOf = (at: number): string => new Date(at).toISOString().slice(0, 7);
   const thisMonth = codeOf(now);
   const monthBefore = codeOf(monthStart(-2)); // hard closed by the ledger seed
@@ -136,7 +140,7 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
       premiumMinor: 1_248_000,
       baseCommissionPpm: 150_000,
       channelSharePpm: 350_000,
-      earnedAt: monthStart(0) + 3 * DAY
+      earnedAt: dayIn(3)
     },
     {
       policyNo: "ORX-MOT-2601-518064",
@@ -147,7 +151,7 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
       premiumMinor: 496_000,
       baseCommissionPpm: 130_000,
       channelSharePpm: 350_000,
-      earnedAt: monthStart(0) + 8 * DAY
+      earnedAt: dayIn(8)
     }
   ];
 
@@ -161,7 +165,7 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
       premiumMinor: 348_000,
       baseCommissionPpm: 160_000,
       channelSharePpm: 400_000,
-      earnedAt: monthStart(0) + 5 * DAY
+      earnedAt: dayIn(5)
     }
   ];
 
@@ -610,7 +614,7 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
       state: "draft",
       approvedBy: null,
       txnId: null,
-      createdAt: monthStart(0) + 9 * DAY,
+      createdAt: dayIn(9),
       updatedAt: now - 2 * HOUR
     },
     {
@@ -629,7 +633,7 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
       state: "disputed",
       approvedBy: null,
       txnId: null,
-      createdAt: monthStart(0) + 9 * DAY,
+      createdAt: dayIn(9),
       updatedAt: now - 6 * HOUR
     }
   ]);

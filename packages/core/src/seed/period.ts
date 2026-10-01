@@ -25,6 +25,28 @@ export function monthStart(ts: number, months = 0): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1);
 }
 
+/**
+ * `monthStart(ts, months) + days * DAY`, clamped so it never lands after
+ * `ts` itself.
+ *
+ * Seed fixtures use the unclamped form — `monthStart(now, 0) + N*DAY` — to
+ * mean "N days into the still-open current month": an already-earned
+ * commission, a policy already on risk. That reads correctly only when the
+ * month has actually had N days yet. On the 1st through Nth of any month
+ * the seed clock lands on, it is a *future* timestamp, and every reader of
+ * it (a snapshotter window, a pro-rata-days computation) then disagrees
+ * with the demo's own present moment — the exact shape that broke
+ * north-snapshotter.test.ts's month-close assertions and
+ * e2e/axis-lifecycle.spec.ts's cancellation pricing on 2026-10-01. Clamping
+ * to one day before `ts` keeps the fixture honestly in the past and still
+ * strictly inside any `[since, now)` window; it collapses distinct offsets
+ * onto the same instant only in the rare window where the literal day
+ * hasn't arrived yet, which costs the demo's variety, not its correctness.
+ */
+export function dayIntoMonth(ts: number, months: number, days: number): number {
+  return Math.min(monthStart(ts, months) + days * DAY, ts - DAY);
+}
+
 /** `2026-01` — the month `months` from `ts`. */
 export const monthKey = (ts: number, months = 0): string =>
   new Date(monthStart(ts, months)).toISOString().slice(0, 7);

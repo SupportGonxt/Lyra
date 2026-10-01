@@ -51,9 +51,19 @@ async function makeCtx(now: number): Promise<Ctx> {
   };
 }
 
-// Yesterday (UTC) at noon, so the "day" period the snapshotter computes lands
-// squarely inside yesterday's UTC day regardless of when this test runs.
-const NOW = Math.floor(Date.now() / DAY) * DAY + 12 * 3_600_000;
+// Frozen, like every other test file's NOW (e.g. apps/api/src/analytics.test.ts,
+// apps/api/src/axis-policy-document.test.ts) — this one used to derive NOW from
+// the real wall clock "so it lands squarely inside yesterday's UTC day
+// regardless of when this test runs", which was true for the day-grain tests
+// but wrong for the month ones: `periodsFor` (north-snapshotter.ts) keys its
+// month logic off *yesterday's* month, not today's, so the two agree on every
+// day except the 1st — when yesterday's month and today's month genuinely
+// differ, the real snapshotter correctly writes two month rows (the just-closed
+// month plus the fresh month-to-date one, docs/27 F48) and every
+// "acquisition unit economics" test here, written assuming exactly one row,
+// failed on 2026-10-01. The 15th is never the 1st, so this stays deterministic
+// and the house convention everywhere else already uses this exact instant.
+const NOW = Date.UTC(2026, 5, 15, 12);
 const YESTERDAY_MID = NOW - DAY;
 // Mirrors north-snapshotter.ts's own monthStart derivation, so month-grain
 // fixtures land inside the exact [monthStart, NOW) window it computes.

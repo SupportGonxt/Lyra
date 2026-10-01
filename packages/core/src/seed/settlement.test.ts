@@ -7,6 +7,7 @@ import { and, eq, or } from "drizzle-orm";
 import { schema } from "@lyra/db";
 import { seed } from "../seed.js";
 import { seedSettlement } from "./settlement.js";
+import { dayIntoMonth } from "./period.js";
 import { DAY, HOUR, type SeedContext } from "./context.js";
 import type { CoreDb } from "../context.js";
 
@@ -31,7 +32,6 @@ const T0 = Date.UTC(2026, 0, 6, 8, 0, 0);
 
 const MONTH_MINUS_2 = Date.UTC(2025, 10, 1); // Nov 1 2025 — the settlement seed's "monthBefore"
 const MONTH_MINUS_1 = Date.UTC(2025, 11, 1); // Dec 1 2025 — when the closed month is posted
-const MONTH_0 = Date.UTC(2026, 0, 1); // Jan 1 2026 — the open month (codeOf(T0))
 
 const THIS_MONTH = "2026-01";
 const MONTH_BEFORE = "2025-11";
@@ -59,16 +59,21 @@ const APPROVED_GROSS = 115_200; // applyPpm(640_000, 180_000)
 const APPROVED_CHANNEL = 46_080; // applyPpm(115_200, 400_000)
 
 // draft bucket (Alpha Brokers, thisMonth)
-const DRAFT_1_AT = MONTH_0 + 3 * DAY;
+// settlement.ts mints these via dayIn(N) = dayIntoMonth(now, 0, N), which
+// clamps to T0 - DAY once the literal day hasn't happened yet relative to T0
+// (day 8 and day 9, with T0 on day 6) — mirror the same clamp here rather
+// than the bare `monthStart(T0,0) + N*DAY` that only agrees with it below
+// the clamp.
+const DRAFT_1_AT = dayIntoMonth(T0, 0, 3);
 const DRAFT_1_GROSS = 187_200; // applyPpm(1_248_000, 150_000)
 const DRAFT_1_CHANNEL = 65_520; // applyPpm(187_200, 350_000)
-const DRAFT_2_AT = MONTH_0 + 8 * DAY;
+const DRAFT_2_AT = dayIntoMonth(T0, 0, 8);
 const DRAFT_2_GROSS = 64_480; // applyPpm(496_000, 130_000)
 const DRAFT_2_CHANNEL = 22_568; // applyPpm(64_480, 350_000)
 const DRAFT_TOTAL = DRAFT_1_CHANNEL + DRAFT_2_CHANNEL; // 88_088 — above Alpha's 50_000 floor
 
 // disputed bucket (bank embed, thisMonth)
-const DISPUTED_AT = MONTH_0 + 5 * DAY;
+const DISPUTED_AT = dayIntoMonth(T0, 0, 5);
 const DISPUTED_GROSS = 55_680; // applyPpm(348_000, 160_000)
 const DISPUTED_CHANNEL = 22_272; // applyPpm(55_680, 400_000)
 
@@ -321,7 +326,7 @@ describe("seedSettlement: the four ledger_settlements rows", () => {
     expect(s.netMinor).toBe(DRAFT_TOTAL);
     expect(s.approvedBy).toBeNull();
     expect(s.txnId).toBeNull();
-    expect(s.createdAt).toBe(MONTH_0 + 9 * DAY);
+    expect(s.createdAt).toBe(dayIntoMonth(T0, 0, 9));
     expect(s.updatedAt).toBe(T0 - 2 * HOUR);
   });
 
@@ -357,7 +362,7 @@ describe("seedSettlement: the four ledger_settlements rows", () => {
     expect(s.netMinor).toBe(DISPUTED_CHANNEL);
     expect(s.approvedBy).toBeNull();
     expect(s.txnId).toBeNull();
-    expect(s.createdAt).toBe(MONTH_0 + 9 * DAY);
+    expect(s.createdAt).toBe(dayIntoMonth(T0, 0, 9));
     expect(s.updatedAt).toBe(T0 - 6 * HOUR);
   });
 });
