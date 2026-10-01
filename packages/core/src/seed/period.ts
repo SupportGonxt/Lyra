@@ -26,8 +26,9 @@ export function monthStart(ts: number, months = 0): number {
 }
 
 /**
- * `monthStart(ts, months) + days * DAY`, clamped so it never lands after
- * `ts` itself.
+ * `monthStart(ts, months) + days * DAY`, clamped to the half-open window
+ * `[monthStart(ts, months), ts)` — never before the month it names, never
+ * after (or equal to) `ts` itself.
  *
  * Seed fixtures use the unclamped form — `monthStart(now, 0) + N*DAY` — to
  * mean "N days into the still-open current month": an already-earned
@@ -37,14 +38,23 @@ export function monthStart(ts: number, months = 0): number {
  * it (a snapshotter window, a pro-rata-days computation) then disagrees
  * with the demo's own present moment — the exact shape that broke
  * north-snapshotter.test.ts's month-close assertions and
- * e2e/axis-lifecycle.spec.ts's cancellation pricing on 2026-10-01. Clamping
- * to one day before `ts` keeps the fixture honestly in the past and still
- * strictly inside any `[since, now)` window; it collapses distinct offsets
- * onto the same instant only in the rare window where the literal day
- * hasn't arrived yet, which costs the demo's variety, not its correctness.
+ * e2e/axis-lifecycle.spec.ts's cancellation pricing on 2026-10-01.
+ *
+ * The clamp's lower bound is load-bearing, not cosmetic: an earlier version
+ * clamped only against `ts - DAY`, which — run in the first 24 hours of a
+ * month — lands *before* that month's own start, in the month before. A
+ * settlement entry earned there reads as "carried in from last period" to
+ * `totalsFor` (apps/api/src/engines/settlement.ts), not "earned this
+ * period", which disagreed with the draft's own stored gross/net and made
+ * every approve refuse as stale — e2e/save-desk.spec.ts's
+ * dist.settlement_run journey, broken on 2026-10-01 by the first version of
+ * this very fix. Flooring at `monthStart` keeps a day-1 clamp inside the
+ * month it was asked for, at the cost of landing exactly on the boundary
+ * instead of a day before it.
  */
 export function dayIntoMonth(ts: number, months: number, days: number): number {
-  return Math.min(monthStart(ts, months) + days * DAY, ts - DAY);
+  const start = monthStart(ts, months);
+  return Math.max(start, Math.min(start + days * DAY, ts - DAY));
 }
 
 /** `2026-01` — the month `months` from `ts`. */
