@@ -17,7 +17,7 @@ product or spec decision says so.
 
 ## 0. What applies to every module
 
-**No module can be switched off.** `PATCH /v1/core/modules/:module/config`
+~~**No module can be switched off.** `PATCH /v1/core/modules/:module/config`
 stores `enabled`, `autonomy` and `modelTier`; `moduleSettings()` resolves them;
 `moduleEnabled()` (`packages/core/src/module-config.ts:39`) has no caller (docs/27,
 2026-09-23 entry). API routers mount unconditionally (`apps/api/src/index.ts`),
@@ -25,7 +25,13 @@ the cron sweeps run for every tenant, and the only real switch is the build-time
 `LYRA_MODULES` flag, which hides web screens. "Module off" today means "its
 tables are empty". This is the first thing standalone operation needs, and it
 wants an ADR (what a disabled module answers, whether its sweeps and consumers
-stop, how the nav and the module switcher reflect it).
+stop, how the nav and the module switcher reflect it).~~ **Fixed** 2026-09-23
+(ADR-0087, "Order of work" §3.2 below, re-verified at source 2026-10-01):
+`moduleEnabled()` now has real callers — `apps/api/src/auth.ts:235,244`
+refuses a disabled module's routes, `apps/api/src/dispatch.ts:88` and
+`apps/api/src/index.ts:255` stand its cron sweeps and consumers down per
+tenant — and the nav/module switcher reflect it too. This paragraph was never
+struck when the fix landed, though §3.2 already recorded it as done.
 
 **Modules read each other's tables more than they exchange events.** The shared
 schema means nothing fails at import time; features go quiet instead. SCOUT
