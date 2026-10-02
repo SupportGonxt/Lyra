@@ -83,7 +83,14 @@ describe("JOURNEY_FUNNELS", () => {
     );
     // Template-built actions with a literal head, e.g. `ledger.recon.${decision}`.
     const templates = [...live.matchAll(/`[a-z][\w-]*\.[\w.-]*\$\{[^`]*`/g)].map(
-      (m) => new RegExp(`^${m[0].slice(1, -1).replace(/[.]/g, "\\.").replace(/\$\{[^}]*\}/g, "[a-z_]+")}$`)
+      (m) =>
+        new RegExp(
+          `^${m[0]
+            .slice(1, -1)
+            .split(/\$\{[^}]*\}/)
+            .map((part) => part.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"))
+            .join("[a-z_]+")}$`
+        )
     );
     const written = (action: string) =>
       live.includes(`"${action}"`) ||
