@@ -829,9 +829,24 @@ async function bindPolicy(
   // docs/30 AXIS gap 2: the schedule comes with the bind. The bind has already
   // committed, so a document the renderer refuses is recorded, not a 409 on a
   // policy that now exists — the manual documents route can issue it later.
-  await issuePolicyDocument(ctx, after as PolicyRow, { kind: "schedule", versionId: version.id }, files).catch((err: unknown) =>
-    audit(ctx, { action: "axis.policy.document_failed", subjectRef: policy.id, after: { kind: "schedule", error: String(err).slice(0, 300) } })
-  );
+  await issuePolicyDocument(ctx, after as PolicyRow, { kind: "schedule", versionId: version.id }, files).catch(async (err: unknown) => {
+    const reason = (err instanceof AppError ? (err.detail ?? err.message) : err instanceof Error ? err.message : String(err)).slice(0, 300);
+    await audit(ctx, { action: "axis.policy.document_failed", subjectRef: policy.id, after: { kind: "schedule", error: reason } });
+    // The audit row keeps only a hash, so on its own a refused schedule is a
+    // customer with no contract and nobody told. A blocked task puts it in the
+    // AXIS exceptions queue (J-O1) with the policy and the reason.
+    await ctx.db.insert(schema.axisTasks).values({
+      id: newId("tsk", ctx.now),
+      tenantId: ctx.tenantId,
+      type: "policy_document",
+      titleKey: "axis.task.policy_document",
+      state: "blocked",
+      checklistJson: JSON.stringify({ policyId: policy.id, policyNo: policy.policyNo, kind: "schedule", reason }),
+      createdBy: actorRef(ctx),
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    });
+  });
   return { policy: after, version, txn };
 }
 

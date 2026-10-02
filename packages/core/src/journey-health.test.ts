@@ -69,6 +69,27 @@ describe("journeyHealth", () => {
     expect(x2.status).toBe("flowing");
   });
 
+  // Found by the role-adoption simulation: a month of 510 binds read
+  // "issued 930" because the bind and the schedule it sends were two actions
+  // summed into one step — the same policy counted twice, and a funnel whose
+  // last step outran the step before it.
+  it("J-C1 counts an issued policy once, and its delivered schedule as the next step", async () => {
+    await happened("dist.quote_requests.create", 10);
+    await happened("dist.quote_request.shop", 10);
+    await happened("dist.quote_response.select", 4);
+    await happened("axis.policy.bind", 4);
+    await happened("axis.policy.document_issued", 3);
+    const c1 = (await journeyHealth(ctx(), { days: 30 })).find((j) => j.id === "J-C1")!;
+    expect(c1.steps.map((s) => [s.key, s.count])).toEqual([
+      ["lead", 10],
+      ["offers", 10],
+      ["accepted", 4],
+      ["issued", 4],
+      ["delivered", 3]
+    ]);
+    expect(c1.completion).toBeCloseTo(0.3);
+  });
+
   it("calls a journey stalled when people start it and nobody finishes", async () => {
     await happened("ledger.recon.run", 3);
     const o3 = (await journeyHealth(ctx(), { days: 30 })).find((j) => j.id === "J-O3")!;

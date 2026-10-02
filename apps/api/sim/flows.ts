@@ -186,10 +186,12 @@ export function flows(ctx: FlowContext) {
   async function marketing(_day: number): Promise<void> {
     const date = new Date(ctx.now()).toISOString().slice(0, 10);
     const perChannel = Math.round(ctx.bench.spendMinorPerMonth / 30 / 4);
-    const rows = ctx.bench.channels.map((ch, i) => `${date},${campaigns[i] ?? ""},${ch},${perChannel},AED,${perChannel / 10},${perChannel / 400},0`);
+    const rows = ctx.bench.channels.map((ch, i) => `${date},${campaigns[i] ?? ""},${ch},${perChannel},AED,${Math.round(perChannel / 10)},${Math.round(perChannel / 400)},0`);
     const csv = ["day,campaignId,channel,amountMinor,currency,impressions,clicks,conversions", ...rows].join("\n");
     const imp = await call(marketer, "POST", "/v1/signal/spend/import", { csv });
-    bump(imp.status < 300 ? "spend:imported" : `spend-refused:${imp.status}`);
+    // A 201 can carry per-row errors and nothing written: count the rows that landed.
+    const landed = (imp.json?.created ?? 0) + (imp.json?.updated ?? 0);
+    bump(imp.status < 300 && landed === rows.length ? "spend:imported" : `spend-refused:${imp.status}:${landed}/${rows.length}:${String(imp.json?.errors?.[0]?.error ?? why(imp)).slice(0, 60)}`);
     await gated(marketer, demo, "POST", "/v1/signal/autopilot/run", {});
     const since = ctx.now() - 30 * DAY;
     await call(marketer, "GET", `/v1/signal/attribution/range?since=${since}&currency=AED`);
@@ -254,6 +256,36 @@ export function flows(ctx: FlowContext) {
     }
   }
 
+  /**
+   * The claims desk: notifications on bound policies, triaged and assessed by
+   * the lead, reserved on a desk estimate, and approved through the gate.
+   */
+  async function claimsDesk(): Promise<void> {
+    const n = Math.min(ctx.bench.perDay.claims, policies.length);
+    for (let i = 0; i < n; i++) {
+      const policyId = policies[(policies.length * 7 + i * 13) % policies.length]!;
+      const amount = 250_000 + ((i * 7919) % 20) * 50_000;
+      const fnol = await call(agent, "POST", "/v1/axis/claims", { policyId, incidentAt: ctx.now() - DAY, perilCode: "collision", description: "Rear-ended at a junction, bumper and tailgate damage.", amountMinor: amount, currency: "AED", channel: "phone" });
+      if (fnol.status >= 300) {
+        bump(`claim-refused:${fnol.status}:${why(fnol)}`);
+        continue;
+      }
+      bump("claim:notified");
+      const id = fnol.json?.claim?.id ?? fnol.json?.id;
+      if (!id) continue;
+      for (const to of ["triage", "assessing"]) {
+        const t = await call(lead, "POST", `/v1/axis/claims/${id}/transition`, { to });
+        if (t.status >= 300) return void bump(`claim-${to}-refused:${t.status}:${why(t)}`);
+      }
+      const r = await gated(lead, demo, "POST", `/v1/axis/claims/${id}/reserves`, { head: "indemnity", amountMinor: Math.round(amount * 0.8), basis: "desk_estimate", rationale: "Garage estimate on file." });
+      bump(r.status < 300 ? "claim:reserved" : `claim-reserve-refused:${r.status}:${why(r)}`);
+      if (i % 3 === 0) {
+        const a = await gated(lead, demo, "POST", `/v1/axis/claims/${id}/transition`, { to: "approved" });
+        bump(a.status < 300 ? "claim:approved" : `claim-approve-refused:${a.status}:${why(a)}`);
+      }
+    }
+  }
+
   async function backOffice(day: number): Promise<void> {
     // CRM backfill by CSV, Arabic names and duplicates included.
     const rows = Array.from({ length: ctx.bench.perDay.customersImported }, (_, i) =>
@@ -272,7 +304,7 @@ export function flows(ctx: FlowContext) {
       const j = await gated(finAnalyst, controller, "POST", "/v1/ledger/txn/MANUAL-JRNL", {
         idempotencyKey: `sim-mj-${day}`,
         currency: "AED",
-        args: { lines: [{ accountCode: "5400", side: "debit", amountMinor: 1_200_000 }, { accountCode: "2100", side: "credit", amountMinor: 1_200_000 }], reason: `sim accrual day ${day}` }
+        args: { lines: [{ accountCode: "5300", side: "debit", amountMinor: 120_000 }, { accountCode: "2250", side: "credit", amountMinor: 120_000 }], reason: `sim payment-fee accrual day ${day}` }
       });
       bump(j.status < 300 ? "journal" : `journal-refused:${j.status}`);
     }
@@ -297,6 +329,7 @@ export function flows(ctx: FlowContext) {
     await service(n);
     await partnerDesk(n);
     await backOffice(n);
+    await claimsDesk();
     await commissionInbox();
     await staffReads();
   }

@@ -97,11 +97,6 @@ distRoutes.post("/quote-requests/shop", async (c) => {
         quoter: quoterFor(c.env)
       });
 
-      await audit(ctx, {
-        action: "dist.quote_request.shop",
-        subjectRef: request.id,
-        after: { fanout: request.fanoutCount, quoted: responses.filter((r) => r.state === "quoted").length }
-      });
       await emit(ctx, {
         module: "dist",
         type: "dist.quote_request.fanned_out",

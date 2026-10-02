@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
-import { conflict, type Ctx } from "@lyra/core";
+import { audit, conflict, type Ctx } from "@lyra/core";
 import { assertInputs, panelFor, quoteOne, rankOutcomes, type ProviderQuoter } from "./rating.js";
 
 // The fan-out, once. Two callers price a risk against the panel: the operator's
@@ -92,6 +92,14 @@ export async function runShop(ctx: Ctx, args: ShopArgs): Promise<ShopResult> {
       updatedAt: ctx.now
     })
     .where(and(eq(schema.distQuoteRequests.tenantId, ctx.tenantId), eq(schema.distQuoteRequests.id, request.id)));
+
+  // Recorded here, where every shop runs, so the portal's self-serve shop and
+  // an operator's count the same: J-C1's "offers" step reads this action.
+  await audit(ctx, {
+    action: "dist.quote_request.shop",
+    subjectRef: request.id,
+    after: { fanout: request.fanoutCount, quoted: rows.filter((r) => r.state === "quoted").length }
+  });
 
   return {
     request: {

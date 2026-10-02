@@ -322,6 +322,10 @@ describe("J-C1 self-serve quote", () => {
 
     expect(token).toMatch(/^[0-9a-f]{48}$/);
     expect(res.body.rankedBy).toBe("total_price");
+    // A portal shop is a shop: J-C1's "offers" step reads this action, and
+    // the month simulation showed 5,010 priced leads counted as zero offers.
+    const shops = await database.select().from(schema.auditLog).where(eq(schema.auditLog.action, "dist.quote_request.shop"));
+    expect(shops.map((a) => a.subjectRef)).toContain(requestId);
     expect(offers.length).toBeGreaterThan(1);
     const totals = offers.map((o) => o.totalMinor);
     expect(totals).toEqual([...totals].sort((a, b) => a - b));

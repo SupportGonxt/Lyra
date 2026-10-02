@@ -26,6 +26,8 @@ export const BENCH = {
     chats: per(15_000),
     /** Partner (affinity/embedded) quote requests. */
     partnerQuotes: per(3_000),
+    /** Claims notified (about 2% of a month's binds — a young motor book). */
+    claims: per(60),
     /** Staff screen reads per persona per day (lists, records, reports). */
     staffReads: 40
   }
