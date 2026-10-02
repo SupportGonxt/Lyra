@@ -1,7 +1,7 @@
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson } from "@lyra/db";
 import { audit } from "./audit.js";
@@ -62,7 +62,10 @@ describe("JOURNEY_FUNNELS", () => {
   // reading an action nothing writes is a funnel that can only ever say zero —
   // exactly how J-C1's "offers" step read 0 for a month of priced leads.
   it("every step reads an action live code writes, and every step has a label", () => {
-    const root = join(import.meta.dirname, "..", "..", "..");
+    // Walk up to the checkout: under Stryker this file runs from a sandbox
+    // nested inside it that mirrors packages/ only.
+    let root = import.meta.dirname;
+    while (!existsSync(join(root, "apps", "api", "src")) && dirname(root) !== root) root = dirname(root);
     const files: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
