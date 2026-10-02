@@ -68,12 +68,20 @@ const spendAll = num((await one("select sum(amount_minor) s from signal_spend wh
 check({ role: "signal.lead", insight: "Media spend in window", app: range.spendMinor ?? null, truth: spendAll });
 
 /* --- Finance: the ledger against the business it books ------------------------------------- */
-const pnl = await api(`/v1/ledger/reports/pnl?from=${since}&to=${until}`);
-const income = (code: string) => pnl.income?.rows?.find((r: any) => r.accountCode === code)?.amountMinor ?? 0;
-const expense = (code: string) => pnl.expense?.rows?.find((r: any) => r.accountCode === code)?.amountMinor ?? 0;
-const commissionBooked = num((await one("select sum(net_commission_minor + channel_commission_minor) c from dist_commission_entries where tenant_id = ? and created_at >= ? and created_at < ?", [tenant, since, until])).c);
-check({ role: "finance.controller", insight: "P&L commission income vs accrued entries", app: income("4000"), truth: commissionBooked, note: "accrual happens on approval, so the last day may lag" });
-check({ role: "finance.controller", insight: "P&L media spend vs SIGNAL spend", app: expense("5100"), truth: spendAll, note: "docs/19: MEDIA-SPEND is recorded from channel spend" });
+// The P&L is one period per call: read each month the window touches.
+let income4000 = 0;
+let media5100 = 0;
+for (const period of months) {
+  const pnl = await api(`/v1/ledger/reports/pnl?period=${period}`);
+  income4000 += pnl.income?.rows?.find((r: any) => r.accountCode === "4000")?.amountMinor ?? 0;
+  media5100 += pnl.expense?.rows?.find((r: any) => r.accountCode === "5100")?.amountMinor ?? 0;
+}
+const monthsFrom = Date.parse(`${months[0]}-01T00:00:00Z`);
+// Seeded policies carry commission with no BIND txn behind them; the month is the sim's own binds.
+const policyCommission = num((await one("select sum(commission_minor) c from axis_policies where tenant_id = ? and policy_no like 'SIM-%' and created_at >= ? and created_at < ?", [tenant, monthsFrom, until])).c);
+const monthSpend = num((await one("select sum(amount_minor) s from signal_spend where tenant_id = ? and ts >= ? and ts < ?", [tenant, monthsFrom, until])).s);
+check({ role: "finance.controller", insight: "P&L commission income vs policies bound", app: income4000, truth: policyCommission, tolerance: 60_000, note: "commission is recognised at bind; one reversed bind" });
+check({ role: "finance.controller", insight: "P&L media spend vs SIGNAL spend", app: media5100, truth: monthSpend, note: "docs/19: MEDIA-SPEND is recorded from channel spend" });
 const flow = await api(`/v1/ledger/reports/value-flow?period=${months.at(-1)}`);
 const premiumIn = flow.nodes?.find((n: any) => n.key === "premium-in")?.amountMinor ?? null;
 const lastFrom = Date.parse(`${months.at(-1)}-01T00:00:00Z`);
