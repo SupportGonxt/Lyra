@@ -114,7 +114,7 @@ const JOBS = {
   ]
 };
 
-const ONLY = process.env.SWEEP_PERSONA;
+const ONLY = process.env.SWEEP_PERSONA?.split(",");
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
@@ -152,10 +152,13 @@ const measure = () =>
   });
 
 for (const [email, jobs] of Object.entries(JOBS)) {
-  if (ONLY && ONLY !== email) continue;
+  if (ONLY && !ONLY.includes(email)) continue;
   await signOut(page).catch(() => {});
   await signIn(page, email);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  // Sign-in lands through a redirect; measure the home it settles on, not the
+  // login page still on screen when waitForURL first resolves.
+  await page.goto(`${BASE}/`, { waitUntil: "networkidle", timeout: 45_000 });
+  if (new URL(page.url()).pathname.endsWith("/login")) throw new Error(`${email}: still on the login page after sign-in`);
   const landing = new URL(page.url()).pathname;
   const home = await measure();
 
