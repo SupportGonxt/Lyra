@@ -129,6 +129,11 @@ async function soft<T>(work: Promise<T>): Promise<T | null> {
   }
 }
 
+/** The run the screen opens on: the one the address names, else the newest. */
+export function openRun(asked: string, runs: ReadonlyArray<{ id: string }>): string {
+  return asked || (runs[0]?.id ?? "");
+}
+
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
   const me = await fetchMe(env, request);
@@ -138,10 +143,22 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     return { denied: true as const, permission: PERM.reconRead };
   }
 
-  const runId = new URL(request.url).searchParams.get("run") ?? "";
+  const asked = new URL(request.url).searchParams.get("run") ?? "";
   const currency = typeof me.policy.currency === "string" ? me.policy.currency : "";
 
-  const [summary, matches, runs] = await Promise.all([
+  const runs = held.has(PERM.reconRead)
+    ? await soft(
+        api<{ data: ReconRun[] }>("/v1/ledger/recon-runs?sort=createdAt&order=desc&limit=10", {
+          env,
+          request
+        })
+      )
+    : null;
+  // The list is read first so a reader who names no run lands on the newest
+  // one rather than on "Pick a run" over an empty detail pane.
+  const runId = openRun(asked, runs?.data ?? []);
+
+  const [summary, matches] = await Promise.all([
     runId && held.has(PERM.reconRead)
       ? soft(api<ReconSummary>(`/v1/ledger/recon/runs/${encodeURIComponent(runId)}`, { env, request }))
       : Promise.resolve(null),
@@ -151,14 +168,6 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
             `/v1/ledger/recon-matches?runId=${encodeURIComponent(runId)}&sort=createdAt&order=asc&limit=200`,
             { env, request }
           )
-        )
-      : Promise.resolve(null),
-    held.has(PERM.reconRead)
-      ? soft(
-          api<{ data: ReconRun[] }>("/v1/ledger/recon-runs?sort=createdAt&order=desc&limit=10", {
-            env,
-            request
-          })
         )
       : Promise.resolve(null)
   ]);

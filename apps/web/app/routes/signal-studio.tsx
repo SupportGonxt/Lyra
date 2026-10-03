@@ -103,6 +103,18 @@ export const MAX_VARIANTS = 8;
 const DRAFT_STATES = ["draft", "review", "scheduled"];
 const LIVE_STATES = ["live", "paused"];
 
+/**
+ * The campaigns worth coming back to, in the order a marketer would: drafts
+ * first (they are waiting on someone), then what is running. Ended campaigns
+ * have nothing left to make. Newest first within each, as the API sent them.
+ */
+export function continuable<T extends { state: string }>(rows: readonly T[]): T[] {
+  return [
+    ...rows.filter((row) => DRAFT_STATES.includes(row.state)),
+    ...rows.filter((row) => LIVE_STATES.includes(row.state))
+  ];
+}
+
 /* -------------------------------------------------------------------- loader */
 
 const empty = <T,>(): Page<T> => ({ data: [] });
@@ -166,7 +178,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     generated: Number.isFinite(generated) && generated > 0 ? generated : 0,
     generatedImage,
     audiences: audiences.data,
-    drafts: recent.data.filter((row) => DRAFT_STATES.includes(row.state)),
+    campaigns: continuable(recent.data),
     creatives: creatives.data,
     spend: spend.data,
     touches: touches.data,
@@ -628,6 +640,30 @@ export default function CampaignStudio() {
         <p className="font-ui text-13 text-success">{l("studio.launched")}</p>
       ) : null}
 
+      {/* The work this marketer comes back to leads the screen (role
+          adoption found it under the brief's last button). */}
+      {!campaign && loaded.campaigns.length > 0 ? (
+        <Card title={l("studio.continue")}>
+          <ul className="flex flex-col divide-y divide-border border-y border-border">
+            {loaded.campaigns.map((one) => (
+              <li key={one.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="font-ui text-13 text-text">{one.name}</span>
+                <span className="flex items-center gap-3">
+                  <Badge tone={LIVE_STATES.includes(one.state) ? "success" : "neutral"}>{l(one.state)}</Badge>
+                  <Link
+                    to={`/signal/studio?campaignId=${encodeURIComponent(one.id)}`}
+                    aria-label={`${l("studio.open")}: ${one.name}`}
+                    className="font-ui text-12 text-accent underline-offset-2 hover:underline"
+                  >
+                    {l("studio.open")}
+                  </Link>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
       {campaign ? null : (
         <Card title={l("studio.step1")} description={l("studio.created")}>
           <Form method="post" className="flex flex-col gap-4">
@@ -695,30 +731,6 @@ export default function CampaignStudio() {
             </div>
           </Form>
 
-          {loaded.drafts.length > 0 ? (
-            <div className="mt-6 border-t border-border pt-4">
-              <h2 className="eyebrow mb-2">
-                {l("studio.pickCampaign")}
-              </h2>
-              <ul className="flex flex-col divide-y divide-border border-y border-border">
-                {loaded.drafts.map((draft) => (
-                  <li key={draft.id} className="flex items-center justify-between gap-3 py-2">
-                    <span className="font-ui text-13 text-text">{draft.name}</span>
-                    <span className="flex items-center gap-3">
-                      <Badge tone="neutral">{l(draft.state)}</Badge>
-                      <Link
-                        to={`/signal/studio?campaignId=${encodeURIComponent(draft.id)}`}
-                        aria-label={`${l("studio.open")}: ${draft.name}`}
-                        className="font-ui text-12 text-accent underline-offset-2 hover:underline"
-                      >
-                        {l("studio.open")}
-                      </Link>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </Card>
       )}
 
