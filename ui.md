@@ -326,7 +326,7 @@ clicks of home, does it open, show data near the top, offer an action. What it
 found, and what each screen now does:
 
 - **Home — "Your jobs"** ([home.tsx](apps/web/app/routes/home.tsx),
-  [jobs.ts](apps/web/app/jobs.ts)). A `<nav>` of chips under the headline (after
+  [@lyra/core/jobs](packages/core/src/jobs.ts)). A `<nav>` of chips under the headline (after
   the decisions block when decisions lead): the union of the seat's roles' jobs
   from `JOBS_BY_ROLE`, each kept only where the seat holds the permission the
   target screen gates on and can enter its module shell (`opens()`), so no chip
@@ -361,6 +361,20 @@ found, and what each screen now does:
   every product because its 403 read as an empty list.
 - **Campaign studio** — drafts, then running campaigns, lead the screen
   ("Pick up where you left off"); they used to sit under the brief's last button.
+- **Next-best offers** — with no customer named, the empty state offers the
+  customer whose open renewal is soonest ("Start with {name}"), read
+  best-effort from `/v1/orbit/renewals`; nothing is proposed until pressed.
+- **Command center** — an empty "Waiting for a decision" feed links to the ask
+  box (`#cc-ask-input`), where every proposal starts.
+- **Hero** (`packages/ui/src/sections/hero.tsx`) — its title is the page's
+  `<h1>` (styled as the Lede it replaced); `/axis/bordereaux` and the four
+  journey screens had none.
+- **Mobile** — the role → jobs table lives in `@lyra/core/jobs`; the web
+  re-exports it and the phone's More tab draws the same seat's jobs that have
+  a phone screen (`apps/mobile/src/jobs.ts`: `PHONE_ROUTE` or `DESK_ONLY`, every
+  job on exactly one side), en and ar.
+- **The measure** — `scripts/adoption-verdict.mjs`: a card list counts as data,
+  and so does an empty state that offers an action; only a bare one is empty.
 - **Settings** — the first field was at 274px, not 764px (that was the
   notifications list); the account tab still runs 4.4 screens, so each tab with
   more than one section carries an "On this page" jump list (`sectionsOn`).
