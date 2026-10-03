@@ -138,7 +138,7 @@ CM-RECEIPT or PREM-INSTALMENT, so 1200 was debited at bind and never cleared.
 Every premium receipt is now built by `premiumReceiptLines`
 (`packages/ledger/src/premium-receipt.ts`), which clears what the ledger says
 is open for the item, and `apps/api/src/premium-receipt.guard.test.ts` fails on
-one built anywhere else (ADR-0114). CANCEL crediting 1200 for the unpaid
+one built anywhere else (ADR-0117). CANCEL crediting 1200 for the unpaid
 portion stays open: docs/19 §4's CANCEL row and §5.2 A do not say it.
 
 **F15** *Closed.* Aging aged journal lines by posting date against a free-text

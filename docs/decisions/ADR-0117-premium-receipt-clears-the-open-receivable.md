@@ -1,4 +1,4 @@
-# ADR-0114 — A premium receipt clears what the ledger says is open
+# ADR-0117 — A premium receipt clears what the ledger says is open
 
 **Date:** 2026-10-03
 **Status:** Accepted

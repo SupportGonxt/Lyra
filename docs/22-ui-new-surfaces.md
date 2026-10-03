@@ -86,10 +86,10 @@ what is still due on it rather than "net: 0" over a month of real business.
 Every premium receipt (the generic `POST /v1/ledger/txn/…` endpoint and the
 premium-financing instalment engine) is built by `premiumReceiptLines`, which
 clears whatever the bind left open on 1200 for the item the receipt names
-(ADR-0114). So a paid policy lands on `premium-collected` and leaves
+(ADR-0117). So a paid policy lands on `premium-collected` and leaves
 `premium-due`; before that, no payment path cleared 1200 and every bound premium
 read as still due. Cancellation does not yet credit 1200 for an unpaid portion
-(ADR-0114, "Not decided here"); a reversed bind does.
+(ADR-0117, "Not decided here"); a reversed bind does.
 
 ### 1.3 Transaction Detail — **Built**
 - Left: state-machine timeline (initiated → … → settled) with timestamps, actor

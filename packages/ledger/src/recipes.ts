@@ -1004,7 +1004,7 @@ export function argFields(code: string): ArgField[] {
   return Object.entries(shape).flatMap(([name, field]) => {
     // Dimensions are free-form analysis tags, not a question with an answer.
     // The receipt's clearing arguments are the ledger's answer, not the
-    // actor's: premiumReceiptLines sets them from what is open (ADR-0114).
+    // actor's: premiumReceiptLines sets them from what is open (ADR-0117).
     if (name === "dims" || BUILDER_OWNED.has(name)) return [];
     const blank = field.safeParse(undefined);
     const options = memberOptions(field);
