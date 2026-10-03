@@ -12,7 +12,7 @@
  */
 import * as React from "react";
 import { cn } from "../cn.js";
-import { Eyebrow, Lede, hueVar } from "../horizon.js";
+import { Eyebrow, hueVar } from "../horizon.js";
 import { asLyraModule } from "./shared.js";
 import type { HeroChip, HeroData, ScreenModule, SparkItem } from "./types.js";
 
@@ -261,7 +261,9 @@ export function Hero({ eyebrow, title, attn, sub, mod, hero }: HeroProps) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-2">
           <Eyebrow module={module}>{eyebrow}</Eyebrow>
-          <Lede>{title}</Lede>
+          {/* The page's heading: every screen that opens on a Hero names itself
+              here, so it is an h1 dressed as a Lede, not a paragraph. */}
+          <h1 className="font-serif text-22 leading-[1.25] text-text text-start">{title}</h1>
           {sub ? <p className="max-w-[60ch] text-14 leading-relaxed text-subtle">{sub}</p> : null}
         </div>
         {attn ? (
