@@ -14,6 +14,7 @@ import {
   isAdverseHop,
   labelsIn,
   loader,
+  nextUnassigned,
   phrase,
   priorityScore,
   reserveOf,
@@ -326,6 +327,59 @@ describe("assign", () => {
     expect((await action(args(noHandler))).problem?.code).toBe("missing_handler");
 
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("take the next unassigned claim", () => {
+  // Role adoption: an agent's desk listed 34 open claims and none was hers.
+  // The desk already lists unassigned claims beside everyone else's (the API
+  // filters on status only), so the gap was not the list but the move: taking
+  // one meant reading the handler column and typing herself into a picker.
+  it("picks the highest-priority claim nobody holds", () => {
+    const rows = [
+      claim({ id: "held", handlerRef: "user:us_2", fraudScore: 99 }),
+      claim({ id: "calm", fraudScore: 0 }),
+      claim({ id: "hot", fraudScore: 90 })
+    ];
+    expect(nextUnassigned(rows, NOW)?.id).toBe("hot");
+    expect(nextUnassigned([claim({ handlerRef: "user:us_2" })], NOW)).toBeNull();
+  });
+
+  it("assigns it to whoever is signed in, resolved on the server, not from the form", async () => {
+    const calls: Array<{ url: string; method: string; body: string | null }> = [];
+    vi.stubGlobal("fetch", (input: URL | string, init: RequestInit = {}) => {
+      calls.push({ url: String(input), method: init.method ?? "GET", body: typeof init.body === "string" ? init.body : null });
+      if (String(input).endsWith("/v1/me")) {
+        return Promise.resolve(new Response(JSON.stringify({ actor: { kind: "user", id: "us_7" }, permissions: [] })));
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    const form = new FormData();
+    form.set("intent", "take");
+    form.set("claimId", "clm_1");
+    form.set("handlerRef", "user:someone_else");
+
+    const result = await action(args(form));
+
+    const patch = calls.find((call) => call.method === "PATCH");
+    expect(patch?.url).toBe("https://api.test/v1/axis/claims/clm_1");
+    expect(JSON.parse(patch?.body ?? "{}")).toEqual({ handlerRef: "user:us_7" });
+    expect(result).toEqual({ problem: null, done: "take" });
+  });
+
+  it("refuses without a claim", async () => {
+    const calls = stubFetch(new Response(null, { status: 204 }));
+    const form = new FormData();
+    form.set("intent", "take");
+    expect((await action(args(form))).problem?.code).toBe("missing_claim");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("words the move and its outcome in both languages", () => {
+    for (const locale of ["en", "ar"]) {
+      const l = labelsIn(locale);
+      for (const key of ["take", "done.take", "count.unassigned"]) expect(l(key), `${locale} ${key}`).not.toBe(key);
+    }
   });
 });
 
