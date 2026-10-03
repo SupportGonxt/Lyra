@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ReportTable } from "@lyra/ledger";
 import { pdfSafe, toPdf } from "./pdf.js";
 
-// ADR-0114: the PDF writer embeds an Arabic font, so Arabic is drawn rather than
+// ADR-0115: the PDF writer embeds an Arabic font, so Arabic is drawn rather than
 // refused. These read the file back the way a viewer does — the ToUnicode map
 // turns drawn glyph ids into text — and check the text that comes out.
 
@@ -135,7 +135,7 @@ describe("pdf — Arabic text", () => {
   });
 });
 
-describe("pdf — Latin output is unchanged by ADR-0114", () => {
+describe("pdf — Latin output is unchanged by ADR-0115", () => {
   it("renders a Latin-only document byte for byte as before", () => {
     // Pinned from the writer as it stood before the Arabic font existed: a
     // Latin document must not grow a font object, change an object number or

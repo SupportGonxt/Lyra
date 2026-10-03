@@ -89,7 +89,7 @@ describe("pdf transliteration", () => {
     expect(pdfText(t)).toContain("M\\374ller");
   });
 
-  // This test said "still refuses Arabic" until ADR-0114 embedded an Arabic
+  // This test said "still refuses Arabic" until ADR-0115 embedded an Arabic
   // face; the spec (a schedule for every customer) won, so Arabic is drawable
   // now and the refusal is pinned on scripts no embedded font covers.
   it("refuses text no embedded font can draw, and says what to do instead", () => {
@@ -181,7 +181,7 @@ describe("money in the exports", () => {
 describe("render() pdf fallback for Arabic", () => {
   const arabicTable = table({ rows: [{ name: "نقد", balanceMinor: 1_00 }] });
 
-  it("draws Arabic in-process when no browser binding is available (ADR-0114)", async () => {
+  it("draws Arabic in-process when no browser binding is available (ADR-0115)", async () => {
     const out = await render("pdf", arabicTable, {});
     expect(out.contentType).toBe("application/pdf");
     expect(new TextDecoder("latin1").decode(out.bytes)).toContain("/Subtype /Type0");

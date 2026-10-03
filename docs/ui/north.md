@@ -815,7 +815,7 @@ anything.
   In Arabic this reads as a Latin unit glued to Arabic-context digits — it needs
   a translated unit or a locale-aware duration format.
 - **PDF export refuses text no embedded font covers.** The PDF writer draws
-  Latin-1 in base-14 Helvetica and, since ADR-0114, Arabic in an embedded Noto
+  Latin-1 in base-14 Helvetica and, since ADR-0115, Arabic in an embedded Noto
   Naskh Arabic subset (shaped, bidi-reordered). It still rejects a table with
   any other script — CJK, Hebrew, a Latin letter outside Latin-1 — with the
   message "this report contains non-Latin text the PDF fonts cannot render;
@@ -1645,7 +1645,7 @@ columns will not sort as dates in Excel. Sheet names are stripped of `: \ / ? * 
 and truncated to 31 characters.
 
 **PDF.** Base-14 Helvetica, WinAnsi encoding, portrait or landscape (landscape is
-the default), plus an embedded Arabic face for Arabic text (ADR-0114). Supports
+the default), plus an embedded Arabic face for Arabic text (ADR-0115). Supports
 a diagonal watermark. **Refuses any table containing text neither font covers**
 with the message "this report contains non-Latin text the PDF fonts cannot
 render; export it as xlsx". With a browser binding, Arabic reports still go

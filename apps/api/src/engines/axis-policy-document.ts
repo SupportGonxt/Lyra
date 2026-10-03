@@ -4,6 +4,7 @@ import { id as newId, schema } from "@lyra/db";
 import { audit, conflict, emit, notFound, scoped, sha256Hex, type Ctx } from "@lyra/core";
 import type { ReportTable } from "@lyra/ledger";
 import { isoDay } from "@lyra/model-gateway";
+import { statusLabel, termRows } from "./axis-policy-terms.js";
 import { pdfSafe, toPdf, type PdfLabels } from "./export/pdf.js";
 
 // docs/27 F27 / docs/specs/gap-axis-design.md §D.11. A contract the customer
@@ -36,7 +37,7 @@ export type PolicyDocumentKind = PolicyDocumentInput["kind"];
  * needs nouns. ponytail: two small tables beat a package move for one caller;
  * merge them into @lyra/core when a second server surface needs the same words.
  *
- * English and Arabic: pdf.ts embeds an Arabic face (ADR-0114), so a document
+ * English and Arabic: pdf.ts embeds an Arabic face (ADR-0115), so a document
  * is written in its reader's language. Keyed `pack` → `locale` → noun; a
  * locale with no table here reads English.
  */
@@ -200,8 +201,12 @@ function tablesFor(a: {
   version: VersionRow;
   insured: string;
   now: number;
+  locale: "en" | "ar";
+  pack: string;
 }): ReportTable[] {
-  const { kind, noun, policy, version, insured, now } = a;
+  const { kind, noun, policy, version, insured, now, locale, pack } = a;
+  const termsOf = (): { k: string; v: string }[] =>
+    termRows(version.termsJson, { locale, pack, currency: version.currency });
   const kv = (rows: { k: string; v: string }[]): ReportTable => ({
     title: noun(kind),
     columns: [
@@ -216,7 +221,7 @@ function tablesFor(a: {
     { k: noun("policyNo"), v: policy.policyNo },
     { k: noun("insured"), v: insured },
     { k: noun("version"), v: String(version.versionSeq) },
-    { k: noun("status"), v: policy.status },
+    { k: noun("status"), v: statusLabel(policy.status, locale) },
     { k: `${noun("cover")} — ${noun("from")}`, v: isoDay(version.effectiveFrom) },
     { k: `${noun("cover")} — ${noun("to")}`, v: isoDay(version.effectiveTo) },
     { k: noun("issued"), v: isoDay(now) }
@@ -249,10 +254,7 @@ function tablesFor(a: {
   }
 
   if (kind === "endorsement") {
-    const changes = Object.entries(JSON.parse(version.termsJson || "{}") as Record<string, unknown>).map(([k, v]) => ({
-      k,
-      v: typeof v === "string" ? v : JSON.stringify(v)
-    }));
+    const changes = termsOf();
     return [
       kv([
         ...head,
@@ -264,10 +266,9 @@ function tablesFor(a: {
     ];
   }
 
-  const terms = Object.entries(JSON.parse(version.termsJson || "{}") as Record<string, unknown>).map(([k, v]) => ({
-    k,
-    v: typeof v === "string" ? v : JSON.stringify(v)
-  }));
+  // Codes become words (axis-policy-terms.ts): a schedule must not print
+  // "excessMinor" or "true" in either language.
+  const terms = termsOf();
   return [
     kv(head),
     money([
@@ -295,7 +296,7 @@ export async function issuePolicyDocument(ctx: Ctx, policy: PolicyRow, input: Po
   // The document is the customer's, so it is written in *their* language
   // (core_customers.locale), not the language of whoever pressed the button —
   // the bind that issues a schedule automatically has no reader of its own.
-  // With no customer row, the requester's locale is all there is (ADR-0114).
+  // With no customer row, the requester's locale is all there is (ADR-0115).
   const locale = documentLocale(customer ? customer.locale : ctx.locale);
   const noun = nounsFor(ctx.policy.domainPack, locale);
 
@@ -306,9 +307,11 @@ export async function issuePolicyDocument(ctx: Ctx, policy: PolicyRow, input: Po
       policy,
       version,
       insured: nameOf(customer?.nameJson, nameLocale),
-      now: ctx.now
+      now: ctx.now,
+      locale,
+      pack: ctx.policy.domainPack
     });
-  // Latin-1 and Arabic both draw (ADR-0114), so this falls back only for a
+  // Latin-1 and Arabic both draw (ADR-0115), so this falls back only for a
   // name in a script no embedded font covers — to the English name if there
   // is one — and refuses only when nothing drawable is left.
   let tables = build(locale);

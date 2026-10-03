@@ -418,7 +418,7 @@ export function Header({ title, intro }: { title: string; intro: string }) {
 /**
  * The formats `GET /v1/ledger/reports/:report/export` renders. PDF is offered
  * for every report and the API refuses it with a 400 when a row carries text
- * no PDF font it embeds can draw (Latin-1 and Arabic are covered, ADR-0114;
+ * no PDF font it embeds can draw (Latin-1 and Arabic are covered, ADR-0115;
  * CJK or Hebrew are not), because which rows those are is not knowable until
  * the report is run.
  */

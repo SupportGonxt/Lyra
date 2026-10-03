@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { shape, visualLine } from "./arabic.js";
 
-// ADR-0114. The PDF draws glyphs in the order it is handed them, left to right,
+// ADR-0115. The PDF draws glyphs in the order it is handed them, left to right,
 // so Arabic has to arrive already joined (contextual forms) and already
 // reordered (bidi). These pin both against hand-checked Unicode values.
 

@@ -2,7 +2,7 @@ import { NOTO_NASKH_ARABIC_TTF } from "./fonts/noto-naskh-arabic.js";
 import { compactTrueType, parseTrueType, type TrueType } from "./truetype.js";
 import { concat, utf8 } from "./zip.js";
 
-// The embedded Arabic face for pdf.ts (ADR-0114): Noto Naskh Arabic, drawn as a
+// The embedded Arabic face for pdf.ts (ADR-0115): Noto Naskh Arabic, drawn as a
 // Type0 font over a CIDFontType2 with Identity-H, so the two bytes written per
 // glyph *are* the face's glyph id. Each document embeds only the glyphs it drew,
 // renumbered densely, with a /CIDToGIDMap from the one id to the other.

@@ -1,4 +1,4 @@
-// Arabic for the PDF writer (ADR-0114): contextual shaping and the bidi
+// Arabic for the PDF writer (ADR-0115): contextual shaping and the bidi
 // reordering a printed line needs. A PDF draws glyphs left to right in the
 // order it is given them, so this file turns logical text ("مريم", typed right
 // to left) into the visual sequence of glyphs a reader sees.
@@ -260,7 +260,7 @@ export function reorder(clusters: readonly Cluster[], base: 0 | 1): Placed[] {
   for (let i = 0; i < n; i++) if (t[i] === "AL") t[i] = "R";
 
   // W4: one separator between two numbers of the same kind joins them.
-  // Deliberate deviation (ADR-0114): UAX #9 joins a `-` only between European
+  // Deliberate deviation (ADR-0115): UAX #9 joins a `-` only between European
   // numbers, and W2 has already turned digits after Arabic into AN — so strict
   // bidi prints "تاريخ 2026-06-15" as "15-06-2026". A document full of ISO
   // dates and policy numbers cannot afford that, so `-` and `+` join AN too.

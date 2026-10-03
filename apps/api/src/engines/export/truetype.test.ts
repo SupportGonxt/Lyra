@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { arabicFace } from "./pdf-font.js";
 import { compactTrueType, glyphClosure, parseTrueType } from "./truetype.js";
 
-// ADR-0114. The per-document subset renumbers glyphs; a viewer then reaches
+// ADR-0115. The per-document subset renumbers glyphs; a viewer then reaches
 // each one through /CIDToGIDMap. These check the subset is a font that still
 // measures and maps the same.
 

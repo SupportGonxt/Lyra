@@ -1,4 +1,4 @@
-# ADR-0114 — The PDF writer embeds an Arabic font and shapes Arabic itself
+# ADR-0115 — The PDF writer embeds an Arabic font and shapes Arabic itself
 
 Date: 2026-10-03 · Status: accepted
 
@@ -111,6 +111,19 @@ at render time.
      continued, Total, No data, and the page number.
    - The name is the customer's name in the document's language, else
      English, else whatever they gave.
+   - Codes become words in both languages (`engines/axis-policy-terms.ts`):
+     - Every policy state has an en and an ar label. The table is typed
+       `Record<PolicyState, …>`, so a new state does not compile until it
+       has a word.
+     - Known term keys and coded values (cover type, product line) are
+       labelled, with domain-pack overrides.
+     - `…Minor` numbers print as money and booleans as Yes/No.
+     - Nested objects flatten to "Limits — Third party".
+     - Terms are a free-form record, so an unknown key is humanised in
+       English and printed as a numbered "شرط إضافي" in Arabic. Its value is
+       kept; tenant-supplied values print as given.
+     - Reason codes on endorsement and cancellation notices are still
+       printed raw. They are a tenant taxonomy with no vocabulary yet.
 9. **A bound browser still takes Arabic reports** (`render.ts`). It has full
    shaping, mark positioning and an RTL table layout. The in-process writer is
    now the fallback instead of a 400.

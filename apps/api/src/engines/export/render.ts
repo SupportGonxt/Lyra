@@ -39,7 +39,7 @@ export function isExportFormat(value: string): value is ExportFormat {
 /**
  * `browser` is optional and only ever needed for the pdf/non-Latin case: every
  * other format renders the same with or without it. Unbound (on-prem with no
- * `render` service configured yet), Arabic is drawn in-process (ADR-0114) and
+ * `render` service configured yet), Arabic is drawn in-process (ADR-0115) and
  * only a script no PDF font covers is told to export xlsx instead — same
  * no-op-when-unbound idiom as `wf`/`bucket` elsewhere.
  */
@@ -60,7 +60,7 @@ export async function render(
       // report: a real browser has every script's font, full shaping and mark
       // positioning, and lays the whole table out right to left. Unbound, the
       // in-process writer draws Arabic itself with its embedded face
-      // (ADR-0114); only text neither can draw sends the caller to XLSX.
+      // (ADR-0115); only text neither can draw sends the caller to XLSX.
       if (browser && (!latinOnly([table]) || !pdfSafe([table]))) {
         return { bytes: await renderPdfViaBrowser(browser, table, opts), contentType: "application/pdf" };
       }

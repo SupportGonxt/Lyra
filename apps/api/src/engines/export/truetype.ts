@@ -1,5 +1,5 @@
 // A TrueType reader and glyph subsetter — exactly as much of the format as an
-// embedded PDF font needs (ADR-0114): the cmap to find a glyph, hmtx to measure
+// embedded PDF font needs (ADR-0115): the cmap to find a glyph, hmtx to measure
 // it, and glyf/loca to ship only the glyphs a document draws.
 //
 // Glyph ids are preserved by the subsetter: an unused glyph keeps its slot with

@@ -307,7 +307,7 @@ describe("exports", () => {
     expect(pdfSafe([TABLE])).toBe(true);
     expect(pdfSafe([{ ...TABLE, rows: [{ period: "六月", gwp: 1, policies: 1 }] }])).toBe(false);
     expect(pdfSafe([{ ...TABLE, title: "報告" }])).toBe(false);
-    // Arabic is drawn by the embedded face (ADR-0114).
+    // Arabic is drawn by the embedded face (ADR-0115).
     expect(pdfSafe([{ ...TABLE, title: "تقرير" }])).toBe(true);
   });
 });

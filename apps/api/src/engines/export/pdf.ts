@@ -10,7 +10,7 @@ import { concat, utf8 } from "./zip.js";
 // no good to the person who has to attach it to a regulator submission.
 //
 // Latin is base-14 Helvetica, WinAnsi encoding, as it always was. Arabic is an
-// embedded, per-document subset of Noto Naskh Arabic (ADR-0114, pdf-font.ts),
+// embedded, per-document subset of Noto Naskh Arabic (ADR-0115, pdf-font.ts),
 // shaped and reordered by arabic.ts — and only a string that contains Arabic
 // takes that path, so a Latin document is byte for byte what it was before.
 // Text neither font can draw (CJK, Hebrew, a Latin letter outside Latin-1) is
@@ -423,7 +423,7 @@ function escapePdf(s: string): string {
 export function pdfSafe(tables: readonly ReportTable[]): boolean {
   // Latin-1 is the whole of WinAnsiEncoding, drawn in Helvetica. Beyond it, only
   // Arabic the embedded face has a glyph for *and* the shaper can join
-  // (ADR-0114); anything else — CJK, Hebrew, a Latin letter outside Latin-1, an
+  // (ADR-0115); anything else — CJK, Hebrew, a Latin letter outside Latin-1, an
   // Arabic-script letter with no presentation form — would print as a box or
   // unjoined, so the caller is told to export xlsx instead. Tested on the
   // *folded* string so this and `escapePdf` agree on what is renderable: a gate

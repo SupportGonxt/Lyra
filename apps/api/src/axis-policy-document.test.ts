@@ -47,7 +47,11 @@ beforeEach(async () => {
 });
 
 /** One bound contract and its version-1 terms, with the cover dates given. */
-async function policyWithCover(effectiveFrom: number, effectiveTo: number) {
+async function policyWithCover(
+  effectiveFrom: number,
+  effectiveTo: number,
+  terms: Record<string, unknown> = { cover: "comprehensive" }
+) {
   const policy = {
     id: "pol_1",
     tenantId: ctx.tenantId,
@@ -74,7 +78,7 @@ async function policyWithCover(effectiveFrom: number, effectiveTo: number) {
     effectiveTo,
     premiumMinor: 120_000,
     currency: "AED",
-    termsJson: JSON.stringify({ cover: "comprehensive" }),
+    termsJson: JSON.stringify(terms),
     state: "effective",
     issuedBy: "user:u_runner",
     issuedAt: NOW,
@@ -125,7 +129,7 @@ function viaToUnicode(pdf: string): string[][] {
   return [...pdf.matchAll(/\/F3 [\d.]+ Tf <([0-9A-F]*)> Tj/g)].map((m) => m[1]!.match(/.{4}/g)!.map((g) => map.get(g)!));
 }
 
-// ADR-0114. A customer who gave only an Arabic name used to get no schedule at
+// ADR-0115. A customer who gave only an Arabic name used to get no schedule at
 // all: the renderer drew Latin only, the English fallback did not exist, and
 // the issue ended in a 409 — about 18% of a simulated month's policies.
 describe("policy document — a customer named only in Arabic", () => {
@@ -174,6 +178,52 @@ describe("policy document — a customer named only in Arabic", () => {
     expect(text).toContain("القسط");
     expect(text.some((s) => /^صفحة 1 من \d+$/.test(s))).toBe(true);
     expect(out.bytes()).not.toContain("(Policy schedule)");
+  });
+
+  it("prints no raw status code or term key on an Arabic schedule", async () => {
+    // Terms are a free-form record (routes/axis.ts accepts any keys), so this
+    // mixes keys the platform knows with one only a tenant would write.
+    const terms = {
+      cover: "comprehensive",
+      excessMinor: 50_000,
+      limits: { thirdParty: 1_000_000 },
+      agencyRepair: true,
+      tenantSpecialClause: "x"
+    };
+    const policy = await policyWithCover(NOW - YEAR, NOW + YEAR, terms);
+    await customer({ ar: "مريم الكعبي" }, "ar");
+    const out = bucket();
+
+    await issuePolicyDocument(ctx, policy, { kind: "schedule" }, out.r2);
+
+    const pdf = out.bytes();
+    // Everything a reader sees: Arabic-bearing strings through ActualText,
+    // Latin-only strings as the literals Helvetica draws.
+    const seen = [...spans(pdf), ...[...pdf.matchAll(/\(((?:[^()\\]|\\.)*)\) Tj/g)].map((m) => m[1]!)].join("\n");
+    const codes = ["active", "comprehensive", "cover", "excessMinor", "limits", "thirdParty", "agencyRepair", "tenantSpecialClause", "true"];
+    for (const code of codes) expect(seen, code).not.toMatch(new RegExp(`\\b${code}\\b`));
+    // ...and the translations are what took their place.
+    expect(seen).toContain("سارية"); // active
+    expect(seen).toContain("شاملة"); // comprehensive
+    expect(seen).toContain("مبلغ التحمل"); // excessMinor
+    expect(seen).toContain("نعم"); // true
+    // The excess is money, printed in major units with its currency.
+    expect(seen).toMatch(/AED 500\.00/);
+  });
+
+  it("labels status and terms in English too, instead of printing keys", async () => {
+    const policy = await policyWithCover(NOW - YEAR, NOW + YEAR, { excessMinor: 50_000, agencyRepair: false });
+    await customer({ en: "Maryam Al Kaabi" });
+    const out = bucket();
+
+    await issuePolicyDocument(ctx, policy, { kind: "schedule" }, out.r2);
+
+    const pdf = out.bytes();
+    expect(pdf).toContain("(Active) Tj");
+    expect(pdf).toContain("(Excess) Tj");
+    expect(pdf).toContain("(AED 500.00) Tj");
+    expect(pdf).toContain("(No) Tj");
+    expect(pdf).not.toContain("(excessMinor) Tj");
   });
 
   it("keeps an English customer's schedule exactly as it was", async () => {
