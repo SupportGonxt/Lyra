@@ -286,7 +286,7 @@ async function accrueSpend(ctx: Ctx, line: SpendLine, rowId: string, held: Spend
     },
     {
       recipe: {
-        lines: buildRecipe(MEDIA_SPEND, { amountMinor: deltaMinor, memo: `Media spend ${line.channel} ${line.day}`, dims }),
+        lines: buildRecipe("MEDIA-SPEND", { amountMinor: deltaMinor, memo: `Media spend ${line.channel} ${line.day}`, dims }),
         currency: line.currency,
         fxRatePpm
       }

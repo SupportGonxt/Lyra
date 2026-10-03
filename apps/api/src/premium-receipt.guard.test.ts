@@ -25,7 +25,7 @@ const walk = (dir: string): string[] =>
   !existsSync(dir)
     ? []
     : readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        if (e.name === "node_modules" || e.name === "dist" || e.name === "migrations") return [];
+        if (e.name === "node_modules" || e.name === "dist" || e.name === "migrations" || e.name.startsWith(".")) return [];
         const path = join(dir, e.name);
         if (e.isDirectory()) return walk(path);
         return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) && !e.name.endsWith(".d.ts") ? [path] : [];

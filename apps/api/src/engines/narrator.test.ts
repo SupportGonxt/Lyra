@@ -224,8 +224,9 @@ describe("the template fallback", () => {
     expect(result).toMatchObject({ generatedBy: "template", status: "review", auditId: null, mismatches: [] });
     const [row] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, result.id));
     expect(row).toMatchObject({ generatedBy: "template", aiAuditId: null, audience: "investor" });
-    // 57 policies on 2026-01-05, straight off the seeded snapshot.
-    expect(row!.narrativeRef).toContain("57");
+    // Policies issued on 2026-01-05, straight off the seeded snapshot.
+    const [issued] = await ctx.db.select().from(schema.northSnapshots).where(and(eq(schema.northSnapshots.metricKey, "policies_issued"), eq(schema.northSnapshots.period, "2026-01-05"), eq(schema.northSnapshots.dimsHash, "")));
+    expect(row!.narrativeRef).toContain(`Policies issued for Jan 5, 2026: ${issued!.value}`);
   });
 
   it("writes a template brief when the gateway refuses (kill switch, budget), never the refusal text", async () => {

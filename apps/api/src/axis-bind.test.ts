@@ -283,12 +283,13 @@ describe("AXIS bind (docs/27 F4)", () => {
   });
 
   // Found by the role-adoption simulation: a customer who gave only an Arabic
-  // name got a policy and no schedule (the renderer draws Latin only), and the
-  // failure was an audit hash nobody reads. It must reach the ops exceptions
-  // queue as a blocked task that names the policy and says why.
+  // name got a policy and no schedule, and the failure was an audit hash nobody
+  // reads. Arabic now draws (ADR-0115); a script neither font has (CJK) still
+  // refuses, and must reach the ops exceptions queue as a blocked task that
+  // names the policy and says why.
   it("a schedule the renderer refuses becomes a blocked task in the exceptions queue", async () => {
     const original = (await database.select().from(schema.customers).where(eq(schema.customers.id, customerId)))[0]!;
-    await database.update(schema.customers).set({ nameJson: JSON.stringify({ ar: "مريم الكعبي" }) }).where(eq(schema.customers.id, customerId));
+    await database.update(schema.customers).set({ nameJson: JSON.stringify({ en: "王小明" }) }).where(eq(schema.customers.id, customerId));
     try {
       const { responseId } = await selectedQuote();
       const start = Date.now();
