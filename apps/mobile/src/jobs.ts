@@ -8,7 +8,7 @@
 // stricter names it in `perm` (approvals: the web's /approvals is the actor's
 // own inbox, the phone's reads the queue). The API still decides every read.
 
-import { JOB, SHELLED_MODULES, jobsFor } from "@lyra/core/jobs";
+import { SHELLED_MODULES, jobsFor, type JOB } from "@lyra/core/jobs";
 import type { Me } from "./api";
 import type { MessageKey } from "./i18n";
 
