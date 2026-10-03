@@ -11,7 +11,7 @@ import {
   canTakeAnomaly,
   chosenBriefing,
   highlightsOf,
-  todayIso,
+  briefAskDate,
   todayUtc,
   unownedAnomaly
 } from "../../src/journeys";
@@ -85,7 +85,7 @@ export default function Brief() {
   // pretending the answer is already here.
   const ask = async () => {
     if (!token || busy) return;
-    const date = todayIso();
+    const date = briefAskDate();
     setBusy(true);
     setWriteError(null);
     try {

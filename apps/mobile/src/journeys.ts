@@ -135,6 +135,15 @@ export function todayUtc(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+/**
+ * The date "Write today's brief" asks for: the UTC day, the one the nightly
+ * job writes (ADR-0114). The device's local day would, east of UTC between
+ * local midnight and 00:00Z, ask for a day that has not started.
+ */
+export function briefAskDate(now: Date = new Date()): string {
+  return todayUtc(now);
+}
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**

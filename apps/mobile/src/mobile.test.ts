@@ -53,6 +53,7 @@ const {
   channelLabel,
   anomalyOwner,
   briefAge,
+  briefAskDate,
   briefNarrative,
   briefProvenance,
   todayUtc,
@@ -984,6 +985,19 @@ describe("journey helpers", () => {
   it("compares against today's UTC day, the day the nightly brief is dated", () => {
     expect(todayUtc(new Date(Date.UTC(2026, 8, 29, 23, 59)))).toBe("2026-09-29");
     expect(todayUtc(new Date(Date.UTC(2026, 8, 30, 0, 1)))).toBe("2026-09-30");
+  });
+
+  // The button asks for the day the nightly job writes (ADR-0114), the UTC
+  // day. A phone east of UTC past local midnight but before 00:00Z would
+  // otherwise ask for a day that has not started.
+  it("asks for today's brief by the UTC day, not the device's", async () => {
+    // 21:30Z on the 29th is already the 30th in Dubai (UTC+4).
+    expect(briefAskDate(new Date(Date.UTC(2026, 8, 29, 21, 30)))).toBe("2026-09-29");
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const screen = readFileSync(join(import.meta.dirname, "..", "app", "j", "brief.tsx"), "utf8");
+    expect(screen).toContain("briefAskDate()");
+    expect(screen).not.toContain("todayIso");
   });
 
   it("words the brief's date, staleness and template source in both languages", () => {
