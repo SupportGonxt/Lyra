@@ -26,6 +26,7 @@ import type { RefOption } from "../components/ref-picker";
 import { workspaceFor } from "../modules";
 import {
   bodyFrom,
+  emptyDoor,
   labelsFor,
   optionLabel,
   queryFromSavedView,
@@ -366,6 +367,8 @@ export default function ModuleList() {
   // itself must agree: telling a reader without `tab.create` to "create the
   // first one" names a control that is not on their page.
   const canCreate = Boolean(tab.fields && tab.create && held.has(tab.create) && !deletedView);
+  // A reader who may not create gets the tab's own next move, when it has one.
+  const door = emptyDoor(tab, permissions);
 
   const columns: Array<Column<Row>> = tab.columns.map((column, index) => ({
     key: column.name,
@@ -717,7 +720,9 @@ export default function ModuleList() {
                     ? t("common.empty.filtered")
                     : canCreate
                       ? t("common.empty.body")
-                      : t("common.empty.none")
+                      : door
+                        ? label(door.bodyKey)
+                        : t("common.empty.none")
               }
               {...(deletedView
                 ? {}
@@ -737,7 +742,15 @@ export default function ModuleList() {
                           </Button>
                         )
                       }
-                    : {})}
+                    : door
+                      ? {
+                          action: (
+                            <Button asChild variant="secondary">
+                              <Link to={door.href}>{label(door.labelKey)}</Link>
+                            </Button>
+                          )
+                        }
+                      : {})}
             />
           }
           footer={

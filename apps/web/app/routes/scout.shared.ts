@@ -36,6 +36,8 @@ export const PERM = {
   experimentsCreate: "scout:experiments:create",
   experimentsDecide: "scout:experiments:decide",
   dataProductsRead: "scout:data_products:read",
+  /** The data-product delivery log reads analytics exports (resources.ts). */
+  exportsRead: "analytics:exports:download",
   /** Publish *and* suspend — resources.ts gates every update on this one. */
   dataProductsPublish: "scout:data_products:publish",
   exportCreate: "analytics:exports:create"

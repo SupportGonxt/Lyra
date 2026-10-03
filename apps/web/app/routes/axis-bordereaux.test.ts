@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import type { Env } from "../env";
@@ -5,7 +7,9 @@ import {
   BORDEREAU_KINDS,
   COUNTERPARTY_KINDS,
   DIRECTIONS,
+  IMPORT_ANCHOR,
   LABELS,
+  NoBordereaux,
   action,
   labelsIn,
   loader,
@@ -431,6 +435,32 @@ describe("action: reconcile with a tolerance", () => {
       expect(result.error, toleranceMinor).toBe("toleranceInvalid");
     }
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("an empty register teaches its first action", () => {
+  // Role adoption: after a month of activity the register was still empty,
+  // headed and bodied by the same sentence ("No bordereaux generated yet."
+  // twice), with the import form three cards further down. Nothing imported
+  // is a first-action state, not a fact to restate.
+  const l = labelsIn("en");
+
+  it("says what an empty register means, once, and points at the import", () => {
+    const html = renderToStaticMarkup(createElement(NoBordereaux, { l, canImport: true }));
+    expect(html).toContain(l("noneYet"));
+    expect(html).toContain(l("noneYet.body"));
+    expect(l("noneYet.body")).not.toBe(l("noneYet"));
+    expect(html).toContain(`href="#${IMPORT_ANCHOR}"`);
+    expect(html).toContain(l("importFirst"));
+  });
+
+  it("offers no door to a reader who may not import", () => {
+    const html = renderToStaticMarkup(createElement(NoBordereaux, { l, canImport: false }));
+    expect(html).not.toContain(IMPORT_ANCHOR);
+  });
+
+  it("has the words in Arabic too", () => {
+    expect(LABELS.ar?.importFirst).toBeTruthy();
   });
 });
 

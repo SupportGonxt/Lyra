@@ -161,9 +161,14 @@ export const NO_JOBS: Readonly<Record<string, string>> = {
   "partner.manager": "external: works from the partner portal"
 };
 
-/** Module shells gate their own layouts (axis-shell.tsx and siblings). */
-function shellAllows(path: string, shells: readonly string[]): boolean {
-  const module = moduleOf(path);
+/**
+ * Would this seat get the screen rather than a refusal? It must hold the
+ * permission the screen gates on, and enter the module shell it renders in —
+ * module shells gate their own layouts (axis-shell.tsx and siblings).
+ */
+export function opens(one: Job, permissions: readonly string[], shells: readonly string[]): boolean {
+  if (one.permission !== null && !permissions.includes(one.permission)) return false;
+  const module = moduleOf(one.path);
   return module === null || shells.includes(module);
 }
 
@@ -177,16 +182,13 @@ export function jobsFor(
   permissions: readonly string[],
   shells: readonly string[]
 ): Job[] {
-  const held = new Set(permissions);
   const mine = new Set(roles);
   const seen = new Set<string>();
   const out: Job[] = [];
   for (const [role, jobs] of Object.entries(JOBS_BY_ROLE)) {
     if (!mine.has(role)) continue;
     for (const one of jobs) {
-      if (seen.has(one.path)) continue;
-      if (one.permission !== null && !held.has(one.permission)) continue;
-      if (!shellAllows(one.path, shells)) continue;
+      if (seen.has(one.path) || !opens(one, permissions, shells)) continue;
       seen.add(one.path);
       out.push(one);
     }

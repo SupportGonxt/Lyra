@@ -7,6 +7,7 @@ import {
   definitionOf,
   dtpHeadline,
   nextProductStates,
+  readsDeliveries,
   subjectRefOf,
   subscribersOf,
   warningsFor,
@@ -216,6 +217,16 @@ describe("status machine", () => {
 describe("delivery log", () => {
   it("keys exports by the product row, matching the platform's subject reference shape", () => {
     expect(subjectRefOf("dtp_1")).toBe("scout_data_product:dtp_1");
+  });
+
+  // Role adoption: the provider viewer — whose only screen this is — was told
+  // "No cut of this product has been rendered yet" under every product it
+  // bought. The log reads analytics exports, which that seat may not, and the
+  // loader's best-effort read turned the 403 into an empty list: one value
+  // for two facts. A log the reader cannot read is absent, not empty.
+  it("is drawn only for a reader who may read the exports behind it", () => {
+    expect(readsDeliveries(new Set(["scout:data_products:read", "scout:panel_bench:read"]))).toBe(false);
+    expect(readsDeliveries(new Set(["scout:data_products:read", "analytics:exports:download"]))).toBe(true);
   });
 });
 

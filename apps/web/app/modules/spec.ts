@@ -188,6 +188,13 @@ export interface ResourceSpec {
    *  its label and the permission the API gates it on. The list's `q` rides
    *  along so the file holds what the reader was looking at. */
   download?: { href: string; labelKey: string; permission: string };
+  /**
+   * The next move for a reader facing this list empty who may not create in
+   * it — what the generic "someone with permission will add one" leaves out.
+   * Shown only on an unfiltered, empty list, and only to a reader holding
+   * `permission` (the target tab's own read). See `emptyDoor`.
+   */
+  emptyDoor?: { href: string; labelKey: string; bodyKey: string; permission: string };
 }
 
 export interface WorkspaceSpec {
@@ -389,6 +396,12 @@ export function visibleLinks(
 ): readonly LinkSpec[] {
   const held = new Set(permissions);
   return (spec.links ?? []).filter((link) => !link.permission || held.has(link.permission));
+}
+
+/** This tab's empty-list door, when it has one and the reader may open it. */
+export function emptyDoor(tab: ResourceSpec, permissions: readonly string[]): NonNullable<ResourceSpec["emptyDoor"]> | null {
+  const door = tab.emptyDoor;
+  return door && permissions.includes(door.permission) ? door : null;
 }
 
 /** `/v1/analytics/schedules` + `/{id}/pause` → `/v1/analytics/schedules/<id>/pause`. */

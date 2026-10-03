@@ -5,6 +5,7 @@ import {
   defFromParams,
   encodeDef,
   fitToDataset,
+  starterDef,
   type DatasetInfo,
   type ReportDefinition
 } from "./analytics-def";
@@ -156,6 +157,30 @@ describe("builderHref", () => {
   it("opens the builder on a definition, running it only when asked", () => {
     expect(builderHref(DEF)).toBe(`/analytics/builder?def=${encodeDef(DEF)}`);
     expect(builderHref(DEF, { run: true })).toBe(`/analytics/builder?def=${encodeDef(DEF)}&run=1`);
+  });
+});
+
+describe("starterDef", () => {
+  // The builder opened blank — a dataset picker and a form — for an analyst
+  // with no saved report (role-adoption simulation). An empty preview now
+  // offers one starter: the dataset's first measure, by month, in time order.
+  it("starts from the dataset's first measure, by month", () => {
+    expect(starterDef(AI_SPEND)).toEqual({
+      dataset: "aiSpend",
+      metrics: ["calls"],
+      grain: "month",
+      sort: { field: "period", dir: "asc" }
+    });
+  });
+
+  it("is a definition the builder's own link and fit both keep whole", () => {
+    const starter = starterDef(AI_SPEND)!;
+    expect(decodeDef(new URL(builderHref(starter), "https://x.test").searchParams.get("def"))).toEqual(starter);
+    expect(fitToDataset(starter, AI_SPEND)).toEqual(starter);
+  });
+
+  it("offers nothing for a dataset with no measure", () => {
+    expect(starterDef({ ...AI_SPEND, metrics: [] })).toBeNull();
   });
 });
 

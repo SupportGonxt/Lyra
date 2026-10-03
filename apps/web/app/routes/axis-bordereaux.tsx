@@ -14,7 +14,6 @@ import {
   EmptyState,
   Hero,
   Input,
-  ScreenState,
   Select,
   Table,
   formatMoney,
@@ -171,7 +170,8 @@ export const LABELS: Record<string, Record<string, string>> = {
     noLines: "No lines on this bordereau.",
     "noLines.body": "This bordereau reports no risks — it was generated for a period with nothing to report.",
     noneYet: "No bordereaux generated yet.",
-    "noneYet.body": "A bordereau is generated when a period closes, or on demand from the register above.",
+    "noneYet.body": "Nothing has been imported or generated yet. Start with the statement a provider sent for a closed month: every line is matched against our own records.",
+    importFirst: "Import a statement",
     colPeriod: "Period",
     colDirection: "Direction",
     colCounterparty: "Counterparty",
@@ -287,7 +287,8 @@ export const LABELS: Record<string, Record<string, string>> = {
     noLines: "لا توجد بنود في قائمة التسوية هذه.",
     "noLines.body": "لا تبلّغ هذه القائمة عن أي مخاطر — أُنشئت لفترة لا شيء فيها للإبلاغ.",
     noneYet: "لم تُنشأ أي قائمة تسوية بعد.",
-    "noneYet.body": "تُنشأ قائمة التسوية عند إقفال فترة، أو عند الطلب من السجل أعلاه.",
+    "noneYet.body": "لم يُستورد أو يُنشأ شيء بعد. ابدأ بالكشف الذي أرسله المزوّد عن شهر مُقفل: يُطابق كل سطر منه مع سجلاتنا.",
+    importFirst: "استورد كشفًا",
     colPeriod: "الفترة",
     colDirection: "الاتجاه",
     colCounterparty: "الطرف المقابل",
@@ -719,11 +720,14 @@ export default function AxisBordereaux() {
           }))
         }}
       />
-      {/* ScreenState's "empty" branch replaces its children outright, so only
-          the register (which genuinely has nothing to show) sits inside it —
-          the generate form must stay reachable even with zero bordereaux, or
-          nobody could ever create the first one. */}
-      <ScreenState state={bordereaux.length === 0 ? "empty" : "ready"} title={l("noneYet")} body={l("noneYet")}>
+      {/* The register alone is replaced when empty: the import and generate
+          forms below must stay reachable even with zero bordereaux, or nobody
+          could ever create the first one. The empty state points at the
+          import, because that is the first thing a month of business needs. */}
+      {bordereaux.length === 0 ? (
+        <NoBordereaux l={l} canImport={loaded.may.generate} />
+      ) : (
+
         <div className="flex flex-col gap-5">
           <div>{renderSection(grossByCounterparty, "axis")}</div>
 
@@ -740,9 +744,10 @@ export default function AxisBordereaux() {
             />
           </Card>
         </div>
-      </ScreenState>
+      )}
 
       {loaded.may.generate ? (
+        <section id={IMPORT_ANCHOR} className="scroll-mt-4">
         <Card title={l("importTitle")} description={l("importIntro")}>
           <ImportForm idempotencyKey={loaded.idempotencyKey} l={l} busy={busy} />
           {refused.length ? (
@@ -765,6 +770,7 @@ export default function AxisBordereaux() {
             </div>
           ) : null}
         </Card>
+        </section>
       ) : null}
 
       {loaded.may.generate ? (
@@ -841,6 +847,28 @@ export default function AxisBordereaux() {
       ) : null}
       {result?.problem ? <Gate problem={result.problem} l={l} /> : null}
     </div>
+  );
+}
+
+/** Where the import card sits, so an empty register can point at it. */
+export const IMPORT_ANCHOR = "bordereau-import";
+
+/** The register before anything is in it: what that means, and the one door. */
+export function NoBordereaux({ l, canImport }: { l: Label; canImport: boolean }) {
+  return (
+    <EmptyState
+      title={l("noneYet")}
+      body={l("noneYet.body")}
+      {...(canImport
+        ? {
+            action: (
+              <Button asChild variant="secondary" size="sm">
+                <a href={`#${IMPORT_ANCHOR}`}>{l("importFirst")}</a>
+              </Button>
+            )
+          }
+        : {})}
+    />
   );
 }
 

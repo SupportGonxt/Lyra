@@ -28,6 +28,8 @@ import { ORBIT, labelsFrom, refusal, safe, type Label, type Labels, type Page } 
 import { SLOW_MS, waitLabel, waitingMs, type LiveConversation } from "./orbit-console";
 import { containment } from "./orbit-analytics";
 import { localeFrom } from "../i18n";
+import { JOB, opens } from "../jobs";
+import { useOrbitSessionData } from "./orbit-shell";
 
 // docs/modules/orbit.md §4 screen 2 — the Supervisor Wall. The room from one
 // step back: how much is open, how long the worst of it has waited, how much
@@ -180,6 +182,8 @@ export const LABELS: Labels = {
     alertsBody: "Every open conversation that has missed a deadline, worst first.",
     noAlerts: "Nothing has missed a deadline.",
     noAlertsBody: "Refresh once something slips.",
+    "noAlerts.bot": "The agent is holding {n} of what is open. Quality scoring shows how it handled them.",
+    "noAlerts.door": "Review service quality",
     customer: "Customer",
     channel: "Channel",
     breach: "Breach",
@@ -246,6 +250,8 @@ export const LABELS: Labels = {
     alertsBody: "كل محادثة مفتوحة فاتها موعد، الأسوأ أولًا.",
     noAlerts: "لم يفت أي موعد.",
     noAlertsBody: "حدّث الصفحة عند حدوث تأخير.",
+    "noAlerts.bot": "يتولّى الوكيل {n} من المحادثات المفتوحة. يُظهر تقييم الجودة كيف تعامل معها.",
+    "noAlerts.door": "راجع جودة الخدمة",
     customer: "العميل",
     channel: "القناة",
     breach: "التجاوز",
@@ -412,6 +418,8 @@ export default function OrbitSupervisor() {
   const navigation = useNavigation();
   const l = labelsIn(loaded.locale);
   const busy = navigation.state === "submitting";
+  const shell = useOrbitSessionData();
+  const qualityDoor = opens(JOB.quality, shell?.permissions ?? [], shell?.availableShells ?? []);
 
   const LENSES = lensesAt(loaded.now);
   const { focus, href } = useFocus(LENSES);
@@ -501,7 +509,7 @@ export default function OrbitSupervisor() {
 
       <Card title={l("alerts")} description={l("alertsBody")}>
         {alerts.length === 0 ? (
-          <EmptyState title={l("noAlerts")} body={l("noAlertsBody")} />
+          <NoAlerts l={l} bot={loaded.counts.bot} door={qualityDoor} />
         ) : (
           <Table
             caption={l("alerts")}
@@ -654,5 +662,28 @@ export default function OrbitSupervisor() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Nothing overdue. When the agent is holding the room, "refresh later" is
+ * not the supervisor's next move — checking how the agent handled it is, so
+ * the one door is the quality screen, for a seat that may read it.
+ */
+export function NoAlerts({ l, bot, door }: { l: Label; bot: number; door: boolean }) {
+  return (
+    <EmptyState
+      title={l("noAlerts")}
+      body={bot > 0 ? l("noAlerts.bot", { n: String(bot) }) : l("noAlertsBody")}
+      {...(door && bot > 0
+        ? {
+            action: (
+              <Button asChild variant="secondary" size="sm">
+                <Link to={JOB.quality.path}>{l("noAlerts.door")}</Link>
+              </Button>
+            )
+          }
+        : {})}
+    />
   );
 }

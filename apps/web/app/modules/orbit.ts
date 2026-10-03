@@ -36,6 +36,8 @@ export const orbit: WorkspaceSpec = {
       "sla-policies": "SLA policies",
       "agent-presence": "Agent presence",
       "kb-articles": "Knowledge base",
+      "kb.empty.body": "No article has been written yet. The questions the agent passed to a person are where the first ones come from.",
+      "kb.empty.door": "See the questions passed to a person",
       macros: "Canned replies",
       deflections: "Self-service answers",
 
@@ -246,6 +248,8 @@ export const orbit: WorkspaceSpec = {
       "sla-policies": "سياسات مستوى الخدمة",
       "agent-presence": "حضور الوكلاء",
       "kb-articles": "قاعدة المعرفة",
+      "kb.empty.body": "لم تُكتب أي مقالة بعد. الأسئلة التي أحالها الوكيل إلى موظف هي من أين تبدأ المقالات الأولى.",
+      "kb.empty.door": "اطّلع على الأسئلة المحالة إلى موظف",
       macros: "الردود الجاهزة",
       deflections: "الإجابات الذاتية",
 
@@ -872,6 +876,14 @@ export const orbit: WorkspaceSpec = {
       create: "orbit:kb:write",
       update: "orbit:kb:write",
       remove: "orbit:kb:write",
+      // A support agent reads the base and may not write it; when it is empty
+      // their next move is the questions the bot could not answer.
+      emptyDoor: {
+        href: "/orbit/deflections?outcome=escalated",
+        labelKey: "kb.empty.door",
+        bodyKey: "kb.empty.body",
+        permission: "orbit:conversations:read"
+      },
       filters: [
         { name: "status", options: ["draft", "published", "retired"] },
         { name: "locale", options: ["en", "ar"] }
