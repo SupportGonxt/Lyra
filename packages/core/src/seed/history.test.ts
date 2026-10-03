@@ -238,24 +238,30 @@ describe("seedHistory", () => {
     expect(econ.every((r) => r.volume === 2 && r.revenueMinor > 0)).toBe(true);
 
     const snaps = await db.select().from(schema.northSnapshots).where(eq(schema.northSnapshots.tenantId, TENANT));
-    // Four daily metrics on every day, eight monthly ones on each month touched.
+    // Four daily metrics on every day, seven monthly ones on each month
+    // touched. The b2b share of premium is the eighth, and it is not written:
+    // this pass writes no contracts, so there is no premium to take a share of
+    // and the snapshotter would write nothing either (the module pass does).
     const months = new Set(snaps.filter((s) => s.grain === "month").map((s) => s.period));
     expect(snaps.filter((s) => s.grain === "day")).toHaveLength(DAYS * 4);
-    expect(snaps.filter((s) => s.grain === "month")).toHaveLength(months.size * 8);
+    expect(snaps.filter((s) => s.grain === "month")).toHaveLength(months.size * 7);
     expect(result.snapshots).toBe(snaps.length);
 
-    // The measurements are the postings, not a parallel invention: the month's
-    // gwp is the premium the ledger actually collected in it, net of tax.
-    const august = snaps.find((s) => s.metricKey === "gwp" && s.period === "2026-08")!;
+    // The measurements are the rows, not a parallel invention: the month's
+    // commission is the ledger's commission income for it, and premium and
+    // policies count the contracts — none yet, until the module pass writes
+    // them (history-modules.test.ts measures the two passes together).
+    const at = (metricKey: string) => snaps.find((s) => s.metricKey === metricKey && s.period === "2026-07")!.value;
     const lines = await db
       .select()
       .from(schema.ledgerJournalLines)
-      .where(and(eq(schema.ledgerJournalLines.tenantId, TENANT), eq(schema.ledgerJournalLines.accountCode, "1010")));
-    const collectedInAugust = lines
-      .filter((l) => l.side === "debit" && new Date(l.postedAt).toISOString().startsWith("2026-08"))
+      .where(and(eq(schema.ledgerJournalLines.tenantId, TENANT), eq(schema.ledgerJournalLines.accountCode, "4000")));
+    const earnedInJuly = lines
+      .filter((l) => l.side === "credit" && new Date(l.postedAt).toISOString().startsWith("2026-07"))
       .reduce((n, l) => n + l.amountMinor, 0);
-    // Gross collected is premium + 5% VAT; gwp is the premium alone.
-    expect(august.value).toBe(Math.round(collectedInAugust / 1.05));
+    expect(earnedInJuly).toBeGreaterThan(0);
+    expect(at("net_commission")).toBe(earnedInJuly);
+    expect([at("gwp"), at("active_policies")]).toEqual([0, 0]);
   });
 
   it("posts a sale as collect, accrue, remit — with the accounts and memos a close pack reads", async () => {
@@ -380,7 +386,6 @@ describe("seedHistory", () => {
         "active_policies",
         "cac_per_policy",
         "renewal_retention",
-        "broker_channel_share",
         "loss_ratio",
         "ai_cost_per_case"
       ])
@@ -401,7 +406,8 @@ describe("seedHistory", () => {
       at(k, SAMPLE).value,
       at(k, SAMPLE).ts
     ])).toEqual([
-      ["policies_issued", 2, dayTs],
+      // Measured from axis_policies, which this pass does not write.
+      ["policies_issued", 0, dayTs],
       // Rates have no ledger source, so they follow the seed's deterministic
       // curve — pinned here because "deterministic" is the whole promise.
       ["quote_to_bind_rate", 2_066, dayTs],
@@ -418,18 +424,9 @@ describe("seedHistory", () => {
       at("net_commission", "2026-06").value,
       at("cac_per_policy", "2026-06").value,
       at("renewal_retention", "2026-06").value,
-      at("broker_channel_share", "2026-06").value,
       at("loss_ratio", "2026-06").value,
       at("ai_cost_per_case", "2026-06").value
-    ]).toEqual([16_935_000, 2_540_250, 22_069, 7_974, 3_347, 6_427, 89]);
-
-    // Policies in force is cumulative across the window, not per month: April
-    // closes on its own 17 days, June on everything sold since 14 April.
-    expect([
-      at("active_policies", "2026-04").value,
-      at("active_policies", "2026-06").value,
-      at("active_policies", "2026-08").value
-    ]).toEqual([17, 78, 120]);
+    ]).toEqual([0, 2_540_250, 22_069, 7_974, 6_427, 89]);
   });
 
   it("does not duplicate measurements on a second run", async () => {

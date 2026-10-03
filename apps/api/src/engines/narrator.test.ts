@@ -66,10 +66,12 @@ describe("buildSnapshot", () => {
     const policies = snapshot.metrics.find((m) => m.metricKey === "policies_issued");
     expect(policies).toBeDefined();
     expect(policies!.period).toBe("2026-01-05");
-    expect(policies!.value).toBe(57);
+    // Measured from the seeded policies (packages/core/src/seed/north-book.ts):
+    // two open-month sales on the 5th, one on the 4th.
+    expect(policies!.value).toBe(2);
     expect(policies!.previousPeriod).toBe("2026-01-04");
-    expect(policies!.previousValue).toBe(61);
-    expect(policies!.deltaBps).toBe(Math.round(((57 - 61) / 61) * 10_000));
+    expect(policies!.previousValue).toBe(1);
+    expect(policies!.deltaBps).toBe(10_000);
 
     const bindRate = snapshot.metrics.find((m) => m.metricKey === "quote_to_bind_rate");
     expect(bindRate!.value).toBe(1_890);
@@ -79,10 +81,10 @@ describe("buildSnapshot", () => {
     expect(gwp).toBeDefined();
     expect(gwp!.grain).toBe("month");
     expect(gwp!.period).toBe("2026-01");
-    expect(gwp!.value).toBe(74_300_000);
+    expect(gwp!.value).toBe(2_092_000);
     expect(gwp!.previousPeriod).toBe("2025-12");
-    expect(gwp!.previousValue).toBe(238_900_000);
-    expect(gwp!.deltaBps).toBe(Math.round(((74_300_000 - 238_900_000) / 238_900_000) * 10_000));
+    expect(gwp!.previousValue).toBe(3_507_200);
+    expect(gwp!.deltaBps).toBe(Math.round(((2_092_000 - 3_507_200) / 3_507_200) * 10_000));
   });
 
   it("skips a metric with no rolled-up snapshot for the period instead of throwing", async () => {
@@ -96,9 +98,9 @@ describe("verifyNumericClaims", () => {
   it("passes a briefing whose numbers all trace back to the snapshot", async () => {
     const snapshot = await buildSnapshot(ctx, "2026-01-06");
     const text =
-      "Policies issued yesterday were 57, down from 61 the day before. " +
+      "Policies issued yesterday were 2, up from 1 the day before. " +
       "The quote-to-bind rate fell to 18.9%, from 23.6%. " +
-      "Gross written premium this month so far is AED 743,000.00, well behind December's AED 2,389,000.00 pace.";
+      "Gross written premium this month so far is AED 20,920.00, behind December's AED 35,072.00.";
     const result = verifyNumericClaims(text, snapshot);
     expect(result.ok).toBe(true);
     expect(result.mismatches).toEqual([]);
@@ -107,7 +109,7 @@ describe("verifyNumericClaims", () => {
   it("catches a deliberately-wrong number planted in the prose", async () => {
     const snapshot = await buildSnapshot(ctx, "2026-01-06");
     const text =
-      "Policies issued yesterday were 999, down from 61 the day before. " + // 999 is wrong — should be 57
+      "Policies issued yesterday were 999, up from 1 the day before. " + // 999 is wrong — should be 2
       "The quote-to-bind rate fell to 18.9%, from 23.6%.";
     const result = verifyNumericClaims(text, snapshot);
     expect(result.ok).toBe(false);
@@ -118,8 +120,8 @@ describe("verifyNumericClaims", () => {
 describe("generateBriefing", () => {
   it("generates, verifies and persists a clean briefing as review-ready", async () => {
     const { stub, gw } = stubbedGateway([
-      "Policies issued yesterday were 57, down from 61 the day before. " +
-        "Gross written premium this month so far is AED 743,000.00."
+      "Policies issued yesterday were 2, up from 1 the day before. " +
+        "Gross written premium this month so far is AED 20,920.00."
     ]);
 
     const result = await generateBriefing(ctx, gw, { date: "2026-01-06" });
@@ -139,7 +141,7 @@ describe("generateBriefing", () => {
     expect(row!.audience).toBe("exec");
     expect(row!.locale).toBe("en");
     expect(row!.status).toBe("review");
-    expect(row!.narrativeRef).toContain("57");
+    expect(row!.narrativeRef).toContain("were 2,");
     expect(row!.aiAuditId).toBe(result.auditId);
     expect(row!.approvedBy).toBeNull();
 

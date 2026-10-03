@@ -111,9 +111,11 @@ beforeEach(async () => {
 });
 
 describe("seedPlatform: audit chain", () => {
-  it("writes exactly 82 hash-chained rows for the tenant, in an unbroken chain", async () => {
+  it("writes exactly 88 hash-chained rows for the tenant, in an unbroken chain", async () => {
     const rows = await auditRows();
-    expect(rows).toHaveLength(82);
+    // One row per settled ledger transaction among them, so the six settlement
+    // sales' BINDs (seed/settlement.ts) are six of these.
+    expect(rows).toHaveLength(88);
     expect(await verifyChain(rows)).toEqual([]);
   });
 

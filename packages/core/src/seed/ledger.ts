@@ -116,7 +116,133 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
   const commissionMinor = policy.commissionMinor; // b2c web: gross === net, no channel share
 
   // Alpha Brokers' December bind: the same shape, but a b2b channel takes 30%.
-  const alpha = splitCommission({ premiumMinor: 416_000, baseCommissionPpm: 150_000, channelSharePpm: 300_000 });
+  const ALPHA_PREMIUM = 416_000;
+  const alpha = splitCommission({ premiumMinor: ALPHA_PREMIUM, baseCommissionPpm: 150_000, channelSharePpm: 300_000 });
+
+  /* ------------------------------------------ the contracts behind the money */
+  // Every commission figure on these books is some contract's commission, and
+  // that contract is a row: NORTH counts policies and sums their premium, the
+  // P&L sums the accruals, and a reader comparing the two must find the same
+  // book (seed/north-book.ts). Last month's accrual run is Cedar's statement
+  // for these five web sales — four new, one renewal — at Cedar Motor
+  // Essential's 12.5%; the accrual and the settlement that clears it are summed
+  // from them rather than typed beside them. The run accrues them, so none of
+  // them carries a BIND as well: that would put the same commission on the P&L
+  // twice.
+  //
+  // Ids come off their own clock offset so the ledger rows below keep theirs.
+  let bookSeq = 0;
+  const bookId = (prefix: string): string => id(prefix, now - 100_000 + bookSeq++);
+  const yymm = lastMonth.slice(2, 4) + lastMonth.slice(5, 7);
+  const CEDAR_PPM = 125_000;
+  const cedarBook = [
+    { no: `CDR-MOT-${yymm}-410226`, premiumMinor: 600_000, day: 2, renewal: false },
+    { no: `CDR-MOT-${yymm}-410391`, premiumMinor: 700_800, day: 7, renewal: false },
+    { no: `CDR-MOT-${yymm}-410557`, premiumMinor: 648_000, day: 12, renewal: false },
+    { no: `CDR-MOT-${yymm}-410702`, premiumMinor: 700_800, day: 16, renewal: false },
+    { no: `CDR-MOT-${yymm}-388140`, premiumMinor: 441_600, day: 20, renewal: true }
+  ].map((p) => ({
+    ...p,
+    id: bookId("pol"),
+    versionId: bookId("pver"),
+    at: monthStart(-1) + p.day * DAY + 10 * HOUR,
+    commissionMinor: applyPpm(p.premiumMinor, CEDAR_PPM)
+  }));
+  const cedarNewMinor = cedarBook.filter((p) => !p.renewal).reduce((n, p) => n + p.commissionMinor, 0);
+  const cedarRenewalMinor = cedarBook.filter((p) => p.renewal).reduce((n, p) => n + p.commissionMinor, 0);
+  const cedarAccruedMinor = cedarNewMinor + cedarRenewalMinor;
+  const CEDAR_BANK_FEE = 2_280;
+
+  // The Alpha bind is a contract too, cancelled inside its cooling-off window:
+  // the reversal below is its cancellation, so the policy is stamped with it.
+  const alphaPolicy = {
+    id: bookId("pol"),
+    versionId: bookId("pver"),
+    no: `FLC-MOT-${yymm}-552907`,
+    at: monthStart(-1) + 30 * DAY,
+    cancelledAt: now + 4 * HOUR
+  };
+
+  const contract = (p: {
+    id: string;
+    versionId: string;
+    no: string;
+    providerId: string;
+    offeringId: string;
+    channelId: string;
+    premiumMinor: number;
+    commissionMinor: number;
+    at: number;
+    renewalSeq?: number;
+    cancelledAt?: number;
+  }) => ({
+    policy: {
+      id: p.id,
+      tenantId,
+      customerId: ctx.customerId,
+      providerId: p.providerId,
+      productId: ctx.products.motor,
+      offeringId: p.offeringId,
+      channelId: p.channelId,
+      policyNo: p.no,
+      startAt: p.at,
+      endAt: p.at + 365 * DAY,
+      premiumMinor: p.premiumMinor,
+      currency: BASE,
+      commissionMinor: p.commissionMinor,
+      currentVersionId: p.versionId,
+      versionSeq: 1,
+      renewalSeq: p.renewalSeq ?? 0,
+      ...(p.cancelledAt === undefined
+        ? { status: "active" }
+        : { status: "cancelled", cancelledAt: p.cancelledAt, cancelEffectiveAt: p.at, cancelReasonCode: "cooling_off" }),
+      createdAt: p.at,
+      updatedAt: p.cancelledAt ?? p.at
+    },
+    // A bind always writes version 1 (routes/axis.ts `bindPolicy`).
+    version: {
+      id: p.versionId,
+      tenantId,
+      policyId: p.id,
+      versionSeq: 1,
+      reason: "issue",
+      effectiveFrom: p.at,
+      effectiveTo: p.at + 365 * DAY,
+      premiumMinor: p.premiumMinor,
+      taxMinor: 0,
+      feesMinor: 0,
+      commissionMinor: p.commissionMinor,
+      currency: BASE,
+      premiumDeltaMinor: 0,
+      termsJson: JSON.stringify({ excessMinor: 100_000 }),
+      state: "effective",
+      issuedBy: agent,
+      issuedAt: p.at,
+      createdAt: p.at,
+      updatedAt: p.at
+    }
+  });
+  const contracts = [
+    ...cedarBook.map((p) =>
+      contract({
+        ...p,
+        providerId: ctx.providers.cedar,
+        offeringId: ctx.offerings.cedarMotor,
+        channelId: ctx.channels.web,
+        renewalSeq: p.renewal ? 1 : 0
+      })
+    ),
+    contract({
+      ...alphaPolicy,
+      providerId: ctx.providers.falcon,
+      offeringId: ctx.offerings.falconMotor,
+      channelId: ctx.channels.brokerAlpha,
+      premiumMinor: ALPHA_PREMIUM,
+      commissionMinor: alpha.grossMinor
+    })
+  ];
+  await db.insert(schema.axisPolicies).values(contracts.map((c) => c.policy));
+  await db.insert(schema.axisPolicyVersions).values(contracts.map((c) => c.version));
 
   /* ----------------------------------------------------------- transactions */
   const txDecAccrual = nid("txn");
@@ -154,13 +280,13 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       state: "settled",
       actorKind: "system",
       actorId: "scheduler",
-      subjectRefsJson: JSON.stringify({ provider: ctx.providers.cedar, period: lastMonth }),
+      subjectRefsJson: JSON.stringify({ provider: ctx.providers.cedar, period: lastMonth, policies: cedarBook.map((p) => p.id) }),
       currency: BASE,
       baseCurrency: BASE,
       fxRatePpm: 1_000_000,
-      amountsJson: JSON.stringify({ gross: 386_400, net: 386_400, tax: 0 }),
-      grossMinor: 386_400,
-      baseGrossMinor: 386_400,
+      amountsJson: JSON.stringify({ gross: cedarAccruedMinor, net: cedarAccruedMinor, tax: 0 }),
+      grossMinor: cedarAccruedMinor,
+      baseGrossMinor: cedarAccruedMinor,
       createdAt: decMid,
       updatedAt: decMid + MINUTE,
       settledAt: decMid + MINUTE
@@ -179,9 +305,9 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       currency: BASE,
       baseCurrency: BASE,
       fxRatePpm: 1_000_000,
-      amountsJson: JSON.stringify({ gross: 386_400, fee: 2_280, net: 384_120 }),
-      grossMinor: 386_400,
-      baseGrossMinor: 386_400,
+      amountsJson: JSON.stringify({ gross: cedarAccruedMinor, fee: CEDAR_BANK_FEE, net: cedarAccruedMinor - CEDAR_BANK_FEE }),
+      grossMinor: cedarAccruedMinor,
+      baseGrossMinor: cedarAccruedMinor,
       createdAt: monthStart(-1) + 27 * DAY,
       updatedAt: monthStart(-1) + 27 * DAY + HOUR,
       settledAt: monthStart(-1) + 27 * DAY + HOUR
@@ -198,7 +324,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       actorKind: "partner",
       actorId: ctx.channels.brokerAlpha,
       autonomyLevel: "act_with_approval",
-      subjectRefsJson: JSON.stringify({ case: "GNX-2512-0188", channel: ctx.channels.brokerAlpha, provider: ctx.providers.falcon }),
+      subjectRefsJson: JSON.stringify({ case: "GNX-2512-0188", policy: alphaPolicy.id, channel: ctx.channels.brokerAlpha, provider: ctx.providers.falcon }),
       currency: BASE,
       baseCurrency: BASE,
       fxRatePpm: 1_000_000,
@@ -222,7 +348,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       state: "settled",
       actorKind: "user",
       actorId: ctx.users["finance.controller"] ?? "seed",
-      subjectRefsJson: JSON.stringify({ case: "GNX-2512-0188", channel: ctx.channels.brokerAlpha }),
+      subjectRefsJson: JSON.stringify({ case: "GNX-2512-0188", policy: alphaPolicy.id, channel: ctx.channels.brokerAlpha }),
       currency: BASE,
       baseCurrency: BASE,
       fxRatePpm: 1_000_000,
@@ -628,9 +754,9 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       postedBy: "system:scheduler",
       postedAt: decMid + MINUTE,
       lines: [
-        { code: "1100", side: "debit", amountMinor: 386_400, memo: `${lastMonthName} commission due from Cedar`, dims: cedarDims },
-        { code: "4000", side: "credit", amountMinor: 331_200, memo: "new business commission", dims: cedarDims },
-        { code: "4010", side: "credit", amountMinor: 55_200, memo: "renewal commission", dims: cedarDims }
+        { code: "1100", side: "debit", amountMinor: cedarAccruedMinor, memo: `${lastMonthName} commission due from Cedar`, dims: cedarDims },
+        { code: "4000", side: "credit", amountMinor: cedarNewMinor, memo: "new business commission", dims: cedarDims },
+        { code: "4010", side: "credit", amountMinor: cedarRenewalMinor, memo: "renewal commission", dims: cedarDims }
       ]
     },
     {
@@ -642,9 +768,9 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       postedBy: controller,
       postedAt: monthStart(-1) + 27 * DAY + HOUR,
       lines: [
-        { code: "1000", side: "debit", amountMinor: 384_120, memo: "Cedar remittance received", dims: cedarDims },
-        { code: "5300", side: "debit", amountMinor: 2_280, memo: "bank handling fee", dims: cedarDims },
-        { code: "1100", side: "credit", amountMinor: 386_400, memo: `${lastMonthName} receivable cleared`, dims: cedarDims }
+        { code: "1000", side: "debit", amountMinor: cedarAccruedMinor - CEDAR_BANK_FEE, memo: "Cedar remittance received", dims: cedarDims },
+        { code: "5300", side: "debit", amountMinor: CEDAR_BANK_FEE, memo: "bank handling fee", dims: cedarDims },
+        { code: "1100", side: "credit", amountMinor: cedarAccruedMinor, memo: `${lastMonthName} receivable cleared`, dims: cedarDims }
       ]
     },
     {
@@ -1647,9 +1773,9 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       counterpartyKind: "insurer",
       counterpartyRef: `provider:${ctx.providers.cedar}`,
       period: lastMonth,
-      grossMinor: 386_400,
+      grossMinor: cedarAccruedMinor,
       adjustmentsMinor: 0,
-      netMinor: 386_400,
+      netMinor: cedarAccruedMinor,
       currency: BASE,
       state: "paid",
       approvedBy: controller,
@@ -1797,7 +1923,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       runId: runCedar,
       statementLineRef: "CDR-STM-2512-0041",
       txnId: txCedarSettle,
-      amountMinor: 386_400,
+      amountMinor: cedarAccruedMinor,
       currency: BASE,
       deltaMinor: 0,
       method: "deterministic",

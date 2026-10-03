@@ -14,6 +14,7 @@ import {
   type Posting
 } from "./history.js";
 import type { CoreDb } from "../context.js";
+import { measureBook, windowPeriods } from "./north-book.js";
 
 // docs/19, docs/modules/* — the year of operating history the ledger implies.
 //
@@ -2236,6 +2237,17 @@ export async function seedModuleHistory(
     counts
   );
   counts["core_audit_log_rechained"] = await rechainAudit(db, tenantId);
+
+  // NORTH's row-backed metrics, measured again now the contracts exist: the
+  // ledger pass measured the same window before there was a policy to count,
+  // and a core-seeded month this window overlaps was measured over the core
+  // book alone (seed/north-book.ts).
+  const book = await measureBook(db, tenantId, windowPeriods(days, now), {
+    currency: BASE,
+    nid,
+    insert: (rows) => insertChunked((chunk) => db.insert(schema.northSnapshots).values(chunk), rows, 8)
+  });
+  counts["north_snapshots"] = book.written;
 
   return {
     txns: posted.txns,
