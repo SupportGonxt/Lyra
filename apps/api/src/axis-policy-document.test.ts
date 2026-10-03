@@ -84,6 +84,110 @@ async function policyWithCover(effectiveFrom: number, effectiveTo: number) {
   return policy as never;
 }
 
+/** A customer for `pol_1`, with the name blob and locale given. */
+async function customer(nameJson: Record<string, string>, locale = "en") {
+  await ctx.db.insert(schema.customers).values({
+    id: "cus_1",
+    tenantId: ctx.tenantId,
+    nameJson: JSON.stringify(nameJson),
+    locale,
+    createdAt: NOW,
+    updatedAt: NOW
+  });
+}
+
+/** An R2 stand-in that keeps the bytes it was handed. */
+function bucket(): { r2: R2Bucket; bytes: () => string } {
+  let kept: Uint8Array | undefined;
+  const r2 = {
+    put: async (_key: string, value: Uint8Array) => {
+      kept = value;
+      return null;
+    }
+  } as unknown as R2Bucket;
+  return { r2, bytes: () => new TextDecoder("latin1").decode(kept) };
+}
+
+/** ActualText spans (UTF-16BE hex) — the logical text of each drawn string. */
+function spans(pdf: string): string[] {
+  return [...pdf.matchAll(/\/ActualText <FEFF([0-9A-F]*)>/g)].map((m) =>
+    String.fromCharCode(...m[1]!.match(/.{4}/g)!.map((h) => parseInt(h, 16)))
+  );
+}
+
+/** The embedded-face glyph runs, decoded through the ToUnicode CMap, in drawn order. */
+function viaToUnicode(pdf: string): string[][] {
+  const map = new Map<string, string>();
+  const cmap = /begincmap([\s\S]*?)endcmap/.exec(pdf)![1]!;
+  for (const [, gid, hex] of cmap.matchAll(/<([0-9A-F]{4})>\s*<([0-9A-F]+)>/g)) {
+    map.set(gid!, String.fromCharCode(...hex!.match(/.{4}/g)!.map((h) => parseInt(h, 16))));
+  }
+  return [...pdf.matchAll(/\/F3 [\d.]+ Tf <([0-9A-F]*)> Tj/g)].map((m) => m[1]!.match(/.{4}/g)!.map((g) => map.get(g)!));
+}
+
+// ADR-0114. A customer who gave only an Arabic name used to get no schedule at
+// all: the renderer drew Latin only, the English fallback did not exist, and
+// the issue ended in a 409 — about 18% of a simulated month's policies.
+describe("policy document — a customer named only in Arabic", () => {
+  it("issues the schedule with the Arabic name drawn, not a conflict", async () => {
+    const policy = await policyWithCover(NOW - YEAR, NOW + YEAR);
+    await customer({ ar: "مريم الكعبي" });
+    const out = bucket();
+
+    const issued = await issuePolicyDocument(ctx, policy, { kind: "schedule" }, out.r2);
+
+    expect(issued.kind).toBe("schedule");
+    const pdf = out.bytes();
+    expect(pdf).toContain("/Subtype /Type0");
+    expect(pdf).toContain("/FontFile2");
+    expect(pdf).toMatch(/\/ToUnicode \d+ 0 R/);
+    // Read back through ToUnicode, the drawn run is the name reversed —
+    // visual order — so reversing it gives the name as she wrote it.
+    const runs = viaToUnicode(pdf);
+    expect(runs.map((r) => [...r].reverse().join(""))).toContain("مريم الكعبي");
+    expect(spans(pdf)).toContain("مريم الكعبي");
+    // The reader asked in English, so the labels are English.
+    expect(pdf).toContain("(Policy schedule) Tj");
+  });
+
+  it("prefers the name in the document's language when there are two", async () => {
+    const policy = await policyWithCover(NOW - YEAR, NOW + YEAR);
+    await customer({ en: "Maryam Al Kaabi", ar: "مريم الكعبي" }, "ar");
+    const out = bucket();
+
+    await issuePolicyDocument(ctx, policy, { kind: "schedule" }, out.r2);
+
+    expect(spans(out.bytes())).toContain("مريم الكعبي");
+    expect(out.bytes()).not.toContain("Maryam");
+  });
+
+  it("writes an Arabic-locale customer's schedule in Arabic, right to left", async () => {
+    const policy = await policyWithCover(NOW - YEAR, NOW + YEAR);
+    await customer({ ar: "مريم الكعبي" }, "ar");
+    const out = bucket();
+
+    await issuePolicyDocument(ctx, policy, { kind: "schedule" }, out.r2);
+
+    const text = spans(out.bytes());
+    expect(text).toContain("جدول الوثيقة");
+    expect(text).toContain("رقم الوثيقة");
+    expect(text).toContain("القسط");
+    expect(text.some((s) => /^صفحة 1 من \d+$/.test(s))).toBe(true);
+    expect(out.bytes()).not.toContain("(Policy schedule)");
+  });
+
+  it("keeps an English customer's schedule exactly as it was", async () => {
+    const policy = await policyWithCover(NOW - YEAR, NOW + YEAR);
+    await customer({ en: "Maryam Al Kaabi", ar: "مريم الكعبي" });
+    const out = bucket();
+
+    await issuePolicyDocument(ctx, policy, { kind: "schedule" }, out.r2);
+
+    expect(out.bytes()).toContain("(Maryam Al Kaabi) Tj");
+    expect(out.bytes()).not.toContain("/Type0");
+  });
+});
+
 describe("policy document — cover dates no Date can hold", () => {
   it("issues the certificate anyway", async () => {
     const policy = await policyWithCover(NOW - YEAR, 9e15);
