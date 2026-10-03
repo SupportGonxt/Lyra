@@ -318,6 +318,53 @@ Three rules, each held by `layoutFindings` in `scripts/sweep-lib.mjs` (run by
 
 Tables default to `compact`; `Stat` figures are `text-22`.
 
+### 4.2 Role adoption (2026-10-03)
+
+`scripts/role-adoption.mjs` signs in as every demo seat after a month of
+activity and walks its docs/06 jobs (its `JOBS` table): is each job within two
+clicks of home, does it open, show data near the top, offer an action. What it
+found, and what each screen now does:
+
+- **Home — "Your jobs"** ([home.tsx](apps/web/app/routes/home.tsx),
+  [jobs.ts](apps/web/app/jobs.ts)). A `<nav>` of chips under the headline (after
+  the decisions block when decisions lead): the union of the seat's roles' jobs
+  from `JOBS_BY_ROLE`, each kept only where the seat holds the permission the
+  target screen gates on and can enter its module shell (`opens()`), so no chip
+  is a door into a 403. Six show; the rest fold into a native `<details>`
+  ("All your jobs (n)"). Labels are home's own `job.<id>` keys; the two
+  insurance nouns come from the domain pack. `jobs.test.ts` holds every path to
+  a real screen and to the spec's permission, every rbac role to a strip or a
+  named `NO_JOBS` reason, every role to opening its own jobs, and every job the
+  adoption script measures to that seat's strip.
+- **Claims desk** — was never empty: it lists every open claim, unassigned
+  included (the probe counts `tbody tr`, the desk is a list). It now counts
+  "Nobody on it" beside the state badges and offers **Take the next unassigned
+  claim** (`intent=take`), assigned to the session's own actor in the action,
+  never to a form value.
+- **Bordereaux** — an empty register said "No bordereaux generated yet." as
+  title *and* body; it now says what empty means and links to the import card
+  (`#bordereau-import`).
+- **Reconciliation** — opens on the newest run when the address names none
+  (`openRun`), instead of "Pick a run" over an empty detail pane.
+- **Report builder** — the starter build above.
+- **Knowledge base** — the `emptyDoor` above.
+- **Save desk** — an empty queue (it fills only once the expiry sweep raises a
+  renewal) links to the AXIS renewal desk for a seat that may open it. The
+  screen read the shell session through `useShellData()`, which answers
+  `undefined` under a module shell, so the domain pack was never applied;
+  `shell-session.guard.test.ts` now fails on that hook anywhere under a module
+  shell layout.
+- **Supervisor wall** — "Nothing has missed a deadline" says how many open
+  conversations the agent holds and links to service quality.
+- **Data products** — the delivery log is drawn only for a reader who may read
+  analytics exports; the provider viewer was told "nothing rendered yet" under
+  every product because its 403 read as an empty list.
+- **Campaign studio** — drafts, then running campaigns, lead the screen
+  ("Pick up where you left off"); they used to sit under the brief's last button.
+- **Settings** — the first field was at 274px, not 764px (that was the
+  notifications list); the account tab still runs 4.4 screens, so each tab with
+  more than one section carries an "On this page" jump list (`sectionsOn`).
+
 ## 5. Interaction conventions
 
 **Navigation.** The rail is the primary; the module band switches workspace; the
@@ -510,6 +557,14 @@ Two route files render all of these:
   one action to the selection, answered per row) and **`import`** (a CSV file
   posted as `{ csv }`, answered with every refused line). Cases declare both
   (AXIS-001, AXIS-007); each action and the import carry their own permission.
+  An empty, unfiltered list teaches one action: **New** for a reader who may
+  create; otherwise the tab's **`emptyDoor`** when it declares one and the
+  reader holds its permission (`emptyDoor()` in spec.ts) — a body sentence and
+  a link to the reader's next move. The knowledge base declares one: a support
+  agent who may not write articles is pointed at the questions the bot passed
+  to a person (`/orbit/deflections?outcome=escalated`).
+  `spec.empty-door.test.ts` holds every door to a real tab whose `read` is the
+  door's permission, worded in en and ar.
 - **Record** — `/:module/:resource/:id` ([record.tsx](apps/web/app/routes/record.tsx)).
   The record's fields, an edit form from `editable ?? fields`, delete when
   `remove` is held, the `recordLink` out to a deeper bespoke screen, and the
@@ -703,6 +758,9 @@ posts `/v1/analytics/reports` and, with `analytics:schedules:write`, optionally 
 daily/weekly/monthly schedule to named recipients. Dataset names are this
 screen's own en/ar labels; measure and split names fall back to the registry's
 English label where no catalogue or pack word exists (ponytail).
+An empty preview with no measure picked offers one starter (`starterDef`): the
+dataset's first measure by month, opened with `run=1` — the reader asked for it
+by pressing it, so the never-run-for-you rule holds.
 
 **Ask in words** (same screen, docs/15 §4.6 + §4.7, ADR-0088). One input posts
 `/v1/analytics/ask`; the answer renders as a dashed ghost line — the compiled
