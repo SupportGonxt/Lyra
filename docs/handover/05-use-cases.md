@@ -124,6 +124,8 @@ one-click button per persona; the password form works too.
 | --- | --- | --- | --- |
 | Amina Saleh | `amina.saleh@gonxt.ae` | `tenant.admin` | `/admin` |
 | Khalid Al Rashed | `khalid.rashed@gonxt.ae` | `tenant.compliance` (locale **ar**) | `/admin` |
+| Ziad Habsi | `ziad.habsi@gonxt.ae` | `tenant.admin` | `/admin` |
+| Asma Qasim | `asma.qasim@gonxt.ae` | `tenant.compliance` | `/admin` |
 | Layla Hassan | `layla.hassan@gonxt.ae` | `axis.agent` | `/axis` |
 | Omar Farouk | `omar.farouk@gonxt.ae` | `axis.lead` | `/axis` |
 | Suhail Hamdan | `suhail.hamdan@gonxt.ae` | `axis.admin` | `/axis` |
@@ -132,7 +134,9 @@ one-click button per persona; the password form works too.
 | Dana Aziz | `dana.aziz@gonxt.ae` | `orbit.partners` | `/orbit` |
 | Hind Saqr | `hind.saqr@gonxt.ae` | `orbit.admin` | `/orbit` |
 | Noor Jamal | `noor.jamal@gonxt.ae` | `signal.lead` | `/signal` |
+| Kareem Shamsi | `kareem.shamsi@gonxt.ae` | `signal.admin` | `/signal` |
 | Tariq Mansour | `tariq.mansour@gonxt.ae` | `scout.lead` | `/scout` |
+| Basma Darwish | `basma.darwish@gonxt.ae` | `scout.admin` | `/scout` |
 | Hala Zayed | `hala.zayed@gonxt.ae` | `north.exec` | `/north` |
 | Rana Hadid | `rana.hadid@gonxt.ae` | `north.analyst` | `/north` |
 | Faisal Omar | `faisal.omar@gonxt.ae` | `finance.controller` | first allowed workspace |

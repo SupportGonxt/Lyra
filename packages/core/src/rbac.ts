@@ -371,7 +371,12 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // Binds the tenant to a partnership. Deliberately not held by
     // `orbit.partners`, who drafts the terms — drafter and signer are two
     // people or the countersignature proves nothing.
-    "dist:agreements:sign"
+    "dist:agreements:sign",
+    // Same signer on a data-product sale: the subscription *is* the contract
+    // that fixes a provider's fee (ADR-0101), and `scout.data_product_subscribe`
+    // is decided on `:publish`, which only scout.admin held — so above the
+    // threshold a SCOUT admin's sale had nobody to countersign it.
+    "scout:data_products:publish"
   ],
   "tenant.compliance": [
     "core:audit:read", "core:audit:export", "core:consents:read", "core:customers:read",

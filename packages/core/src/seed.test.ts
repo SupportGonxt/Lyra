@@ -246,20 +246,31 @@ describe("seed", () => {
    * decider on the demo tenant if it reaches it — which, provisioned before
    * the persona existed, is only through this backfill.
    */
-  it("backfills the axis.admin persona so AXIS gates have a second decider", async () => {
+  it("backfills the second-decider personas, each with its role, and adds nothing twice", async () => {
     const { tenantId } = await seed(db, { password: "gonxt-test-password" });
-    const [suhail] = await db.select().from(schema.users).where(eq(schema.users.email, "suhail.hamdan@gonxt.ae"));
-    await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, suhail!.id));
-    await db.delete(schema.users).where(eq(schema.users.id, suhail!.id));
+    const seats: Record<string, string> = {
+      "ziad.habsi@gonxt.ae": "tenant.admin",
+      "asma.qasim@gonxt.ae": "tenant.compliance",
+      "suhail.hamdan@gonxt.ae": "axis.admin",
+      "kareem.shamsi@gonxt.ae": "signal.admin",
+      "basma.darwish@gonxt.ae": "scout.admin"
+    };
+    for (const email of Object.keys(seats)) {
+      const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email));
+      await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, user!.id));
+      await db.delete(schema.users).where(eq(schema.users.id, user!.id));
+    }
 
-    expect((await ensureSeedPeople(db, tenantId)).created).toEqual(["suhail.hamdan@gonxt.ae"]);
-    const [role] = await db
-      .select({ key: schema.roles.key })
-      .from(schema.users)
-      .innerJoin(schema.userRoles, eq(schema.userRoles.userId, schema.users.id))
-      .innerJoin(schema.roles, eq(schema.roles.id, schema.userRoles.roleId))
-      .where(eq(schema.users.email, "suhail.hamdan@gonxt.ae"));
-    expect(role!.key).toBe("axis.admin");
+    expect((await ensureSeedPeople(db, tenantId)).created.slice().sort()).toEqual(Object.keys(seats).sort());
+    for (const [email, roleKey] of Object.entries(seats)) {
+      const roles = await db
+        .select({ key: schema.roles.key })
+        .from(schema.users)
+        .innerJoin(schema.userRoles, eq(schema.userRoles.userId, schema.users.id))
+        .innerJoin(schema.roles, eq(schema.roles.id, schema.userRoles.roleId))
+        .where(eq(schema.users.email, email));
+      expect(roles.map((r) => r.key), email).toEqual([roleKey]);
+    }
     expect((await ensureSeedPeople(db, tenantId)).created).toEqual([]);
   });
 

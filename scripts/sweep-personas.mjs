@@ -14,7 +14,7 @@
 // 500 is the defect.
 //
 // Per-seat the wall CHECK is off (a wall is the expected answer for a narrow
-// role) and `ok` lines are suppressed: 19 seats x 77 routes is 1463 lines of
+// role) and `ok` lines are suppressed: 23 seats x 77 routes is 1771 lines of
 // nothing. What prints is FAIL, ERR and HIT.
 //
 //   node scripts/sweep-personas.mjs

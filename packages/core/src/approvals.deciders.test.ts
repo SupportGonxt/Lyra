@@ -40,20 +40,8 @@ const ONE_DECIDER: Readonly<Record<string, string>> = {
   "axis.claim_reserve": SPLIT_VERB,
   "axis.claim_payment": SPLIT_VERB,
   "axis.claim_exgratia": SPLIT_VERB,
-  // orbit.partners drafts the agreement and may not countersign it (rbac.ts).
-  "dist.agreement_sign": SPLIT_VERB,
-  // Raised by platform.support (`core:impersonate:use`), decided by the tenant.
-  "core.impersonate": SPLIT_VERB,
-  "core.delegation_grant": SELF_DECIDABLE,
-  "signal.budget_move": SELF_DECIDABLE,
-  "signal.campaign_launch": SELF_DECIDABLE,
-  "signal.creative_publish": SELF_DECIDABLE,
-  "signal.boost": SELF_DECIDABLE,
-  "signal.creator_brief": SELF_DECIDABLE,
-  "signal.outreach_send": SELF_DECIDABLE,
-  "orbit.renewal_offer": SELF_DECIDABLE,
-  "scout.whitespace_promote": SELF_DECIDABLE,
-  "ai.prompt_publish": SELF_DECIDABLE
+  // Only orbit.admin holds `orbit:renewals:approve`; an ORBIT agent tool raises it.
+  "orbit.renewal_offer": SELF_DECIDABLE
 };
 
 const TENANT = "t_guard";

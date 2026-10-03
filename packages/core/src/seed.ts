@@ -100,6 +100,14 @@ const ROLE_NAMES: Record<string, string> = {
 const PEOPLE: ReadonlyArray<{ local: string; name: string; role: string; locale?: string }> = [
   { local: "amina.saleh", name: "Amina Saleh", role: "tenant.admin" },
   { local: "khalid.rashed", name: "Khalid Al Rashed", role: "tenant.compliance", locale: "ar" },
+  // Second seats on gates whose requester holds the deciding verb, all dual
+  // control (approvals.deciders.test.ts): the AI autonomy and budget raises
+  // are tenant.admin's alone by design (rbac.ts), and erasure, legal-hold
+  // release and Shariah certification tenant.compliance's — "a board is by
+  // definition more than one person" (approvals.ts). One holder each meant
+  // none of them could ever clear.
+  { local: "ziad.habsi", name: "Ziad Habsi", role: "tenant.admin" },
+  { local: "asma.qasim", name: "Asma Qasim", role: "tenant.compliance" },
   { local: "layla.hassan", name: "Layla Hassan", role: "axis.agent" },
   { local: "omar.farouk", name: "Omar Farouk", role: "axis.lead" },
   // Omar requests the binds, endorsements and claim settlements, and under
@@ -112,7 +120,13 @@ const PEOPLE: ReadonlyArray<{ local: string; name: string; role: string; locale?
   { local: "dana.aziz", name: "Dana Aziz", role: "orbit.partners" },
   { local: "hind.saqr", name: "Hind Saqr", role: "orbit.admin" },
   { local: "noor.jamal", name: "Noor Jamal", role: "signal.lead" },
+  // A media commitment above threshold is dual control and only a launcher
+  // decides it; with signal.lead the only launcher, Noor's own commit stalled.
+  { local: "kareem.shamsi", name: "Kareem Shamsi", role: "signal.admin" },
   { local: "tariq.mansour", name: "Tariq Mansour", role: "scout.lead" },
+  // Selling a data product needs `scout:data_products:publish` to ask and to
+  // decide, and no seeded persona held it at all.
+  { local: "basma.darwish", name: "Basma Darwish", role: "scout.admin" },
   { local: "hala.zayed", name: "Hala Zayed", role: "north.exec" },
   { local: "rana.hadid", name: "Rana Hadid", role: "north.analyst" },
   { local: "faisal.omar", name: "Faisal Omar", role: "finance.controller" },
