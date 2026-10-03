@@ -21,7 +21,9 @@ import {
   Ref,
   shortRef
 } from "@lyra/ui";
-import { ApiError, api, fetchMe } from "../api.server";
+import { ApiError, api, fetchMe, names } from "../api.server";
+import type { Env } from "../env";
+import { who } from "../names";
 import { FieldInput, toneFor } from "../components/fields";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
@@ -109,6 +111,7 @@ const LABELS: Record<string, Record<string, string>> = {
     results: "What the model proposed",
     startTitle: "Start with a customer",
     startBody: "Give a customer and the model will score every offering they do not already hold.",
+    startFrom: "Start with {name}, the next customer due",
     emptyTitle: "Nothing to offer this customer",
     emptyBody:
       "The model found no offering worth proposing — usually because the customer already holds them, or none is eligible.",
@@ -163,6 +166,7 @@ const LABELS: Record<string, Record<string, string>> = {
     results: "ما اقترحه النموذج",
     startTitle: "ابدأ بعميل",
     startBody: "أدخل عميلًا وسيحتسب النموذج كل عرض لا يملكه بعد.",
+    startFrom: "ابدأ بـ{name}، العميل التالي المستحق",
     emptyTitle: "لا يوجد ما يُعرض على هذا العميل",
     emptyBody:
       "لم يجد النموذج عرضًا يستحق الاقتراح — غالبًا لأن العميل يملكها بالفعل أو لا ينطبق عليه أي منها.",
@@ -233,6 +237,32 @@ export function offerSummary(offers: Pick<Offer, "state">[], maySurface: boolean
 
 /* ------------------------------------------------------------------ loader */
 
+/** The customer whose open renewal comes up soonest: who a retention desk
+ *  would score first. Rows with no customer cannot be scored. */
+export function nextRenewalCustomer(rows: ReadonlyArray<{ customerId: string | null; expiryAt: number | null }>): string | null {
+  const due = rows
+    .filter((row): row is { customerId: string; expiryAt: number | null } => Boolean(row.customerId))
+    .sort((a, b) => (a.expiryAt ?? Infinity) - (b.expiryAt ?? Infinity));
+  return due[0]?.customerId ?? null;
+}
+
+/**
+ * Where an empty screen starts: the soonest open renewal's customer, for a
+ * seat that may read renewals. Best-effort — a refused or failed read means
+ * no suggestion, never a broken screen.
+ */
+async function firstCustomer(env: Env, request: Request): Promise<{ customerId: string; name: string } | null> {
+  const query = new URLSearchParams({ state: "scheduled,offered", sort: "expiryAt", order: "asc", limit: "20" });
+  const page = await api<{ data: Array<{ customerId: string | null; expiryAt: number | null }> }>(
+    `/v1/orbit/renewals?${query.toString()}`,
+    { env, request }
+  ).catch(() => null);
+  const customerId = nextRenewalCustomer(page?.data ?? []);
+  if (!customerId) return null;
+  const named = await names([customerId], { env, request });
+  return { customerId, name: who(customerId, named) ?? customerId };
+}
+
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
   const customerId = new URL(request.url).searchParams.get("customerId")?.trim() ?? "";
@@ -244,15 +274,16 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     propose: held.has(PERM.propose),
     surface: held.has(PERM.surface)
   };
-  if (!may.read || !customerId) return { may, customerId, offers: null };
+  if (!may.read) return { may, customerId, offers: null, start: null };
+  if (!customerId) return { may, customerId, offers: null, start: await firstCustomer(env, request) };
 
   const query = new URLSearchParams({ customerId, sort: "score", order: "desc", limit: "20" });
   try {
     const page = await api<Page>(`/v1/dist/next-best-offers?${query.toString()}`, { env, request });
-    return { may, customerId, offers: page.data };
+    return { may, customerId, offers: page.data, start: null };
   } catch (error) {
     if (error instanceof ApiError && error.status === 403) {
-      return { may: { ...may, read: false }, customerId, offers: null };
+      return { may: { ...may, read: false }, customerId, offers: null, start: null };
     }
     throw error;
   }
@@ -370,7 +401,21 @@ export default function NextBestOffers() {
           ) : null}
 
           {offers === null ? (
-            <EmptyState title={l("startTitle")} body={l("startBody")} />
+            <EmptyState
+              title={l("startTitle")}
+              body={l("startBody")}
+              {...(loaded.start
+                ? {
+                    action: (
+                      <Button asChild variant="secondary" size="sm">
+                        <Link to={`?customerId=${encodeURIComponent(loaded.start.customerId)}`}>
+                          {l("startFrom", { name: loaded.start.name })}
+                        </Link>
+                      </Button>
+                    )
+                  }
+                : {})}
+            />
           ) : offers.length === 0 ? (
             <EmptyState title={l("emptyTitle")} body={l("emptyBody")} />
           ) : (
