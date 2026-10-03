@@ -814,14 +814,14 @@ anything.
 - Duration is rendered as `{n} ms` with a hard-coded space and the literal "ms".
   In Arabic this reads as a Latin unit glued to Arabic-context digits — it needs
   a translated unit or a locale-aware duration format.
-- **PDF export refuses non-Latin text.** The PDF writer is base-14 Helvetica with
-  WinAnsi encoding; it rejects any table containing characters outside Latin-1
-  with the message "this report contains non-Latin text the PDF fonts cannot
-  render; export it as xlsx". **An Arabic-locale tenant can therefore never export
-  a PDF containing Arabic data.** The Format select offers PDF anyway, and the
-  refusal only appears after the click, as a red problem box. The design must
-  either mark PDF unavailable for Arabic content up front or explain the
-  constraint beside the select.
+- **PDF export refuses text no embedded font covers.** The PDF writer draws
+  Latin-1 in base-14 Helvetica and, since ADR-0114, Arabic in an embedded Noto
+  Naskh Arabic subset (shaped, bidi-reordered). It still rejects a table with
+  any other script — CJK, Hebrew, a Latin letter outside Latin-1 — with the
+  message "this report contains non-Latin text the PDF fonts cannot render;
+  export it as xlsx". Arabic data now exports. The Format select still offers
+  PDF for those other scripts, and the refusal only appears after the click, as
+  a red problem box.
 
 **What is weak today.**
 1. `north.analyst` — the role this screen was built for — cannot open it.
@@ -1645,9 +1645,11 @@ columns will not sort as dates in Excel. Sheet names are stripped of `: \ / ? * 
 and truncated to 31 characters.
 
 **PDF.** Base-14 Helvetica, WinAnsi encoding, portrait or landscape (landscape is
-the default). Supports a diagonal watermark. **Refuses any table containing
-non-Latin-1 characters** with the message "this report contains non-Latin text the
-PDF fonts cannot render; export it as xlsx". A smart-quote and currency-symbol
+the default), plus an embedded Arabic face for Arabic text (ADR-0114). Supports
+a diagonal watermark. **Refuses any table containing text neither font covers**
+with the message "this report contains non-Latin text the PDF fonts cannot
+render; export it as xlsx". With a browser binding, Arabic reports still go
+through the browser, which lays the whole table out right to left. A smart-quote and currency-symbol
 transliteration pass runs first so a plain English report is never refused over
 typography.
 

@@ -321,8 +321,9 @@ Accounts past the 200th lose their link (a marked shortcut in the code).
 carry the current parameters. No progress state, no job queue — the browser
 downloads. Money cells in the export are `kind: "money"`; the currency goes into
 the column label or its own column, never inside the number. **PDF is offered for
-every report and the API returns 400 on non-Latin text** — an Arabic tenant
-clicking `pdf` gets a failed download with no explanation. Design a fix.
+every report and the API returns 400 on text no embedded font covers** — Latin-1
+and Arabic render (ADR-0114), so an Arabic tenant's report now downloads; a CJK
+or Hebrew value still gets a failed download with no explanation. Design a fix.
 
 **States.**
 - *Loading*: React Router navigation state; the Apply button shows `loading`.
