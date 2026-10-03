@@ -83,12 +83,13 @@ written premium) and an unpaid month (no premium in) both span the width. When
 net is zero and premium was written, the headline names the written figure and
 what is still due on it rather than "net: 0" over a month of real business.
 
-*Known gap (finding, not fixed):* `clientMoneyReceipt` clears 1200 only when
-its caller passes `clearsReceivableAccount`, and no production caller does —
-the premium-financing instalment engine posts PREM-INSTALMENT without it. Until
-a payment path passes it, a receipt for bound premium lands on premium in but
-not on `premium-collected`, so `premium-due` reads what 1200 itself still says
-is owed, which is the same figure the receivable aging report shows.
+Every premium receipt (the generic `POST /v1/ledger/txn/…` endpoint and the
+premium-financing instalment engine) is built by `premiumReceiptLines`, which
+clears whatever the bind left open on 1200 for the item the receipt names
+(ADR-0114). So a paid policy lands on `premium-collected` and leaves
+`premium-due`; before that, no payment path cleared 1200 and every bound premium
+read as still due. Cancellation does not yet credit 1200 for an unpaid portion
+(ADR-0114, "Not decided here"); a reversed bind does.
 
 ### 1.3 Transaction Detail — **Built**
 - Left: state-machine timeline (initiated → … → settled) with timestamps, actor

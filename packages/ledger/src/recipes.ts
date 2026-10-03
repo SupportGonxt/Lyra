@@ -212,6 +212,19 @@ const ClientMoneyArgs = z.object({
    * same premium, and the insurer payable reclassifies to a client-money one.
    */
   clearsReceivableAccount: z.string().optional(),
+  /**
+   * How much of the receivable this cash clears; defaults to all of it. Set by
+   * `premiumReceiptLines` from what is actually open for the item, so an
+   * overpayment or a receipt against a part-paid policy never drives 1200
+   * below zero. The rest of the cash is held as plain client money.
+   */
+  clearsReceivableMinor: NonNeg.optional(),
+  /**
+   * The receivable's own dims (`item`, `counterparty`, …) for the 1200 and 2000
+   * legs, so the open-item aging nets the bind's legs against these rather than
+   * opening a second, unrelated item.
+   */
+  receivableDims: Dims,
   insurerPayableAccount: z.string().default("2000"),
   memo: Memo,
   dims: Dims
@@ -233,16 +246,21 @@ const ClientMoneyArgs = z.object({
  * here and none can be — the money is not ours until CM-TRANSFER moves it.
  */
 export function clientMoneyReceipt(a: z.input<typeof ClientMoneyArgs>): PostingLine[] {
-  if (!a.clearsReceivableAccount) {
+  const cleared = a.clearsReceivableAccount ? (a.clearsReceivableMinor ?? a.amountMinor) : 0;
+  if (cleared > a.amountMinor) {
+    throw badRequest(`receivable cleared ${cleared} exceeds the ${a.amountMinor} received`);
+  }
+  if (!a.clearsReceivableAccount || cleared === 0) {
     return lines(
       line("1010", "debit", a.amountMinor, a.memo ?? "premium received", a.dims),
       line("2010", "credit", a.amountMinor, a.memo ?? "held for insurer", a.dims)
     );
   }
+  const owed = a.receivableDims ?? a.dims;
   return lines(
     line("1010", "debit", a.amountMinor, a.memo ?? "premium received", a.dims),
-    line(a.clearsReceivableAccount, "credit", a.amountMinor, "premium receivable cleared", a.dims),
-    line(a.insurerPayableAccount ?? INSURER_PAYABLE, "debit", a.amountMinor, "insurer payable reclassified", a.dims),
+    line(a.clearsReceivableAccount, "credit", cleared, "premium receivable cleared", owed),
+    line(a.insurerPayableAccount ?? INSURER_PAYABLE, "debit", cleared, "insurer payable reclassified", owed),
     line("2010", "credit", a.amountMinor, a.memo ?? "held for insurer", a.dims)
   );
 }
@@ -977,13 +995,17 @@ function memberOptions(field: z.ZodType): string[] | null {
     : null;
 }
 
+const BUILDER_OWNED = new Set(["clearsReceivableAccount", "clearsReceivableMinor", "receivableDims"]);
+
 export function argFields(code: string): ArgField[] {
   const s = RECIPES[code];
   if (!s) return [];
   const shape = (s.schema as unknown as { shape: Record<string, z.ZodType> }).shape;
   return Object.entries(shape).flatMap(([name, field]) => {
     // Dimensions are free-form analysis tags, not a question with an answer.
-    if (name === "dims") return [];
+    // The receipt's clearing arguments are the ledger's answer, not the
+    // actor's: premiumReceiptLines sets them from what is open (ADR-0114).
+    if (name === "dims" || BUILDER_OWNED.has(name)) return [];
     const blank = field.safeParse(undefined);
     const options = memberOptions(field);
     const declared = s.defaults?.[name] ?? (blank.success ? blank.data : undefined);

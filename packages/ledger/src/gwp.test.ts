@@ -104,3 +104,45 @@ describe("collecting the premium clears the receivable, it does not duplicate it
     }
   });
 });
+
+describe("a receipt clears only as much receivable as is open", () => {
+  // An instalment, or an overpayment, is not the whole debt. The resolver
+  // (premium-receipt.ts) says how much of 1200 is open for this item; the
+  // recipe clears that much and holds the rest as plain client money.
+  it("clears a partial amount and still balances", () => {
+    const ls = clientMoneyReceipt({ amountMinor: 10_000, clearsReceivableAccount: "1200", clearsReceivableMinor: 6_000 });
+    expect(sum(ls, "debit", "1010")).toBe(10_000);
+    expect(sum(ls, "credit", "1200")).toBe(6_000);
+    expect(sum(ls, "debit", "2000")).toBe(6_000);
+    expect(sum(ls, "credit", "2010")).toBe(10_000);
+    expect(balanced(ls)).toBe(true);
+  });
+
+  it("puts the receivable's own dims on the legs that net its open items", () => {
+    const item = { item: "policy:p1", counterparty: "provider:x" };
+    const ls = clientMoneyReceipt({
+      amountMinor: 10_000,
+      clearsReceivableAccount: "1200",
+      receivableDims: item,
+      dims: { policy: "p1" }
+    });
+    expect(ls.find((l) => l.accountCode === "1200")?.dims).toEqual(item);
+    expect(ls.find((l) => l.accountCode === "2000")?.dims).toEqual(item);
+    expect(ls.find((l) => l.accountCode === "1010")?.dims).toEqual({ policy: "p1" });
+  });
+
+  it("refuses to clear more receivable than the cash that arrived", () => {
+    let detail = "";
+    try {
+      buildRecipe("PREM-COLLECT", { amountMinor: 10_000, clearsReceivableAccount: "1200", clearsReceivableMinor: 10_001 });
+    } catch (e) {
+      detail = (e as { detail?: string }).detail ?? String(e);
+    }
+    expect(detail).toMatch(/exceeds/);
+  });
+
+  it("is the plain pair when nothing is open to clear", () => {
+    const ls = clientMoneyReceipt({ amountMinor: 10_000, clearsReceivableAccount: "1200", clearsReceivableMinor: 0 });
+    expect(ls.map((l) => l.accountCode)).toEqual(["1010", "2010"]);
+  });
+});

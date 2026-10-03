@@ -1193,10 +1193,10 @@ describe("recipe argument fields", () => {
     const fields = argFields("CM-RECEIPT");
     expect(fields).toEqual([
       { name: "amountMinor", kind: "integer", required: true },
-      // docs/27 F14: a receipt may clear the premium receivable a bind booked,
-      // and name the insurer payable it reclassifies. Both optional — a
-      // commission-only tenant books neither.
-      { name: "clearsReceivableAccount", kind: "text", required: false },
+      // docs/27 F14: a receipt may name the insurer payable it reclassifies.
+      // Whether and how much it clears of the premium receivable is not a
+      // question for the form: premiumReceiptLines reads it off the ledger
+      // (ADR-0114), and discards whatever a caller sends.
       { name: "insurerPayableAccount", kind: "text", required: false, default: "2000" },
       { name: "memo", kind: "text", required: false }
     ]);

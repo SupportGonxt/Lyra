@@ -2,6 +2,7 @@ import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { schema } from "@lyra/db";
 import { notFound, tenantChart, type Ctx } from "@lyra/core";
 import type { Side } from "./posting.js";
+import { PREMIUM_RECEIPT_TYPES } from "./premium-receipt.js";
 
 // docs/22 §1.2 — the Money Map. "Sankey of value flow for a period: premium in
 // -> insurer remittance -> commission retained -> partner share -> tax -> net.
@@ -79,7 +80,7 @@ export interface MoneyMap {
  * the transactions whose 1200 *credit* is a cancellation.
  */
 const WRITTEN_TYPES = ["BIND", "BIND-GROUP", "RENEW", "REINSTATE", "PARTNER-BIND", "AGENT-BIND"];
-const RECEIPT_TYPES = ["CM-RECEIPT", "PREM-COLLECT", "PREM-INSTALMENT"];
+const RECEIPT_TYPES: string[] = [...PREMIUM_RECEIPT_TYPES];
 const PREMIUM_RECEIVABLE = "1200";
 
 function sourcedNodes(incomeAccounts: string[]): { key: string; drill: MoneyMapDrill }[] {
@@ -93,7 +94,7 @@ function sourcedNodes(incomeAccounts: string[]): { key: string; drill: MoneyMapD
       drill: { accountCodes: [PREMIUM_RECEIVABLE], side: "credit", txnTypes: WRITTEN_TYPES }
     },
     {
-      // Only a receipt that clears the receivable (`clearsReceivableAccount`)
+      // Only a receipt that clears the receivable (premium-receipt.ts)
       // credits 1200; a cash-basis receipt is premium in but was never written.
       key: "premium-collected",
       drill: { accountCodes: [PREMIUM_RECEIVABLE], side: "credit", txnTypes: RECEIPT_TYPES }

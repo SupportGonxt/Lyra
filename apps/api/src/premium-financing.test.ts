@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, id as newId, schema } from "@lyra/db";
 import { notFound, pendingOutbox, type Ctx } from "@lyra/core";
 import { seedTestChart } from "@lyra/ledger/test-chart";
+import { agedOpenItems, buildRecipe, runTxn } from "@lyra/ledger";
 import {
   cancelPlan,
   createPlan,
@@ -660,6 +661,48 @@ describe("payInstalment", () => {
     const after = await reread(ctx, plan.id);
     expect(JSON.parse(after.scheduleJson).map((r: { state: string }) => r.state)).toEqual(["paid", "paid"]);
     expect(after.state).toBe("completed");
+  });
+
+  // docs/27 F14 follow-up: the instalments are the customer paying the premium
+  // the bind booked on 1200, so once the plan is paid the receivable is square.
+  // Before, PREM-INSTALMENT posted Dr 1010 / Cr 2010 and left 1200 open for ever.
+  it("clears the premium receivable the bind booked, instalment by instalment", async () => {
+    const { ctx, policy } = await seedTenantAndPolicy({ currency: "AED" });
+    const item = `policy:${policy.id}`;
+    await runTxn(
+      ctx,
+      { type: "PARTNER-BIND", idempotencyKey: `test.bind:${policy.id}`, currency: "AED", grossMinor: 20_000 },
+      {
+        recipe: {
+          // PARTNER-BIND: the same bindPosting as BIND, without BIND's
+          // approval gate, which is not what this test is about.
+          lines: buildRecipe("PARTNER-BIND", {
+            gwpMinor: 20_000,
+            grossMinor: 2_000,
+            dims: { item, dueAt: ctx.now, policy: policy.id, counterparty: "provider:prov_test" }
+          }),
+          currency: "AED"
+        }
+      }
+    );
+    const open = async () => {
+      const rows = await ctx.db
+        .select()
+        .from(schema.ledgerJournalLines)
+        .where(eq(schema.ledgerJournalLines.accountCode, "1200"));
+      return rows.reduce((s, r) => s + (r.side === "debit" ? r.amountMinor : -r.amountMinor), 0);
+    };
+    expect(await open()).toBe(20_000);
+
+    const { plan } = await createPlan(ctx, policy, {
+      totalMinor: 20_000, currency: "AED", instalments: 2,
+      startAt: ctx.now - 30 * DAY, frequencyDays: 30, commissionMinor: 2_000
+    });
+    await payInstalment(ctx, plan, ctx.now);
+
+    expect(await open()).toBe(0);
+    const aged = await agedOpenItems(ctx, { accountCodes: ["1200"] });
+    expect(aged).toEqual([]);
   });
 
   it('collects a legacy-shaped schedule row (state "due", prefixed subjectRef)', async () => {
