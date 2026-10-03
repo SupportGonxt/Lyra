@@ -1,6 +1,7 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { phoneJobsFor, type PhoneJob } from "../../src/jobs";
 import { entriesFor, type NavEntry } from "../../src/nav";
 import { useSession } from "../../src/session";
 import { RADIUS, SPACE, TEXT, TOUCH_TARGET } from "../../src/theme";
@@ -22,6 +23,9 @@ export default function More() {
   if (session.status !== "signedIn" || !me) return <Redirect href="/login" />;
 
   const entries = entriesFor(me.nav);
+  // The same role -> jobs table the web home draws (@lyra/core/jobs), kept to
+  // the jobs this app has a screen for (src/jobs.ts).
+  const jobs = phoneJobsFor(me);
 
   return (
     <ScrollView
@@ -51,6 +55,26 @@ export default function More() {
         )}
         {me.profile ? <Muted chrome={chrome}>{t("home.signedInAs", { name: me.profile.name })}</Muted> : null}
       </View>
+
+      {jobs.length ? (
+        <View style={{ gap: SPACE.md }}>
+          <Text
+            accessibilityRole="header"
+            style={textOf(chrome, {
+              color: theme.muted,
+              fontSize: TEXT.s13,
+              fontWeight: "600",
+              letterSpacing: 0.5,
+              textTransform: "uppercase"
+            })}
+          >
+            {t("home.jobs")}
+          </Text>
+          {jobs.map((job) => (
+            <JobRow key={job.route} chrome={chrome} job={job} onPress={() => router.push(job.route)} />
+          ))}
+        </View>
+      ) : null}
 
       <View style={{ gap: SPACE.md }}>
         <Text
@@ -143,6 +167,30 @@ function NavRow({
           {chrome.t("nav.unavailable")}
         </Text>
       )}
+    </Pressable>
+  );
+}
+
+/** One job: a link with its words visible, the same touch target as a nav row. */
+function JobRow({ chrome, job, onPress }: { chrome: Chrome; job: PhoneJob; onPress: () => void }) {
+  const label = chrome.t(job.labelKey);
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minHeight: TOUCH_TARGET,
+        justifyContent: "center",
+        paddingHorizontal: SPACE.lg,
+        paddingVertical: SPACE.md,
+        borderRadius: RADIUS.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: chrome.theme.border,
+        backgroundColor: pressed ? chrome.theme.surfaceRaised : chrome.theme.surface
+      })}
+    >
+      <Text style={textOf(chrome, { color: chrome.theme.text, fontSize: TEXT.s16, fontWeight: "600" })}>{label}</Text>
     </Pressable>
   );
 }

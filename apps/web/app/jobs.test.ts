@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { RouteConfigEntry } from "@react-router/dev/routes";
 import { ROLES, TENANT_ROLE_KEYS, expand, isInternalRole, isKnownPermission } from "@lyra/core/rbac";
 import routes from "./routes";
-import { JOB, JOBS_BY_ROLE, NO_JOBS, jobsFor, type Job } from "./jobs";
+import { JOB, jobsFor, type Job } from "./jobs";
 import { WORKSPACES, workspaceFor } from "./modules/index";
 import { tabOf } from "./modules/spec";
 import { availableShellsForRoles } from "./routing";
@@ -80,32 +80,8 @@ describe("every job opens a real screen", () => {
   });
 });
 
-/* ------------------------------------------------- who the table speaks for */
-
-describe("every role is decided", () => {
-  const roles = Object.keys(ROLES);
-
-  it("puts every rbac role in JOBS_BY_ROLE or NO_JOBS, never both, never neither", () => {
-    const neither = roles.filter((role) => !(role in JOBS_BY_ROLE) && !(role in NO_JOBS));
-    const both = roles.filter((role) => role in JOBS_BY_ROLE && role in NO_JOBS);
-    expect(neither, "a role nobody decided a strip for").toEqual([]);
-    expect(both).toEqual([]);
-  });
-
-  it("names no role rbac does not have", () => {
-    const stale = [...Object.keys(JOBS_BY_ROLE), ...Object.keys(NO_JOBS)].filter((role) => !(role in ROLES));
-    expect(stale).toEqual([]);
-  });
-
-  for (const [role, jobs] of Object.entries(JOBS_BY_ROLE)) {
-    it(`${role} can open every one of its own jobs`, () => {
-      const shown = jobsFor([role], expand(ROLES[role] ?? []), availableShellsForRoles([role]));
-      const hidden = jobs.filter((one) => !shown.includes(one)).map((one) => one.path);
-      expect(hidden, `${role} would be shown a door into a 403 — or none at all`).toEqual([]);
-      expect(jobs.length).toBeGreaterThan(0);
-    });
-  }
-});
+// Every rbac role decided, and every role opening its own jobs, are the
+// table's own business: packages/core/src/jobs.test.ts.
 
 /* ------------------------------------------------------- what home will say */
 
@@ -186,33 +162,5 @@ describe("the adoption script measures what home offers", () => {
       }
     }
     expect(off).toEqual([]);
-  });
-});
-
-/* ------------------------------------------------------------ the selection */
-
-describe("jobsFor", () => {
-  const a = { id: "a", path: "/approvals", permission: null };
-
-  it("keeps table order and lists a path shared by two roles once", () => {
-    const shown = jobsFor(["finance.controller", "tenant.admin"], expand(["*:*:*"]), ["axis"]);
-    expect(shown[0]).toEqual(JOB.approvals);
-    expect(shown.filter((one) => one.path === a.path)).toHaveLength(1);
-  });
-
-  it("drops a job whose permission the seat does not hold", () => {
-    const shown = jobsFor(["dev.admin"], ["core:webhooks:read"], []);
-    expect(shown.map((one) => one.path)).toEqual(["/admin/webhook-deliveries"]);
-  });
-
-  it("drops a job inside a module shell the seat cannot enter", () => {
-    // north.exec holds axis:metrics:read but must stay out of /axis/*.
-    const shown = jobsFor(["axis.lead"], expand(ROLES["axis.lead"] ?? []), ["north"]);
-    expect(shown.some((one) => one.path.startsWith("/axis/"))).toBe(false);
-    expect(shown.map((one) => one.path)).toContain("/distribution/quote-requests");
-  });
-
-  it("offers nothing to a seat with no role in the table", () => {
-    expect(jobsFor(["customer"], [], ["settings"])).toEqual([]);
   });
 });
