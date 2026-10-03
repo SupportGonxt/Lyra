@@ -121,7 +121,8 @@ const SERIF_HEROES: Record<string, string> = {
   "routes/portal.$tenantSlug.register.tsx": "the public portal hero",
   "components/shift-clear.tsx": "the shift-cleared hero",
   "ui/src/horizon.tsx": "Lede, the Horizon lede voice",
-  "ui/src/sections/text-section.tsx": "the design pull's lede"
+  "ui/src/sections/text-section.tsx": "the design pull's lede",
+  "ui/src/sections/hero.tsx": "the Hero's title: Lede's voice, set as the page h1"
 };
 
 describe("type roles", () => {
