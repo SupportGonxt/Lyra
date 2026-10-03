@@ -25,6 +25,11 @@ KSA (PDPL/SAMA) and Egypt (151/2020, FRA).
   anchors stored to R2 EXPORTS for tamper evidence.
 - Vulnerability management: dep audit weekly; image scanning; responsible-
   disclosure page; pen test before GA and annually.
+  Advisories with no patched release are ignored in `pnpm.auditConfig`
+  only when no production tree (api, web, workers) reaches them, each
+  re-checked when a patch ships: GHSA-86w9-cpqp-85rv (node-forge) and
+  GHSA-vfj7-8cjw-p6xm (braces), both reached only through Expo's developer
+  CLI under apps/mobile (2026-10-03).
 
 ## 2. Privacy engineering (PDPL-aligned)
 

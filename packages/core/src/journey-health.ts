@@ -27,7 +27,10 @@ export const JOURNEY_FUNNELS: readonly JourneyFunnel[] = [
     { key: "lead", actions: ["dist.quote_requests.create"] },
     { key: "offers", actions: ["dist.quote_request.shop"] },
     { key: "accepted", actions: ["dist.quote_requests.accept", "dist.quote_response.select"] },
-    { key: "issued", actions: ["axis.policy.bind", "axis.policy.document_issued"] }
+    { key: "issued", actions: ["axis.policy.bind"] },
+    // The schedule reaching the customer is its own step: summed with the
+    // bind it counted one policy twice (930 "issued" from 510 binds).
+    { key: "delivered", actions: ["axis.policy.document_issued"] }
   ] },
   { id: "J-C2", persona: "customer", steps: [
     { key: "asked", actions: ["orbit.conversation.signal"] },

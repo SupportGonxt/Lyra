@@ -282,6 +282,27 @@ describe("AXIS bind (docs/27 F4)", () => {
     expect(res.body.errors).toHaveProperty("customerId");
   });
 
+  // Found by the role-adoption simulation: a customer who gave only an Arabic
+  // name got a policy and no schedule (the renderer draws Latin only), and the
+  // failure was an audit hash nobody reads. It must reach the ops exceptions
+  // queue as a blocked task that names the policy and says why.
+  it("a schedule the renderer refuses becomes a blocked task in the exceptions queue", async () => {
+    const original = (await database.select().from(schema.customers).where(eq(schema.customers.id, customerId)))[0]!;
+    await database.update(schema.customers).set({ nameJson: JSON.stringify({ ar: "مريم الكعبي" }) }).where(eq(schema.customers.id, customerId));
+    try {
+      const { responseId } = await selectedQuote();
+      const start = Date.now();
+      const out = ok(await call("POST", `/v1/axis/quote-responses/${responseId}/bind`, { policyNo: "POL-BIND-AR", startAt: start, endAt: start + 365 * DAY }), 201);
+      const tasks = await database.select().from(schema.axisTasks).where(eq(schema.axisTasks.type, "policy_document"));
+      const task = tasks.find((t) => JSON.parse(t.checklistJson ?? "{}").policyId === out.policy.id);
+      expect(task?.state).toBe("blocked");
+      expect(JSON.parse(task!.checklistJson!)).toMatchObject({ policyNo: "POL-BIND-AR", kind: "schedule" });
+      expect(JSON.parse(task!.checklistJson!).reason).toMatch(/cannot draw/);
+    } finally {
+      await database.update(schema.customers).set({ nameJson: original.nameJson }).where(eq(schema.customers.id, customerId));
+    }
+  });
+
   it("refuses to bind twice from the same response", async () => {
     const { responseId } = await selectedQuote();
     const start = Date.now();
