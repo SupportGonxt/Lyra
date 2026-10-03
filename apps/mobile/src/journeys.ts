@@ -127,6 +127,44 @@ export function bps(value: number | null): string | null {
 
 /** Today in the API's date form (YYYY-MM-DD), in the device's own timezone —
  *  an executive asking for "today" means their today, not UTC's. */
+/**
+ * Today as a UTC day. The nightly brief is written at 02:00Z dated that UTC
+ * day (ADR-0114), so its date is compared with this, not the phone's local day.
+ */
+export function todayUtc(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Whole days from a brief's date to `today` (both YYYY-MM-DD). Same rule as
+ * the web brief's `briefAge` (apps/web/app/routes/north-brief.tsx). Null when
+ * either date cannot be read.
+ */
+export function briefAge(date: string, today: string): number | null {
+  const from = ISO_DAY.test(date) ? Date.parse(`${date}T00:00:00Z`) : NaN;
+  const to = ISO_DAY.test(today) ? Date.parse(`${today}T00:00:00Z`) : NaN;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return Math.round((to - from) / 86_400_000);
+}
+
+/**
+ * J-E1 "the 7am read": what the line under a brief says. Its date; whether a
+ * model wrote it (only then does it carry ✦, docs/15 — a `template` brief was
+ * written with no model, ADR-0114; a row with no `generatedBy` predates the
+ * template and is the narrator's); and how many days old it is when that is
+ * more than one, else null.
+ */
+export function briefProvenance(
+  brief: Record<string, unknown>,
+  today: string
+): { date: string; byModel: boolean; staleDays: number | null } {
+  const date = typeof brief["date"] === "string" ? brief["date"] : "";
+  const age = briefAge(date, today);
+  return { date, byModel: brief["generatedBy"] !== "template", staleDays: age !== null && age > 1 ? age : null };
+}
+
 export function todayIso(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;

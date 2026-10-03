@@ -113,6 +113,10 @@ export const en = {
   "brief.takeOn": "Take it on",
   "brief.taken": "Recorded as yours.",
   "brief.recent": "Earlier briefs",
+  "brief.dated": "Dated {date}",
+  "brief.stale": "This brief is dated {date}, {days} days ago. It is not today's brief.",
+  "brief.byModel": "✦ Narrated by Insight from the live ledger",
+  "brief.byTemplate": "Composed from the closed snapshots by a fixed template. No model wrote this.",
 
   "approvals.title": "Waiting on you",
   "approvals.empty": "Nothing is waiting on your decision.",
@@ -392,6 +396,10 @@ export const ar: Messages = {
   "brief.takeOn": "تولّها",
   "brief.taken": "سُجّلت باسمك.",
   "brief.recent": "موجزات سابقة",
+  "brief.dated": "بتاريخ {date}",
+  "brief.stale": "هذه الإحاطة مؤرخة في {date}، وليست إحاطة اليوم. الأيام المنقضية منذ ذلك: {days}.",
+  "brief.byModel": "✦ صياغة التحليلات التنفيذية من السجل الحي",
+  "brief.byTemplate": "صيغت من اللقطات المغلقة بقالب ثابت. لم يكتب هذه الإحاطة أي نموذج.",
 
   "approvals.title": "بانتظار قرارك",
   "approvals.empty": "لا شيء ينتظر قرارك.",
