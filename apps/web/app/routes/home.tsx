@@ -34,6 +34,8 @@ import { cloudflare } from "../context";
 import { DEFAULT_LOCALE, moduleName, pseudoText, translator } from "../i18n";
 import { humanise, optionLabel, titleText } from "../modules/spec";
 import { labelKeyFor } from "../routing";
+import { jobsFor, type Job } from "../jobs";
+import { vocabulary } from "../modules/vocabulary";
 import { policyTitle } from "./approvals";
 import { useShellData } from "./workspace";
 
@@ -57,7 +59,7 @@ import { useShellData } from "./workspace";
  * only exists once has no business growing them. Generic words (nav labels,
  * "Search") still come from the shared catalogue via `translator`.
  */
-const LABELS: Record<string, Record<string, string>> = {
+export const LABELS: Record<string, Record<string, string>> = {
   en: {
     greeting: "Welcome back, {name}",
     "greeting.anon": "Welcome back",
@@ -146,6 +148,72 @@ const LABELS: Record<string, Record<string, string>> = {
     "empty.body":
       "No decisions, no unread notifications. Open a workspace to pick up work.",
     "empty.action": "Open a workspace",
+
+    // The "your jobs" strip (app/jobs.ts). `{claims}` and `{renewals}` are
+    // domain-pack nouns: the tenant's pack names them, these are the fallback.
+    "jobs.title": "Your jobs",
+    "jobs.more": "All your jobs ({count})",
+    "noun.claims": "claims",
+    "noun.renewals": "renewals",
+    "job.approvals": "Decide what is waiting on you",
+    "job.center": "Run the business from the command center",
+    "job.staff": "Invite a teammate and give them a role",
+    "job.aiConsole": "Pause or inspect the AI agents",
+    "job.settings": "Set brand and tenant policy",
+    "job.auditLog": "Answer a regulator from the audit log",
+    "job.screenings": "Clear screening hits",
+    "job.dsar": "Handle a privacy request",
+    "job.exceptions": "Clear the exceptions queue",
+    "job.claimsDesk": "Work the {claims} desk",
+    "job.claimsNew": "Register new {claims}",
+    "job.cases": "Work my cases",
+    "job.quoteRequests": "Compare quotes and pick one",
+    "job.bordereaux": "Reconcile the month's provider statements",
+    "job.axisAnalytics": "See how operations performed",
+    "job.processMap": "Find where work gets stuck",
+    "job.axisAdmin": "Set operating procedures",
+    "job.renewals": "Work the {renewals} desk",
+    "job.developer": "Get a test key and make a first call",
+    "job.apiKeys": "Manage API keys",
+    "job.webhooks": "Check webhook deliveries",
+    "job.moneyMap": "See where the money sits",
+    "job.statement": "Read a channel's commission statement",
+    "job.pnl": "Read the month's profit and loss",
+    "job.periodClose": "Close the month",
+    "job.settlement": "Run and approve settlements",
+    "job.journal": "Post a manual journal",
+    "job.recon": "Reconcile the bank",
+    "job.explorer": "Explore any metric",
+    "job.anomalies": "Investigate anomalies",
+    "job.journeys": "Check journey health",
+    "job.builder": "Build a report",
+    "job.brief": "Read the morning brief",
+    "job.board": "Prepare the board pack",
+    "job.whatif": "Ask a what-if",
+    "job.decisions": "Track decisions",
+    "job.northAdmin": "Configure metrics and alerts",
+    "job.connectors": "Connect a channel",
+    "job.routing": "Set routing rules",
+    "job.quality": "Review service quality",
+    "job.supervisor": "Supervise live queues",
+    "job.console": "Catch a handover and resolve it",
+    "job.conversations": "Work my conversations",
+    "job.kb": "Find an answer in the knowledge base",
+    "job.partners": "Manage partners",
+    "job.pipeline": "Work the partner pipeline",
+    "job.channels": "See channel performance",
+    "job.save": "Work the save desk",
+    "job.offers": "Propose a next-best offer",
+    "job.dataProducts": "Read the data products you bought",
+    "job.radar": "Review the whitespace radar",
+    "job.panel": "Prepare a panel negotiation",
+    "job.scoutExperiments": "Run a product experiment",
+    "job.scoutAdmin": "Tune market signals",
+    "job.cockpit": "See acquisition cost by channel",
+    "job.budget": "Approve this morning's budget moves",
+    "job.studio": "Make campaign variants",
+    "job.answerEngines": "Own the answer box",
+    "job.signalAdmin": "Set marketing guardrails",
   },
   ar: {
     greeting: "أهلًا بعودتك، {name}",
@@ -226,6 +294,70 @@ const LABELS: Record<string, Record<string, string>> = {
     "empty.body":
       "لا قرارات ولا إشعارات غير مقروءة. افتح إحدى مساحات العمل لبدء العمل.",
     "empty.action": "افتح مساحة عمل",
+
+    "jobs.title": "مهامك",
+    "jobs.more": "كل مهامك ({count})",
+    "noun.claims": "المطالبات",
+    "noun.renewals": "التجديدات",
+    "job.approvals": "قرّر ما ينتظرك",
+    "job.center": "أدِر العمل من مركز القيادة",
+    "job.staff": "ادعُ زميلًا وامنحه دورًا",
+    "job.aiConsole": "أوقف وكلاء الذكاء الاصطناعي أو افحصهم",
+    "job.settings": "اضبط الهوية وسياسة المنشأة",
+    "job.auditLog": "أجب الجهة الرقابية من سجل التدقيق",
+    "job.screenings": "عالج نتائج الفحص",
+    "job.dsar": "عالج طلب خصوصية",
+    "job.exceptions": "أفرغ قائمة الاستثناءات",
+    "job.claimsDesk": "اعمل على مكتب {claims}",
+    "job.claimsNew": "سجّل {claims} الجديدة",
+    "job.cases": "اعمل على حالاتي",
+    "job.quoteRequests": "قارن العروض واختر أحدها",
+    "job.bordereaux": "طابق كشوف المزوّدين لهذا الشهر",
+    "job.axisAnalytics": "اطّلع على أداء العمليات",
+    "job.processMap": "اعرف أين يتعطّل العمل",
+    "job.axisAdmin": "اضبط إجراءات التشغيل",
+    "job.renewals": "اعمل على مكتب {renewals}",
+    "job.developer": "احصل على مفتاح تجريبي وأرسل أول طلب",
+    "job.apiKeys": "أدِر مفاتيح الواجهة البرمجية",
+    "job.webhooks": "راجع تسليمات الخطافات الشبكية",
+    "job.moneyMap": "اعرف أين تقع الأموال",
+    "job.statement": "اقرأ كشف عمولات قناة",
+    "job.pnl": "اقرأ الأرباح والخسائر لهذا الشهر",
+    "job.periodClose": "أقفل الشهر",
+    "job.settlement": "شغّل التسويات واعتمدها",
+    "job.journal": "سجّل قيدًا يدويًا",
+    "job.recon": "طابق حساب البنك",
+    "job.explorer": "استكشف أي مؤشر",
+    "job.anomalies": "تحقّق من الانحرافات",
+    "job.journeys": "افحص سلامة الرحلات",
+    "job.builder": "أنشئ تقريرًا",
+    "job.brief": "اقرأ إحاطة الصباح",
+    "job.board": "جهّز حزمة مجلس الإدارة",
+    "job.whatif": "اطرح سؤال «ماذا لو»",
+    "job.decisions": "تابع القرارات",
+    "job.northAdmin": "اضبط المؤشرات والتنبيهات",
+    "job.connectors": "اربط قناة",
+    "job.routing": "اضبط قواعد التوجيه",
+    "job.quality": "راجع جودة الخدمة",
+    "job.supervisor": "أشرف على الطوابير المباشرة",
+    "job.console": "التقط محادثة محوّلة وأنجزها",
+    "job.conversations": "اعمل على محادثاتي",
+    "job.kb": "ابحث عن إجابة في قاعدة المعرفة",
+    "job.partners": "أدِر الشركاء",
+    "job.pipeline": "تابع مسار الشركاء",
+    "job.channels": "اطّلع على أداء القنوات",
+    "job.save": "اعمل على مكتب الاستبقاء",
+    "job.offers": "اقترح أفضل عرض تالٍ",
+    "job.dataProducts": "اقرأ منتجات البيانات التي اشتريتها",
+    "job.radar": "راجع رادار الفرص غير المستغلة",
+    "job.panel": "جهّز تفاوض اللوحة",
+    "job.scoutExperiments": "شغّل تجربة منتج",
+    "job.scoutAdmin": "اضبط إشارات السوق",
+    "job.cockpit": "اطّلع على تكلفة الاستحواذ لكل قناة",
+    "job.budget": "اعتمد تحريكات الميزانية لهذا الصباح",
+    "job.studio": "أنشئ نسخًا من الحملة",
+    "job.answerEngines": "امتلك صندوق الإجابة",
+    "job.signalAdmin": "اضبط ضوابط التسويق",
   },
 };
 
@@ -665,6 +797,22 @@ export default function Home() {
   const submit = (fields: Record<string, string>) =>
     fetcher.submit(fields, { method: "post", action: "/?index" });
 
+  // What this seat comes here to do (app/jobs.ts), one click each. The two
+  // insurance nouns in the job wording are the tenant's pack's words.
+  const jobs = jobsFor(
+    shell?.roles ?? [],
+    shell?.permissions ?? [],
+    shell?.availableShells ?? [],
+  );
+  const word = vocabulary(shell?.domainPack, locale);
+  const noun = (key: string) =>
+    (word(key) ?? label(`noun.${key}`)).toLocaleLowerCase(locale);
+  const sayJob = (one: Job) =>
+    label(`job.${one.id}`, {
+      claims: noun("claims"),
+      renewals: noun("renewals"),
+    });
+
   // An actor with nothing to do and nothing to read still gets a door, not a
   // blank page.
   // Horizon's opening move: the screen says what the state of play is, in one
@@ -908,6 +1056,15 @@ export default function Home() {
           other six at 0; and DOM order is what a screen reader and the tab
           sequence follow, so the visual order has to be the real one. */}
       {leads ? decisions : null}
+
+      {jobs.length ? (
+        <JobStrip
+          jobs={jobs}
+          say={sayJob}
+          title={label("jobs.title")}
+          more={(count) => label("jobs.more", { count: number.format(count) })}
+        />
+      ) : null}
 
       {loaded.counts || econ ? (
         <KPIWall>
@@ -1291,5 +1448,56 @@ function PanelFailure({
         {label("panel.retry")}
       </Link>
     </div>
+  );
+}
+
+/** How many jobs show before the rest fold away. A seat holding every role
+ *  (the demo administrator) has dozens; one row of doors is the point. */
+export const JOBS_SHOWN = 6;
+
+/**
+ * One click to each job. A <nav>, because it is a set of doors and not data —
+ * which is also what keeps the layout sweep from counting it as the screen's
+ * first figure. The overflow is a native <details>: keyboard-reachable without
+ * a line of script, and its links stay in the document for whoever opens it.
+ */
+function JobStrip({
+  jobs,
+  say,
+  title,
+  more,
+}: {
+  jobs: readonly Job[];
+  say: (job: Job) => string;
+  title: string;
+  more: (count: number) => string;
+}) {
+  const chip =
+    "inline-flex rounded-full border border-border px-3 py-1 font-ui text-13 text-text hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  const list = (some: readonly Job[]) => (
+    <ul className="flex flex-wrap gap-2">
+      {some.map((one) => (
+        <li key={one.path}>
+          <Link to={one.path} className={chip}>
+            {say(one)}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+  const rest = jobs.slice(JOBS_SHOWN);
+  return (
+    <nav aria-label={title} className="flex flex-col gap-2">
+      <h2 className="eyebrow">{title}</h2>
+      {list(jobs.slice(0, JOBS_SHOWN))}
+      {rest.length ? (
+        <details>
+          <summary className="w-fit cursor-pointer font-ui text-12 text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+            {more(jobs.length)}
+          </summary>
+          <div className="pt-2">{list(rest)}</div>
+        </details>
+      ) : null}
+    </nav>
   );
 }
