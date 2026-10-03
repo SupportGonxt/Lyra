@@ -1,4 +1,4 @@
-# ADR-0114 — Every dual-control gate has two seeded deciders
+# ADR-0116 — Every dual-control gate has two seeded deciders
 
 **Date:** 2026-10-03
 **Status:** Accepted

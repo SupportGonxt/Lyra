@@ -407,7 +407,7 @@ puts `axis.admin` beside `axis.lead`: the lead requests binds, endorsements and
 claim settlements, and may not decide his own under dual control. Every
 dual-control gate has two seeded deciders for the same reason — the second
 tenant admin, compliance officer and the SIGNAL and SCOUT admins are there so
-a requester is never the only one who can approve (ADR-0114,
+a requester is never the only one who can approve (ADR-0116,
 `packages/core/src/approvals.deciders.test.ts`).
 
 Twelve of these are also fixed constants for the automated journeys — see
