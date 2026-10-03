@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Form,
   Link,
@@ -356,6 +356,12 @@ export default function LedgerRecon() {
   // The pasted statement lives in state so the screen can show what it read
   // back — the operator checks the rows, not the paste.
   const [statement, setStatement] = useState("");
+  // A started run holds those lines now, and the screen opens on its matches;
+  // a preview left beside them would list every statement line twice.
+  const startedRun = result?.started?.runId;
+  useEffect(() => {
+    if (startedRun) setStatement("");
+  }, [startedRun]);
 
   const busy = navigation.state !== "idle";
 

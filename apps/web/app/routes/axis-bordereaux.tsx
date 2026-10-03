@@ -707,6 +707,7 @@ export default function AxisBordereaux() {
   return (
     <div className="flex flex-col gap-6 pb-12">
       <Hero
+        heading
         eyebrow="AXIS"
         title={l("title")}
         sub={l("intro")}

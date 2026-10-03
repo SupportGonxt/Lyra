@@ -366,9 +366,13 @@ found, and what each screen now does:
   best-effort from `/v1/orbit/renewals`; nothing is proposed until pressed.
 - **Command center** — an empty "Waiting for a decision" feed links to the ask
   box (`#cc-ask-input`), where every proposal starts.
-- **Hero** (`packages/ui/src/sections/hero.tsx`) — its title is the page's
-  `<h1>` (styled as the Lede it replaced); `/axis/bordereaux` and the four
-  journey screens had none.
+- **Hero** (`packages/ui/src/sections/hero.tsx`) — `heading` makes its title
+  the page's `<h1>` (styled as the Lede it replaces); `/axis/bordereaux` had
+  none. Opt-in: journey steps already name themselves with `JourneyHeader`,
+  and a second `<h1>` fails the flagship journey.
+- **Reconciliation** — a started run clears the pasted statement, since the
+  screen now opens on that run's matches and would otherwise list each line
+  twice.
 - **Mobile** — the role → jobs table lives in `@lyra/core/jobs`; the web
   re-exports it and the phone's More tab draws the same seat's jobs that have
   a phone screen (`apps/mobile/src/jobs.ts`: `PHONE_ROUTE` or `DESK_ONLY`, every
