@@ -63,7 +63,7 @@ const anomalies: TemplateAnomaly[] = [
 describe("composeTemplateBrief", () => {
   it("leads with the largest move and states every metric with its own figures", () => {
     // Intl puts a no-break space between a currency code and its amount.
-    const text = composeTemplateBrief({ snapshot, anomalies, metrics: metricsEn, locale: "en" }).replace(/ /g, " ");
+    const text = composeTemplateBrief({ snapshot, anomalies, metrics: metricsEn, locale: "en" }).replace(/\u00a0/g, " ");
     const [lead, body, open] = text.split("\n\n");
     // gwp moved -68.9%, the largest absolute delta, so it leads.
     expect(lead).toContain("Written volume");
