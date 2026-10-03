@@ -202,6 +202,41 @@ describe("the nightly window", () => {
     }
   });
 
+  // J-E1, docs/06 "the 7am read": the exec brief exists every morning, model
+  // or no model. This env binds no provider at all — the on-prem/outage shape
+  // — so what lands is the template, in each of the tenant's languages.
+  it("writes the day's exec brief per locale with no model configured, only where NORTH is on", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const now = Date.UTC(2026, 8, 29, 2, 5);
+      vi.setSystemTime(now);
+      await client.execute({
+        sql: `insert into core_tenants (id, slug, name, status, policy_json, entitlements_json, created_at, updated_at)
+              values ('t_north','north','North','active','{}',?,?,?), ('t_axis','axis','Axis','active','{}',?,?,?)`,
+        args: [JSON.stringify({ modules: ["north"] }), now, now, JSON.stringify({ modules: ["axis"] }), now, now]
+      });
+      const tick = async () => {
+        let tail: Promise<unknown> = Promise.resolve();
+        await worker.scheduled(undefined, env, { waitUntil(p: Promise<unknown>) { tail = p; } });
+        await tail;
+        const rows = await client.execute(
+          "select tenant_id, date, audience, locale, generated_by, narrative_ref from north_briefings order by locale"
+        );
+        return rows.rows;
+      };
+      const rows = await tick();
+      expect(rows.map((r) => [r.tenant_id, r.date, r.audience, r.locale, r.generated_by])).toEqual([
+        ["t_north", "2026-09-29", "exec", "ar", "template"],
+        ["t_north", "2026-09-29", "exec", "en", "template"]
+      ]);
+      expect(String(rows[0]!.narrative_ref)).not.toMatch(/[A-Za-z]/);
+      // A second tick in the same window writes nothing new.
+      expect(await tick()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // docs/17 SIG-032, ADR-0112: binds are reported to the ad platforms once a
   // day, right after the spend pull, only where SIGNAL is on.
   it("exports value-based bidding conversions on the first tick of the UTC day, for tenants with SIGNAL on", async () => {

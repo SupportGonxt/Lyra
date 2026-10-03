@@ -143,7 +143,7 @@ describe("generateBriefing", () => {
     expect(row!.aiAuditId).toBe(result.auditId);
     expect(row!.approvedBy).toBeNull();
 
-    const [audit] = await ctx.db.select().from(schema.aiAuditLog).where(eq(schema.aiAuditLog.id, result.auditId));
+    const [audit] = await ctx.db.select().from(schema.aiAuditLog).where(eq(schema.aiAuditLog.id, result.auditId!));
     expect(audit).toBeDefined();
     expect(audit!.module).toBe("north");
     expect(audit!.tenantId).toBe(tenantId);
@@ -167,19 +167,72 @@ describe("generateBriefing", () => {
 });
 
 // docs/30 NORTH gap 1. The brief existed only when someone pressed Generate;
-// the nightly window now writes yesterday's, once, beside the snapshot. It is
+// the nightly window now writes the day's, once, beside the snapshot. It is
 // still never published by a machine (rule 4): a person moves it to published,
 // and that transition — only that one — announces north.briefing.published.
 describe("the nightly brief", () => {
-  it("writes yesterday's exec brief once, and does nothing when it exists", async () => {
-    const night = { ...ctx, now: Date.parse("2026-01-08T02:00:00Z") };
+  // J-E1 "the 7am read": the brief a reader opens on the morning of D is dated
+  // D and narrates D-1, the day the 02:00Z snapshot just closed — the seed's
+  // own {2026-01-06} row is shaped the same way. Dating it D-1 narrated D-2.
+  it("writes today's exec brief once per tenant locale, and nothing when they exist", async () => {
+    const night = { ...ctx, now: Date.parse("2026-01-08T02:05:00Z") };
     const { stub, gw } = stubbedGateway(["A quiet day."]);
     const first = await nightlyBriefing(night, gw);
-    expect(first).toMatchObject({ status: expect.stringMatching(/review|draft/) });
-    const [row] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, first!.id));
-    expect(row).toMatchObject({ date: "2026-01-07", audience: "exec", locale: "en", approvedBy: null, publishedAt: null });
-    expect(await nightlyBriefing(night, gw)).toBeNull();
+    expect(first.map((b) => b.locale).sort()).toEqual(["ar", "en"]);
+    const rows = await ctx.db
+      .select()
+      .from(schema.northBriefings)
+      .where(and(eq(schema.northBriefings.tenantId, tenantId), eq(schema.northBriefings.date, "2026-01-08")));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toMatchObject({ audience: "exec", approvedBy: null, publishedAt: null });
+    // The model narrates the language its prompt and eval cover; Arabic is the
+    // template, in Arabic, until an Arabic narration has an eval of its own.
+    expect(rows.find((r) => r.locale === "en")!.generatedBy).toBe("ai");
+    const ar = rows.find((r) => r.locale === "ar")!;
+    expect(ar.generatedBy).toBe("template");
+    expect(ar.narrativeRef).not.toMatch(/[A-Za-z]/);
+    expect(await nightlyBriefing(night, gw)).toEqual([]);
     expect(stub.calls).toHaveLength(1);
+  });
+
+  it("follows the tenant's locales", async () => {
+    const night = { ...ctx, now: Date.parse("2026-01-10T02:05:00Z"), policy: PolicyJson.parse({ locales: ["en"] }) };
+    const written = await nightlyBriefing(night, stubbedGateway(["A quiet day."]).gw);
+    expect(written.map((b) => b.locale)).toEqual(["en"]);
+  });
+
+  it("still writes every locale's brief when no model is configured", async () => {
+    const night = { ...ctx, now: Date.parse("2026-01-09T02:05:00Z") };
+    const written = await nightlyBriefing(night, new Gateway({ env: {} }));
+    expect(written).toHaveLength(2);
+    for (const brief of written) {
+      expect(brief).toMatchObject({ generatedBy: "template", status: "review", auditId: null });
+    }
+    const enId = written.find((b) => b.locale === "en")!.id;
+    const [en] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, enId));
+    expect(en).toMatchObject({ date: "2026-01-09", locale: "en", generatedBy: "template", aiAuditId: null });
+    // Narrates the seeded snapshots, not a placeholder.
+    expect(en!.narrativeRef).toMatch(/\d/);
+  });
+});
+
+describe("the template fallback", () => {
+  it("writes a template brief when the model call fails, instead of no brief", async () => {
+    const result = await generateBriefing(ctx, new Gateway({ env: {} }), { date: "2026-01-06", audience: "investor" });
+    expect(result).toMatchObject({ generatedBy: "template", status: "review", auditId: null, mismatches: [] });
+    const [row] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, result.id));
+    expect(row).toMatchObject({ generatedBy: "template", aiAuditId: null, audience: "investor" });
+    // 57 policies on 2026-01-05, straight off the seeded snapshot.
+    expect(row!.narrativeRef).toContain("57");
+  });
+
+  it("writes a template brief when the gateway refuses (kill switch, budget), never the refusal text", async () => {
+    const refusing = {
+      complete: async () => ({ text: "Refused by policy.", finishReason: "refusal", auditId: "aud_x" })
+    } as unknown as Gateway;
+    const result = await generateBriefing(ctx, refusing, { date: "2026-01-11" });
+    expect(result.generatedBy).toBe("template");
+    expect(result.narrativeRef).not.toContain("Refused");
   });
 });
 
