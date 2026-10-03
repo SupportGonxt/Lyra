@@ -1286,9 +1286,10 @@ filters." Row count: "{count} shown". Denied at workspace level:
 ## 8. `/ledger/money-map` — Money map
 
 **Route + title.** `apps/web/app/routes/ledger-money-map.tsx`. Title: "Money map"
-(`title`). Intro (`intro`): "Where a period's money went: premium in, what the
-insurer took, what was kept, and how the kept part split. Every node opens the
-journal lines that add up to it." Cites docs/22 §1.2 in its own header comment:
+(`title`). Intro (`intro`): "Where a period's money went: premium written and
+how much of it was collected, premium in, what the insurer took, what was kept,
+and how the kept part split. Every node opens the journal lines that add up to
+it." Cites docs/22 §1.2 in its own header comment:
 "Sankey of value flow for a period … Nodes are clickable to filtered journals.
 Client-money segregation shown as a distinct, always-visible bar."
 
@@ -1300,7 +1301,8 @@ down the page: an actor with journals-read but not client-money-read still gets
 the full diagram, just with the segregation section replaced by one sentence
 saying why it is hidden (`seg.denied`) — not a 403 for the page.
 
-**Purpose.** Show where a period's premium turned into insurer remittance,
+**Purpose.** Show how much premium a period wrote and how much of it was
+collected, cancelled or is still due, then where premium in turned into insurer remittance,
 retained commission, partner share, tax and net — as a flow diagram — with a
 click-through to the journal lines behind any node, plus a permanent client-money
 whole/short check.
@@ -1319,14 +1321,15 @@ whole/short check.
 │ Period [2026-07 month]  Currency [AED]  [Apply]                │
 ├──────────────────────────────────────────────────────────────┤
 │ ┌ Diagram — svg, always dir="ltr" ────────────────────────────┐│
-│ │ Premium in ══╗                                               ││
-│ │              ╠══ Insurer remittance                          ││
-│ │              ╠══ Commission retained ══╦══ Partner share      ││
-│ │              ╚══ Still held for clients╠══ Tax                ││
-│ │                                        ╚══ Net to the business││
+│ │ Premium written ═╦═ Cancelled                                ││
+│ │                  ╠═ Collected ══ Premium in ══╦═ Insurer rem. ││
+│ │                  ╚═ Still due from customers  ╠═ Commission ═╦═ Partner share ││
+│ │                                               ╚═ Still held  ╠═ Tax           ││
+│ │                                                              ╚═ Net           ││
 │ └───────────────────────────────────────────────────────────────┘│
 ├──────────────────────────────────────────────────────────────┤
 │ Carried out of the period    R 12 000,00                      │
+│ Written, not yet collected   R 83 000,00                      │
 ├──────────────────────────────────────────────────────────────┤
 │ ┌ Client money segregation ────────────────────────────────────┐│
 │ │ AED  Cash held … Owed to clients … Margin … [Whole/Short]     ││
@@ -1342,8 +1345,10 @@ whole/short check.
 
 **The headline.** `moneyMapHeadline(map, breached, l, locale)`: a client-money
 breach outranks everything — "{count} currency breach(es) in client money." —
-else the `net` node's amount for the period — "{node} for {period}: {amount}."
-— else, when nothing posted, the shared `empty` copy. The code comment is
+else, when net is zero (or absent) and premium was written, the written figure
+and what is still due on it — "{node} for {period}: {amount}, {due} still due
+from customers." — else the `net` node's amount for the period — "{node} for
+{period}: {amount}." — else, when nothing posted, the shared `empty` copy. The code comment is
 explicit that this headline carries **no ✦ marker**: "this is not an agent's
 finding (CLAUDE.md §11) — both numbers are the loader's."
 
@@ -1359,10 +1364,17 @@ list), **Apply**. Omitting `period` server-side defaults to the current month
 (`periodCode(ctx.now)`, `apps/api/src/routes/ledger.ts:366`).
 
 **The diagram.** An SVG Sankey-style flow, hand-rolled (`layoutMap()`, no chart
-library — code comment: "no chart library for six nodes"), three columns in a
-fixed order: premium-in → {insurer-remittance, commission-retained,
-still-held} → {partner-share, tax, net}. One scale for the whole diagram, set
+library — code comment: "no chart library for a dozen nodes"), five columns
+in a fixed order: premium-written → {premium-cancelled, premium-collected,
+premium-due} → premium-in → {insurer-remittance, commission-retained,
+still-held} → {partner-share, tax, net}. A column with nothing in it collapses,
+so a month of unpaid binds (written and due only) still spans the width. The
+written column reconciles as written = collected + still due + cancelled
+(docs/22 §1.2); `premium-due` is a remainder with no drill, like `still-held`,
+and fills `--warning`. One scale for the whole diagram, set
 by the tallest column, so ribbon thickness is comparable across columns.
+The diagram is `MoneyMapDiagram`, exported apart from the loader so
+`ledger-money-map.render.test.tsx` renders it in both locales.
 Drillable nodes (those with a `drill` descriptor from the API) render as a
 `<Link>` wrapping the node's rect and its two text lines (name, amount);
 non-drillable nodes render as plain, unlinked shapes. The section carrying the
@@ -1376,7 +1388,9 @@ exception, not an oversight.
 (`carriedNegative`): "Negative: this period paid out premium it collected
 earlier. Ordinary, and not a client-money breach — the segregation bar below is
 what says whether client money is whole." No such explanation renders when the
-figure is zero or positive.
+figure is zero or positive. Beside it, `Uncollected`: "Written, not yet
+collected" with `uncollectedMinor`, signed; when negative, `uncollectedNegative`
+explains that the period collected receivables written earlier.
 
 **Client money segregation.** Always titled ("Client money segregation"), one
 row per currency when the actor holds `ledger:client_money:read`: currency

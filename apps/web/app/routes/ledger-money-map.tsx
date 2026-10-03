@@ -23,6 +23,10 @@ import { useShellData } from "./workspace";
 // Nodes are clickable to filtered journals. Client-money segregation shown as a
 // distinct, always-visible bar."
 //
+// Ahead of premium in: premium written at bind (Dr 1200, docs/27 F14), split
+// into cancelled, collected against the receivable, and still due. Without it a
+// month of binds nobody had paid for yet drew an empty map.
+//
 // Nothing here computes money. Every figure is a number the ledger summed from
 // journal lines (packages/ledger/src/money-map.ts); this file lays them out.
 // Clicking a node opens the lines that add up to it, which is why the drill
@@ -47,6 +51,8 @@ interface MoneyMap {
   asOf: number;
   nodes: MoneyMapNode[];
   links: Array<{ from: string; to: string; amountMinor: number }>;
+  /** Mirrors `MoneyMap.uncollectedMinor` in packages/ledger/src/money-map.ts. */
+  uncollectedMinor: number;
   carriedMinor: number;
 }
 
@@ -87,6 +93,8 @@ const CLIENT_MONEY = "ledger:client_money:read";
 
 /** Left to right, the order the money actually moves. */
 const COLUMNS: readonly (readonly string[])[] = [
+  ["premium-written"],
+  ["premium-cancelled", "premium-collected", "premium-due"],
   ["premium-in"],
   ["insurer-remittance", "commission-retained", "still-held"],
   ["partner-share", "tax", "net"]
@@ -114,7 +122,7 @@ const NODE_GAP = 18;
 
 /**
  * ponytail: hand-rolled bezier ribbons, same call the process map makes — no
- * chart library for six nodes.
+ * chart library for a dozen nodes.
  *
  * One scale for the whole diagram (pixels per minor unit, set by the tallest
  * column) so a ribbon's thickness is comparable across columns. Without it the
@@ -126,7 +134,12 @@ export function layoutMap(map: MoneyMap, width: number, height: number): {
 } {
   const amount = (key: string): number =>
     Math.max(0, map.nodes.find((n) => n.key === key)?.amountMinor ?? 0);
-  const present = COLUMNS.map((column) => column.filter((key) => amount(key) > 0));
+  // A column with nothing in it collapses rather than leaving a gap: a
+  // commission-only month has no written premium, a month of unpaid binds has
+  // no premium in, and either should still span the width.
+  const present = COLUMNS.map((column) => column.filter((key) => amount(key) > 0)).filter(
+    (column) => column.length > 0
+  );
   const tallest = Math.max(
     1,
     ...present.map((column) => column.reduce((sum, key) => sum + amount(key), 0))
@@ -187,11 +200,15 @@ export const LABELS: Record<string, Record<string, string>> = {
   en: {
     title: "Money map",
     intro:
-      "Where a period's money went: premium in, what the insurer took, what was kept, and how the kept part split. Every node opens the journal lines that add up to it.",
+      "Where a period's money went: premium written and how much of it was collected, premium in, what the insurer took, what was kept, and how the kept part split. Every node opens the journal lines that add up to it.",
     "param.period": "Period",
     "param.currency": "Currency",
     "hint.period": "Month, e.g. 2026-07",
     "hint.currency": "ISO code, e.g. AED",
+    "node.premium-written": "Premium written",
+    "node.premium-cancelled": "Cancelled",
+    "node.premium-collected": "Collected",
+    "node.premium-due": "Still due from customers",
     "node.premium-in": "Premium in",
     "node.insurer-remittance": "Insurer remittance",
     "node.commission-retained": "Commission retained",
@@ -201,7 +218,11 @@ export const LABELS: Record<string, Record<string, string>> = {
     "node.net": "Net to the business",
     "headline.breach": "{count} currency breach(es) in client money.",
     "headline.net": "{node} for {period}: {amount}.",
+    "headline.written": "{node} for {period}: {amount}, {due} still due from customers.",
     carried: "Carried out of the period",
+    uncollected: "Written, not yet collected",
+    uncollectedNegative:
+      "Negative: this period collected receivables written in an earlier period. Ordinary — the receivable aging report says what is still owed and for how long.",
     carriedNegative:
       "Negative: this period paid out premium it collected earlier. Ordinary, and not a client-money breach — the segregation bar below is what says whether client money is whole.",
     "seg.title": "Client money segregation",
@@ -236,11 +257,15 @@ export const LABELS: Record<string, Record<string, string>> = {
   ar: {
     title: "خريطة الأموال",
     intro:
-      "إلى أين ذهبت أموال الفترة: الأقساط الواردة، وما أخذه المؤمِّن، وما احتُفظ به، وكيف انقسم المحتفظ به. كل عقدة تفتح قيود اليومية التي تكوِّنه.",
+      "إلى أين ذهبت أموال الفترة: الأقساط المكتتبة وما حُصِّل منها، الأقساط الواردة، وما أخذه المؤمِّن، وما احتُفظ به، وكيف انقسم المحتفظ به. كل عقدة تفتح قيود اليومية التي تكوِّنه.",
     "param.period": "الفترة",
     "param.currency": "العملة",
     "hint.period": "الشهر، مثال 2026-07",
     "hint.currency": "رمز العملة، مثال AED",
+    "node.premium-written": "الأقساط المكتتبة",
+    "node.premium-cancelled": "الملغاة",
+    "node.premium-collected": "المحصَّلة",
+    "node.premium-due": "مستحقة على العملاء",
     "node.premium-in": "الأقساط الواردة",
     "node.insurer-remittance": "التحويل إلى المؤمِّن",
     "node.commission-retained": "العمولة المحتجزة",
@@ -250,7 +275,11 @@ export const LABELS: Record<string, Record<string, string>> = {
     "node.net": "الصافي للمنشأة",
     "headline.breach": "{count} تجاوزًا في أموال العملاء.",
     "headline.net": "{node} لفترة {period}: {amount}.",
+    "headline.written": "{node} لفترة {period}: {amount}، منها {due} مستحقة على العملاء.",
     carried: "المرحَّل خارج الفترة",
+    uncollected: "مكتتبة ولم تُحصَّل بعد",
+    uncollectedNegative:
+      "سالب: حصَّلت هذه الفترة ذممًا مكتتبة في فترة سابقة. هذا اعتيادي — تقرير أعمار الذمم المدينة يبيّن ما زال مستحقًا ومنذ متى.",
     carriedNegative:
       "سالب: دفعت هذه الفترة أقساطًا حُصِّلت قبلها. هذا اعتيادي وليس خرقًا لأموال العملاء — شريط الفصل أدناه هو ما يحدد سلامتها.",
     "seg.title": "فصل أموال العملاء",
@@ -290,7 +319,9 @@ export const labelsIn = labelsFrom(LABELS);
 // the flag above the fold), otherwise the map's own net node said back. No ✦,
 // this is not an agent's finding (CLAUDE.md §11) — both numbers are the
 // loader's. Nothing posted this period leaves no net node; the empty state
-// below the header already says so, so the headline reuses that copy.
+// below the header already says so, so the headline reuses that copy. A month
+// that wrote premium but drew no commission yet would read "net: 0" over a
+// month of real business, so it says what was written and what is owed on it.
 export function moneyMapHeadline(
   map: MoneyMap,
   breached: readonly { currency: string }[],
@@ -299,6 +330,16 @@ export function moneyMapHeadline(
 ): string {
   if (breached.length > 0) return l("headline.breach", { count: String(breached.length) });
   const net = map.nodes.find((node) => node.key === "net");
+  const written = map.nodes.find((node) => node.key === "premium-written");
+  if ((!net || net.amountMinor === 0) && written && written.amountMinor > 0) {
+    const due = map.nodes.find((node) => node.key === "premium-due")?.amountMinor ?? 0;
+    return l("headline.written", {
+      node: l("node.premium-written"),
+      period: map.periodCode,
+      amount: formatMoney(written.amountMinor, map.currency, locale),
+      due: formatMoney(due, map.currency, locale)
+    });
+  }
   if (!net) return l("empty");
   return l("headline.net", {
     node: l("node.net"),
@@ -367,6 +408,9 @@ function fillFor(key: string): string {
   // Semantic tokens only: a raw palette step (vega-600) is a pale lime that
   // vanished on the light theme.
   if (key === "insurer-remittance" || key === "still-held") return "var(--info)";
+  // Owed, not yet money: the same caution tone the aging report uses.
+  if (key === "premium-due") return "var(--warning)";
+  if (key === "premium-cancelled") return "var(--text-subtle)";
   if (key === "tax") return "var(--warning)";
   if (key === "net") return "var(--success)";
   return "var(--accent)";
@@ -387,7 +431,6 @@ export default function LedgerMoneyMap() {
   }
 
   const map = loaded.map;
-  const laid = layoutMap(map, WIDTH, HEIGHT);
   const breached = (loaded.clientMoney ?? []).filter((row) => row.breach);
   const drilled = loaded.drilled;
 
@@ -443,58 +486,13 @@ export default function LedgerMoneyMap() {
 
       <ReportDownloads url={loaded.exportUrl} l={l} />
 
-      {laid.nodes.length === 0 ? (
-        <EmptyState title={l("empty")} body={l("empty.body")} />
-      ) : (
-        // The diagram reads left to right in both locales: the ribbons are a
-        // flow of time and money, not a line of text, and mirroring them would
-        // put the insurer's money before the premium that paid it.
-        // Scales with its width rather than a fixed height, and scrolls inside
-        // its own frame below 640px so labels never shrink past legibility.
-        <section dir="ltr" tabIndex={0} aria-label={l("title")} className="overflow-x-auto rounded-lg border border-border bg-surface-1 p-4">
-          <svg viewBox={`0 0 ${WIDTH} ${HEIGHT + 28}`} role="img" aria-label={l("title")} className="h-auto w-full min-w-[640px]">
-            {laid.links.map((link) => (
-              <path key={`${link.from}-${link.to}`} d={link.path} fill="var(--accent)" opacity={0.16} />
-            ))}
-            {laid.nodes.map((node) => {
-              const face = (
-                <g>
-                  <rect
-                    x={node.x}
-                    y={node.y}
-                    width={NODE_WIDTH}
-                    height={node.height}
-                    rx={2}
-                    fill={fillFor(node.key)}
-                  />
-                  <text x={node.x + NODE_WIDTH + 8} y={node.y + 12} className="fill-text font-ui text-12">
-                    {l(`node.${node.key}`)}
-                  </text>
-                  <text
-                    x={node.x + NODE_WIDTH + 8}
-                    y={node.y + 26}
-                    className="fill-subtle font-mono text-12 tabular-nums"
-                  >
-                    {formatMoney(node.amountMinor, map.currency, locale)}
-                  </text>
-                </g>
-              );
-              return node.drillable ? (
-                <Link
-                  key={node.key}
-                  to={withNode(node.key)}
-                  aria-current={drilled?.node === node.key ? "true" : undefined}
-                  className="outline-none [&:focus-visible>g>rect]:stroke-accent [&:focus-visible>g>rect]:stroke-2 [&:hover>g>rect]:opacity-80"
-                >
-                  {face}
-                </Link>
-              ) : (
-                <g key={node.key}>{face}</g>
-              );
-            })}
-          </svg>
-        </section>
-      )}
+      <MoneyMapDiagram
+        map={map}
+        l={l}
+        locale={locale}
+        drilledNode={drilled?.node ?? null}
+        hrefFor={withNode}
+      />
 
       <section className="flex flex-wrap items-start gap-8">
         <Stat
@@ -504,12 +502,105 @@ export default function LedgerMoneyMap() {
         {map.carriedMinor < 0 ? (
           <p className="max-w-prose font-ui text-13 text-subtle">{l("carriedNegative")}</p>
         ) : null}
+        <Uncollected map={map} l={l} />
       </section>
 
       <Segregation rows={loaded.clientMoney} label={l} />
 
       {drilled ? <Lines drilled={drilled} label={l} locale={locale} closeTo={withNode(null)} /> : null}
     </div>
+  );
+}
+
+/* ----------------------------------------------------------------- diagram */
+
+/**
+ * The flow itself, apart from the loader so it renders in a test. `hrefFor`
+ * builds a node's drill address with the screen's own filters kept.
+ */
+export function MoneyMapDiagram({
+  map,
+  l,
+  locale,
+  drilledNode,
+  hrefFor
+}: {
+  map: MoneyMap;
+  l: Label;
+  locale: string;
+  drilledNode: string | null;
+  hrefFor: (key: string) => string;
+}) {
+  const laid = layoutMap(map, WIDTH, HEIGHT);
+  if (laid.nodes.length === 0) return <EmptyState title={l("empty")} body={l("empty.body")} />;
+  return (
+    // The diagram reads left to right in both locales: the ribbons are a
+    // flow of time and money, not a line of text, and mirroring them would
+    // put the premium written after the cash that paid it.
+    // Scales with its width rather than a fixed height, and scrolls inside
+    // its own frame below 640px so labels never shrink past legibility.
+    <section dir="ltr" tabIndex={0} aria-label={l("title")} className="overflow-x-auto rounded-lg border border-border bg-surface-1 p-4">
+      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT + 28}`} role="img" aria-label={l("title")} className="h-auto w-full min-w-[640px]">
+        {laid.links.map((link) => (
+          <path key={`${link.from}-${link.to}`} d={link.path} fill="var(--accent)" opacity={0.16} />
+        ))}
+        {laid.nodes.map((node) => {
+          const face = (
+            <g>
+              <rect
+                x={node.x}
+                y={node.y}
+                width={NODE_WIDTH}
+                height={node.height}
+                rx={2}
+                fill={fillFor(node.key)}
+              />
+              <text x={node.x + NODE_WIDTH + 8} y={node.y + 12} className="fill-text font-ui text-12">
+                {l(`node.${node.key}`)}
+              </text>
+              <text
+                x={node.x + NODE_WIDTH + 8}
+                y={node.y + 26}
+                className="fill-subtle font-mono text-12 tabular-nums"
+              >
+                {formatMoney(node.amountMinor, map.currency, locale)}
+              </text>
+            </g>
+          );
+          return node.drillable ? (
+            <Link
+              key={node.key}
+              to={hrefFor(node.key)}
+              aria-current={drilledNode === node.key ? "true" : undefined}
+              className="outline-none [&:focus-visible>g>rect]:stroke-accent [&:focus-visible>g>rect]:stroke-2 [&:hover>g>rect]:opacity-80"
+            >
+              {face}
+            </Link>
+          ) : (
+            <g key={node.key}>{face}</g>
+          );
+        })}
+      </svg>
+    </section>
+  );
+}
+
+/**
+ * Premium written in the period less what was cancelled and collected against
+ * the receivable. Negative is ordinary (last month's receivables paid this
+ * month) and is explained, not drawn — the same rule as the carried figure.
+ */
+export function Uncollected({ map, l }: { map: MoneyMap; l: Label }) {
+  return (
+    <>
+      <Stat
+        label={l("uncollected")}
+        value={<Money amountMinor={map.uncollectedMinor} currency={map.currency} signed />}
+      />
+      {map.uncollectedMinor < 0 ? (
+        <p className="max-w-prose font-ui text-13 text-subtle">{l("uncollectedNegative")}</p>
+      ) : null}
+    </>
   );
 }
 

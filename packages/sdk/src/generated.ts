@@ -3849,7 +3849,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/ledger/reports/commission": { tag: "ledger", summary: "Commission earned, clawed back and payable by channel", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/pnl": { tag: "ledger", summary: "Profit and loss for a period", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/trial-balance": { tag: "ledger", summary: "Trial balance as at a moment", permission: "ledger:journals:read", public: false },
-  "GET /v1/ledger/reports/value-flow": { tag: "ledger", summary: "Money Map: premium in, remitted, retained, split and still held for a period", permission: "ledger:journals:read", public: false },
+  "GET /v1/ledger/reports/value-flow": { tag: "ledger", summary: "Money Map: premium written, collected and still due; premium in, remitted, retained, split and still held for a period", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/value-flow/lines": { tag: "ledger", summary: "The journal lines behind one Money Map node", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/reports/{report}/export": { tag: "ledger", summary: "Render any ledger report to xlsx, pdf, csv or json", permission: "ledger:journals:read", public: false },
   "GET /v1/ledger/revenue-schedules": { tag: "ledger", summary: "List revenue-schedules", permission: "ledger:journals:read", public: false },

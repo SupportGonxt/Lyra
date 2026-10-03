@@ -37,6 +37,7 @@ const MAP = {
   asOf: 1,
   nodes: [],
   links: [],
+  uncollectedMinor: 0,
   carriedMinor: 0
 };
 
@@ -125,6 +126,7 @@ describe("layoutMap", () => {
     periodCode: "2026-06",
     currency: "AED",
     asOf: 1,
+    uncollectedMinor: 0,
     carriedMinor: 20_000,
     nodes: [
       { key: "premium-in", amountMinor: 100_000, drill: { accountCodes: ["1010"], side: "debit", txnTypes: [] } },
@@ -176,6 +178,70 @@ describe("layoutMap", () => {
     expect(laid.links.some((l) => l.to === "tax")).toBe(false);
   });
 
+  // The month the finding was about: 510 binds, nobody paid yet. The ledger
+  // holds the whole month on 1200 and nothing on 1010; the map has to draw it.
+  const unpaid = {
+    periodCode: "2026-06",
+    currency: "AED",
+    asOf: 1,
+    uncollectedMinor: 83_000_000,
+    carriedMinor: 0,
+    nodes: [
+      { key: "premium-written", amountMinor: 83_000_000, drill: { accountCodes: ["1200"], side: "debit", txnTypes: ["BIND"] } },
+      { key: "premium-cancelled", amountMinor: 0, drill: { accountCodes: ["1200"], side: "credit", txnTypes: ["BIND"] } },
+      { key: "premium-collected", amountMinor: 0, drill: { accountCodes: ["1200"], side: "credit", txnTypes: ["PREM-COLLECT"] } },
+      { key: "premium-due", amountMinor: 83_000_000 },
+      { key: "premium-in", amountMinor: 0, drill: { accountCodes: ["1010"], side: "debit", txnTypes: ["PREM-COLLECT"] } },
+      { key: "net", amountMinor: 0, drill: { accountCodes: ["4000"], side: "credit", txnTypes: ["CM-TRANSFER"] } }
+    ],
+    links: [
+      { from: "premium-written", to: "premium-due", amountMinor: 83_000_000 },
+      { from: "premium-collected", to: "premium-in", amountMinor: 0 }
+    ]
+  };
+
+  it("draws a month of written, unpaid premium instead of an empty map", () => {
+    const laid = layoutMap(unpaid, 800, 400);
+    const at = (key: string) => laid.nodes.find((n) => n.key === key);
+
+    expect(laid.nodes.map((n) => n.key)).toEqual(["premium-written", "premium-due"]);
+    // Columns with nothing in them collapse, so the two that remain span the width.
+    expect(at("premium-written")!.x).toBe(0);
+    expect(at("premium-due")!.x).toBeGreaterThan(0);
+    expect(laid.links).toHaveLength(1);
+    expect(at("premium-due")!.drillable).toBe(false);
+  });
+
+  it("reads written → collected → premium in → remitted, left to right", () => {
+    const full = {
+      ...map,
+      uncollectedMinor: 30_000,
+      nodes: [
+        { key: "premium-written", amountMinor: 120_000, drill: { accountCodes: ["1200"], side: "debit", txnTypes: [] } },
+        { key: "premium-cancelled", amountMinor: 10_000, drill: { accountCodes: ["1200"], side: "credit", txnTypes: [] } },
+        { key: "premium-collected", amountMinor: 80_000, drill: { accountCodes: ["1200"], side: "credit", txnTypes: [] } },
+        { key: "premium-due", amountMinor: 30_000 },
+        ...map.nodes
+      ],
+      links: [
+        { from: "premium-written", to: "premium-cancelled", amountMinor: 10_000 },
+        { from: "premium-written", to: "premium-collected", amountMinor: 80_000 },
+        { from: "premium-written", to: "premium-due", amountMinor: 30_000 },
+        { from: "premium-collected", to: "premium-in", amountMinor: 80_000 },
+        ...map.links
+      ]
+    };
+    const laid = layoutMap(full, 800, 400);
+    const at = (key: string) => laid.nodes.find((n) => n.key === key)!;
+
+    expect(at("premium-written").x).toBe(0);
+    expect(at("premium-collected").x).toBe(at("premium-due").x);
+    expect(at("premium-in").x).toBeGreaterThan(at("premium-collected").x);
+    expect(at("insurer-remittance").x).toBeGreaterThan(at("premium-in").x);
+    const out = laid.links.filter((l) => l.from === "premium-written").reduce((s, l) => s + l.width, 0);
+    expect(out).toBeCloseTo(at("premium-written").height, 5);
+  });
+
   it("marks the remainder node as having nothing to open", () => {
     const laid = layoutMap(map, 800, 400);
     expect(laid.nodes.find((n) => n.key === "still-held")!.drillable).toBe(false);
@@ -196,6 +262,22 @@ describe("moneyMapHeadline", () => {
     const withNet = { ...MAP, nodes: [{ key: "net", amountMinor: 5_000 }] };
     expect(moneyMapHeadline(withNet, [], l, "en")).toBe(
       `Net to the business for 2026-06: ${formatMoney(5_000, "AED", "en")}.`
+    );
+  });
+
+  it("names premium written and still due when nothing has been drawn yet", () => {
+    const written = {
+      ...MAP,
+      uncollectedMinor: 83_000_000,
+      nodes: [
+        { key: "premium-written", amountMinor: 83_000_000 },
+        { key: "premium-due", amountMinor: 83_000_000 },
+        { key: "net", amountMinor: 0 }
+      ]
+    };
+    expect(moneyMapHeadline(written, [], l, "en")).toBe(
+      `Premium written for 2026-06: ${formatMoney(83_000_000, "AED", "en")}, ` +
+        `${formatMoney(83_000_000, "AED", "en")} still due from customers.`
     );
   });
 

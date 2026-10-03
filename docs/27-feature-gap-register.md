@@ -131,6 +131,12 @@ was posted by nothing, so GWP was never a receivable. `bindPosting`
 reclassifies the payable when the premium arrives. Both production bind sites
 pass it. ADR-0079 names what is deliberately out of scope: ENDORSE,
 UBI-REPRICE and CANCEL need a *signed* premium movement of their own.
+*Follow-up (2026-10-03, found building the Money Map's premium-written node):*
+the receipt half is a parameter no caller passes — nothing in `apps/api`
+hands `clearsReceivableAccount` to a PREM-COLLECT, CM-RECEIPT or
+PREM-INSTALMENT, so in production 1200 is debited at bind and never cleared.
+The map now shows written / collected / still due from 1200 (docs/22 §1.2) and
+will read every bound premium as still due until a payment path passes it.
 
 **F15** *Closed.* Aging aged journal lines by posting date against a free-text
 counterparty, and had no payables side. `agedOpenItems` (`reports.ts`) groups

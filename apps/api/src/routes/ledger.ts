@@ -698,7 +698,7 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
           currency: map.currency,
           generatedAt: map.asOf
         },
-        totals: { carriedMinor: map.carriedMinor }
+        totals: { carriedMinor: map.carriedMinor, uncollectedMinor: map.uncollectedMinor }
       };
     }
   },
