@@ -279,14 +279,16 @@ describe("accruing", () => {
 });
 
 describe("the offers loader", () => {
-  it("asks for nothing until a customer is named", async () => {
+  it("asks for no offers until a customer is named", async () => {
+    // It does read the open renewals, to suggest who to start with
+    // (dist-offers.test.ts); never the offers, which need a customer.
     const calls = stubApi([["/v1/me", me("dist:offers:read")]]);
     const loaded = await offersLoader(
       args("https://web.test/distribution/next-best-offers/suggest")
     );
 
     expect(loaded.offers).toBeNull();
-    expect(calls).toHaveLength(1);
+    expect(calls.filter((call) => call.url.includes("next-best-offers"))).toEqual([]);
   });
 
   it("separates reading offers from proposing and surfacing them", async () => {

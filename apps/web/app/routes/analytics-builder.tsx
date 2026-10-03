@@ -35,6 +35,7 @@ import {
   defFromParams,
   encodeDef,
   fitToDataset,
+  starterDef,
   type DatasetInfo,
   type ReportDefinition
 } from "../analytics-def";
@@ -138,6 +139,7 @@ const LABELS: Record<string, Record<string, string>> = {
     limit: "Row limit",
     preview: "Preview",
     pickMetric: "Pick at least one measure to preview.",
+    starter: "Start from {measure} by month",
     notRun: "Nothing has run yet. Preview to see the figures — a shared or suggested build is never run for you.",
     results: "Preview",
     totals: "Totals",
@@ -234,6 +236,7 @@ const LABELS: Record<string, Record<string, string>> = {
     limit: "حد الصفوف",
     preview: "معاينة",
     pickMetric: "اختر مقياسًا واحدًا على الأقل للمعاينة.",
+    starter: "ابدأ بمقياس {measure} حسب الشهر",
     notRun: "لم يُشغَّل شيء بعد. عاين لترى الأرقام — البناء المشترك أو المقترح لا يُشغَّل نيابةً عنك.",
     results: "المعاينة",
     totals: "الإجماليات",
@@ -570,6 +573,7 @@ export default function AnalyticsBuilder() {
   const dimensionName = (key: string) => named(key, ds?.dimensions.find((d) => d.key === key)?.label ?? key);
 
   const token = def.metrics.length ? encodeDef(def) : null;
+  const starter = !def.metrics.length && ds ? starterDef(ds) : null;
   const chart = run ? chartFor(run) : null;
   const rows: Row[] = (run?.rows ?? []).map((row, i) => ({ ...row, __currency: run?.currency ?? "", __key: String(i) }));
   const metricOrDim = (key: string, label: string) => (key === "period" ? l("period") : named(key, label));
@@ -652,7 +656,23 @@ export default function AnalyticsBuilder() {
               />
             </>
           ) : (
-            <EmptyState title={l("results")} body={def.metrics.length ? l("notRun") : l("pickMetric")} />
+            <EmptyState
+              title={l("results")}
+              body={def.metrics.length ? l("notRun") : l("pickMetric")}
+              // Nothing picked yet: one ready-made build to start from, so the
+              // first visit ends in figures rather than a form (role adoption).
+              {...(starter
+                ? {
+                    action: (
+                      <Button asChild variant="secondary" size="sm">
+                        <Link to={builderHref(starter, { run: true })}>
+                          {l("starter", { measure: metricName(starter.metrics[0]!) })}
+                        </Link>
+                      </Button>
+                    )
+                  }
+                : {})}
+            />
           )}
 
           {token && loaded.may.write ? (

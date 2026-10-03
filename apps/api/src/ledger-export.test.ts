@@ -164,6 +164,12 @@ describe("finance report exports", () => {
     expect(table.title).toContain("2026-06");
     expect(table.rows.map((r) => r.node)).toContain("premium-in");
     expect(table.totals).toHaveProperty("carriedMinor");
+    // Premium written but not yet collected is a stage of the flow too, and
+    // the signed remainder travels as a total beside the carried figure.
+    expect(table.rows.map((r) => r.node)).toEqual(
+      expect.arrayContaining(["premium-written", "premium-cancelled", "premium-collected", "premium-due"])
+    );
+    expect(table.totals).toHaveProperty("uncollectedMinor");
   });
 
   // docs/27 P2 "no bordereaux, inbound or outbound". Outbound only: the

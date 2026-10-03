@@ -333,6 +333,33 @@ AI-CALL (daily roll)  Dr 5200 AI & Inference COGS           80
 ```
 These two feed cost-per-case / per-conversation / per-brief telemetry (NFR-013).
 
+`MEDIA-SPEND` accrues **at the spend write, per `signal_spend` row**. Every
+write — CSV import, ad-platform pull, a hand-keyed `POST`/`PATCH
+/v1/signal/spend`, the demo tick — goes through one function
+(`recordSpend`, `apps/api/src/engines/signal-spend-import.ts`), and nothing
+else may insert or update the table (`signal-spend.guard.test.ts`). Per row:
+
+- The row's ledger identity is its natural key (campaign, channel, day), held
+  as the transactions' `correlation_id`; the idempotency key is that identity,
+  the position in the row's chain and the amount, so recording the same row at
+  the same amount again posts nothing.
+- A restatement that **raises** the row posts the positive delta as a new
+  `MEDIA-SPEND`. One that **lowers** it reverses the row's newest accruals
+  (§1.2: contra transactions carrying `reversal_of`, originals intact) until
+  what is booked is at or below the new amount, then books any remainder. The
+  recipe stays positive-only.
+- Lines carry dims `campaign` (when the row has one) and `channel`; currency
+  is the row's, converted at the tenant's rate on file — no rate, no row. A
+  row's currency cannot change once accrued.
+- The ledger posts first, at the time of recording; a refused accrual writes
+  no row. Corrections land in the period they are recorded in, so for any
+  period the `MEDIA-SPEND` movement on 5100 equals the change in
+  `signal_spend` recorded in it (property-tested).
+- A row that predates this seam (seeded history, carried by the seed's own
+  monthly accrual) is treated as booked elsewhere: the seam accrues only what
+  moves from that floor and, having no accrual of its own to reverse below
+  it, records `signal.spend.accrual_floor` for the media recon instead.
+
 **H. Reinsurance cession (own underwriting — ADR-0106)**
 ```
 BIND (premium booked) Dr 1200 Premium Receivable       10,000

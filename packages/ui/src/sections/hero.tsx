@@ -248,9 +248,11 @@ export interface HeroProps {
   sub?: string;
   mod: ScreenModule;
   hero?: HeroData;
+  /** The title is the page's h1. Only for a screen with no heading of its own (journey steps have JourneyHeader). */
+  heading?: boolean;
 }
 
-export function Hero({ eyebrow, title, attn, sub, mod, hero }: HeroProps) {
+export function Hero({ eyebrow, title, attn, sub, mod, hero, heading }: HeroProps) {
   const module = asLyraModule(mod);
   const [headline, ...restChips] = hero?.chips ?? [];
   const headlineDisplay = useCountUp(headline?.value ?? "");
@@ -261,7 +263,7 @@ export function Hero({ eyebrow, title, attn, sub, mod, hero }: HeroProps) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-2">
           <Eyebrow module={module}>{eyebrow}</Eyebrow>
-          <Lede>{title}</Lede>
+          {heading ? <h1 className="font-serif text-22 leading-[1.25] text-text text-start">{title}</h1> : <Lede>{title}</Lede>}
           {sub ? <p className="max-w-[60ch] text-14 leading-relaxed text-subtle">{sub}</p> : null}
         </div>
         {attn ? (

@@ -1,16 +1,20 @@
 import type { ReportTable } from "@lyra/ledger";
 import { promptInstant } from "@lyra/model-gateway";
+import { HAS_ARABIC, isArabic, isMark, shapeable, visualLine } from "./arabic.js";
 import { majorUnits, minorExponent } from "./money.js";
+import { advance1000, arabicFace, fontObjects, utf16Hex } from "./pdf-font.js";
 import { concat, utf8 } from "./zip.js";
 
 // A PDF table renderer in one file. Same reason as the XLSX writer: no approved
 // PDF dependency (docs/02 §9), and a report that only exists as a spreadsheet is
 // no good to the person who has to attach it to a regulator submission.
 //
-// ponytail: base-14 Helvetica only, WinAnsi encoding. That covers Latin. Arabic
-// needs an embedded font with shaping, which is a font subsetter's worth of code
-// — so `toPdf` refuses non-Latin text rather than drawing boxes, and the caller
-// falls back to XLSX. Upgrade path: embed a TTF subset + Harfbuzz-style shaping.
+// Latin is base-14 Helvetica, WinAnsi encoding, as it always was. Arabic is an
+// embedded, per-document subset of Noto Naskh Arabic (ADR-0115, pdf-font.ts),
+// shaped and reordered by arabic.ts — and only a string that contains Arabic
+// takes that path, so a Latin document is byte for byte what it was before.
+// Text neither font can draw (CJK, Hebrew, a Latin letter outside Latin-1) is
+// still refused by `pdfSafe` rather than drawn as boxes.
 //
 // Typographic punctuation is the other half of that: business copy is full of
 // en dashes and curly quotes ("Cash – Client Money" is a seeded account name),
@@ -27,6 +31,22 @@ export interface PdfOptions {
   /** Right-hand footer text, e.g. the tenant name. */
   footer?: string;
   orientation?: "portrait" | "landscape";
+  /**
+   * "rtl" lays the page out from the right: title and meta flush right,
+   * columns in reverse order, text cells flush right, the page number on the
+   * right. Direction *within* a string is decided per string either way.
+   */
+  direction?: "ltr" | "rtl";
+  /** The renderer's own words, for a document in another language. English by default. */
+  labels?: PdfLabels;
+}
+
+export interface PdfLabels {
+  generated?: string;
+  continued?: string;
+  total?: string;
+  noData?: string;
+  page?: (page: number, of: number) => string;
 }
 
 const PAGE = { portrait: { w: 595.28, h: 841.89 }, landscape: { w: 841.89, h: 595.28 } };
@@ -34,16 +54,61 @@ const MARGIN = 36;
 const LINE = 14;
 const FONT = { body: 9, header: 9, title: 16, meta: 8 };
 
+/**
+ * Per-document state for the Arabic face: the glyphs drawn (with the text each
+ * stands for, for ToUnicode) and which way a string with no strong letter runs.
+ * Module-level because `toPdf` is synchronous and every string goes through
+ * `text`; it is set and cleared around exactly one document.
+ */
+let doc: { glyphs: Map<number, string>; base: 0 | 1 } | undefined;
+
 export function toPdf(tables: readonly ReportTable[], opts: PdfOptions = {}): Uint8Array {
   const size = PAGE[opts.orientation ?? "landscape"];
   const pages: string[] = [];
+  doc = { glyphs: new Map(), base: opts.direction === "rtl" ? 1 : 0 };
+  try {
+    for (const t of tables) {
+      pages.push(...renderTable(t, opts, size));
+    }
+    if (!pages.length) {
+      const none = opts.labels?.noData ?? "No data";
+      pages.push(streamOf([text(lineX(none, FONT.body, opts, size), size.h - MARGIN, none, FONT.body, "F1")]));
+    }
 
-  for (const t of tables) {
-    pages.push(...renderTable(t, opts, size));
+    return assemble(pages, size, opts);
+  } finally {
+    doc = undefined;
   }
-  if (!pages.length) pages.push(streamOf([text(MARGIN, size.h - MARGIN, "No data", FONT.body, "F1")]));
+}
 
-  return assemble(pages, size, opts.footer ?? "");
+/** Where a line of page furniture starts: the left margin, or flush right. */
+function lineX(s: string, fontSize: number, opts: PdfOptions, size: { w: number }): number {
+  return opts.direction === "rtl" ? size.w - MARGIN - textWidth(s, fontSize) : MARGIN;
+}
+
+/** Each column's left edge. LTR accumulates exactly as it always did. */
+function columnLefts(widths: readonly number[], opts: PdfOptions, size: { w: number }): number[] {
+  const out: number[] = [];
+  if (opts.direction === "rtl") {
+    let right = size.w - MARGIN;
+    for (const w of widths) {
+      right -= w;
+      out.push(right);
+    }
+    return out;
+  }
+  let x = MARGIN;
+  for (const w of widths) {
+    out.push(x);
+    x += w;
+  }
+  return out;
+}
+
+/** A cell's text origin: numbers flush to the far edge, text to the near one. */
+function cellX(left: number, w: number, s: string, fontSize: number, numeric: boolean, rtl: boolean): number {
+  if (rtl) return numeric ? left + 4 : left + w - 2 - textWidth(s, fontSize);
+  return numeric ? left + w - 4 - textWidth(s, fontSize) : left + 2;
 }
 
 /* ------------------------------------------------------------------ layout */
@@ -51,6 +116,10 @@ export function toPdf(tables: readonly ReportTable[], opts: PdfOptions = {}): Ui
 function renderTable(t: ReportTable, opts: PdfOptions, size: { w: number; h: number }): string[] {
   const usable = size.w - MARGIN * 2;
   const widths = columnWidths(t, usable);
+  const lefts = columnLefts(widths, opts, size);
+  const rtl = opts.direction === "rtl";
+  const words = opts.labels ?? {};
+  const numeric = (kind: string): boolean => kind === "money" || kind === "number";
   const pages: string[] = [];
 
   let ops: string[] = [];
@@ -61,20 +130,23 @@ function renderTable(t: ReportTable, opts: PdfOptions, size: { w: number; h: num
     y = size.h - MARGIN;
     if (opts.watermark) ops.push(watermark(opts.watermark, size));
     if (withTitle) {
-      ops.push(text(MARGIN, y, t.title, FONT.title, "F2"));
+      ops.push(text(lineX(t.title, FONT.title, opts, size), y, t.title, FONT.title, "F2"));
       y -= LINE + 8;
-      ops.push(text(MARGIN, y, `Generated ${iso(t.generatedAt)}`, FONT.meta, "F1", GREY));
+      const generated = `${words.generated ?? "Generated"} ${iso(t.generatedAt)}`;
+      ops.push(text(lineX(generated, FONT.meta, opts, size), y, generated, FONT.meta, "F1", GREY));
       y -= LINE;
       for (const [k, v] of Object.entries(opts.meta ?? {})) {
-        ops.push(text(MARGIN, y, `${k}: ${v}`, FONT.meta, "F1", GREY));
+        const line = `${k}: ${v}`;
+        ops.push(text(lineX(line, FONT.meta, opts, size), y, line, FONT.meta, "F1", GREY));
         y -= LINE - 2;
       }
       y -= 6;
     } else {
-      ops.push(text(MARGIN, y, `${t.title} (continued)`, FONT.meta, "F1", GREY));
+      const continued = `${t.title} (${words.continued ?? "continued"})`;
+      ops.push(text(lineX(continued, FONT.meta, opts, size), y, continued, FONT.meta, "F1", GREY));
       y -= LINE + 4;
     }
-    ops.push(headerBand(t, widths, y, usable));
+    ops.push(headerBand(t, widths, lefts, y, usable, rtl));
     y -= LINE + 4;
   };
 
@@ -85,13 +157,9 @@ function renderTable(t: ReportTable, opts: PdfOptions, size: { w: number; h: num
       pages.push(streamOf(ops));
       startPage(false);
     }
-    let x = MARGIN;
     t.columns.forEach((c, i) => {
-      const w = widths[i]!;
       const s = format(row[c.key], c.kind, t.currency);
-      const right = c.kind === "money" || c.kind === "number";
-      ops.push(text(right ? x + w - 4 - textWidth(s, FONT.body) : x + 2, y, s, FONT.body, "F1"));
-      x += w;
+      ops.push(text(cellX(lefts[i]!, widths[i]!, s, FONT.body, numeric(c.kind), rtl), y, s, FONT.body, "F1"));
     });
     y -= LINE;
   }
@@ -102,14 +170,10 @@ function renderTable(t: ReportTable, opts: PdfOptions, size: { w: number; h: num
       startPage(false);
     }
     ops.push(rule(MARGIN, y + LINE - 4, usable));
-    let x = MARGIN;
     t.columns.forEach((c, i) => {
-      const w = widths[i]!;
       const v = opts.totals?.[c.key];
-      const s = i === 0 ? "Total" : v === undefined ? "" : format(v, c.kind, t.currency);
-      const right = c.kind === "money" || c.kind === "number";
-      ops.push(text(right ? x + w - 4 - textWidth(s, FONT.body) : x + 2, y, s, FONT.body, "F2"));
-      x += w;
+      const s = i === 0 ? (words.total ?? "Total") : v === undefined ? "" : format(v, c.kind, t.currency);
+      ops.push(text(cellX(lefts[i]!, widths[i]!, s, FONT.body, numeric(c.kind), rtl), y, s, FONT.body, "F2"));
     });
     y -= LINE;
   }
@@ -118,17 +182,22 @@ function renderTable(t: ReportTable, opts: PdfOptions, size: { w: number; h: num
   return pages;
 }
 
-function headerBand(t: ReportTable, widths: readonly number[], y: number, usable: number): string {
+function headerBand(
+  t: ReportTable,
+  widths: readonly number[],
+  lefts: readonly number[],
+  y: number,
+  usable: number,
+  rtl: boolean
+): string {
   const parts: string[] = [
     `q 0.118 0.106 0.294 rg ${MARGIN} ${(y - 3).toFixed(2)} ${usable.toFixed(2)} ${(LINE + 2).toFixed(2)} re f Q`
   ];
-  let x = MARGIN;
   t.columns.forEach((c, i) => {
     const w = widths[i]!;
     const label = clip(c.label, w - 4, FONT.header);
     const right = c.kind === "money" || c.kind === "number";
-    parts.push(text(right ? x + w - 4 - textWidth(label, FONT.header) : x + 2, y + 2, label, FONT.header, "F2", WHITE));
-    x += w;
+    parts.push(text(cellX(lefts[i]!, w, label, FONT.header, right, rtl), y + 2, label, FONT.header, "F2", WHITE));
   });
   return parts.join("\n");
 }
@@ -163,7 +232,63 @@ const GREY = "0.42 0.45 0.50";
 const WHITE = "1 1 1";
 
 function text(x: number, y: number, value: string, size: number, font: string, colour = "0 0 0"): string {
-  return `BT ${colour} rg /${font} ${size} Tf 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${escapePdf(value)}) Tj ET`;
+  if (!HAS_ARABIC.test(value)) {
+    return `BT ${colour} rg /${font} ${size} Tf 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm (${escapePdf(value)}) Tj ET`;
+  }
+  // Glyphs are drawn in visual order, one text object, switching face per run:
+  // Latin runs stay Helvetica, Arabic runs are glyph ids in the embedded face.
+  // ActualText carries the logical string so copy, search and screen readers
+  // get "مريم" rather than the reversed glyph sequence.
+  const shown = faceRuns(value, true)
+    .map((r) => (r.gids ? `/F3 ${size} Tf <${r.gids.map(hex4).join("")}> Tj` : `/${font} ${size} Tf (${escapePdf(r.text)}) Tj`))
+    .join(" ");
+  return (
+    `/Span << /ActualText <FEFF${utf16Hex(value)}> >> BDC ` +
+    `BT ${colour} rg 1 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)} Tm ${shown} ET EMC`
+  );
+}
+
+const hex4 = (n: number): string => n.toString(16).toUpperCase().padStart(4, "0");
+
+/** A run of one face in visual order: Helvetica `text`, or embedded-face `gids`. */
+interface FaceRun {
+  text: string;
+  gids?: number[];
+}
+
+/**
+ * Shape and reorder `value`, then split it by face. A cluster goes to the
+ * Arabic face when the face has every glyph it needs and it is Arabic, or a
+ * space inside a right-to-left run; everything else stays Helvetica. With
+ * `record`, the glyphs used are noted for the document's font subset.
+ */
+function faceRuns(value: string, record: boolean): FaceRun[] {
+  const face = arabicFace();
+  const { clusters } = visualLine(value, doc?.base ?? 0);
+  const out: FaceRun[] = [];
+  for (const c of clusters) {
+    if (!c.cps.length) continue;
+    const covered = c.cps.every((cp) => face.glyph(cp) !== 0);
+    const arabic = covered && (c.cps.some(isArabic) || (c.type === "WS" && c.level % 2 === 1));
+    const last = out[out.length - 1];
+    if (!arabic) {
+      const s = String.fromCodePoint(...c.cps);
+      if (last && !last.gids) last.text += s;
+      else out.push({ text: s });
+      continue;
+    }
+    const gids = c.cps.map((cp) => face.glyph(cp));
+    if (record && doc) {
+      const base = [...c.src].filter((ch) => !isMark(ch.codePointAt(0)!)).join("") || String.fromCodePoint(c.cps[0]!);
+      c.cps.forEach((cp, k) => {
+        const g = gids[k]!;
+        if (!doc!.glyphs.has(g)) doc!.glyphs.set(g, k === 0 ? base : String.fromCodePoint(cp));
+      });
+    }
+    if (last?.gids) last.gids.push(...gids);
+    else out.push({ text: "", gids });
+  }
+  return out;
 }
 
 function rule(x: number, y: number, w: number): string {
@@ -205,10 +330,20 @@ function textWidth(s: string, size: number): number {
   // Measured after folding, because folding is what gets drawn: an ellipsis is
   // one character to measure and three to print, and a right-aligned column
   // whose width was measured on the wrong string sits in the wrong place.
+  if (!HAS_ARABIC.test(s)) return (latinUnits(s) / 1000) * size;
+  // Measured on the shaped glyphs: a medial form and an isolated one differ.
+  let total = 0;
+  for (const r of faceRuns(s, false)) {
+    total += r.gids ? r.gids.reduce((sum, g) => sum + advance1000(g), 0) : latinUnits(r.text);
+  }
+  return (total / 1000) * size;
+}
+
+function latinUnits(s: string): number {
   const t = transliterate(s);
   let total = 0;
   for (let i = 0; i < t.length; i++) total += W[t.charCodeAt(i) & 0xff]!;
-  return (total / 1000) * size;
+  return total;
 }
 
 function clip(s: string, max: number, size: number): string {
@@ -286,17 +421,36 @@ function escapePdf(s: string): string {
 
 /** True when every table can be rendered without substitution. */
 export function pdfSafe(tables: readonly ReportTable[]): boolean {
-  // Latin-1 is the whole of WinAnsiEncoding; anything outside it needs an
-  // embedded font, so the caller is told to export xlsx instead. Tested on the
+  // Latin-1 is the whole of WinAnsiEncoding, drawn in Helvetica. Beyond it, only
+  // Arabic the embedded face has a glyph for *and* the shaper can join
+  // (ADR-0115); anything else — CJK, Hebrew, a Latin letter outside Latin-1, an
+  // Arabic-script letter with no presentation form — would print as a box or
+  // unjoined, so the caller is told to export xlsx instead. Tested on the
   // *folded* string so this and `escapePdf` agree on what is renderable: a gate
   // stricter than the renderer refuses exports that would have rendered fine,
   // which is what made "Cash – Client Money" a 400.
-  // eslint-disable-next-line no-control-regex -- the range starts at NUL by design
-  const bad = (v: string): boolean => /[^\u0000-\u00FF]/.test(transliterate(v));
+  const drawable = (cp: number): boolean =>
+    cp <= 0xff || (isArabic(cp) && shapeable(cp) && arabicFace().glyph(cp) !== 0);
+  return everyDrawnString(tables, (v) => {
+    for (const ch of transliterate(v)) if (!drawable(ch.codePointAt(0)!)) return false;
+    return true;
+  });
+}
+
+/**
+ * True when no drawn string needs the embedded Arabic face. render.ts uses it
+ * to keep sending Arabic reports to a bound browser, which lays the whole table
+ * out right to left; this writer is the fallback when none is bound.
+ */
+export function latinOnly(tables: readonly ReportTable[]): boolean {
+  return everyDrawnString(tables, (v) => !HAS_ARABIC.test(v));
+}
+
+function everyDrawnString(tables: readonly ReportTable[], ok: (v: string) => boolean): boolean {
   return tables.every(
     (t) =>
-      !bad(t.title) &&
-      t.columns.every((c) => !bad(c.label)) &&
+      ok(t.title) &&
+      t.columns.every((c) => ok(c.label)) &&
       // Only the values a column projects: report rows carry more fields than
       // they render (a chart-of-accounts row holds an Arabic `ar` name that no
       // column draws), and refusing over a field that never reaches the page is
@@ -304,7 +458,7 @@ export function pdfSafe(tables: readonly ReportTable[]): boolean {
       t.rows.every((r) =>
         t.columns.every((c) => {
           const v = r[c.key];
-          return typeof v !== "string" || !bad(v);
+          return typeof v !== "string" || ok(v);
         })
       )
   );
@@ -312,37 +466,56 @@ export function pdfSafe(tables: readonly ReportTable[]): boolean {
 
 /* --------------------------------------------------------------- assembly */
 
-function assemble(pages: readonly string[], size: { w: number; h: number }, footer: string): Uint8Array {
-  const objects: string[] = [];
-  const push = (body: string): number => objects.push(body);
+function assemble(pages: readonly string[], size: { w: number; h: number }, opts: PdfOptions): Uint8Array {
+  const footer = opts.footer ?? "";
+  const rtl = opts.direction === "rtl";
+  const objects: (string | Uint8Array)[] = [];
+  const push = (body: string | Uint8Array): number => objects.push(body);
 
-  // 1 catalog, 2 pages, 3 F1, 4 F2 — then two objects per page.
+  // 1 catalog, 2 pages, 3 F1, 4 F2 — then two objects per page, then (only if
+  // a glyph of it was drawn) the five objects of the embedded Arabic face.
   push("<< /Type /Catalog /Pages 2 0 R >>");
   push(""); // placeholder, filled once the kids are known
   push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
   push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
 
-  const kids: string[] = [];
-  pages.forEach((content, i) => {
-    const withFooter =
+  // Footers are drawn before any font object is written: the tenant's name can
+  // be Arabic, and the subset has to include its glyphs.
+  const contents = pages.map((content, i) => {
+    const label = opts.labels?.page ? opts.labels.page(i + 1, pages.length) : `Page ${i + 1} of ${pages.length}`;
+    const y = MARGIN - 12;
+    const far = (s: string): number => size.w - MARGIN - textWidth(s, FONT.meta);
+    return (
       `${content}\n` +
-      text(MARGIN, MARGIN - 12, `Page ${i + 1} of ${pages.length}`, FONT.meta, "F1", GREY) +
-      (footer ? `\n${text(size.w - MARGIN - textWidth(footer, FONT.meta), MARGIN - 12, footer, FONT.meta, "F1", GREY)}` : "");
+      text(rtl ? far(label) : MARGIN, y, label, FONT.meta, "F1", GREY) +
+      (footer ? `\n${text(rtl ? MARGIN : far(footer), y, footer, FONT.meta, "F1", GREY)}` : "")
+    );
+  });
+  const glyphs = doc?.glyphs ?? new Map<number, string>();
+  const arabicId = 4 + pages.length * 2 + 1;
+  const arabicRef = glyphs.size ? ` /F3 ${arabicId} 0 R` : "";
+
+  const kids: string[] = [];
+  contents.forEach((withFooter) => {
     const streamId = push(`<< /Length ${utf8(withFooter).length} >>\nstream\n${withFooter}\nendstream`);
     const pageId = push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size.w.toFixed(2)} ${size.h.toFixed(2)}] ` +
-        `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${streamId} 0 R >>`
+        `/Resources << /Font << /F1 3 0 R /F2 4 0 R${arabicRef} >> >> /Contents ${streamId} 0 R >>`
     );
     kids.push(`${pageId} 0 R`);
   });
   objects[1] = `<< /Type /Pages /Count ${pages.length} /Kids [${kids.join(" ")}] >>`;
+  if (glyphs.size) for (const o of fontObjects(objects.length + 1, glyphs)) push(o);
 
   const parts: Uint8Array[] = [utf8("%PDF-1.4\n%âãÏÓ\n")];
   const offsets: number[] = [];
   let at = parts[0]!.length;
   objects.forEach((body, i) => {
     offsets.push(at);
-    const bytes = utf8(`${i + 1} 0 obj\n${body}\nendobj\n`);
+    const bytes =
+      typeof body === "string"
+        ? utf8(`${i + 1} 0 obj\n${body}\nendobj\n`)
+        : concat([utf8(`${i + 1} 0 obj\n`), body, utf8("\nendobj\n")]);
     parts.push(bytes);
     at += bytes.length;
   });

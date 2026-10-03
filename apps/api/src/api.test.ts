@@ -303,10 +303,12 @@ describe("exports", () => {
     expect(stamped).toContain("user:u_1 - 2026-06-15");
   });
 
-  it("reports Arabic as unsafe rather than drawing boxes", () => {
+  it("reports a script no PDF font covers as unsafe rather than drawing boxes", () => {
     expect(pdfSafe([TABLE])).toBe(true);
-    expect(pdfSafe([{ ...TABLE, rows: [{ period: "يونيو", gwp: 1, policies: 1 }] }])).toBe(false);
-    expect(pdfSafe([{ ...TABLE, title: "تقرير" }])).toBe(false);
+    expect(pdfSafe([{ ...TABLE, rows: [{ period: "六月", gwp: 1, policies: 1 }] }])).toBe(false);
+    expect(pdfSafe([{ ...TABLE, title: "報告" }])).toBe(false);
+    // Arabic is drawn by the embedded face (ADR-0115).
+    expect(pdfSafe([{ ...TABLE, title: "تقرير" }])).toBe(true);
   });
 });
 

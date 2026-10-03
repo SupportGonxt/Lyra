@@ -3,6 +3,7 @@ import { id, schema } from "@lyra/db";
 import { applyPpm } from "../commission.js";
 import { DAY, HOUR, MINUTE } from "./context.js";
 import type { CoreDb } from "../context.js";
+import { measureBook, windowPeriods } from "./north-book.js";
 
 // docs/19 — the trading history the demo book implies. `seed.ts` writes the one
 // sale the whole product tells a story about; this writes the months of ordinary
@@ -346,9 +347,13 @@ export async function postAll(
  * screen that reads a *measurement* — the home KPI wall (analytics_unit_economics)
  * and all of NORTH (north_snapshots) — stays empty, because the core seed only
  * writes those around its own clock. This writes the same shapes for the window
- * the backfill covers, derived from the day's own postings so the metric and the
- * ledger never disagree: gwp is the premium that was collected, net_commission
- * is the commission that was earned, policies_issued is the sales that happened.
+ * the backfill covers. The row-backed metrics — policies issued, premium,
+ * commission, the b2b share, the book in force — are measured from the rows
+ * with the snapshotter's definitions (seed/north-book.ts), so a backfill that
+ * lands under a month the core seed already measured rewrites that month
+ * rather than leaving a figure its records no longer support. Policies are
+ * written by the module pass (seed/history-modules.ts), which measures again
+ * once they exist.
  *
  * Rates and ratios have no source in a ledger, so they follow the same
  * deterministic curve the rest of the seed uses — no random source, so a re-run
@@ -363,7 +368,8 @@ async function measure(
   tenantId: string,
   totals: Map<string, DayTotals>,
   nid: (prefix: string) => string,
-  now: number
+  now: number,
+  windowDays: number
 ): Promise<{ snapshots: number; unitEconomics: number }> {
   const days = [...totals.keys()].sort();
   if (days.length === 0) return { snapshots: 0, unitEconomics: 0 };
@@ -429,44 +435,30 @@ async function measure(
     return min + (h % span);
   };
 
-  const monthly = new Map<string, { gwp: number; commission: number; policies: number; end: number }>();
-  days.forEach((day, i) => {
-    const t = totals.get(day)!;
-    // The nightly rollup writes a closed day the morning after it closes.
-    const ts = t.midnight + DAY + 2 * HOUR;
-    snapshot("policies_issued", "day", day, t.sales, ts);
-    snapshot("quote_to_bind_rate", "day", day, curve("qtb", day, 1_900, 700), ts);
-    snapshot("panel_response_rate", "day", day, curve("prr", day, 8_800, 1_100), ts);
-    snapshot("quote_latency_p95", "day", day, curve("lat", day, 1_900, 1_900), ts);
-
-    const code = day.slice(0, 7);
-    const m = monthly.get(code) ?? { gwp: 0, commission: 0, policies: 0, end: t.midnight };
-    m.gwp += t.premiumMinor;
-    m.commission += t.commissionMinor;
-    // Policies in force: everything sold since the window opened and not yet a
-    // year old, which inside a 120-day backfill is everything sold so far.
-    m.policies = i + 1;
-    m.end = Math.max(m.end, t.midnight);
-    monthly.set(code, m);
-  });
-
-  for (const [code, m] of [...monthly.entries()].sort()) {
-    // A closed month rolls up on the 1st of the next; the open one re-runs nightly.
-    const nextStart = nextMonthStart(m.end);
-    const ts = (nextStart > now ? new Date(now).setUTCHours(0, 0, 0, 0) : nextStart) + 2 * HOUR;
-    snapshot("gwp", "month", code, m.gwp, ts);
-    snapshot("net_commission", "month", code, m.commission, ts);
-    snapshot("active_policies", "month", code, m.policies, ts);
-    snapshot("cac_per_policy", "month", code, curve("cac", code, 18_900, 5_800), ts);
-    snapshot("renewal_retention", "month", code, curve("ret", code, 7_900, 500), ts);
-    snapshot("broker_channel_share", "month", code, curve("bcs", code, 3_100, 700), ts);
-    snapshot("loss_ratio", "month", code, curve("lrt", code, 5_900, 600), ts);
-    snapshot("ai_cost_per_case", "month", code, curve("aic", code, 88, 34), ts);
+  // ILLUSTRATIVE: rates and ratios whose inputs this pass does not write.
+  const periods = windowPeriods(windowDays, now);
+  for (const p of periods) {
+    if (p.grain === "day") {
+      snapshot("quote_to_bind_rate", "day", p.period, curve("qtb", p.period, 1_900, 700), p.ts);
+      snapshot("panel_response_rate", "day", p.period, curve("prr", p.period, 8_800, 1_100), p.ts);
+      snapshot("quote_latency_p95", "day", p.period, curve("lat", p.period, 1_900, 1_900), p.ts);
+    } else {
+      snapshot("cac_per_policy", "month", p.period, curve("cac", p.period, 18_900, 5_800), p.ts);
+      snapshot("renewal_retention", "month", p.period, curve("ret", p.period, 7_900, 500), p.ts);
+      snapshot("loss_ratio", "month", p.period, curve("lrt", p.period, 5_900, 600), p.ts);
+      snapshot("ai_cost_per_case", "month", p.period, curve("aic", p.period, 88, 34), p.ts);
+    }
   }
 
   await insertChunked((rows) => db.insert(schema.unitEconomics).values(rows), econRows, 6);
   await insertChunked((rows) => db.insert(schema.northSnapshots).values(rows), snapRows, 8);
-  return { snapshots: snapRows.length, unitEconomics: econRows.length };
+  // Measured, not derived from `totals`: the same rows the snapshotter reads.
+  const book = await measureBook(db, tenantId, periods, {
+    currency: BASE,
+    nid,
+    insert: (rows) => insertChunked((chunk) => db.insert(schema.northSnapshots).values(chunk), rows, 8)
+  });
+  return { snapshots: snapRows.length + book.written, unitEconomics: econRows.length };
 }
 
 export async function seedHistory(
@@ -567,7 +559,7 @@ export async function seedHistory(
   // Measurements are written for the whole window, not only for days whose
   // postings are new: a tenant backfilled before this existed has the ledger
   // already and needs exactly this pass to fill its metric screens.
-  const measured = await measure(db, tenantId, totals, nid, now);
+  const measured = await measure(db, tenantId, totals, nid, now, days);
 
   return {
     daysWritten: freshDays.size,

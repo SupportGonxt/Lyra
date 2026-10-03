@@ -380,14 +380,19 @@ created by `seed()` in
 |---|---|---|
 | `amina.saleh@gonxt.ae` | Amina Saleh | `tenant.admin` |
 | `khalid.rashed@gonxt.ae` | Khalid Al Rashed | `tenant.compliance` (locale `ar` — use this account to test RTL) |
+| `ziad.habsi@gonxt.ae` | Ziad Habsi | `tenant.admin` |
+| `asma.qasim@gonxt.ae` | Asma Qasim | `tenant.compliance` |
 | `layla.hassan@gonxt.ae` | Layla Hassan | `axis.agent` |
 | `omar.farouk@gonxt.ae` | Omar Farouk | `axis.lead` |
+| `suhail.hamdan@gonxt.ae` | Suhail Hamdan | `axis.admin` |
 | `sara.nasser@gonxt.ae` | Sara Al Nasser | `orbit.agent` |
 | `yusuf.karim@gonxt.ae` | Yusuf Karim | `orbit.retention` |
 | `dana.aziz@gonxt.ae` | Dana Aziz | `orbit.partners` |
 | `hind.saqr@gonxt.ae` | Hind Al Saqr | `orbit.admin` |
 | `noor.jamal@gonxt.ae` | Noor Jamal | `signal.lead` |
+| `kareem.shamsi@gonxt.ae` | Kareem Shamsi | `signal.admin` |
 | `tariq.mansour@gonxt.ae` | Tariq Mansour | `scout.lead` |
+| `basma.darwish@gonxt.ae` | Basma Darwish | `scout.admin` |
 | `hala.zayed@gonxt.ae` | Hala Zayed | `north.exec` |
 | `rana.hadid@gonxt.ae` | Rana Hadid | `north.analyst` |
 | `faisal.omar@gonxt.ae` | Faisal Omar | `finance.controller` |
@@ -397,9 +402,15 @@ created by `seed()` in
 | `yasmin.faris@gonxt.ae` | Yasmin Faris | `provider.viewer` |
 
 There are **two** finance controllers on purpose: money-out is dual control, and
-you cannot demo or test a four-eyes approval with one account.
+you cannot demo or test a four-eyes approval with one account. The same reason
+puts `axis.admin` beside `axis.lead`: the lead requests binds, endorsements and
+claim settlements, and may not decide his own under dual control. Every
+dual-control gate has two seeded deciders for the same reason — the second
+tenant admin, compliance officer and the SIGNAL and SCOUT admins are there so
+a requester is never the only one who can approve (ADR-0116,
+`packages/core/src/approvals.deciders.test.ts`).
 
-Eleven of these are also fixed constants for the automated journeys — see
+Twelve of these are also fixed constants for the automated journeys — see
 `PERSONAS` in [`e2e/env.ts`](../../e2e/env.ts).
 
 ### 7.2 The seeded password

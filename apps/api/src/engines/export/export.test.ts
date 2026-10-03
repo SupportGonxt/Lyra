@@ -89,10 +89,14 @@ describe("pdf transliteration", () => {
     expect(pdfText(t)).toContain("M\\374ller");
   });
 
-  it("still refuses Arabic, and says what to do instead", () => {
-    expect(pdfSafe([table({ rows: [{ name: "نقد", balanceMinor: 1 }] })])).toBe(false);
-    expect(pdfSafe([table({ title: "تقرير" })])).toBe(false);
-    expect(pdfSafe([table({ columns: [{ key: "name", label: "الاسم", kind: "text" }] })])).toBe(
+  // This test said "still refuses Arabic" until ADR-0115 embedded an Arabic
+  // face; the spec (a schedule for every customer) won, so Arabic is drawable
+  // now and the refusal is pinned on scripts no embedded font covers.
+  it("refuses text no embedded font can draw, and says what to do instead", () => {
+    expect(pdfSafe([table({ rows: [{ name: "نقد", balanceMinor: 1 }] })])).toBe(true);
+    expect(pdfSafe([table({ rows: [{ name: "現金", balanceMinor: 1 }] })])).toBe(false);
+    expect(pdfSafe([table({ title: "報告" })])).toBe(false);
+    expect(pdfSafe([table({ columns: [{ key: "name", label: "שם", kind: "text" }] })])).toBe(
       false
     );
     // Letters outside Latin-1 are never approximated: "Ÿ" must not become "Y".
@@ -177,8 +181,15 @@ describe("money in the exports", () => {
 describe("render() pdf fallback for Arabic", () => {
   const arabicTable = table({ rows: [{ name: "نقد", balanceMinor: 1_00 }] });
 
-  it("throws when the report has Arabic and no browser binding is available", async () => {
-    await expect(render("pdf", arabicTable, {})).rejects.toMatchObject({ detail: expect.stringMatching(/non-Latin/) });
+  it("draws Arabic in-process when no browser binding is available (ADR-0115)", async () => {
+    const out = await render("pdf", arabicTable, {});
+    expect(out.contentType).toBe("application/pdf");
+    expect(new TextDecoder("latin1").decode(out.bytes)).toContain("/Subtype /Type0");
+  });
+
+  it("throws when the report has a script no PDF font covers and no browser binding", async () => {
+    const cjk = table({ rows: [{ name: "現金", balanceMinor: 1_00 }] });
+    await expect(render("pdf", cjk, {})).rejects.toMatchObject({ detail: expect.stringMatching(/non-Latin/) });
   });
 
   it("renders via the browser binding instead of throwing when one is bound", async () => {

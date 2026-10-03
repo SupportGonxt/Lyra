@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import {
   displayValue,
@@ -10,7 +10,8 @@ import {
   type SnapshotMetric,
   type Unit
 } from "@lyra/core";
-import type { Gateway } from "@lyra/model-gateway";
+import type { Gateway, ModelResponse } from "@lyra/model-gateway";
+import { composeTemplateBrief, TEMPLATE_LOCALES, type TemplateMetric } from "./north-brief-template.js";
 
 // docs/03 §NORTH J-E1. The morning briefing for `date` doesn't exist until this
 // runs — the seed leaves `{2026-01-06, exec, en}` free for exactly this call.
@@ -47,14 +48,25 @@ async function snapshotValue(
   return row ? row.value : null;
 }
 
+/** A localised metric name: the reader's language, else English, else null. */
+function nameIn(nameJson: string, locale: string): string | null {
+  try {
+    const names = JSON.parse(nameJson) as Record<string, unknown>;
+    const picked = names[locale] ?? names.en;
+    return typeof picked === "string" && picked.trim() ? picked : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The numbers a briefing for `date` can narrate: for a day-grain metric that is
  * the most recently closed day (nightly rollup means `date` itself has no row
  * yet); for a month-grain metric that is the month `date` falls in, which is
  * the month-to-date figure rewritten every night. Each carries the prior
- * comparable period for a delta, when one exists.
+ * comparable period for a delta, when one exists. Names are in `locale`.
  */
-export async function buildSnapshot(ctx: Ctx, date: string): Promise<BriefingSnapshot> {
+export async function buildSnapshot(ctx: Ctx, date: string, locale = "en"): Promise<BriefingSnapshot> {
   const metricRows = await ctx.db
     .select()
     .from(schema.northMetrics)
@@ -77,7 +89,7 @@ export async function buildSnapshot(ctx: Ctx, date: string): Promise<BriefingSna
 
     metrics.push({
       metricKey: m.key,
-      name: (JSON.parse(m.nameJson) as { en: string }).en,
+      name: nameIn(m.nameJson, locale) ?? m.key,
       unit: m.unit as Unit,
       currency: m.currency,
       grain,
@@ -138,10 +150,62 @@ export interface GenerateBriefingOptions {
 
 export interface GenerateBriefingResult {
   id: string;
+  date: string;
+  audience: string;
+  locale: string;
   status: "review" | "draft";
   narrativeRef: string;
   mismatches: number[];
-  auditId: string;
+  /** The ai_audit_log row behind a model-written brief; null for a template one. */
+  auditId: string | null;
+  /** "ai" when the narrator wrote it, "template" when the fixed template did (docs/15: only "ai" carries ✦). */
+  generatedBy: "ai" | "template";
+}
+
+/**
+ * The language the narrator's prompt is written in, and the only one the
+ * NORTH eval (packages/model-gateway/evals/north) measures. Any other locale
+ * gets the template, in that locale, rather than English prose stored under a
+ * locale it is not in — an Arabic narration needs its eval case first
+ * (CLAUDE.md "AI features are eval-first").
+ */
+const MODEL_LOCALE = "en";
+
+/** The three metrics that moved most, kept beside the prose for the brief screen's card. */
+function highlightsOf(snapshot: BriefingSnapshot) {
+  return [...snapshot.metrics]
+    .filter((m) => m.deltaBps !== null)
+    .sort((a, b) => Math.abs(b.deltaBps!) - Math.abs(a.deltaBps!))
+    .slice(0, 3)
+    .map((m) => ({ metricKey: m.metricKey, period: m.period, value: m.value, deltaBps: m.deltaBps }));
+}
+
+/** The model's answer, or null when there is no usable one: unconfigured, failed, refused or empty. */
+async function narrate(ctx: Ctx, gateway: Gateway, snapshot: BriefingSnapshot): Promise<ModelResponse | null> {
+  const { system, user } = buildPrompt(snapshot);
+  try {
+    const res = await gateway.complete(ctx, {
+      module: "north",
+      purpose: "briefing.generate",
+      tier: "reasoning",
+      subjectRef: snapshot.date,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ]
+    });
+    // A kill switch or budget refusal comes back as a response, not a throw —
+    // storing its text as the morning brief would be worse than the template.
+    if (res.finishReason === "refusal" || res.finishReason === "error" || !res.text.trim()) return null;
+    return res;
+  } catch (err) {
+    console.warn("briefing narrator unavailable, writing the template brief", {
+      tenantId: ctx.tenantId,
+      date: snapshot.date,
+      err: err instanceof Error ? err.message : String(err)
+    });
+    return null;
+  }
 }
 
 /**
@@ -151,6 +215,10 @@ export interface GenerateBriefingResult {
  * attempt is inspectable rather than silently dropped; it is never auto-published
  * either way (`approvedBy` is always null here — rule 4, publishing is a human's
  * job, not this engine's).
+ *
+ * J-E1: with no usable model answer — none configured, the call failed, the
+ * gateway refused — the brief is still written, from the template
+ * (`templateBriefing`), so "the 7am read" never depends on a provider.
  */
 export async function generateBriefing(
   ctx: Ctx,
@@ -159,27 +227,14 @@ export async function generateBriefing(
 ): Promise<GenerateBriefingResult> {
   const audience = opts.audience ?? "exec";
   const locale = opts.locale ?? "en";
+  if (locale !== MODEL_LOCALE) return templateBriefing(ctx, { date: opts.date, audience, locale });
 
   const snapshot = await buildSnapshot(ctx, opts.date);
-  const { system, user } = buildPrompt(snapshot);
-  const res = await gateway.complete(ctx, {
-    module: "north",
-    purpose: "briefing.generate",
-    tier: "reasoning",
-    subjectRef: opts.date,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user }
-    ]
-  });
+  const res = await narrate(ctx, gateway, snapshot);
+  if (!res) return templateBriefing(ctx, { date: opts.date, audience, locale });
 
   const verification = verifyNumericClaims(res.text, snapshot);
-
-  const highlights = [...snapshot.metrics]
-    .filter((m) => m.deltaBps !== null)
-    .sort((a, b) => Math.abs(b.deltaBps!) - Math.abs(a.deltaBps!))
-    .slice(0, 3)
-    .map((m) => ({ metricKey: m.metricKey, period: m.period, value: m.value, deltaBps: m.deltaBps }));
+  const status = verification.ok ? "review" : "draft";
 
   const id = newId("brf", ctx.now);
   // ponytail: narrativeRef is stored as the generated text itself, not an R2 key —
@@ -193,9 +248,9 @@ export async function generateBriefing(
     audience,
     locale,
     narrativeRef: res.text,
-    highlightsJson: JSON.stringify(highlights),
+    highlightsJson: JSON.stringify(highlightsOf(snapshot)),
     anomaliesJson: null,
-    status: verification.ok ? "review" : "draft",
+    status,
     generatedBy: "ai",
     aiAuditId: res.auditId,
     approvedBy: null,
@@ -205,32 +260,121 @@ export async function generateBriefing(
 
   return {
     id,
-    status: verification.ok ? "review" : "draft",
+    date: opts.date,
+    audience,
+    locale,
+    status,
     narrativeRef: res.text,
     mismatches: verification.mismatches,
-    auditId: res.auditId
+    auditId: res.auditId,
+    generatedBy: "ai"
   };
 }
 
 /**
- * docs/30 NORTH gap 1: yesterday's exec brief, written in the nightly window
- * beside the snapshot. Once per date — the row's unique key says so, and a
- * second run returns null without asking the model again. Never published here.
+ * The brief with no model: the same snapshot, in `locale`, plus the open
+ * anomalies nobody owns yet, through the fixed template
+ * (engines/north-brief-template.ts). Its figures are copied from stored values,
+ * so it is review-ready by construction; a person still publishes it.
  */
-export async function nightlyBriefing(ctx: Ctx, gateway: Gateway): Promise<GenerateBriefingResult | null> {
-  const date = new Date(ctx.now - 86_400_000).toISOString().slice(0, 10);
-  const [held] = await ctx.db
-    .select({ id: schema.northBriefings.id })
-    .from(schema.northBriefings)
-    .where(
-      and(
-        eq(schema.northBriefings.tenantId, ctx.tenantId),
-        eq(schema.northBriefings.date, date),
-        eq(schema.northBriefings.audience, "exec"),
-        eq(schema.northBriefings.locale, "en")
+export async function templateBriefing(
+  ctx: Ctx,
+  opts: { date: string; audience: string; locale: string }
+): Promise<GenerateBriefingResult> {
+  const [snapshot, metricRows, anomalyRows] = await Promise.all([
+    buildSnapshot(ctx, opts.date, opts.locale),
+    ctx.db.select().from(schema.northMetrics).where(eq(schema.northMetrics.tenantId, ctx.tenantId)),
+    ctx.db
+      .select()
+      .from(schema.northAnomalies)
+      .where(
+        and(
+          eq(schema.northAnomalies.tenantId, ctx.tenantId),
+          eq(schema.northAnomalies.state, "new"),
+          isNull(schema.northAnomalies.explainedBy)
+        )
       )
-    )
-    .limit(1);
-  if (held) return null;
-  return generateBriefing(ctx, gateway, { date });
+      .orderBy(desc(schema.northAnomalies.detectedAt))
+      .limit(50)
+  ]);
+
+  const metrics = new Map<string, TemplateMetric>(
+    metricRows.map((m) => [
+      m.key,
+      { name: nameIn(m.nameJson, opts.locale) ?? m.key, unit: m.unit as Unit, currency: m.currency }
+    ])
+  );
+  const narrativeRef = composeTemplateBrief({ snapshot, anomalies: anomalyRows, metrics, locale: opts.locale });
+
+  const id = newId("brf", ctx.now);
+  await ctx.db.insert(schema.northBriefings).values({
+    id,
+    tenantId: ctx.tenantId,
+    date: opts.date,
+    audience: opts.audience,
+    locale: opts.locale,
+    narrativeRef,
+    highlightsJson: JSON.stringify(highlightsOf(snapshot)),
+    anomaliesJson: JSON.stringify(
+      anomalyRows.map((a) => ({ id: a.id, metricKey: a.metricKey, window: a.window, magnitude: a.magnitude }))
+    ),
+    status: "review",
+    generatedBy: "template",
+    aiAuditId: null,
+    approvedBy: null,
+    publishedAt: null,
+    createdAt: ctx.now
+  });
+
+  return {
+    id,
+    date: opts.date,
+    audience: opts.audience,
+    locale: opts.locale,
+    status: "review",
+    narrativeRef,
+    mismatches: [],
+    auditId: null,
+    generatedBy: "template"
+  };
+}
+
+/**
+ * The languages the nightly brief is written in: the tenant's own
+ * (`policy.locales`, en + ar unless it says otherwise), limited to those the
+ * template has a catalogue for, and English when that leaves nothing.
+ */
+export function briefLocales(locales: readonly string[] | undefined): string[] {
+  const known = [...new Set(locales ?? [])].filter((l) => (TEMPLATE_LOCALES as readonly string[]).includes(l));
+  return known.length ? known : ["en"];
+}
+
+/**
+ * docs/30 NORTH gap 1 / J-E1 "the 7am read": the day's exec brief, written in
+ * the nightly window just after the snapshot that closed yesterday, so it is
+ * dated today and narrates yesterday (the seed's own rows have this shape).
+ * Once per (tenant, exec, locale, date) — a held row is skipped without asking
+ * the model again, and the unique key backs that up. Never published here.
+ * Returns the briefs written this call; empty when every one already existed.
+ */
+export async function nightlyBriefing(ctx: Ctx, gateway: Gateway): Promise<GenerateBriefingResult[]> {
+  const date = new Date(ctx.now).toISOString().slice(0, 10);
+  const written: GenerateBriefingResult[] = [];
+  for (const locale of briefLocales(ctx.policy?.locales)) {
+    const [held] = await ctx.db
+      .select({ id: schema.northBriefings.id })
+      .from(schema.northBriefings)
+      .where(
+        and(
+          eq(schema.northBriefings.tenantId, ctx.tenantId),
+          eq(schema.northBriefings.date, date),
+          eq(schema.northBriefings.audience, "exec"),
+          eq(schema.northBriefings.locale, locale)
+        )
+      )
+      .limit(1);
+    if (held) continue;
+    written.push(await generateBriefing(ctx, gateway, { date, audience: "exec", locale }));
+  }
+  return written;
 }

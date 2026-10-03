@@ -417,9 +417,10 @@ export function Header({ title, intro }: { title: string; intro: string }) {
 
 /**
  * The formats `GET /v1/ledger/reports/:report/export` renders. PDF is offered
- * for every report and the API refuses it with a 400 when a row carries
- * non-Latin text (the base-14 fonts have no Arabic), because which rows are
- * Latin is not knowable until the report is run.
+ * for every report and the API refuses it with a 400 when a row carries text
+ * no PDF font it embeds can draw (Latin-1 and Arabic are covered, ADR-0115;
+ * CJK or Hebrew are not), because which rows those are is not knowable until
+ * the report is run.
  */
 export const EXPORT_FORMATS = ["xlsx", "pdf", "csv", "json"] as const;
 

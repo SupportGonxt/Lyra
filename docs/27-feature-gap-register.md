@@ -131,6 +131,15 @@ was posted by nothing, so GWP was never a receivable. `bindPosting`
 reclassifies the payable when the premium arrives. Both production bind sites
 pass it. ADR-0079 names what is deliberately out of scope: ENDORSE,
 UBI-REPRICE and CANCEL need a *signed* premium movement of their own.
+*Follow-up (2026-10-03, found building the Money Map's premium-written node,
+closed the same day):* the receipt half was a parameter no caller passed —
+nothing in `apps/api` handed `clearsReceivableAccount` to a PREM-COLLECT,
+CM-RECEIPT or PREM-INSTALMENT, so 1200 was debited at bind and never cleared.
+Every premium receipt is now built by `premiumReceiptLines`
+(`packages/ledger/src/premium-receipt.ts`), which clears what the ledger says
+is open for the item, and `apps/api/src/premium-receipt.guard.test.ts` fails on
+one built anywhere else (ADR-0117). CANCEL crediting 1200 for the unpaid
+portion stays open: docs/19 §4's CANCEL row and §5.2 A do not say it.
 
 **F15** *Closed.* Aging aged journal lines by posting date against a free-text
 counterparty, and had no payables side. `agedOpenItems` (`reports.ts`) groups

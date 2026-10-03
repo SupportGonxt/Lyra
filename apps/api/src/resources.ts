@@ -986,29 +986,16 @@ export const SIGNAL = register(
   }),
   // Writable since docs/30 SIGNAL gap 1: a table only a demo tick could fill
   // left the autopilot's CAC and every response rate with no denominator.
+  // The create/update perms are declared for the OpenAPI contract only: the
+  // writes themselves are served by routes/signal.ts (`POST /spend`,
+  // `PATCH|PUT /spend/:id`), which mount first and route through
+  // `recordSpend` — the one spend write, where MEDIA-SPEND accrues and
+  // signal.spend.recorded is announced. Generated CRUD would write the row and
+  // skip the ledger; signal-spend.guard.test.ts fails if the shadow goes.
   r("spend", schema.signalSpend, "spd", "signal", {
     read: "signal:spend:read",
     create: "signal:spend:write",
     update: "signal:spend:write"
-  }, {
-    // F62 groundwork: spend lands on the bus as signal.spend.recorded, so
-    // NORTH's snapshotter can eventually consume the event instead of
-    // querying this module's table directly (CLAUDE.md rule 6).
-    afterWrite: async (ctx, row) => {
-      await emit(ctx, {
-        module: "signal",
-        type: "signal.spend.recorded",
-        subject: String(row.id),
-        data: {
-          campaignId: row.campaignId,
-          channel: row.channel,
-          day: row.day,
-          amountMinor: row.amountMinor,
-          currency: row.currency,
-          conversions: row.conversions
-        }
-      });
-    }
   }),
   // The acquisition outreach ledger (engines/signal-outreach.ts). Read-only:
   // rows are written by the sweep and stamped converted by the loop-back —

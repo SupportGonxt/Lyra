@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { id, schema } from "@lyra/db";
 import { splitCommission } from "../commission.js";
-import { DAY, HOUR, type SeedContext } from "./context.js";
+import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
 import { dayIntoMonth } from "./period.js";
 
 // docs/19 §5 — the payout side of the commission story the ledger seed tells.
@@ -217,6 +217,17 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
   ];
 
   const channelTotal = new Map<string, number>();
+  // Each sale's commission goes on the books the moment the policy is bound —
+  // the BIND the live path posts (routes/axis.ts `bindPolicy`) — or the P&L
+  // would hold none of the commission these policies carry while NORTH and the
+  // policy list count it (seed/north-book.ts). The channel's share is not a
+  // leg here: this seed books it as a cost when the channel settles (the
+  // RSHARE-ACCR below, 5400/2100), and a 2100 leg at bind as well would owe the
+  // channel twice. So the bind accrues the whole commission to 4000.
+  // Ids come off their own clock offset so the settlement rows keep theirs.
+  let bindSeq = 0;
+  const bindId = (prefix: string): string => id(prefix, now - 50_000 + bindSeq++);
+  const binds: { txnId: string; policyId: string; providerId: string; channelId: string; commissionMinor: number; at: number }[] = [];
   const entries: (typeof schema.distCommissionEntries.$inferInsert)[] = [];
   const policies: (typeof schema.axisPolicies.$inferInsert)[] = [];
   const versions: (typeof schema.axisPolicyVersions.$inferInsert)[] = [];
@@ -236,6 +247,15 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
       // accrual can still be posted against (apps/api/src/dist.test.ts).
       const policyId = nid("pol");
       const versionId = nid("pver");
+      const bindTxnId = bindId("txn");
+      binds.push({
+        txnId: bindTxnId,
+        policyId,
+        providerId: spec.providerId,
+        channelId: bucket.channelId,
+        commissionMinor: split.grossMinor,
+        at: spec.earnedAt
+      });
       policies.push({
         id: policyId,
         tenantId,
@@ -253,6 +273,7 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
         status: "active",
         currentVersionId: versionId,
         versionSeq: 1,
+        lastTxnId: bindTxnId,
         createdAt: spec.earnedAt,
         updatedAt: spec.earnedAt
       });
@@ -274,6 +295,7 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
         currency: BASE,
         premiumDeltaMinor: 0,
         termsJson: JSON.stringify({ excessMinor: 100_000 }),
+        txnId: bindTxnId,
         state: "effective",
         issuedBy: analyst,
         issuedAt: spec.earnedAt,
@@ -318,6 +340,29 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
   const accrualAt = monthStart(-1) + 2 * DAY;
   const payoutAt = monthStart(-1) + 11 * DAY;
 
+  await db.insert(schema.ledgerTxns).values(
+    binds.map((b) => ({
+      id: b.txnId,
+      tenantId,
+      type: "BIND",
+      idempotencyKey: `axis.bind:${b.policyId}`,
+      correlationId: `sale:${b.policyId}`,
+      state: "settled",
+      actorKind: "user",
+      actorId: ctx.users["axis.agent"] ?? "seed",
+      autonomyLevel: "act_with_approval",
+      subjectRefsJson: JSON.stringify({ policy: b.policyId, channel: b.channelId, provider: b.providerId }),
+      currency: BASE,
+      baseCurrency: BASE,
+      fxRatePpm: 1_000_000,
+      amountsJson: JSON.stringify({ gross: b.commissionMinor, net: b.commissionMinor, share: 0, tax: 0 }),
+      grossMinor: b.commissionMinor,
+      baseGrossMinor: b.commissionMinor,
+      createdAt: b.at,
+      updatedAt: b.at + MINUTE,
+      settledAt: b.at + MINUTE
+    }))
+  );
   await db.insert(schema.ledgerTxns).values([
     {
       id: txAccrual,
@@ -396,6 +441,20 @@ export async function seedSettlement(ctx: SeedContext): Promise<void> {
   });
 
   const batches: SeedBatch[] = [
+    ...binds.map((b) => {
+      const bindDims = { policy: b.policyId, provider: b.providerId, channel: b.channelId };
+      return {
+        batchId: bindId("bat"),
+        txnId: b.txnId,
+        periodCode: codeOf(b.at),
+        postedBy: `user:${ctx.users["axis.agent"] ?? "seed"}`,
+        postedAt: b.at + MINUTE,
+        lines: [
+          { code: "1100", side: "debit" as const, amountMinor: b.commissionMinor, memo: "commission earned on issue", dims: bindDims },
+          { code: "4000", side: "credit" as const, amountMinor: b.commissionMinor, memo: "commission on bind", dims: bindDims }
+        ]
+      };
+    }),
     {
       batchId: nid("bat"),
       txnId: txAccrual,

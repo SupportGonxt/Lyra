@@ -371,7 +371,12 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // Binds the tenant to a partnership. Deliberately not held by
     // `orbit.partners`, who drafts the terms — drafter and signer are two
     // people or the countersignature proves nothing.
-    "dist:agreements:sign"
+    "dist:agreements:sign",
+    // Same signer on a data-product sale: the subscription *is* the contract
+    // that fixes a provider's fee (ADR-0101), and `scout.data_product_subscribe`
+    // is decided on `:publish`, which only scout.admin held — so above the
+    // threshold a SCOUT admin's sale had nobody to countersign it.
+    "scout:data_products:publish"
   ],
   "tenant.compliance": [
     "core:audit:read", "core:audit:export", "core:consents:read", "core:customers:read",
@@ -643,6 +648,12 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // ADR-0106: a cession posts RI-CEDE to the ledger, so the controller is the
     // second seat on it beside axis.admin — reads the treaty, signs the amount.
     "axis:reinsurance:read", "axis:reinsurance:approve",
+    // Same second seat on an escrow release: `axis:escrow:reconcile` (what
+    // raises `axis.escrow_release`) and `:approve` were both axis.admin's alone,
+    // so under dual control "always" the only reconciler was the only approver
+    // and no release could ever clear. The controller signs money out; it does
+    // not reconcile, so it can never be the requester it is approving.
+    "axis:escrow:read", "axis:escrow:approve",
     // ADR-0105: reconciles a provider's inbound bordereau against our books.
     "axis:bordereaux:read", "axis:bordereaux:reconcile",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",

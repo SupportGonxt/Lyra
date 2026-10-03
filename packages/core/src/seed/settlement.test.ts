@@ -574,6 +574,15 @@ describe("seedSettlement: ctx fallbacks and guardrails", () => {
       endAt: MONTH_MINUS_1 - 1,
       state: "hard_closed"
     });
+    // The open month too: the settlement's open-month sales bind into it.
+    await freshDb.insert(schema.ledgerPeriods).values({
+      id: "per_fallback_open",
+      tenantId: "t_fallback",
+      code: new Date(T0).toISOString().slice(0, 7),
+      startAt: Date.UTC(new Date(T0).getUTCFullYear(), new Date(T0).getUTCMonth(), 1),
+      endAt: Date.UTC(new Date(T0).getUTCFullYear(), new Date(T0).getUTCMonth() + 1, 1) - 1,
+      state: "open"
+    });
 
     await seedSettlement(makeFallbackCtx({ db: freshDb }));
 

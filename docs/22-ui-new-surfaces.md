@@ -52,8 +52,20 @@ is the server's (docs/07 §2.1). The live trial-balance footer exists on the
 manual-journal screen; a **natural-language filter is not yet built**.
 
 ### 1.2 Money Map — **Built**
-- Sankey of value flow for a period: premium in → insurer remittance → commission
-  retained → partner share → tax → net. Nodes are clickable to filtered journals.
+- Sankey of value flow for a period: premium written → {cancelled, collected,
+  still due} → premium in → insurer remittance → commission retained → partner
+  share → tax → net. Nodes are clickable to filtered journals.
+- Premium written is the bind family's Dr `1200 Premium Receivable` (docs/27
+  F14), so a month of binds no customer has paid for yet is drawn, not empty.
+  The period identity is **written = collected + still due + cancelled**:
+  `premium-written` is 1200 debits under BIND, BIND-GROUP, RENEW, REINSTATE,
+  PARTNER-BIND and AGENT-BIND; `premium-cancelled` the 1200 credits under the
+  same types (a reversal posts under its original's type); `premium-collected`
+  the 1200 credits under CM-RECEIPT, PREM-COLLECT and PREM-INSTALMENT (a receipt
+  that clears the receivable, which is also cash on 1010 and so part of premium
+  in); `premium-due` is the remainder, with no drill of its own. The signed
+  remainder travels as `uncollectedMinor`; a negative one (receivables written
+  earlier, collected now) is stated, not drawn, as `carriedMinor` is.
 - Client-money segregation shown as a distinct, always-visible bar: cash held vs
   obligations, with the invariant margin. If it ever narrows, the bar turns
   `flare-500` and the Money Map surfaces a `CM-BREACH-FLAG` banner above
@@ -66,7 +78,18 @@ rather than a client filter that could disagree with it. The breach flag ships
 as a `role="alert"` section carrying `data-flag="CM-BREACH-FLAG"`, rendered
 above everything else, and a breach outranks every other headline on the page.
 The segregation bar is one row per currency: cash held, what is owed, the
-margin.
+margin. Columns with nothing in them collapse, so a commission-only month (no
+written premium) and an unpaid month (no premium in) both span the width. When
+net is zero and premium was written, the headline names the written figure and
+what is still due on it rather than "net: 0" over a month of real business.
+
+Every premium receipt (the generic `POST /v1/ledger/txn/…` endpoint and the
+premium-financing instalment engine) is built by `premiumReceiptLines`, which
+clears whatever the bind left open on 1200 for the item the receipt names
+(ADR-0117). So a paid policy lands on `premium-collected` and leaves
+`premium-due`; before that, no payment path cleared 1200 and every bound premium
+read as still due. Cancellation does not yet credit 1200 for an unpaid portion
+(ADR-0117, "Not decided here"); a reversed bind does.
 
 ### 1.3 Transaction Detail — **Built**
 - Left: state-machine timeline (initiated → … → settled) with timestamps, actor

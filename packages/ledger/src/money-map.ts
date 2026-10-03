@@ -2,10 +2,18 @@ import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { schema } from "@lyra/db";
 import { notFound, tenantChart, type Ctx } from "@lyra/core";
 import type { Side } from "./posting.js";
+import { PREMIUM_RECEIPT_TYPES } from "./premium-receipt.js";
 
 // docs/22 §1.2 — the Money Map. "Sankey of value flow for a period: premium in
 // -> insurer remittance -> commission retained -> partner share -> tax -> net.
 // Nodes are clickable to filtered journals."
+//
+// Ahead of premium in sits premium *written*: docs/27 F14 books gross written
+// premium at bind as Dr 1200 Premium Receivable / Cr 2000 Insurer Payable, so a
+// month of binds nobody has paid for yet is real business on the ledger with no
+// cash on 1010. Read from cash alone, that month drew an empty map. Written
+// splits into cancelled (the bind's own reversal credits 1200 back), collected
+// (a receipt that clears 1200 — which is also premium in) and still due.
 //
 // Every figure here is summed from ledger_journal_lines joined to the
 // transaction that produced them, so a link is attributable to a transaction
@@ -41,6 +49,13 @@ export interface MoneyMap {
   nodes: MoneyMapNode[];
   links: MoneyMapLink[];
   /**
+   * premium written − cancelled − collected against a receivable, signed.
+   * Positive is premium written that customers still owe at period end;
+   * negative means the period collected receivables written earlier. The
+   * `premium-due` node is this clamped at zero, the same way `still-held` is.
+   */
+  uncollectedMinor: number;
+  /**
    * premium in − remitted − drawn as commission. Positive is client money still
    * held at period end; negative means the period paid out premium it collected
    * earlier, which is ordinary and not a breach.
@@ -58,14 +73,38 @@ export interface MoneyMap {
  * income account a tenant added at runtime never showed up in its own money
  * map. It is now built per call from this tenant's own chart.
  */
+/**
+ * The bind family: every recipe that routes through `bindPosting` and so books
+ * Dr 1200 when the premium passes through us (recipes.ts, docs/27 F14). A
+ * reversal is posted under its original's type, so the same list also names
+ * the transactions whose 1200 *credit* is a cancellation.
+ */
+const WRITTEN_TYPES = ["BIND", "BIND-GROUP", "RENEW", "REINSTATE", "PARTNER-BIND", "AGENT-BIND"];
+const RECEIPT_TYPES: string[] = [...PREMIUM_RECEIPT_TYPES];
+const PREMIUM_RECEIVABLE = "1200";
+
 function sourcedNodes(incomeAccounts: string[]): { key: string; drill: MoneyMapDrill }[] {
   return [
+    {
+      key: "premium-written",
+      drill: { accountCodes: [PREMIUM_RECEIVABLE], side: "debit", txnTypes: WRITTEN_TYPES }
+    },
+    {
+      key: "premium-cancelled",
+      drill: { accountCodes: [PREMIUM_RECEIVABLE], side: "credit", txnTypes: WRITTEN_TYPES }
+    },
+    {
+      // Only a receipt that clears the receivable (premium-receipt.ts)
+      // credits 1200; a cash-basis receipt is premium in but was never written.
+      key: "premium-collected",
+      drill: { accountCodes: [PREMIUM_RECEIVABLE], side: "credit", txnTypes: RECEIPT_TYPES }
+    },
     {
       key: "premium-in",
       drill: {
         accountCodes: ["1010"],
         side: "debit",
-        txnTypes: ["CM-RECEIPT", "PREM-COLLECT", "PREM-INSTALMENT"]
+        txnTypes: RECEIPT_TYPES
       }
     },
     {
@@ -98,7 +137,7 @@ function periodWindow(code: string): { from: number; to: number } {
 }
 
 /**
- * One grouped query, six nodes, six links. The period is required — a value
+ * One grouped query; nine sourced nodes, two remainders. The period is required — a value
  * flow with no period is a balance sheet, and that report already exists.
  */
 export async function valueFlow(
@@ -154,6 +193,12 @@ export async function valueFlow(
   }));
   const amount = (key: string): number => nodes.find((n) => n.key === key)?.amountMinor ?? 0;
 
+  const uncollectedMinor = amount("premium-written") - amount("premium-cancelled") - amount("premium-collected");
+  // Clamped for the same reason as still-held below: a negative remainder is a
+  // receivable written earlier and collected now, and has no ribbon to draw.
+  const due = Math.max(uncollectedMinor, 0);
+  nodes.push({ key: "premium-due", amountMinor: due });
+
   const carriedMinor = amount("premium-in") - amount("insurer-remittance") - amount("commission-retained");
   // A negative remainder is real (premium collected in an earlier period going
   // out in this one) but there is no ribbon to draw for it — the surface states
@@ -162,6 +207,12 @@ export async function valueFlow(
   nodes.push({ key: "still-held", amountMinor: stillHeld });
 
   const links: MoneyMapLink[] = [
+    { from: "premium-written", to: "premium-cancelled", amountMinor: amount("premium-cancelled") },
+    { from: "premium-written", to: "premium-collected", amountMinor: amount("premium-collected") },
+    ...(due > 0 ? [{ from: "premium-written", to: "premium-due", amountMinor: due }] : []),
+    // Collected against a receivable is cash on 1010 under a receipt type, so
+    // it is a part of premium in; the rest of premium in is cash-basis receipts.
+    { from: "premium-collected", to: "premium-in", amountMinor: amount("premium-collected") },
     { from: "premium-in", to: "insurer-remittance", amountMinor: amount("insurer-remittance") },
     { from: "premium-in", to: "commission-retained", amountMinor: amount("commission-retained") },
     ...(stillHeld > 0 ? [{ from: "premium-in", to: "still-held", amountMinor: stillHeld }] : []),
@@ -176,6 +227,7 @@ export async function valueFlow(
     asOf: window.to,
     nodes,
     links,
+    uncollectedMinor,
     carriedMinor
   };
 }
@@ -213,8 +265,8 @@ export async function valueFlowLines(
 }> {
   const incomeAccounts = (await tenantChart(ctx)).filter((a) => a.type === "income").map((a) => a.code);
   const sourced = sourcedNodes(incomeAccounts).find((n) => n.key === opts.node);
-  // `still-held` is a remainder of three other nodes, so it has no lines of its
-  // own; asking for them is a 404 rather than an empty list, which would read as
+  // `still-held` and `premium-due` are remainders of three other nodes each, so
+  // they have no lines of their own; asking for them is a 404 rather than an empty list, which would read as
   // "nothing was held".
   if (!sourced) throw notFound(`money map node ${opts.node}`);
   const window = periodWindow(opts.periodCode);

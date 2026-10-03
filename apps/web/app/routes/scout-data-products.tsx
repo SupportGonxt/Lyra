@@ -56,6 +56,14 @@ const DELIVERIES = 20;
 /** `analytics_exports.subject_ref` for a cut of this product. */
 export const subjectRefOf = (id: string): string => `scout_data_product:${id}`;
 
+/**
+ * Whether the delivery log is this reader's to see. The loader's read is
+ * best-effort, so a refused one arrives as an empty list — and "nothing has
+ * been rendered" is a claim about the product, not about the reader. Absent,
+ * not empty, for a seat that may not read exports (the provider viewer).
+ */
+export const readsDeliveries = (may: ReadonlySet<string>): boolean => may.has(PERM.exportsRead);
+
 export interface DataProductRow {
   id: string;
   name: string;
@@ -548,6 +556,7 @@ export default function ScoutDataProducts() {
             </Card>
           ) : null}
 
+          {readsDeliveries(may) ? (
           <Card title={l("dtp.deliveries")} description={l("dtp.deliveriesHint")}>
             {loaded.deliveries.length === 0 ? (
               <EmptyState title={l("dtp.noDeliveries")} body={l("dtp.noDeliveries.body")} />
@@ -571,6 +580,7 @@ export default function ScoutDataProducts() {
               </ul>
             )}
           </Card>
+          ) : null}
         </div>
       </div>
 

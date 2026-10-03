@@ -134,6 +134,35 @@ const TABS = [
   { id: "data", can: "dsarCreate" }
 ] as const;
 
+/**
+ * Each tab's sections, in render order, with the condition that hides one.
+ * The tab strip moves between tabs; a tab several screens tall (account runs
+ * to four and a half) needs its own sections one jump away as well.
+ */
+export const SECTIONS: Record<string, ReadonlyArray<{ id: string; titleKey: string; when?: "keysRead" }>> = {
+  account: [
+    { id: "settings-profile", titleKey: "profile.title" },
+    { id: "settings-lens", titleKey: "lens.title" },
+    { id: "settings-notifications", titleKey: "notifications.title" }
+  ],
+  security: [
+    { id: "settings-password", titleKey: "password.title" },
+    { id: "settings-mfa", titleKey: "mfa.title" },
+    { id: "settings-perms", titleKey: "perms.title" },
+    { id: "settings-sessions", titleKey: "sessions.title" },
+    { id: "settings-keys", titleKey: "keys.title", when: "keysRead" }
+  ],
+  brand: [{ id: "settings-brand", titleKey: "brand.title" }],
+  tenant: [{ id: "settings-calendar", titleKey: "calendar.title" }],
+  data: [{ id: "settings-dsar", titleKey: "dsar.title" }]
+};
+
+/** The jump list for one tab: its shown sections, or none when there is one. */
+export function sectionsOn(tab: string, can: { keysRead: boolean }): Array<{ id: string; titleKey: string }> {
+  const shown = (SECTIONS[tab] ?? []).filter((one) => !one.when || can[one.when]);
+  return shown.length > 1 ? shown : [];
+}
+
 /** BrandJson.font — the approved set, and the only values --font-display and
  *  --font-ui may be re-mapped to (packages/ui/src/tokens.css §whitelabel). */
 const FONTS = ["space-grotesk", "inter", "ibm-plex-sans-arabic"] as const;
@@ -159,9 +188,10 @@ const AA_RATIO = 4.5;
  * in a catalogue every page pays for. Words the platform already shares
  * (save, working, saved) come from `translator` instead of being restated here.
  */
-const LABELS: Record<string, Record<string, string>> = {
+export const LABELS: Record<string, Record<string, string>> = {
   en: {
     "tabs.label": "Settings sections",
+    "onPage.label": "On this page",
     "tabs.account": "Profile",
     "tabs.security": "Sign-in & access",
     "tabs.brand": "Brand",
@@ -366,6 +396,7 @@ const LABELS: Record<string, Record<string, string>> = {
   },
   ar: {
     "tabs.label": "أقسام الإعدادات",
+    "onPage.label": "في هذه الصفحة",
     "tabs.account": "الملف الشخصي",
     "tabs.security": "تسجيل الدخول والوصول",
     "tabs.brand": "الهوية",
@@ -1021,6 +1052,7 @@ export default function Settings() {
   const tabs = TABS.filter((entry) => !entry.can || loaded.can[entry.can]);
   const asked = useParams().tab;
   const tab = tabs.some((entry) => entry.id === asked) ? asked : "account";
+  const jumps = sectionsOn(tab ?? "account", loaded.can);
   const [mismatch, setMismatch] = React.useState(false);
 
   const locale = shell?.locale ?? "en";
@@ -1077,6 +1109,21 @@ export default function Settings() {
           </Link>
         ))}
       </nav>
+
+      {jumps.length ? (
+        <nav aria-label={label("onPage.label")} className="-mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 font-ui text-12">
+          <span className="text-subtle">{label("onPage.label")}</span>
+          {jumps.map((one) => (
+            <a
+              key={one.id}
+              href={`#${one.id}`}
+              className="text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              {label(one.titleKey)}
+            </a>
+          ))}
+        </nav>
+      ) : null}
 
       {tab === "account" ? (
         <>

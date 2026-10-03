@@ -26,6 +26,7 @@ export const PERSONAS = {
   tenantAdmin: { email: "amina.saleh@gonxt.ae", name: "Amina Saleh" },
   axisAgent: { email: "layla.hassan@gonxt.ae", name: "Layla Hassan" },
   axisLead: { email: "omar.farouk@gonxt.ae", name: "Omar Farouk" },
+  axisAdmin: { email: "suhail.hamdan@gonxt.ae", name: "Suhail Hamdan" },
   financeController: { email: "nadia.rahman@gonxt.ae", name: "Nadia Rahman" },
   financeController2: { email: "faisal.omar@gonxt.ae", name: "Faisal Omar" },
   northExec: { email: "hala.zayed@gonxt.ae", name: "Hala Zayed" },

@@ -407,6 +407,46 @@ describe("seedModuleHistory", () => {
     expect(result.txns).toBeGreaterThan(0);
     expect(result.rows["axis_policies"]).toBe(DAYS * 2);
   });
+
+  // The two passes together are the backfill a deployed tenant gets, so NORTH
+  // must read the book they wrote: the ledger pass measured before any contract
+  // existed, and the module pass measures again over the same window.
+  it("leaves NORTH's row-backed snapshots equal to the rows the two passes wrote", async () => {
+    const [snaps, policies, lines] = await Promise.all([
+      db.select().from(schema.northSnapshots).where(eq(schema.northSnapshots.tenantId, TENANT)),
+      db.select().from(schema.axisPolicies).where(eq(schema.axisPolicies.tenantId, TENANT)),
+      db.select().from(schema.ledgerJournalLines).where(eq(schema.ledgerJournalLines.tenantId, TENANT))
+    ]);
+    const headline = (metricKey: string) => snaps.filter((s) => s.metricKey === metricKey && s.dimsHash === "");
+    const windowOf = (s: { grain: string; period: string; ts: number }) => {
+      const since = Date.parse(s.grain === "day" ? `${s.period}T00:00:00Z` : `${s.period}-01T00:00:00Z`);
+      const d = new Date(since);
+      const end = s.grain === "day" ? since + DAY : Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+      return { since, until: Math.min(end, s.ts) };
+    };
+    const sold = (w: { since: number; until: number }) => policies.filter((p) => p.createdAt >= w.since && p.createdAt < w.until);
+
+    const days = headline("policies_issued");
+    expect(days).toHaveLength(DAYS);
+    // [period, snapshot, rows] for every day the two disagree on.
+    const disagree = days.filter((s) => s.value !== sold(windowOf(s)).length).map((s) => [s.period, s.value, sold(windowOf(s)).length]);
+    expect(disagree).toEqual([]);
+    // Two contracts a trading day, every day: what the ledger pass's own
+    // measurement (no contracts yet) wrote as zero has been rewritten.
+    expect(new Set(days.map((s) => s.value))).toEqual(new Set([2]));
+
+    const months = headline("gwp");
+    expect(months.length).toBe(13);
+    for (const s of months) {
+      const w = windowOf(s);
+      expect([s.period, s.value]).toEqual([s.period, sold(w).reduce((n, p) => n + p.premiumMinor, 0)]);
+      const commission = headline("net_commission").find((c) => c.period === s.period)!;
+      const ledger = lines
+        .filter((l) => l.accountCode.startsWith("40") && l.postedAt >= w.since && l.postedAt < w.until)
+        .reduce((n, l) => n + (l.side === "credit" ? l.amountMinor : -l.amountMinor), 0);
+      expect([s.period, commission.value]).toEqual([s.period, ledger]);
+    }
+  });
 });
 
 /** Row counts for every table the backfill can touch, keyed by table name. */

@@ -120,13 +120,12 @@ describe("seed", () => {
     for (const a of anomalies) expect(metricKeys.has(a.metricKey)).toBe(true);
 
     // A drill-down that disagrees with the headline is the bug this catches.
+    // Slices are keyed the way the snapshotter keys them, by channel id.
     const decemberGwp = snaps.filter((s) => s.metricKey === "gwp" && s.period === "2025-12");
     const total = decemberGwp.find((s) => s.dimsHash === "")!.value;
-    for (const dim of ["channel", "provider"]) {
-      const split = decemberGwp.filter((s) => s.dimsHash.startsWith(`${dim}=`));
-      expect(split.length).toBeGreaterThan(1);
-      expect(split.reduce((sum, s) => sum + s.value, 0)).toBe(total);
-    }
+    const split = decemberGwp.filter((s) => s.dimsHash.startsWith("channel="));
+    expect(split.length).toBeGreaterThan(1);
+    expect(split.reduce((sum, s) => sum + s.value, 0)).toBe(total);
 
     // Decisions cite the briefing, anomaly or pack that raised them.
     const ids = new Set([
@@ -238,6 +237,39 @@ describe("seed", () => {
     expect(role!.key).toBe("orbit.admin");
 
     // A second run touches nothing — every address is already taken.
+    expect((await ensureSeedPeople(db, tenantId)).created).toEqual([]);
+  });
+
+  /**
+   * The AXIS second decider (approvals.deciders.test.ts) is only a second
+   * decider on the demo tenant if it reaches it — which, provisioned before
+   * the persona existed, is only through this backfill.
+   */
+  it("backfills the second-decider personas, each with its role, and adds nothing twice", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    const seats: Record<string, string> = {
+      "ziad.habsi@gonxt.ae": "tenant.admin",
+      "asma.qasim@gonxt.ae": "tenant.compliance",
+      "suhail.hamdan@gonxt.ae": "axis.admin",
+      "kareem.shamsi@gonxt.ae": "signal.admin",
+      "basma.darwish@gonxt.ae": "scout.admin"
+    };
+    for (const email of Object.keys(seats)) {
+      const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email));
+      await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, user!.id));
+      await db.delete(schema.users).where(eq(schema.users.id, user!.id));
+    }
+
+    expect((await ensureSeedPeople(db, tenantId)).created.slice().sort()).toEqual(Object.keys(seats).sort());
+    for (const [email, roleKey] of Object.entries(seats)) {
+      const roles = await db
+        .select({ key: schema.roles.key })
+        .from(schema.users)
+        .innerJoin(schema.userRoles, eq(schema.userRoles.userId, schema.users.id))
+        .innerJoin(schema.roles, eq(schema.roles.id, schema.userRoles.roleId))
+        .where(eq(schema.users.email, email));
+      expect(roles.map((r) => r.key), email).toEqual([roleKey]);
+    }
     expect((await ensureSeedPeople(db, tenantId)).created).toEqual([]);
   });
 
@@ -983,7 +1015,7 @@ describe("seed", () => {
   });
 
   it("writes the exact monthly and daily NORTH snapshot series", async () => {
-    await seed(db, { password: "gonxt-test-password" });
+    const r = await seed(db, { password: "gonxt-test-password" });
     const snaps = await db.select().from(schema.northSnapshots);
     const totalsFor = (metricKey: string, grain: "day" | "month"): number[] =>
       snaps
@@ -991,12 +1023,18 @@ describe("seed", () => {
         .sort((a, b) => a.period.localeCompare(b.period))
         .map((s) => s.value);
 
-    expect(totalsFor("gwp", "month")).toEqual([186_400_000, 201_750_000, 238_900_000, 74_300_000]);
-    expect(totalsFor("net_commission", "month")).toEqual([17_708_000, 19_166_000, 22_695_000, 7_058_000]);
-    expect(totalsFor("active_policies", "month")).toEqual([4_182, 4_361, 4_608, 4_690]);
+    // Row-backed: measured from the seeded book (seed/north-book.ts, and
+    // north-book.test.ts proves each against the rows). October holds no
+    // contract; November is the three settled b2b sales; December is Cedar's
+    // five web sales plus Alpha's cooling-off bind; January to date is the
+    // three open-month b2b sales (the core sale issues two days out).
+    expect(totalsFor("gwp", "month")).toEqual([0, 1_340_000, 3_507_200, 2_092_000]);
+    expect(totalsFor("net_commission", "month")).toEqual([0, 211_560, 430_080, 307_360]);
+    expect(totalsFor("active_policies", "month")).toEqual([1, 4, 10, 13]);
+    // No premium in October, so no share: the snapshotter writes nothing either.
+    expect(totalsFor("broker_channel_share", "month")).toEqual([10_000, 1_186, 10_000]);
     expect(totalsFor("renewal_retention", "month")).toEqual([7_920, 8_050, 8_310, 8_180]);
     expect(totalsFor("cac_per_policy", "month")).toEqual([21_400, 20_150, 18_900, 24_600]);
-    expect(totalsFor("broker_channel_share", "month")).toEqual([3_120, 3_380, 3_611, 3_740]);
     expect(totalsFor("loss_ratio", "month")).toEqual([6_140, 5_980, 6_420, 6_050]);
     expect(totalsFor("ai_cost_per_case", "month")).toEqual([118, 104, 96, 91]);
     // ADR-0109: the seeded bounds are derived, not typed — each month's point
@@ -1012,7 +1050,7 @@ describe("seed", () => {
       expect(highs[i]).toBeGreaterThan(point);
     });
 
-    expect(totalsFor("policies_issued", "day")).toEqual([41, 38, 52, 61, 57]);
+    expect(totalsFor("policies_issued", "day")).toEqual([0, 0, 0, 1, 2]);
     expect(totalsFor("quote_to_bind_rate", "day")).toEqual([2_310, 2_280, 2_405, 2_360, 1_890]);
     expect(totalsFor("panel_response_rate", "day")).toEqual([9_650, 9_720, 9_580, 9_240, 8_810]);
     expect(totalsFor("quote_latency_p95", "day")).toEqual([2_150, 2_080, 2_310, 3_040, 3_620]);
@@ -1023,11 +1061,10 @@ describe("seed", () => {
       (s) => s.metricKey === "gwp" && s.period === "2025-12" && s.dimsHash.startsWith("channel=")
     );
     const byChannel = Object.fromEntries(decemberByChannel.map((s) => [s.dimsHash, s.value]));
-    expect(byChannel["channel=gonxt-web"]).toBe(96_420_000);
-    expect(byChannel["channel=gonxt-app"]).toBe(41_880_000);
-    expect(byChannel["channel=gonxt-call"]).toBe(14_320_000);
-    expect(byChannel["channel=alpha-brokers"]).toBe(62_190_000);
-    expect(byChannel["channel=meridian-embed"]).toBe(24_090_000);
+    expect(byChannel).toEqual({
+      [`channel=${r.channels.web}`]: 3_091_200,
+      [`channel=${r.channels.brokerAlpha}`]: 416_000
+    });
   });
 
   it("staggers NORTH briefings across audiences, statuses and locales", async () => {

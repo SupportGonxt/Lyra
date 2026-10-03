@@ -73,6 +73,17 @@ export function decodeDef(token: string | null | undefined): ReportDefinition | 
   }
 }
 
+/**
+ * A first build for a reader facing an empty preview: the dataset's first
+ * measure, by month, in time order. Every dataset has a time column, so month
+ * is always a grain it can take. Null when there is nothing to measure.
+ */
+export function starterDef(ds: DatasetInfo): ReportDefinition | null {
+  const first = ds.metrics[0];
+  if (!first) return null;
+  return { dataset: ds.key, metrics: [first.key], grain: "month", sort: { field: "period", dir: "asc" } };
+}
+
 export function builderHref(def: ReportDefinition, opts: { run?: boolean } = {}): string {
   return `/analytics/builder?def=${encodeDef(def)}${opts.run ? "&run=1" : ""}`;
 }

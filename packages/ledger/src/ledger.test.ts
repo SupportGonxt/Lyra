@@ -669,6 +669,142 @@ describe("money map", () => {
 
   it("refuses a node that has no lines of its own", async () => {
     await rejects(valueFlowLines(ctx, { periodCode: "2026-06", node: "still-held" }), /still-held/);
+    await rejects(valueFlowLines(ctx, { periodCode: "2026-06", node: "premium-due" }), /premium-due/);
+  });
+
+  /**
+   * docs/27 F14 booked gross written premium as a receivable at bind
+   * (Dr 1200 / Cr 2000), but the map only ever read cash on 1010. A month of
+   * binds nobody had paid for yet drew nothing at all. This is the period the
+   * map has to explain: three binds, one paid against its receivable, one
+   * cancelled by reversal, one still owed — plus a cash-basis receipt that
+   * never had a receivable, which is premium in but was never "written" here.
+   */
+  async function writtenPeriod(): Promise<void> {
+    const binds: [string, number][] = [
+      ["tx_w_1", 100_000],
+      ["tx_w_2", 60_000],
+      ["tx_w_3", 40_000]
+    ];
+    const batches = new Map<string, string>();
+    for (const [txnId, gwp] of binds) {
+      await ctx.db.insert(schema.ledgerTxns).values(baseTxn(txnId, "BIND", gwp));
+      const posted = await post(ctx, {
+        txnId,
+        currency: "AED",
+        lines: buildRecipe("BIND", { gwpMinor: gwp, grossMinor: gwp / 10, incomeAccount: "4000" })
+      });
+      batches.set(txnId, posted.batchId);
+    }
+    // tx_w_2 is paid: the receipt clears the receivable the bind booked.
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_w_pay", "PREM-COLLECT", 60_000));
+    await post(ctx, {
+      txnId: "tx_w_pay",
+      currency: "AED",
+      lines: buildRecipe("PREM-COLLECT", { amountMinor: 60_000, clearsReceivableAccount: "1200" })
+    });
+    // tx_w_3 is cancelled inside cooling-off: a reversal of the same type.
+    await ctx.db.insert(schema.ledgerTxns).values({ ...baseTxn("tx_w_3_rev", "BIND", 40_000), reversalOf: "tx_w_3" });
+    await reverse(ctx, batches.get("tx_w_3")!, { txnId: "tx_w_3_rev", reason: "cooling-off" });
+    // Cash with no receivable behind it: premium in, never written on 1200.
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_w_cash", "CM-RECEIPT", 10_000));
+    await post(ctx, { txnId: "tx_w_cash", currency: "AED", lines: buildRecipe("CM-RECEIPT", { amountMinor: 10_000 }) });
+  }
+
+  it("shows premium written but not yet collected, so a month of unpaid binds is not an empty map", async () => {
+    for (let i = 0; i < 5; i++) {
+      const txnId = `tx_unpaid_${i}`;
+      await ctx.db.insert(schema.ledgerTxns).values(baseTxn(txnId, "BIND", 16_000));
+      await post(ctx, {
+        txnId,
+        currency: "AED",
+        lines: buildRecipe("BIND", { gwpMinor: 16_000, grossMinor: 1_600, incomeAccount: "4000" })
+      });
+    }
+    const map = await valueFlow(ctx, { periodCode: "2026-06", currency: "AED" });
+
+    expect(amount(map, "premium-in")).toBe(0);
+    expect(amount(map, "premium-written")).toBe(80_000);
+    expect(amount(map, "premium-due")).toBe(80_000);
+    expect(link(map, "premium-written", "premium-due")).toBe(80_000);
+    expect(map.uncollectedMinor).toBe(80_000);
+  });
+
+  it("reconciles: premium written = collected + still due + cancelled", async () => {
+    await writtenPeriod();
+    const map = await valueFlow(ctx, { periodCode: "2026-06", currency: "AED" });
+
+    expect(amount(map, "premium-written")).toBe(200_000);
+    expect(amount(map, "premium-collected")).toBe(60_000);
+    expect(amount(map, "premium-cancelled")).toBe(40_000);
+    expect(amount(map, "premium-due")).toBe(100_000);
+    expect(amount(map, "premium-in")).toBe(70_000);
+
+    const written = amount(map, "premium-written")!;
+    expect(
+      amount(map, "premium-collected")! + amount(map, "premium-due")! + amount(map, "premium-cancelled")!
+    ).toBe(written);
+
+    // Not a tautology of the remainder: what is still due is what the
+    // receivable account itself says moved in the period.
+    const receivable = await ctx.db
+      .select()
+      .from(schema.ledgerJournalLines)
+      .where(and(eq(schema.ledgerJournalLines.tenantId, ctx.tenantId), eq(schema.ledgerJournalLines.accountCode, "1200")));
+    const net = receivable.reduce((s, l) => s + (l.side === "debit" ? l.baseAmountMinor : -l.baseAmountMinor), 0);
+    expect(amount(map, "premium-due")).toBe(net);
+    expect(map.uncollectedMinor).toBe(net);
+
+    // written → {cancelled, collected, due} uses written up exactly, and what
+    // was collected against a receivable is part of premium in.
+    const out = map.links.filter((l) => l.from === "premium-written").reduce((s, l) => s + l.amountMinor, 0);
+    expect(out).toBe(written);
+    expect(link(map, "premium-collected", "premium-in")).toBe(60_000);
+
+    for (const node of ["premium-written", "premium-collected", "premium-cancelled"]) {
+      const drilled = await valueFlowLines(ctx, { periodCode: "2026-06", node, currency: "AED" });
+      expect(drilled.totalMinor, `${node} ties to its lines`).toBe(amount(map, node));
+    }
+    expect(map.nodes.find((n) => n.key === "premium-written")?.drill).toEqual({
+      accountCodes: ["1200"],
+      side: "debit",
+      txnTypes: ["BIND", "BIND-GROUP", "RENEW", "REINSTATE", "PARTNER-BIND", "AGENT-BIND"]
+    });
+    expect(map.nodes.find((n) => n.key === "premium-due")?.drill).toBeUndefined();
+  });
+
+  it("does not count a receipt that cleared no receivable as premium collected against one", async () => {
+    await postPeriod();
+    const map = await valueFlow(ctx, { periodCode: "2026-06", currency: "AED" });
+
+    expect(amount(map, "premium-written")).toBe(0);
+    expect(amount(map, "premium-collected")).toBe(0);
+    expect(amount(map, "premium-due")).toBe(0);
+    expect(link(map, "premium-written", "premium-due")).toBeUndefined();
+  });
+
+  it("states a negative uncollected remainder without drawing it", async () => {
+    // A receivable written last month and collected in this one.
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_may_bind", "BIND", 30_000));
+    await post(ctx, {
+      txnId: "tx_may_bind",
+      currency: "AED",
+      lines: buildRecipe("BIND", { gwpMinor: 30_000, grossMinor: 3_000, incomeAccount: "4000" }),
+      postedAt: Date.UTC(2026, 4, 20)
+    });
+    await ctx.db.insert(schema.ledgerTxns).values(baseTxn("tx_june_pay", "PREM-COLLECT", 30_000));
+    await post(ctx, {
+      txnId: "tx_june_pay",
+      currency: "AED",
+      lines: buildRecipe("PREM-COLLECT", { amountMinor: 30_000, clearsReceivableAccount: "1200" })
+    });
+
+    const june = await valueFlow(ctx, { periodCode: "2026-06", currency: "AED" });
+    expect(amount(june, "premium-written")).toBe(0);
+    expect(amount(june, "premium-collected")).toBe(30_000);
+    expect(june.uncollectedMinor).toBe(-30_000);
+    expect(amount(june, "premium-due")).toBe(0);
+    expect(link(june, "premium-written", "premium-due")).toBeUndefined();
   });
 });
 
@@ -1057,10 +1193,10 @@ describe("recipe argument fields", () => {
     const fields = argFields("CM-RECEIPT");
     expect(fields).toEqual([
       { name: "amountMinor", kind: "integer", required: true },
-      // docs/27 F14: a receipt may clear the premium receivable a bind booked,
-      // and name the insurer payable it reclassifies. Both optional — a
-      // commission-only tenant books neither.
-      { name: "clearsReceivableAccount", kind: "text", required: false },
+      // docs/27 F14: a receipt may name the insurer payable it reclassifies.
+      // Whether and how much it clears of the premium receivable is not a
+      // question for the form: premiumReceiptLines reads it off the ledger
+      // (ADR-0117), and discards whatever a caller sends.
       { name: "insurerPayableAccount", kind: "text", required: false, default: "2000" },
       { name: "memo", kind: "text", required: false }
     ]);

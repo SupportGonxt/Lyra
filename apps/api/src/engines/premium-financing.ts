@@ -1,7 +1,7 @@
 import { asc, eq, inArray, like } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import { audit, badRequest, conflict, emit, notFound, scoped, type Ctx } from "@lyra/core";
-import { buildRecipe, fxRateFor, reverseTxn, runTxn } from "@lyra/ledger";
+import { buildRecipe, fxRateFor, premiumReceiptLines, reverseTxn, runTxn } from "@lyra/ledger";
 import { SWEEP_MAX } from "./sweep.js";
 
 // docs/27 group D — premium financing. Opening a plan itself moves no money
@@ -410,11 +410,19 @@ export async function payInstalment(ctx: Ctx, plan: PaymentPlanRow, now: number)
       if (payment && !PAID_STATES.has(payment.state)) continue;
 
       try {
-        const lines = buildRecipe("PREM-INSTALMENT", {
-          amountMinor: row.amountMinor,
-          memo: `instalment ${row.seq}/${plan.instalments}: plan ${plan.id}`,
-          dims: { policy: policyId }
-        });
+        // Clears the instalment's share of what the bind booked on 1200 for
+        // this policy (premium-receipt.ts); a policy bound without premium
+        // passing through us has nothing open and posts the plain receipt.
+        const lines = await premiumReceiptLines(
+          ctx,
+          "PREM-INSTALMENT",
+          {
+            amountMinor: row.amountMinor,
+            memo: `instalment ${row.seq}/${plan.instalments}: plan ${plan.id}`,
+            dims: { policy: policyId }
+          },
+          plan.currency
+        );
         await runTxn(
           ctx,
           {

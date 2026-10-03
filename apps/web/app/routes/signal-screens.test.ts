@@ -26,7 +26,7 @@ import {
 } from "./signal.shared";
 import { action as cockpitAction, loader as cockpitLoader } from "./signal-cockpit";
 import { cacRange } from "@lyra/core/attribution-range";
-import { action as studioAction } from "./signal-studio";
+import { action as studioAction, continuable } from "./signal-studio";
 import { action as budgetAction } from "./signal-budget";
 import { action as analyticsAction } from "./signal-analytics";
 import { action as aeoAction } from "./signal-answer-engines";
@@ -804,5 +804,22 @@ describe("channelLabel", () => {
 
   it("still renders a slug no catalogue knows", () => {
     expect(channelLabel("partner_portal")).toBe("Partner Portal");
+  });
+});
+
+describe("continuable", () => {
+  // Role adoption: the studio opened on a blank brief with three drafts and
+  // seven running campaigns listed under the form's last button. The work a
+  // marketer comes back to leads now — drafts first (they are waiting on
+  // someone), then what is running; an ended campaign has nothing to make.
+  const row = (id: string, state: string) => ({ id, state }) as CampaignRow;
+
+  it("puts drafts ahead of running campaigns and leaves ended ones out", () => {
+    const rows = [row("a", "live"), row("b", "ended"), row("c", "draft"), row("d", "paused"), row("e", "review")];
+    expect(continuable(rows).map((one) => one.id)).toEqual(["c", "e", "a", "d"]);
+  });
+
+  it("keeps the API's newest-first order within each group", () => {
+    expect(continuable([row("new", "draft"), row("old", "scheduled")]).map((one) => one.id)).toEqual(["new", "old"]);
   });
 });

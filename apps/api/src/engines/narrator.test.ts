@@ -66,10 +66,12 @@ describe("buildSnapshot", () => {
     const policies = snapshot.metrics.find((m) => m.metricKey === "policies_issued");
     expect(policies).toBeDefined();
     expect(policies!.period).toBe("2026-01-05");
-    expect(policies!.value).toBe(57);
+    // Measured from the seeded policies (packages/core/src/seed/north-book.ts):
+    // two open-month sales on the 5th, one on the 4th.
+    expect(policies!.value).toBe(2);
     expect(policies!.previousPeriod).toBe("2026-01-04");
-    expect(policies!.previousValue).toBe(61);
-    expect(policies!.deltaBps).toBe(Math.round(((57 - 61) / 61) * 10_000));
+    expect(policies!.previousValue).toBe(1);
+    expect(policies!.deltaBps).toBe(10_000);
 
     const bindRate = snapshot.metrics.find((m) => m.metricKey === "quote_to_bind_rate");
     expect(bindRate!.value).toBe(1_890);
@@ -79,10 +81,10 @@ describe("buildSnapshot", () => {
     expect(gwp).toBeDefined();
     expect(gwp!.grain).toBe("month");
     expect(gwp!.period).toBe("2026-01");
-    expect(gwp!.value).toBe(74_300_000);
+    expect(gwp!.value).toBe(2_092_000);
     expect(gwp!.previousPeriod).toBe("2025-12");
-    expect(gwp!.previousValue).toBe(238_900_000);
-    expect(gwp!.deltaBps).toBe(Math.round(((74_300_000 - 238_900_000) / 238_900_000) * 10_000));
+    expect(gwp!.previousValue).toBe(3_507_200);
+    expect(gwp!.deltaBps).toBe(Math.round(((2_092_000 - 3_507_200) / 3_507_200) * 10_000));
   });
 
   it("skips a metric with no rolled-up snapshot for the period instead of throwing", async () => {
@@ -96,9 +98,9 @@ describe("verifyNumericClaims", () => {
   it("passes a briefing whose numbers all trace back to the snapshot", async () => {
     const snapshot = await buildSnapshot(ctx, "2026-01-06");
     const text =
-      "Policies issued yesterday were 57, down from 61 the day before. " +
+      "Policies issued yesterday were 2, up from 1 the day before. " +
       "The quote-to-bind rate fell to 18.9%, from 23.6%. " +
-      "Gross written premium this month so far is AED 743,000.00, well behind December's AED 2,389,000.00 pace.";
+      "Gross written premium this month so far is AED 20,920.00, behind December's AED 35,072.00.";
     const result = verifyNumericClaims(text, snapshot);
     expect(result.ok).toBe(true);
     expect(result.mismatches).toEqual([]);
@@ -107,7 +109,7 @@ describe("verifyNumericClaims", () => {
   it("catches a deliberately-wrong number planted in the prose", async () => {
     const snapshot = await buildSnapshot(ctx, "2026-01-06");
     const text =
-      "Policies issued yesterday were 999, down from 61 the day before. " + // 999 is wrong — should be 57
+      "Policies issued yesterday were 999, up from 1 the day before. " + // 999 is wrong — should be 2
       "The quote-to-bind rate fell to 18.9%, from 23.6%.";
     const result = verifyNumericClaims(text, snapshot);
     expect(result.ok).toBe(false);
@@ -118,8 +120,8 @@ describe("verifyNumericClaims", () => {
 describe("generateBriefing", () => {
   it("generates, verifies and persists a clean briefing as review-ready", async () => {
     const { stub, gw } = stubbedGateway([
-      "Policies issued yesterday were 57, down from 61 the day before. " +
-        "Gross written premium this month so far is AED 743,000.00."
+      "Policies issued yesterday were 2, up from 1 the day before. " +
+        "Gross written premium this month so far is AED 20,920.00."
     ]);
 
     const result = await generateBriefing(ctx, gw, { date: "2026-01-06" });
@@ -139,11 +141,11 @@ describe("generateBriefing", () => {
     expect(row!.audience).toBe("exec");
     expect(row!.locale).toBe("en");
     expect(row!.status).toBe("review");
-    expect(row!.narrativeRef).toContain("57");
+    expect(row!.narrativeRef).toContain("were 2,");
     expect(row!.aiAuditId).toBe(result.auditId);
     expect(row!.approvedBy).toBeNull();
 
-    const [audit] = await ctx.db.select().from(schema.aiAuditLog).where(eq(schema.aiAuditLog.id, result.auditId));
+    const [audit] = await ctx.db.select().from(schema.aiAuditLog).where(eq(schema.aiAuditLog.id, result.auditId!));
     expect(audit).toBeDefined();
     expect(audit!.module).toBe("north");
     expect(audit!.tenantId).toBe(tenantId);
@@ -167,19 +169,73 @@ describe("generateBriefing", () => {
 });
 
 // docs/30 NORTH gap 1. The brief existed only when someone pressed Generate;
-// the nightly window now writes yesterday's, once, beside the snapshot. It is
+// the nightly window now writes the day's, once, beside the snapshot. It is
 // still never published by a machine (rule 4): a person moves it to published,
 // and that transition — only that one — announces north.briefing.published.
 describe("the nightly brief", () => {
-  it("writes yesterday's exec brief once, and does nothing when it exists", async () => {
-    const night = { ...ctx, now: Date.parse("2026-01-08T02:00:00Z") };
+  // J-E1 "the 7am read": the brief a reader opens on the morning of D is dated
+  // D and narrates D-1, the day the 02:00Z snapshot just closed — the seed's
+  // own {2026-01-06} row is shaped the same way. Dating it D-1 narrated D-2.
+  it("writes today's exec brief once per tenant locale, and nothing when they exist", async () => {
+    const night = { ...ctx, now: Date.parse("2026-01-08T02:05:00Z") };
     const { stub, gw } = stubbedGateway(["A quiet day."]);
     const first = await nightlyBriefing(night, gw);
-    expect(first).toMatchObject({ status: expect.stringMatching(/review|draft/) });
-    const [row] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, first!.id));
-    expect(row).toMatchObject({ date: "2026-01-07", audience: "exec", locale: "en", approvedBy: null, publishedAt: null });
-    expect(await nightlyBriefing(night, gw)).toBeNull();
+    expect(first.map((b) => b.locale).sort()).toEqual(["ar", "en"]);
+    const rows = await ctx.db
+      .select()
+      .from(schema.northBriefings)
+      .where(and(eq(schema.northBriefings.tenantId, tenantId), eq(schema.northBriefings.date, "2026-01-08")));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toMatchObject({ audience: "exec", approvedBy: null, publishedAt: null });
+    // The model narrates the language its prompt and eval cover; Arabic is the
+    // template, in Arabic, until an Arabic narration has an eval of its own.
+    expect(rows.find((r) => r.locale === "en")!.generatedBy).toBe("ai");
+    const ar = rows.find((r) => r.locale === "ar")!;
+    expect(ar.generatedBy).toBe("template");
+    expect(ar.narrativeRef).not.toMatch(/[A-Za-z]/);
+    expect(await nightlyBriefing(night, gw)).toEqual([]);
     expect(stub.calls).toHaveLength(1);
+  });
+
+  it("follows the tenant's locales", async () => {
+    const night = { ...ctx, now: Date.parse("2026-01-10T02:05:00Z"), policy: PolicyJson.parse({ locales: ["en"] }) };
+    const written = await nightlyBriefing(night, stubbedGateway(["A quiet day."]).gw);
+    expect(written.map((b) => b.locale)).toEqual(["en"]);
+  });
+
+  it("still writes every locale's brief when no model is configured", async () => {
+    const night = { ...ctx, now: Date.parse("2026-01-09T02:05:00Z") };
+    const written = await nightlyBriefing(night, new Gateway({ env: {} }));
+    expect(written).toHaveLength(2);
+    for (const brief of written) {
+      expect(brief).toMatchObject({ generatedBy: "template", status: "review", auditId: null });
+    }
+    const enId = written.find((b) => b.locale === "en")!.id;
+    const [en] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, enId));
+    expect(en).toMatchObject({ date: "2026-01-09", locale: "en", generatedBy: "template", aiAuditId: null });
+    // Narrates the seeded snapshots, not a placeholder.
+    expect(en!.narrativeRef).toMatch(/\d/);
+  });
+});
+
+describe("the template fallback", () => {
+  it("writes a template brief when the model call fails, instead of no brief", async () => {
+    const result = await generateBriefing(ctx, new Gateway({ env: {} }), { date: "2026-01-06", audience: "investor" });
+    expect(result).toMatchObject({ generatedBy: "template", status: "review", auditId: null, mismatches: [] });
+    const [row] = await ctx.db.select().from(schema.northBriefings).where(eq(schema.northBriefings.id, result.id));
+    expect(row).toMatchObject({ generatedBy: "template", aiAuditId: null, audience: "investor" });
+    // Policies issued on 2026-01-05, straight off the seeded snapshot.
+    const [issued] = await ctx.db.select().from(schema.northSnapshots).where(and(eq(schema.northSnapshots.metricKey, "policies_issued"), eq(schema.northSnapshots.period, "2026-01-05"), eq(schema.northSnapshots.dimsHash, "")));
+    expect(row!.narrativeRef).toContain(`Policies issued for Jan 5, 2026: ${issued!.value}`);
+  });
+
+  it("writes a template brief when the gateway refuses (kill switch, budget), never the refusal text", async () => {
+    const refusing = {
+      complete: async () => ({ text: "Refused by policy.", finishReason: "refusal", auditId: "aud_x" })
+    } as unknown as Gateway;
+    const result = await generateBriefing(ctx, refusing, { date: "2026-01-11" });
+    expect(result.generatedBy).toBe("template");
+    expect(result.narrativeRef).not.toContain("Refused");
   });
 });
 

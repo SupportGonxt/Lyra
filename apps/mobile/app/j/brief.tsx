@@ -7,10 +7,12 @@ import {
   anomalyOwner,
   bps,
   briefNarrative,
+  briefProvenance,
   canTakeAnomaly,
   chosenBriefing,
   highlightsOf,
-  todayIso,
+  briefAskDate,
+  todayUtc,
   unownedAnomaly
 } from "../../src/journeys";
 import { humanize } from "../../src/rows";
@@ -71,6 +73,7 @@ export default function Brief() {
 
   const rows = briefs.data?.data ?? [];
   const brief = chosenBriefing(rows, null, session.locale);
+  const provenance = brief ? briefProvenance(brief, todayUtc()) : null;
   const highlights = highlightsOf(brief?.highlightsJson);
   const anomaly = unownedAnomaly(anomalies.data?.data ?? null);
   const owner = anomalyOwner(session.me);
@@ -82,7 +85,7 @@ export default function Brief() {
   // pretending the answer is already here.
   const ask = async () => {
     if (!token || busy) return;
-    const date = todayIso();
+    const date = briefAskDate();
     setBusy(true);
     setWriteError(null);
     try {
@@ -154,7 +157,7 @@ export default function Brief() {
 
       {asked ? <Muted chrome={chrome}>{t("brief.generated", { date: asked })}</Muted> : null}
 
-      {brief ? (
+      {brief && provenance ? (
         <Card chrome={chrome}>
           <Muted chrome={chrome}>
             {t("brief.status", {
@@ -162,6 +165,17 @@ export default function Brief() {
               date: String(brief.date ?? "")
             })}
           </Muted>
+          {/* docs/15: ✦ only on a brief a model wrote; a template brief says
+              no model wrote it (ADR-0114). Same rule as the web brief. */}
+          <Muted chrome={chrome}>{t(provenance.byModel ? "brief.byModel" : "brief.byTemplate")}</Muted>
+          <Muted chrome={chrome}>{t("brief.dated", { date: provenance.date })}</Muted>
+          {provenance.staleDays !== null ? (
+            <View accessible accessibilityRole="text" accessibilityLiveRegion="polite">
+              <Body chrome={chrome} style={{ color: theme.danger }}>
+                {t("brief.stale", { date: provenance.date, days: String(provenance.staleDays) })}
+              </Body>
+            </View>
+          ) : null}
           {paragraphs(briefNarrative(brief.narrativeRef)).map((text, index) => (
             <Body chrome={chrome} key={index}>
               {text}

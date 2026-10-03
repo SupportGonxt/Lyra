@@ -3,7 +3,7 @@ import type { ReportTable } from "@lyra/ledger";
 import { isoDay, promptInstant } from "@lyra/model-gateway";
 import { majorUnits, minorExponent, rowCurrency } from "./money.js";
 import { toXlsx } from "./xlsx.js";
-import { pdfSafe, toPdf } from "./pdf.js";
+import { latinOnly, pdfSafe, toPdf } from "./pdf.js";
 
 // One table in, one file out. Lifted verbatim out of routes/analytics.ts so the
 // ledger's finance reports serialise through the same writer as every analytics
@@ -39,8 +39,9 @@ export function isExportFormat(value: string): value is ExportFormat {
 /**
  * `browser` is optional and only ever needed for the pdf/non-Latin case: every
  * other format renders the same with or without it. Unbound (on-prem with no
- * `render` service configured yet) keeps today's behaviour — export xlsx
- * instead — same no-op-when-unbound idiom as `wf`/`bucket` elsewhere.
+ * `render` service configured yet), Arabic is drawn in-process (ADR-0115) and
+ * only a script no PDF font covers is told to export xlsx instead — same
+ * no-op-when-unbound idiom as `wf`/`bucket` elsewhere.
  */
 export async function render(
   format: ExportFormat,
@@ -55,12 +56,15 @@ export async function render(
         contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       };
     case "pdf": {
-      // Arabic needs an embedded font the base-14 set does not have. Where a
-      // browser binding is available, a real browser has the font and does the
-      // shaping for free — render an HTML table and let it print to PDF.
-      // Unbound, the caller is told to ask for XLSX instead.
+      // Where a browser binding is available it still takes every non-Latin
+      // report: a real browser has every script's font, full shaping and mark
+      // positioning, and lays the whole table out right to left. Unbound, the
+      // in-process writer draws Arabic itself with its embedded face
+      // (ADR-0115); only text neither can draw sends the caller to XLSX.
+      if (browser && (!latinOnly([table]) || !pdfSafe([table]))) {
+        return { bytes: await renderPdfViaBrowser(browser, table, opts), contentType: "application/pdf" };
+      }
       if (!pdfSafe([table])) {
-        if (browser) return { bytes: await renderPdfViaBrowser(browser, table, opts), contentType: "application/pdf" };
         throw badRequest("this report contains non-Latin text the PDF fonts cannot render; export it as xlsx");
       }
       return { bytes: toPdf([table], opts), contentType: "application/pdf" };

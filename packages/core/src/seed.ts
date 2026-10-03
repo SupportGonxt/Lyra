@@ -21,8 +21,9 @@ import { seedAnalytics } from "./seed/analytics.js";
 import { seedAxis } from "./seed/axis.js";
 import { seedCompliance } from "./seed/compliance.js";
 import { seedLedger } from "./seed/ledger.js";
+import { measureBook } from "./seed/north-book.js";
 import { seedOnboarding } from "./seed/onboarding.js";
-import { dayKey, dayStart, monthKey, monthName, monthStart, quarterKey } from "./seed/period.js";
+import { dayKey, dayName, dayStart, monthKey, monthName, monthStart, quarterKey } from "./seed/period.js";
 import { SEED_JOURNEY_COOLDOWN_DAYS, seedOrbit } from "./seed/orbit.js";
 import { seedPlatform } from "./seed/platform.js";
 import { seedScout } from "./seed/scout.js";
@@ -100,14 +101,33 @@ const ROLE_NAMES: Record<string, string> = {
 const PEOPLE: ReadonlyArray<{ local: string; name: string; role: string; locale?: string }> = [
   { local: "amina.saleh", name: "Amina Saleh", role: "tenant.admin" },
   { local: "khalid.rashed", name: "Khalid Al Rashed", role: "tenant.compliance", locale: "ar" },
+  // Second seats on gates whose requester holds the deciding verb, all dual
+  // control (approvals.deciders.test.ts): the AI autonomy and budget raises
+  // are tenant.admin's alone by design (rbac.ts), and erasure, legal-hold
+  // release and Shariah certification tenant.compliance's — "a board is by
+  // definition more than one person" (approvals.ts). One holder each meant
+  // none of them could ever clear.
+  { local: "ziad.habsi", name: "Ziad Habsi", role: "tenant.admin" },
+  { local: "asma.qasim", name: "Asma Qasim", role: "tenant.compliance" },
   { local: "layla.hassan", name: "Layla Hassan", role: "axis.agent" },
   { local: "omar.farouk", name: "Omar Farouk", role: "axis.lead" },
+  // Omar requests the binds, endorsements and claim settlements, and under
+  // dual control the requester may not decide them — so with axis.lead as the
+  // only AXIS decider none of those gates could ever clear without the
+  // all-roles demo login. approvals.deciders.test.ts holds every gate to two.
+  { local: "suhail.hamdan", name: "Suhail Hamdan", role: "axis.admin" },
   { local: "sara.nasser", name: "Sara Al Nasser", role: "orbit.agent" },
   { local: "yusuf.karim", name: "Yusuf Karim", role: "orbit.retention" },
   { local: "dana.aziz", name: "Dana Aziz", role: "orbit.partners" },
   { local: "hind.saqr", name: "Hind Saqr", role: "orbit.admin" },
   { local: "noor.jamal", name: "Noor Jamal", role: "signal.lead" },
+  // A media commitment above threshold is dual control and only a launcher
+  // decides it; with signal.lead the only launcher, Noor's own commit stalled.
+  { local: "kareem.shamsi", name: "Kareem Shamsi", role: "signal.admin" },
   { local: "tariq.mansour", name: "Tariq Mansour", role: "scout.lead" },
+  // Selling a data product needs `scout:data_products:publish` to ask and to
+  // decide, and no seeded persona held it at all.
+  { local: "basma.darwish", name: "Basma Darwish", role: "scout.admin" },
   { local: "hala.zayed", name: "Hala Zayed", role: "north.exec" },
   { local: "rana.hadid", name: "Rana Hadid", role: "north.analyst" },
   { local: "faisal.omar", name: "Faisal Omar", role: "finance.controller" },
@@ -121,6 +141,9 @@ const PEOPLE: ReadonlyArray<{ local: string; name: string; role: string; locale?
   // other role having a persona for journey/e2e coverage.
   { local: "yasmin.faris", name: "Yasmin Faris", role: "provider.viewer" }
 ];
+
+/** The seeded staff personas, read-only — what approvals.deciders.test.ts holds to two deciders per gate. */
+export const SEED_PEOPLE = PEOPLE;
 
 /**
  * The one login a demo is given: every internal role at once, so a single
@@ -1411,6 +1434,10 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
   // Last year's cover for the same customer, ending inside the renewal window.
   // The sweep on the scheduled tick raises it, so the retention desk opens on a
   // real queue instead of an empty one (docs/05 J-C3).
+  // It is the one seeded contract whose commission has no accrual behind it:
+  // it was written eleven months before the seeded ledger's first period
+  // (seed/ledger.ts opens month −2), so there is no period to post its BIND
+  // into, and it falls outside every NORTH window the seed measures.
   const renewalPolicyId = id("pol", issuedAt + 1);
   await db.insert(schema.axisPolicies).values({
     id: renewalPolicyId,
@@ -1681,6 +1708,46 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
   await db.insert(schema.aiPrompts).values(promptRows);
   await db.insert(schema.aiAgents).values(agentRows);
 
+  /* ------------------------------------------------------ the other workspaces */
+  // One file per module rather than one more screenful here: the modules do not
+  // share rows, only the context below, and a seeder that owns its own file can
+  // be read next to the module it fills.
+  const ctx: SeedContext = {
+    db,
+    now,
+    tenantId,
+    users,
+    teams,
+    providers,
+    products,
+    offerings,
+    channels,
+    customerId,
+    consentId,
+    quoteRequestId: requestId,
+    caseId,
+    policyId,
+    renewalPolicyId,
+    issuedAt
+  };
+  await seedAdmin(ctx);
+  await seedAxis(ctx);
+  await seedLedger(ctx);
+  await seedOrbit(ctx);
+  // Onboarding reads partners by name, so it follows orbit. Settlement reads
+  // the periods ledger writes, the channels the core story writes and the
+  // agreement onboarding signs, so it follows both.
+  await seedOnboarding(ctx);
+  await seedSettlement(ctx);
+  await seedStaff(ctx);
+  await seedSignal(ctx);
+  await seedScout(ctx);
+  await seedCompliance(ctx);
+  await seedAnalytics(ctx);
+  // NORTH follows them: its row-backed snapshots are measured from the
+  // policies and postings these seeders write (seed/north-book.ts), and a
+  // measurement taken before the rows exist is the contradiction it replaced.
+
   /* ------------------------------------------------------------------ north */
   // NORTH is a rollup, never a hot-table read (docs/modules/north.md §2.1), so
   // these rows describe the *same* book the panel above describes — five lines
@@ -1706,13 +1773,43 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
   const monthRollupAt = (i: number): number =>
     (i === MONTHS.length - 1 ? dayStart(now) : monthStart(now, i - 2)) + 2 * HOUR;
 
+  // Row-backed metrics are measured, never typed: policies issued, premium,
+  // commission, the b2b share of premium and the book in force are what the
+  // snapshotter computes from axis_policies and the ledger, so they are what
+  // the rows the seeders above wrote add up to (seed/north-book.ts). Typing
+  // them in is how the demo came to report 57 policies issued on a day whose
+  // records held three.
+  let s = 0;
+  const book = await measureBook(
+    db,
+    tenantId,
+    [
+      ...MONTHS.map((period, i) => ({ grain: "month" as const, period, ts: monthRollupAt(i) })),
+      ...DAYS.map((period, i) => ({ grain: "day" as const, period, ts: dayStart(now, i - 4) + 2 * HOUR }))
+    ],
+    { currency: "AED", nid: (prefix) => id(prefix, now - 10_000 + s++) }
+  );
+  /** The measured headline for a metric and period; 0 where the rollup wrote nothing. */
+  const measured = (metricKey: string, period: string): number =>
+    book.measurements.find((x) => x.metricKey === metricKey && x.period === period && !x.dims)?.value ?? 0;
+  /** Signed basis points from `before` to `after`; 0 when there is no base to move from. */
+  const moveBps = (before: number, after: number): number => (before > 0 ? Math.round(((after - before) / before) * 10_000) : 0);
+
+  // Everything below is ILLUSTRATIVE: rates, ratios and unit costs whose inputs
+  // (quote fan-outs and latencies, media spend, claims, AI cost per case,
+  // renewals) the core seed does not write at the volume these describe. No
+  // seeded row supports them. They stay typed so the metric wall, the anomaly
+  // hunter and the briefings have a shaped series to read on a fresh tenant,
+  // and the nightly snapshotter replaces each with a measured value the first
+  // night it runs. ponytail: the per-policy and per-customer unit costs
+  // (cac_per_policy, commission_per_policy, revenue_per_customer,
+  // cost_per_acquisition) divide by the same seeded policies the measured
+  // metrics count, so a reader dividing one by the other will not get these;
+  // measure them here too once their numerators (signal_spend, commission
+  // entries) are seeded over the same window.
   const MONTHLY: Record<string, readonly [number, number, number, number]> = {
-    gwp: [186_400_000, 201_750_000, 238_900_000, 74_300_000],
-    net_commission: [17_708_000, 19_166_000, 22_695_000, 7_058_000],
-    active_policies: [4_182, 4_361, 4_608, 4_690],
     renewal_retention: [7_920, 8_050, 8_310, 8_180],
     cac_per_policy: [21_400, 20_150, 18_900, 24_600],
-    broker_channel_share: [3_120, 3_380, 3_611, 3_740],
     loss_ratio: [6_140, 5_980, 6_420, 6_050],
     ai_cost_per_case: [118, 104, 96, 91],
     // The demand loop the board reads across: what SCOUT raised and the desk
@@ -1734,7 +1831,6 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
     revenue_per_customer: [51_300, 53_700, 56_400, 54_200]
   };
   const DAILY: Record<string, readonly [number, number, number, number, number]> = {
-    policies_issued: [41, 38, 52, 61, 57],
     quote_to_bind_rate: [2_310, 2_280, 2_405, 2_360, 1_890],
     panel_response_rate: [9_650, 9_720, 9_580, 9_240, 8_810],
     quote_latency_p95: [2_150, 2_080, 2_310, 3_040, 3_620]
@@ -1750,47 +1846,16 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
   MONTHLY.cost_per_acquisition_low = cpaRanges.map((r) => r.low) as unknown as readonly [number, number, number, number];
   MONTHLY.cost_per_acquisition_high = cpaRanges.map((r) => r.high!) as unknown as readonly [number, number, number, number];
 
-  // Readable and unique per dimension set, which is all the unique index needs.
-  // ponytail: a digest buys nothing at this cardinality — swap it for one when
-  // a dimension value can contain "=" or "&".
-  const dimsHash = (dims: Record<string, string>): string =>
-    Object.entries(dims)
-      .map(([k, v]) => `${k}=${v}`)
-      .join("&");
-
-  // The last closed month by channel and by underwriter — both sum to that
-  // month's total, so drilling into the metric never disagrees with the headline.
-  const LAST_MONTH_SPLITS: ReadonlyArray<{ dims: Record<string, string>; value: number }> = [
-    { dims: { channel: "gonxt-web" }, value: 96_420_000 },
-    { dims: { channel: "gonxt-app" }, value: 41_880_000 },
-    { dims: { channel: "gonxt-call" }, value: 14_320_000 },
-    { dims: { channel: "alpha-brokers" }, value: 62_190_000 },
-    { dims: { channel: "meridian-embed" }, value: 24_090_000 },
-    { dims: { provider: "Cedar General Insurance" }, value: 84_500_000 },
-    { dims: { provider: "Falcon Insurance" }, value: 61_300_000 },
-    { dims: { provider: "Oryx Takaful" }, value: 33_700_000 },
-    { dims: { provider: "Gulf Health Assurance" }, value: 28_900_000 },
-    { dims: { provider: "GONXT Underwriting" }, value: 30_500_000 }
-  ];
-
   const snapshotRows: (typeof schema.northSnapshots.$inferInsert)[] = [];
-  let s = 0;
-  const snapshot = (
-    metricKey: string,
-    grain: "day" | "month",
-    period: string,
-    value: number,
-    ts: number,
-    dims?: Record<string, string>
-  ): void => {
+  const snapshot = (metricKey: string, grain: "day" | "month", period: string, value: number, ts: number): void => {
     snapshotRows.push({
       id: id("snp", now + s++),
       tenantId,
       metricKey,
       grain,
       period,
-      dimsJson: dims ? JSON.stringify(dims) : null,
-      dimsHash: dims ? dimsHash(dims) : "",
+      dimsJson: null,
+      dimsHash: "",
       value,
       ts
     });
@@ -1805,9 +1870,6 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
     DAYS.forEach((period, i) => {
       snapshot(key, "day", period!, series[i]!, dayStart(now, i - 4) + 2 * HOUR);
     });
-  }
-  for (const split of LAST_MONTH_SPLITS) {
-    snapshot("gwp", "month", MONTHS[2]!, split.value, monthRollupAt(2), split.dims);
   }
   await db.insert(schema.northSnapshots).values(snapshotRows);
 
@@ -1849,6 +1911,27 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
   const thisQuarter = quarterKey(now).slice(5);
   const lastQuarter = quarterKey(now, -1).slice(5);
 
+  // The figures a briefing quotes for a row-backed metric are the measured
+  // ones above, so the prose and the snapshot beside it cannot disagree.
+  const priorMonth = monthKey(now, -2);
+  const gwpLast = measured("gwp", lastMonth);
+  const gwpMove = moveBps(measured("gwp", priorMonth), gwpLast);
+  const shareLast = measured("broker_channel_share", lastMonth);
+  const shareMove = moveBps(measured("broker_channel_share", priorMonth), shareLast);
+  const activeLast = measured("active_policies", lastMonth);
+  const activeMove = moveBps(measured("active_policies", priorMonth), activeLast);
+  const commissionLast = measured("net_commission", lastMonth);
+  const commissionMove = moveBps(measured("net_commission", priorMonth), commissionLast);
+  const issuedDay = dayKey(now, -2);
+  const issued = measured("policies_issued", issuedDay);
+  const issuedMove = moveBps(measured("policies_issued", dayKey(now, -3)), issued);
+  /** `2,389,000` — whole dirhams from fils, grouped the way the prose writes money. */
+  const aed = (minor: number): string => Math.round(minor / 100).toLocaleString("en-US");
+  /** `18.4%` — the size of a basis-point figure, its direction said in words. */
+  const pct = (bps: number): string => `${(Math.abs(bps) / 100).toFixed(1)}%`;
+  const vs = (bps: number, ahead: string, behind: string, level: string): string =>
+    bps > 0 ? `${pct(bps)} ${ahead}` : bps < 0 ? `${pct(bps)} ${behind}` : level;
+
   await db.insert(schema.northBriefings).values([
     {
       id: briefingIds.jan05En,
@@ -1858,13 +1941,12 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       date: dayKey(now, -1),
       audience: "exec",
       locale: "en",
-      narrativeRef: `${lastMonthName} closed at AED 2,389,000 of gross written premium, the best month \
-of the year and 18.4% above ${priorMonthName}. Motor on the web and app channels drove \
-almost all of the increase; nothing in the mix suggests a one-off.
+      narrativeRef: `${lastMonthName} closed at AED ${aed(gwpLast)} of gross written premium, \
+${vs(gwpMove, "above", "below", "level with")} ${priorMonthName}. Motor on the web channel wrote most of it; \
+nothing in the mix suggests a one-off.
 
-Broker share reached 36.1% of premium. Alpha Brokers and the Meridian embed \
-together wrote just over a third of the book, which is the highest \
-concentration we have carried and worth watching rather than celebrating.
+Broker share was ${pct(shareLast)} of premium. Business through Alpha Brokers and the \
+Meridian embed is the concentration worth watching rather than celebrating.
 
 Against that, yesterday's quote-to-bind rate was 18.9% — well below the \
 five-day average of 23.4%. Two anomalies are open on it and neither has an \
@@ -1873,16 +1955,16 @@ owner yet.`,
         {
           metricKey: "gwp",
           period: lastMonth,
-          value: 238_900_000,
-          deltaBps: 1_841,
-          note: `${lastMonthName} closed above every prior month, led by motor on the web and app channels.`
+          value: gwpLast,
+          deltaBps: gwpMove,
+          note: `${lastMonthName} premium was led by motor on the web channel.`
         },
         {
           metricKey: "broker_channel_share",
           period: lastMonth,
-          value: 3_611,
-          deltaBps: 683,
-          note: "Alpha Brokers and the Meridian embed together wrote just over a third of premium."
+          value: shareLast,
+          deltaBps: shareMove,
+          note: "The b2b channels' share of premium, Alpha Brokers and the Meridian embed."
         },
         {
           metricKey: "quote_to_bind_rate",
@@ -1905,9 +1987,9 @@ owner yet.`,
       date: dayKey(now, -1),
       audience: "exec",
       locale: "ar",
-      narrativeRef: `أغلق ${lastMonthAr} عند 2,389,000 درهم من إجمالي الأقساط المكتتبة، وهو أفضل شهر في \
-السنة وبزيادة 18.4% عن ${priorMonthAr}. جاء معظم النمو من تأمين المركبات عبر الموقع \
-والتطبيق.
+      narrativeRef: `أغلق ${lastMonthAr} عند ${aed(gwpLast)} درهم من إجمالي الأقساط المكتتبة، \
+${gwpMove > 0 ? `بزيادة ${pct(gwpMove)} عن` : gwpMove < 0 ? `بانخفاض ${pct(gwpMove)} عن` : "بلا تغيير عن"} ${priorMonthAr}. \
+جاء معظمها من تأمين المركبات عبر الموقع.
 
 تحسّن الاحتفاظ عند التجديد إلى 83.1% للشهر الثالث على التوالي، ويعود ذلك في \
 الأساس إلى التواصل المبكر قبل موعد التجديد.
@@ -1918,9 +2000,9 @@ owner yet.`,
         {
           metricKey: "gwp",
           period: lastMonth,
-          value: 238_900_000,
-          deltaBps: 1_841,
-          note: `أغلق ${lastMonthAr} أعلى من كل الأشهر السابقة، بقيادة تأمين المركبات عبر الموقع والتطبيق.`
+          value: gwpLast,
+          deltaBps: gwpMove,
+          note: `أقساط ${lastMonthAr}، بقيادة تأمين المركبات عبر الموقع.`
         },
         {
           metricKey: "renewal_retention",
@@ -1943,9 +2025,8 @@ owner yet.`,
       date: dayKey(now, -2),
       audience: "exec",
       locale: "en",
-      narrativeRef: `Sixty-one policies issued yesterday, the strongest issuing day of the new \
-year and 17.3% above the same day last week. Most of it is motor renewals \
-coming back rather than new business.
+      narrativeRef: `${issued} ${issued === 1 ? "policy" : "policies"} issued on ${dayName(dayStart(now, -2))}, \
+${vs(issuedMove, "more than", "fewer than", "the same as")} the day before.
 
 Quote latency at the 95th percentile drifted to 3.04 seconds, above the \
 2.3-second target. The manual-priced Oryx leg is the slowest part of the \
@@ -1953,10 +2034,10 @@ panel and is the whole of the gap.`,
       highlightsJson: JSON.stringify([
         {
           metricKey: "policies_issued",
-          period: dayKey(now, -2),
-          value: 61,
-          deltaBps: 1_731,
-          note: "Best issuing day of the new year so far, mostly motor renewals coming back."
+          period: issuedDay,
+          value: issued,
+          deltaBps: issuedMove,
+          note: "Policies issued, against the day before."
         },
         {
           metricKey: "quote_latency_p95",
@@ -1979,11 +2060,11 @@ panel and is the whole of the gap.`,
       date: dayKey(now, -4),
       audience: "board",
       locale: "en",
-      narrativeRef: `${lastQuarter} finished ahead of plan on premium and slightly behind on acquisition \
-cost. ${lastMonthName} alone wrote AED 2,389,000, up 18.4% on the prior month.
+      narrativeRef: `${lastQuarter} finished slightly behind plan on acquisition cost. \
+${lastMonthName} alone wrote AED ${aed(gwpLast)}, ${vs(gwpMove, "up", "down", "level")} on the prior month.
 
-The book grew in every month of the quarter and ended at 4,608 active \
-policies, up 5.7%.
+The book ended the month at ${activeLast.toLocaleString("en-US")} policies in force, \
+${vs(activeMove, "up", "down", "level")} on the month before.
 
 The one item for the board is the own-paper loss ratio, which widened to \
 64.2% in ${lastMonthName}. It is one month, not a trend, but it is the number that \
@@ -1993,16 +2074,16 @@ been circulated.`,
         {
           metricKey: "gwp",
           period: lastMonth,
-          value: 238_900_000,
-          deltaBps: 1_841,
-          note: `${lastQuarter} finished ahead of plan on premium and slightly behind on acquisition cost.`
+          value: gwpLast,
+          deltaBps: gwpMove,
+          note: `${lastMonthName}'s premium against the month before.`
         },
         {
           metricKey: "active_policies",
           period: lastMonth,
-          value: 4_608,
-          deltaBps: 566,
-          note: "The book grew every month of the quarter."
+          value: activeLast,
+          deltaBps: activeMove,
+          note: "Policies in force at the month's close."
         },
         {
           metricKey: "loss_ratio",
@@ -2025,9 +2106,9 @@ been circulated.`,
       date: dayKey(now, -6),
       audience: "investor",
       locale: "en",
-      narrativeRef: `Retained commission for ${lastMonthName} was AED 226,950, tracking premium at 18.4% \
-growth. The shift toward b2b volume did not dilute the margin, which is the \
-question this mix shift was always going to raise.
+      narrativeRef: `Retained commission for ${lastMonthName} was AED ${aed(commissionLast)}, \
+${vs(commissionMove, "up", "down", "level")} on the month before. Whether b2b volume dilutes the margin \
+is the question this mix shift was always going to raise.
 
 Acquisition cost per policy improved for the third consecutive month to \
 AED 189. The improvement is organic — paid spend was flat over the quarter.
@@ -2037,9 +2118,9 @@ This is a draft and the ${lastMonthName} figures are unaudited.`,
         {
           metricKey: "net_commission",
           period: lastMonth,
-          value: 22_695_000,
-          deltaBps: 1_842,
-          note: "Retained commission tracked premium; the b2b mix shift did not dilute the margin."
+          value: commissionLast,
+          deltaBps: commissionMove,
+          note: "Retained commission, from the ledger's commission accounts."
         },
         {
           metricKey: "cac_per_policy",
@@ -2132,9 +2213,11 @@ This is a draft and the ${lastMonthName} figures are unaudited.`,
       tenantId,
       metricKey: "gwp",
       window: lastMonth,
-      magnitude: 1_269,
-      expected: 212_000_000,
-      actual: 238_900_000,
+      // The seasonal baseline sits 12.69% under what the month measured, so
+      // the magnitude is the same move whatever the book adds up to.
+      magnitude: moveBps(Math.round((gwpLast * 10_000) / 11_269), gwpLast),
+      expected: Math.round((gwpLast * 10_000) / 11_269),
+      actual: gwpLast,
       driverAnalysisJson: JSON.stringify({
         method: "seasonal",
         baseline: "trailing_12_month_seasonal",
@@ -2430,42 +2513,6 @@ This is a draft and the ${lastMonthName} figures are unaudited.`,
     }
   ]);
 
-  /* ------------------------------------------------------ the other workspaces */
-  // One file per module rather than one more screenful here: the modules do not
-  // share rows, only the context below, and a seeder that owns its own file can
-  // be read next to the module it fills.
-  const ctx: SeedContext = {
-    db,
-    now,
-    tenantId,
-    users,
-    teams,
-    providers,
-    products,
-    offerings,
-    channels,
-    customerId,
-    consentId,
-    quoteRequestId: requestId,
-    caseId,
-    policyId,
-    renewalPolicyId,
-    issuedAt
-  };
-  await seedAdmin(ctx);
-  await seedAxis(ctx);
-  await seedLedger(ctx);
-  await seedOrbit(ctx);
-  // Onboarding reads partners by name, so it follows orbit. Settlement reads
-  // the periods ledger writes, the channels the core story writes and the
-  // agreement onboarding signs, so it follows both.
-  await seedOnboarding(ctx);
-  await seedSettlement(ctx);
-  await seedStaff(ctx);
-  await seedSignal(ctx);
-  await seedScout(ctx);
-  await seedCompliance(ctx);
-  await seedAnalytics(ctx);
   // Last, because the audit trail is a record of what the seeders above did:
   // it can only be written once those rows exist.
   await seedPlatform(ctx);

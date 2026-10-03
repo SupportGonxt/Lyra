@@ -4,7 +4,8 @@ import { id as newId, schema } from "@lyra/db";
 import { audit, conflict, emit, notFound, scoped, sha256Hex, type Ctx } from "@lyra/core";
 import type { ReportTable } from "@lyra/ledger";
 import { isoDay } from "@lyra/model-gateway";
-import { pdfSafe, toPdf } from "./export/pdf.js";
+import { statusLabel, termRows } from "./axis-policy-terms.js";
+import { pdfSafe, toPdf, type PdfLabels } from "./export/pdf.js";
 
 // docs/27 F27 / docs/specs/gap-axis-design.md §D.11. A contract the customer
 // cannot hold is not a contract they have been sold. This renders the document
@@ -36,59 +37,125 @@ export type PolicyDocumentKind = PolicyDocumentInput["kind"];
  * needs nouns. ponytail: two small tables beat a package move for one caller;
  * merge them into @lyra/core when a second server surface needs the same words.
  *
- * English only: pdf.ts draws base-14 Helvetica, which cannot render Arabic at
- * all (it refuses rather than drawing boxes). Arabic documents wait on font
- * embedding there, not on this table.
+ * English and Arabic: pdf.ts embeds an Arabic face (ADR-0115), so a document
+ * is written in its reader's language. Keyed `pack` → `locale` → noun; a
+ * locale with no table here reads English.
  */
-const PACKS: Record<string, Record<string, string>> = {
+const PACKS: Record<string, Record<string, Record<string, string>>> = {
   "insurance-retail": {
-    schedule: "Policy schedule",
-    certificate: "Certificate of insurance",
-    endorsement: "Endorsement",
-    cancellation: "Cancellation notice",
-    policyNo: "Policy number",
-    insured: "Insured",
-    premium: "Premium",
-    cover: "Cover",
-    terms: "Cover terms"
+    en: {
+      schedule: "Policy schedule",
+      certificate: "Certificate of insurance",
+      endorsement: "Endorsement",
+      cancellation: "Cancellation notice",
+      policyNo: "Policy number",
+      insured: "Insured",
+      premium: "Premium",
+      cover: "Cover",
+      terms: "Cover terms"
+    },
+    ar: {
+      schedule: "جدول الوثيقة",
+      certificate: "شهادة التأمين",
+      endorsement: "ملحق الوثيقة",
+      cancellation: "إشعار الإلغاء",
+      policyNo: "رقم الوثيقة",
+      insured: "المؤمن له",
+      premium: "القسط",
+      cover: "التغطية",
+      terms: "شروط التغطية"
+    }
   },
   "retail-ecom": {
-    schedule: "Order confirmation",
-    certificate: "Proof of purchase",
-    endorsement: "Order amendment",
-    cancellation: "Cancellation notice",
-    policyNo: "Order number",
-    insured: "Customer",
-    premium: "Order value",
-    cover: "Entitlement period",
-    terms: "Entitlements"
+    en: {
+      schedule: "Order confirmation",
+      certificate: "Proof of purchase",
+      endorsement: "Order amendment",
+      cancellation: "Cancellation notice",
+      policyNo: "Order number",
+      insured: "Customer",
+      premium: "Order value",
+      cover: "Entitlement period",
+      terms: "Entitlements"
+    },
+    ar: {
+      schedule: "تأكيد الطلب",
+      certificate: "إثبات الشراء",
+      endorsement: "تعديل الطلب",
+      cancellation: "إشعار الإلغاء",
+      policyNo: "رقم الطلب",
+      insured: "العميل",
+      premium: "قيمة الطلب",
+      cover: "فترة الاستحقاق",
+      terms: "الاستحقاقات"
+    }
   }
 };
 
-const PLATFORM: Record<string, string> = {
-  version: "Version",
-  status: "Status",
-  from: "From",
-  to: "To",
-  issued: "Issued",
-  effectiveFrom: "Effective from",
-  reason: "Reason",
-  change: "Change",
-  tax: "Tax",
-  fees: "Fees",
-  total: "Total",
-  detail: "Detail",
-  value: "Value",
-  amount: "Amount",
-  item: "Item"
+const PLATFORM: Record<string, Record<string, string>> = {
+  en: {
+    version: "Version",
+    status: "Status",
+    from: "From",
+    to: "To",
+    issued: "Issued",
+    effectiveFrom: "Effective from",
+    reason: "Reason",
+    change: "Change",
+    tax: "Tax",
+    fees: "Fees",
+    total: "Total",
+    detail: "Detail",
+    value: "Value",
+    amount: "Amount",
+    item: "Item"
+  },
+  ar: {
+    version: "الإصدار",
+    status: "الحالة",
+    from: "من",
+    to: "إلى",
+    issued: "تاريخ الإصدار",
+    effectiveFrom: "ساري من",
+    reason: "السبب",
+    change: "التغيير",
+    tax: "الضريبة",
+    fees: "الرسوم",
+    total: "الإجمالي",
+    detail: "البيان",
+    value: "القيمة",
+    amount: "المبلغ",
+    item: "البند"
+  }
 };
 
-function nounsFor(pack: string): (key: string) => string {
-  const own = PACKS[pack] ?? PACKS["insurance-retail"]!;
-  return (key) => own[key] ?? PLATFORM[key] ?? key;
+/** The renderer's own page furniture, in the document's language. */
+const FURNITURE: Record<string, PdfLabels> = {
+  ar: {
+    generated: "تاريخ الإنشاء",
+    continued: "تابع",
+    total: "الإجمالي",
+    noData: "لا توجد بيانات",
+    page: (page, of) => `صفحة ${page} من ${of}`
+  }
+};
+
+/** A document's language: one this module has words for, else English. */
+function documentLocale(locale: string | null | undefined): "en" | "ar" {
+  return locale?.toLowerCase().startsWith("ar") ? "ar" : "en";
 }
 
-/** `{en,ar}` name blobs, preferring a locale the renderer can actually draw. */
+function nounsFor(pack: string, locale: "en" | "ar"): (key: string) => string {
+  const tables = PACKS[pack] ?? PACKS["insurance-retail"]!;
+  const own = tables[locale] ?? {};
+  const en = tables.en!;
+  return (key) => own[key] ?? PLATFORM[locale]?.[key] ?? en[key] ?? PLATFORM.en![key] ?? key;
+}
+
+/**
+ * `{en,ar}` name blobs: the document's language, else English, else whatever
+ * name the customer gave — an Arabic-only name is the name, not a gap.
+ */
 function nameOf(json: string | null | undefined, locale: string): string {
   if (!json) return "";
   try {
@@ -134,8 +201,12 @@ function tablesFor(a: {
   version: VersionRow;
   insured: string;
   now: number;
+  locale: "en" | "ar";
+  pack: string;
 }): ReportTable[] {
-  const { kind, noun, policy, version, insured, now } = a;
+  const { kind, noun, policy, version, insured, now, locale, pack } = a;
+  const termsOf = (): { k: string; v: string }[] =>
+    termRows(version.termsJson, { locale, pack, currency: version.currency });
   const kv = (rows: { k: string; v: string }[]): ReportTable => ({
     title: noun(kind),
     columns: [
@@ -150,7 +221,7 @@ function tablesFor(a: {
     { k: noun("policyNo"), v: policy.policyNo },
     { k: noun("insured"), v: insured },
     { k: noun("version"), v: String(version.versionSeq) },
-    { k: noun("status"), v: policy.status },
+    { k: noun("status"), v: statusLabel(policy.status, locale) },
     { k: `${noun("cover")} — ${noun("from")}`, v: isoDay(version.effectiveFrom) },
     { k: `${noun("cover")} — ${noun("to")}`, v: isoDay(version.effectiveTo) },
     { k: noun("issued"), v: isoDay(now) }
@@ -183,10 +254,7 @@ function tablesFor(a: {
   }
 
   if (kind === "endorsement") {
-    const changes = Object.entries(JSON.parse(version.termsJson || "{}") as Record<string, unknown>).map(([k, v]) => ({
-      k,
-      v: typeof v === "string" ? v : JSON.stringify(v)
-    }));
+    const changes = termsOf();
     return [
       kv([
         ...head,
@@ -198,10 +266,9 @@ function tablesFor(a: {
     ];
   }
 
-  const terms = Object.entries(JSON.parse(version.termsJson || "{}") as Record<string, unknown>).map(([k, v]) => ({
-    k,
-    v: typeof v === "string" ? v : JSON.stringify(v)
-  }));
+  // Codes become words (axis-policy-terms.ts): a schedule must not print
+  // "excessMinor" or "true" in either language.
+  const terms = termsOf();
   return [
     kv(head),
     money([
@@ -222,32 +289,40 @@ export async function issuePolicyDocument(ctx: Ctx, policy: PolicyRow, input: Po
   // Brand tokens, not brand strings (CLAUDE.md §5): the footer is the tenant's
   // own name, never the platform's.
   const issuer = brand.name ?? tenant?.name ?? "";
-  const noun = nounsFor(ctx.policy.domainPack);
-
   const [customer] = policy.customerId
     ? await ctx.db.select().from(schema.customers).where(scoped(ctx, schema.customers, eq(schema.customers.id, policy.customerId)))
     : [];
 
-  const build = (locale: string): ReportTable[] =>
+  // The document is the customer's, so it is written in *their* language
+  // (core_customers.locale), not the language of whoever pressed the button —
+  // the bind that issues a schedule automatically has no reader of its own.
+  // With no customer row, the requester's locale is all there is (ADR-0115).
+  const locale = documentLocale(customer ? customer.locale : ctx.locale);
+  const noun = nounsFor(ctx.policy.domainPack, locale);
+
+  const build = (nameLocale: string): ReportTable[] =>
     tablesFor({
       kind: input.kind,
       noun,
       policy,
       version,
-      insured: nameOf(customer?.nameJson, locale),
-      now: ctx.now
+      insured: nameOf(customer?.nameJson, nameLocale),
+      now: ctx.now,
+      locale,
+      pack: ctx.policy.domainPack
     });
-  // The renderer draws Latin only. An Arabic customer name is not a reason to
-  // refuse a schedule, so the document falls back to the English name rather
-  // than failing — the same trade pdf.ts documents at the top of the file.
-  let tables = build(ctx.locale);
+  // Latin-1 and Arabic both draw (ADR-0115), so this falls back only for a
+  // name in a script no embedded font covers — to the English name if there
+  // is one — and refuses only when nothing drawable is left.
+  let tables = build(locale);
   if (!pdfSafe(tables)) tables = build("en");
   if (!pdfSafe(tables)) throw conflict("this document contains text the renderer cannot draw");
 
   const bytes = toPdf(tables, {
     orientation: "portrait",
     footer: issuer,
-    meta: { [noun("policyNo")]: policy.policyNo, [noun("version")]: String(version.versionSeq) }
+    meta: { [noun("policyNo")]: policy.policyNo, [noun("version")]: String(version.versionSeq) },
+    ...(locale === "ar" ? { direction: "rtl" as const, labels: FURNITURE.ar } : {})
   });
 
   const fileId = newId("file", ctx.now);

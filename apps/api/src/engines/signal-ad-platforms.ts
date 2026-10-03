@@ -18,7 +18,7 @@ import {
 } from "@lyra/core";
 import { googleAdsPlatform } from "./signal-ad-google.js";
 import { metaAdsPlatform } from "./signal-ad-meta.js";
-import { recordSpend } from "./signal-spend-import.js";
+import { recordSpend, spendRefusal } from "./signal-spend-import.js";
 
 // docs/30 SIGNAL 5, ADR-0100. The `AdPlatform` seam (core/seams.ts) wired into
 // SIGNAL both ways, through the connector rows ADR-0093 made the platform's:
@@ -164,8 +164,14 @@ export async function pullAdSpend(
         out.errors.push({ connectorId: row.id, error: `${line.day}: no campaign ${line.campaignId}` });
         continue;
       }
-      if ((await recordSpend(ctx, line, "api")) === "created") created++;
-      else updated++;
+      // A day the ledger refused to accrue (no FX rate for the account's
+      // currency, a closed month) is named and skipped, not written.
+      try {
+        if ((await recordSpend(ctx, line, "api")) === "created") created++;
+        else updated++;
+      } catch (err) {
+        out.errors.push({ connectorId: row.id, error: `${line.day}: ${spendRefusal(err)}` });
+      }
     }
     out.created += created;
     out.updated += updated;

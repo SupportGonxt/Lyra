@@ -1,12 +1,12 @@
 import { prospectCounts } from "../engines/signal-prospects.js";
 import { responseRollup } from "../engines/signal-responses.js";
-import { importSpend } from "../engines/signal-spend-import.js";
+import { importSpend, realDay, recordSpend, type SpendLine } from "../engines/signal-spend-import.js";
 import { pullAdSpend, spendPullWindow, SPEND_PULL_MAX_DAYS } from "../engines/signal-ad-platforms.js";
 import { exportConversions, listConversionExports } from "../engines/signal-conversions.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { require_, audit, badRequest, emit, holdoutReadout, notFound, LOOKALIKE_MAX_SIZE, type Ctx } from "@lyra/core";
-import { schema, DesignJson, PolicyJson, toJson, parseJson, id as newId } from "@lyra/db";
+import { require_, audit, badRequest, emit, holdoutReadout, notFound, withIdempotency, LOOKALIKE_MAX_SIZE, type Ctx } from "@lyra/core";
+import { schema, DesignJson, PolicyJson, toJson, parseJson } from "@lyra/db";
 import { z } from "zod";
 import { body, csvBody, parse } from "../http.js";
 import { must } from "../rows.js";
@@ -433,6 +433,103 @@ signalRoutes.post("/spend/pull", async (c) => {
   return c.json(await pullAdSpend(ctx, c.env.FIELD_KEY, window));
 });
 
+// Hand-keyed spend (an email send fee no network reports). These shadow the
+// generated CRUD writes on the same paths — hand-written routes mount first
+// (index.ts) — because generated CRUD writes the row and nothing else, and a
+// spend row that never reaches the ledger is the dead seam docs/19 §4.8 names:
+// MEDIA-SPEND accrues in `recordSpend`, the one spend write. The shapes are
+// the CRUD ones, so the OpenAPI contract is unchanged.
+const Count = z.number().int().min(0);
+const SpendCreateBody = z.object({
+  day: Day.refine(realDay, "a real YYYY-MM-DD day"),
+  campaignId: z.string().min(1).nullable().optional(),
+  channel: z.string().min(1).max(64),
+  amountMinor: Count,
+  currency: z.string().regex(/^[A-Z]{3}$/, "a 3-letter ISO code"),
+  impressions: Count.optional(),
+  clicks: Count.optional(),
+  conversions: Count.optional()
+});
+const SpendUpdateBody = SpendCreateBody.partial();
+
+async function spendRow(ctx: Ctx, key: { campaignId: string | null; channel: string; day: string }) {
+  const [row] = await ctx.db
+    .select()
+    .from(schema.signalSpend)
+    .where(
+      and(
+        eq(schema.signalSpend.tenantId, ctx.tenantId),
+        key.campaignId ? eq(schema.signalSpend.campaignId, key.campaignId) : isNull(schema.signalSpend.campaignId),
+        eq(schema.signalSpend.channel, key.channel),
+        eq(schema.signalSpend.day, key.day)
+      )
+    )
+    .limit(1);
+  if (!row) throw notFound("spend");
+  return row;
+}
+
+signalRoutes.post("/spend", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });
+  const input = await body(c, SpendCreateBody);
+  const row = await withIdempotency(ctx, c.req.header("idempotency-key"), `POST ${c.req.path}`, input, async () => {
+    const campaignId = input.campaignId ?? null;
+    if (campaignId) await must(ctx, schema.signalCampaigns, campaignId, "campaign");
+    const line: SpendLine = {
+      campaignId,
+      channel: input.channel,
+      day: input.day,
+      amountMinor: input.amountMinor,
+      currency: input.currency,
+      impressions: input.impressions ?? 0,
+      clicks: input.clicks ?? 0,
+      conversions: input.conversions ?? 0
+    };
+    await recordSpend(ctx, line, "manual", "create");
+    const written = await spendRow(ctx, line);
+    await audit(ctx, { action: "signal.spend.create", subjectRef: written.id, after: written });
+    return written;
+  });
+  return c.json(row, 201);
+});
+
+const updateSpend = async (c: Context<App>) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:spend:write", { tenantId: ctx.tenantId, module: "signal" });
+  const before = await must(ctx, schema.signalSpend, c.req.param("id") as string, "spend");
+  const input = await body(c, SpendUpdateBody);
+  const after = await withIdempotency(ctx, c.req.header("idempotency-key"), `PATCH ${c.req.path}`, input, async () => {
+    // A row is its (campaign, channel, day). Moving one is recording another
+    // day's spend, and would leave this row's accrual behind on the old key.
+    for (const k of ["day", "channel", "campaignId"] as const) {
+      if (input[k] !== undefined && (input[k] ?? null) !== before[k]) {
+        throw badRequest(`${k} is part of a spend row's identity and cannot change; record the other row instead`, { [k]: "immutable" });
+      }
+    }
+    await recordSpend(
+      ctx,
+      {
+        campaignId: before.campaignId,
+        channel: before.channel,
+        day: before.day,
+        amountMinor: input.amountMinor ?? before.amountMinor,
+        currency: input.currency ?? before.currency,
+        impressions: input.impressions ?? before.impressions,
+        clicks: input.clicks ?? before.clicks,
+        conversions: input.conversions ?? before.conversions
+      },
+      "manual"
+    );
+    const written = await spendRow(ctx, before);
+    await audit(ctx, { action: "signal.spend.update", subjectRef: written.id, before, after: written });
+    return written;
+  });
+  return c.json(after);
+};
+signalRoutes.patch("/spend/:id", updateSpend);
+signalRoutes.put("/spend/:id", updateSpend);
+
 // docs/17 SIG-032, ADR-0112: value-based bidding signals, the same run the
 // nightly tick makes. Stands down until a conversion value is configured.
 signalRoutes.post("/conversions/export", async (c) => {
@@ -521,20 +618,25 @@ async function tickDemoSpend(ctx: Ctx): Promise<{ inserted: number }> {
       // instead of the gap always landing under MIN_GAP_BPS.
       const wobble = (dayIndex + channelIndex) % 3 === 0 ? 0.7 : 1.15;
       const conversions = Math.max(1, Math.round((e.conversions / e.n) * wobble));
-      const res = await ctx.db.insert(schema.signalSpend).values({
-        id: newId("spd", ctx.now + channelIndex),
-        tenantId: ctx.tenantId,
-        campaignId: campaign.id,
-        channel,
-        day: today,
-        amountMinor: Math.round(e.amountMinor / e.n),
-        currency: e.currency,
-        conversions,
-        source: "manual",
-        ts: ctx.now
-      }).onConflictDoNothing().returning({ id: schema.signalSpend.id });
-      // A second tick on the same day finds the row already there (signal_spend_uq).
-      inserted += res.length;
+      // Through the one spend write, so the tick's spend reaches the ledger as
+      // MEDIA-SPEND like any other. `ifAbsent`: a second tick on the same day
+      // finds the row already there and leaves it.
+      const outcome = await recordSpend(
+        ctx,
+        {
+          campaignId: campaign.id,
+          channel,
+          day: today,
+          amountMinor: Math.round(e.amountMinor / e.n),
+          currency: e.currency,
+          impressions: 0,
+          clicks: 0,
+          conversions
+        },
+        "manual",
+        "ifAbsent"
+      );
+      if (outcome === "created") inserted++;
       channelIndex++;
     }
   }

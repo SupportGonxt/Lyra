@@ -327,9 +327,12 @@ export default {
             if (isBackupWindow && ctx.policy.retention.schedule !== "never") await sweepRetention(ctx, env.FILES);
             // docs/modules/north.md §3 Snapshotter: nightly, 02:00Z per seed.ts's timing model (ADR-0024).
             if (isBackupWindow && on("north")) await runSnapshotter(ctx);
-            // docs/30 NORTH gap 1: yesterday's brief, drafted from the snapshot
-            // just taken. Once per date; published only by a person.
-            // A model refusal or kill switch costs tonight's draft, not the rest of the tick.
+            // docs/30 NORTH gap 1, J-E1 "the 7am read": today's exec brief, in
+            // each of the tenant's locales, from the snapshot just taken. Once
+            // per (date, locale); published only by a person. With no model —
+            // none configured, an outage, a refusal — the template writes it
+            // (engines/north-brief-template.ts), so the read exists every
+            // morning. A failure past that costs tonight's brief, not the tick.
             if (isBackupWindow && on("north")) {
               await nightlyBriefing(ctx, gatewayFor(env)).catch((err: unknown) =>
                 console.error("nightly briefing failed", { tenantId, err: String(err) })

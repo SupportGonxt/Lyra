@@ -52,7 +52,11 @@ const {
   caseSeverity,
   channelLabel,
   anomalyOwner,
+  briefAge,
+  briefAskDate,
   briefNarrative,
+  briefProvenance,
+  todayUtc,
   canTakeAnomaly,
   chosenBriefing,
   clusterOrder,
@@ -954,6 +958,59 @@ describe("journey helpers", () => {
     expect(chosenBriefing(rows, "brf_9", "en")?.id).toBe("brf_3");
     expect(chosenBriefing([], null, "en")).toBeNull();
     expect(chosenBriefing(null, null, "en")).toBeNull();
+  });
+
+  // J-E1 "the 7am read", same rule as the web brief (apps/web/app/routes/
+  // north-brief.tsx `briefAge`/`BriefProvenance`, ADR-0114): a brief says what
+  // UTC day it is from, says plainly when that is more than a day ago, and a
+  // template brief — no model wrote it — carries no ✦ (docs/15).
+  it("dates a brief and calls it stale only when it is more than a day old", () => {
+    expect(briefAge("2026-09-29", "2026-09-29")).toBe(0);
+    expect(briefAge("2026-08-29", "2026-09-29")).toBe(31);
+    expect(briefAge("nope", "2026-09-29")).toBeNull();
+    expect(briefProvenance({ date: "2026-09-28", generatedBy: "ai" }, "2026-09-29")).toEqual({
+      date: "2026-09-28",
+      byModel: true,
+      staleDays: null
+    });
+    expect(briefProvenance({ date: "2026-08-29", generatedBy: "template" }, "2026-09-29")).toEqual({
+      date: "2026-08-29",
+      byModel: false,
+      staleDays: 31
+    });
+    // A row from before generatedBy was written is the narrator's.
+    expect(briefProvenance({ date: "2026-09-29" }, "2026-09-29").byModel).toBe(true);
+  });
+
+  it("compares against today's UTC day, the day the nightly brief is dated", () => {
+    expect(todayUtc(new Date(Date.UTC(2026, 8, 29, 23, 59)))).toBe("2026-09-29");
+    expect(todayUtc(new Date(Date.UTC(2026, 8, 30, 0, 1)))).toBe("2026-09-30");
+  });
+
+  // The button asks for the day the nightly job writes (ADR-0114), the UTC
+  // day. A phone east of UTC past local midnight but before 00:00Z would
+  // otherwise ask for a day that has not started.
+  it("asks for today's brief by the UTC day, not the device's", async () => {
+    // 21:30Z on the 29th is already the 30th in Dubai (UTC+4).
+    expect(briefAskDate(new Date(Date.UTC(2026, 8, 29, 21, 30)))).toBe("2026-09-29");
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const screen = readFileSync(join(import.meta.dirname, "..", "app", "j", "brief.tsx"), "utf8");
+    expect(screen).toContain("briefAskDate()");
+    expect(screen).not.toContain("todayIso");
+  });
+
+  it("words the brief's date, staleness and template source in both languages", () => {
+    for (const locale of ["en", "ar"] as const) {
+      const t = translator(locale);
+      for (const key of ["brief.dated", "brief.stale", "brief.byModel", "brief.byTemplate"] as const) {
+        expect(t(key, { date: "2026-08-29", days: "31" }), `${locale} ${key}`).not.toBe(key);
+      }
+    }
+    expect(translator("en")("brief.stale", { date: "2026-08-29", days: "31" })).toMatch(/31 days ago.*not today's/);
+    expect(translator("en")("brief.byModel")).toContain("✦");
+    expect(translator("en")("brief.byTemplate")).not.toContain("✦");
+    expect(translator("ar")("brief.byTemplate")).not.toContain("✦");
   });
 
   it("never shows a storage key as the briefing's prose", () => {

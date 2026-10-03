@@ -1,7 +1,11 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { lensOf } from "../components/hero";
 import {
   LABELS,
+  NoAlerts,
   alertOf,
   alertsFrom,
   labelsIn,
@@ -148,5 +152,28 @@ describe("the supervisor wall speaks both locales", () => {
       expect(arabic.trim(), key).not.toBe("");
       expect(arabic, key).not.toBe(english);
     }
+  });
+});
+
+describe("a wall with nothing overdue", () => {
+  // Role adoption: with every chat held by the agent, the wall's lead card
+  // was an empty "Nothing has missed a deadline" telling the supervisor to
+  // refresh. What a supervisor does then is check how the agent handled it.
+  const l = labelsIn("en");
+  const html = (props: { bot: number; door: boolean }) =>
+    renderToStaticMarkup(createElement(MemoryRouter, null, createElement(NoAlerts, { l, ...props })));
+
+  it("says how much the agent is holding and points at quality", () => {
+    const out = html({ bot: 12, door: true });
+    expect(out).toContain(l("noAlerts.bot", { n: "12" }));
+    expect(out).toContain('href="/orbit/quality"');
+  });
+
+  it("keeps the plain sentence when the agent holds nothing", () => {
+    expect(html({ bot: 0, door: true })).toContain(l("noAlertsBody"));
+  });
+
+  it("offers no door to a seat that cannot read quality", () => {
+    expect(html({ bot: 12, door: false })).not.toContain("/orbit/quality");
   });
 });

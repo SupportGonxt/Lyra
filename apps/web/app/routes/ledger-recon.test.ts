@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ActionFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import type { Env } from "../env";
-import { action } from "./ledger-recon";
+import { action, loader, openRun } from "./ledger-recon";
 
 // The evidence-bundle intent posts no body of its own — the run id is the
 // only thing it asks for — so what these tests guard is the branch routing:
@@ -66,6 +66,63 @@ const BUNDLE = {
     ]
   }
 };
+
+describe("loader / which run the screen opens on", () => {
+  // Role adoption: a controller with five runs on record opened the screen to
+  // "Pick a run" and a detail pane with nothing in it. The newest run is the
+  // one a returning reader means; an explicit ?run= still wins.
+  const RUNS = [
+    { id: "rcn_new", process: "bank", period: "2026-10", state: "open", createdAt: 2 },
+    { id: "rcn_old", process: "bank", period: "2026-09", state: "closed", createdAt: 1 }
+  ];
+
+  function route(url = "https://web.test/ledger/recon") {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", (input: URL | string) => {
+      const asked = String(input);
+      calls.push(asked);
+      if (asked.endsWith("/v1/me")) {
+        return Promise.resolve(json({ actor: {}, roles: [], nav: [], policy: {}, permissions: ["ledger:recon:read"] }));
+      }
+      if (asked.includes("/v1/ledger/recon-runs")) return Promise.resolve(json({ data: RUNS }));
+      if (asked.includes("/v1/ledger/recon-matches")) return Promise.resolve(json({ data: [] }));
+      const id = /recon\/runs\/(\w+)$/.exec(asked)?.[1];
+      return Promise.resolve(json({ runId: id, process: "bank", period: "2026-10", open: 0 }));
+    });
+    return {
+      calls,
+      args: {
+        request: new Request(url),
+        context: { get: () => ({ env, ctx: null }) },
+        params: {}
+      } as unknown as LoaderFunctionArgs
+    };
+  }
+
+  it("opens the newest run when none is asked for", async () => {
+    const { calls, args: loaderArgs } = route();
+    const loaded = await loader(loaderArgs);
+    expect(loaded.denied).toBe(false);
+    if (loaded.denied) return;
+    expect(loaded.runId).toBe("rcn_new");
+    expect(calls).toContain("https://api.test/v1/ledger/recon/runs/rcn_new");
+    expect(loaded.summary).not.toBeNull();
+  });
+
+  it("keeps the run the address names", async () => {
+    const { calls, args: loaderArgs } = route("https://web.test/ledger/recon?run=rcn_old");
+    const loaded = await loader(loaderArgs);
+    if (loaded.denied) throw new Error("denied");
+    expect(loaded.runId).toBe("rcn_old");
+    expect(calls).not.toContain("https://api.test/v1/ledger/recon/runs/rcn_new");
+  });
+
+  it("opens nothing when there is no run at all", () => {
+    expect(openRun("", [])).toBe("");
+    expect(openRun("", RUNS)).toBe("rcn_new");
+    expect(openRun("rcn_old", RUNS)).toBe("rcn_old");
+  });
+});
 
 describe("action / generate-evidence-bundle", () => {
   it("posts to the run's evidence-bundle endpoint and returns the bundle", async () => {

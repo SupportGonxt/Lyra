@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Form,
   Link,
@@ -39,8 +40,9 @@ import {
   type Labels,
   type Page
 } from "./orbit-shared";
-import { useShellData } from "./workspace";
+import { useOrbitSessionData } from "./orbit-shell";
 import { localeFrom } from "../i18n";
+import { JOB, opens } from "../jobs";
 
 // The retention queue: who is about to leave, what we offered them, and how it
 // ended. A renewal is raised by the expiry sweep and its state machine lives in
@@ -182,6 +184,7 @@ export const LABELS: Labels = {
     noneOutstanding: "No offer is waiting on a customer.",
     noneSettled: "Nothing has been decided yet.",
     noneBody: "The expiry sweep raises these as policies approach their end date.",
+    "noneQueue.door": "See what is expiring",
     noneOutstandingBody: "An offer waits here from the moment it is sent until the customer answers.",
     noneSettledBody: "A renewal lands here once the customer accepts or the offer lapses.",
     saved_discount: "Saved with a discount",
@@ -253,6 +256,7 @@ export const LABELS: Labels = {
     noneOutstanding: "لا عرض بانتظار عميل.",
     noneSettled: "لم يُحسم شيء بعد.",
     noneBody: "المسح الدوري يرفع هذه السجلات مع اقتراب انتهاء الوثائق.",
+    "noneQueue.door": "اطّلع على ما يقترب من الانتهاء",
     noneOutstandingBody: "ينتظر العرض هنا منذ إرساله حتى يجيب العميل.",
     noneSettledBody: "يصل التجديد إلى هنا حين يقبله العميل أو ينقضي العرض.",
     saved_discount: "أُنقذ بخصم",
@@ -380,7 +384,11 @@ export default function SaveDesk() {
   const loaded = useLoaderData<typeof loader>();
   const result = useActionData<typeof action>();
   const navigation = useNavigation();
-  const l = labelsIn(loaded.locale, useShellData()?.domainPack);
+  const shell = useOrbitSessionData();
+  const l = labelsIn(loaded.locale, shell?.domainPack);
+  // The terms that will become this queue live on the AXIS renewal desk
+  // (ADR-0054 gives this seat that shell); offer it only where it opens.
+  const door = opens(JOB.renewals, shell?.permissions ?? [], shell?.availableShells ?? []);
   const busy = navigation.state === "submitting";
   const { focus, href } = useFocus(LENSES);
   // Counted through the lens the queue below is filtered by, so the figure and
@@ -464,6 +472,7 @@ export default function SaveDesk() {
           caption={l("queue")}
           emptyTitle={l("noneQueue")}
           emptyBody={l("noneBody")}
+          empty={<NothingAtRisk l={l} door={door} />}
         />
       </Card>
 
@@ -554,7 +563,8 @@ function Desk({
   busy,
   caption,
   emptyTitle,
-  emptyBody
+  emptyBody,
+  empty
 }: {
   rows: Renewal[];
   l: Label;
@@ -569,8 +579,10 @@ function Desk({
   /** Each desk teaches its own empty state; one shared sentence under both
    *  read the same line twice on one screen. */
   emptyBody: string;
+  /** A desk whose empty state has a door of its own. */
+  empty?: ReactNode;
 }) {
-  if (rows.length === 0) return <EmptyState title={emptyTitle} body={emptyBody} />;
+  if (rows.length === 0) return empty ?? <EmptyState title={emptyTitle} body={emptyBody} />;
 
   const columns: Column<Renewal>[] = [
     {
@@ -718,4 +730,27 @@ function Desk({
   }
 
   return <Table caption={caption} rows={rows} rowKey={(row) => row.id} columns={columns} />;
+}
+
+/**
+ * The save queue with nothing in it. It fills only once the expiry sweep
+ * raises a renewal, so "nothing at risk" is often "nothing raised yet" — the
+ * one door is to the terms that are expiring, when this seat may open them.
+ */
+export function NothingAtRisk({ l, door }: { l: Label; door: boolean }) {
+  return (
+    <EmptyState
+      title={l("noneQueue")}
+      body={l("noneBody")}
+      {...(door
+        ? {
+            action: (
+              <Button asChild variant="secondary" size="sm">
+                <Link to={JOB.renewals.path}>{l("noneQueue.door")}</Link>
+              </Button>
+            )
+          }
+        : {})}
+    />
+  );
 }

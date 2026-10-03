@@ -40,6 +40,9 @@ import { useShellData } from "./workspace";
 
 /* ------------------------------------------------------------------ labels */
 
+/** The ask box's id, so an empty feed can send the reader to it. */
+export const ASK_INPUT = "cc-ask-input";
+
 const LABELS: Record<string, Record<string, string>> = {
   en: {
     title: "Command center",
@@ -53,6 +56,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "feed.title": "Waiting for a decision",
     "feed.empty": "Nothing is waiting on you.",
     "feed.empty.body": "Proposals appear here when a run wants to change something.",
+    "feed.ask": "Ask the loop a question",
     "feed.act": "Act",
     "feed.actConfirm": "{what} needs an approval before it takes effect. Raise it now?",
     "feed.dismiss": "Dismiss",
@@ -82,6 +86,7 @@ const LABELS: Record<string, Record<string, string>> = {
     "feed.title": "بانتظار قرارك",
     "feed.empty": "لا شيء بانتظارك.",
     "feed.empty.body": "تظهر المقترحات هنا عندما يريد تشغيل ما تغيير شيء.",
+    "feed.ask": "اطرح سؤالًا على الحلقة",
     "feed.act": "تنفيذ",
     "feed.actConfirm": "يحتاج {what} إلى موافقة قبل أن يسري. هل ترفع الطلب الآن؟",
     "feed.dismiss": "تجاهل",
@@ -395,6 +400,7 @@ export default function CommandCenter() {
               />
             </div>
             <Textarea
+              id={ASK_INPUT}
               name="input"
               required
               minLength={2}
@@ -433,7 +439,7 @@ export default function CommandCenter() {
         </h2>
         <Hairline className="my-3" />
         {proposals.length === 0 ? (
-          <EmptyState title={t("feed.empty")} body={t("feed.empty.body")} />
+          <NothingProposed t={t} />
         ) : (
           <ul className="flex flex-col gap-3">
             {proposals.map((p) => {
@@ -557,5 +563,25 @@ export default function CommandCenter() {
         </section>
       ) : null}
     </main>
+  );
+}
+
+export const labelsIn = (locale: string, pack?: string): Label => labelsFrom(LABELS)(locale, pack);
+
+/**
+ * Nothing proposed. A proposal comes from a run and a run starts at the ask
+ * box, so that is the one door — never a run started for the reader.
+ */
+export function NothingProposed({ t }: { t: Label }) {
+  return (
+    <EmptyState
+      title={t("feed.empty")}
+      body={t("feed.empty.body")}
+      action={
+        <Button asChild variant="secondary" size="sm">
+          <a href={`#${ASK_INPUT}`}>{t("feed.ask")}</a>
+        </Button>
+      }
+    />
   );
 }

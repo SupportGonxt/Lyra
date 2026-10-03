@@ -18,6 +18,8 @@ import {
   cashFlowStatement,
   bordereauxRows,
   buildRecipe,
+  isPremiumReceipt,
+  premiumReceiptLines,
   chartOfAccountsTable,
   clientMoneyPosition,
   closeChecks,
@@ -110,9 +112,14 @@ ledgerRoutes.post("/txn/:type", async (c) => {
   const input = await body(c, RunBody);
 
   const currency = input.currency ?? ctx.policy.currency;
+  // A premium receipt clears whatever the bind left open on 1200 for the item
+  // it names; that is the ledger's answer, not the caller's, so it is built by
+  // the one function that asks (premium-receipt.ts, docs/27 F14).
   const recipe = RECIPES[type]
     ? {
-        lines: buildRecipe(type, { ...input.args, currency }),
+        lines: isPremiumReceipt(type)
+          ? await premiumReceiptLines(ctx, type, { ...input.args, currency }, currency)
+          : buildRecipe(type, { ...input.args, currency }),
         currency,
         ...(input.baseCurrency !== undefined ? { baseCurrency: input.baseCurrency } : {}),
         ...(input.fxRatePpm !== undefined ? { fxRatePpm: input.fxRatePpm } : {}),
@@ -698,7 +705,7 @@ const REPORT_EXPORTS: Record<string, ExportSpec> = {
           currency: map.currency,
           generatedAt: map.asOf
         },
-        totals: { carriedMinor: map.carriedMinor }
+        totals: { carriedMinor: map.carriedMinor, uncollectedMinor: map.uncollectedMinor }
       };
     }
   },

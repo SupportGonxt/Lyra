@@ -20,7 +20,7 @@ import {
   Select,
   type BadgeTone
 } from "@lyra/ui";
-import { ApiError, api, directory, names } from "../api.server";
+import { ApiError, api, directory, fetchMe, names } from "../api.server";
 import { ConfirmButton } from "../components/confirm";
 import { who } from "../names";
 import { cloudflare } from "../context";
@@ -99,6 +99,9 @@ const LABELS: Record<string, Record<string, string>> = {
     "empty.title": "The desk is empty",
     "empty.body": "No open claim is waiting right now.",
     "empty.action": "Register a claim",
+    take: "Take the next unassigned claim — {ref}",
+    "done.take": "It is yours now.",
+    "count.unassigned": "Nobody on it",
     "assign.title": "Assign a handler",
     "assign.claim": "Claim",
     "assign.handler": "Handler",
@@ -158,6 +161,9 @@ const LABELS: Record<string, Record<string, string>> = {
     "empty.title": "المكتب فارغ",
     "empty.body": "لا توجد مطالبة مفتوحة الآن.",
     "empty.action": "سجّل مطالبة",
+    take: "تولَّ المطالبة التالية غير المسندة — {ref}",
+    "done.take": "أصبحت مسندة إليك.",
+    "count.unassigned": "بلا معالج",
     "assign.title": "تعيين معالج",
     "assign.claim": "المطالبة",
     "assign.handler": "المعالج",
@@ -313,6 +319,15 @@ export function byPriority(now: number, weights: typeof WEIGHTS = WEIGHTS) {
   };
 }
 
+/**
+ * The claim a handler should take next: the highest-priority one nobody holds.
+ * The desk lists every open claim whoever holds it, so this is a pick from the
+ * same rows, not a second query.
+ */
+export function nextUnassigned(rows: readonly ClaimRow[], now: number): ClaimRow | null {
+  return [...rows].filter((row) => !row.handlerRef).sort(byPriority(now))[0] ?? null;
+}
+
 // Arithmetic on counts the caller already has, not an agent, so it never
 // carries the ✦ mark (CLAUDE.md §11).
 export function headlineFor(counts: { total: number; breached: number }, l: Label): string {
@@ -414,6 +429,22 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
         body: { handlerRef }
       });
       return { problem: null, done: "assign" };
+    }
+
+    if (intent === "take") {
+      const claimId = String(form.get("claimId") ?? "").trim();
+      if (!claimId) return refuse("missing_claim");
+      // Who is taking it is the session, never a form field: a forged
+      // handlerRef must not assign a claim to someone else under "take".
+      const me = await fetchMe(env, request);
+      await api(`/v1/axis/claims/${encodeURIComponent(claimId)}`, {
+        env,
+        request,
+        method: "PATCH",
+        headers: { "idempotency-key": crypto.randomUUID() },
+        body: { handlerRef: `${me.actor.kind}:${me.actor.id}` }
+      });
+      return { problem: null, done: "take" };
     }
 
     if (intent === "transition") {
@@ -571,6 +602,8 @@ export default function ClaimsDesk() {
 
   const rows = [...loaded.claims].sort(byPriority(now));
   const breached = rows.filter((row) => row.slaDueAt !== null && row.slaDueAt < now).length;
+  const next = nextUnassigned(rows, now);
+  const unassigned = rows.filter((row) => !row.handlerRef).length;
   const headline = headlineFor({ total: rows.length, breached }, l);
 
   return (
@@ -582,6 +615,16 @@ export default function ClaimsDesk() {
           <Link to={`/axis/claims/${rows[0].id}/detail`} className="w-fit font-ui text-13 text-accent underline">
             {l("headline.open", { ref: rows[0].claimNo })}
           </Link>
+        ) : null}
+        {/* One move for a handler whose name is on nothing yet. */}
+        {next && held.has(PERM.update) ? (
+          <Form method="post" className="mt-1">
+            <input type="hidden" name="intent" value="take" />
+            <input type="hidden" name="claimId" value={next.id} />
+            <Button type="submit" size="sm" variant="secondary" loading={busy}>
+              {l("take", { ref: next.claimNo })}
+            </Button>
+          </Form>
         ) : null}
       </header>
 
@@ -600,6 +643,10 @@ export default function ClaimsDesk() {
             {l(`count.${state}`)}: {loaded.counts[state] ?? 0}
           </Badge>
         ))}
+        {/* Of this page, not a server count: the API filters on status only. */}
+        <Badge tone={unassigned ? "warning" : "neutral"} size="sm">
+          {l("count.unassigned")}: {unassigned}
+        </Badge>
       </div>
 
       {rows.length === 0 ? (

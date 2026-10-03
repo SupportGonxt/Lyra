@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./rbac": "./src/rbac.ts",
+    "./jobs": "./src/jobs.ts",
     "./seed": "./src/seed.ts",
     "./totp": "./src/totp.ts",
     "./words": "./src/words.ts",
