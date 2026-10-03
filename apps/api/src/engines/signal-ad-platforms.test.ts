@@ -8,6 +8,7 @@ import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import { chainFor, decide, permissionsForRole, sealFields, type AdPlatform, type AdSpendRow, type Ctx, type Envelope } from "@lyra/core";
 import { Hono } from "hono";
 import { onBudgetMoveDecided, onBudgetMoveUpdated, pullAdSpend, pushBudgetMove, spendPullWindow, type AdPlatforms } from "./signal-ad-platforms.js";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 import { runBudgetAutopilot } from "./signal-autopilot.js";
 import { drainOutbox } from "../dispatch.js";
 import { onError } from "../mw.js";
@@ -51,6 +52,8 @@ beforeEach(async () => {
     policy: PolicyJson.parse({}),
     entitlements: EntitlementsJson.parse({})
   };
+  // Pulled spend accrues MEDIA-SPEND, so the tenant needs its chart on file.
+  await seedTestChart(ctx);
   for (const id of ["cmp_1", "cmp_2"]) {
     await ctx.db.insert(schema.signalCampaigns).values({
       id,

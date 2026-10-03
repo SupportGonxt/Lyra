@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PolicyJson, EntitlementsJson, schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
+import { seedTestChart } from "@lyra/ledger/test-chart";
 import { importSpend } from "./signal-spend-import.js";
 import { Hono } from "hono";
 import { onError } from "../mw.js";
@@ -39,6 +40,8 @@ beforeEach(async () => {
     policy: PolicyJson.parse({}),
     entitlements: EntitlementsJson.parse({})
   };
+  // Every spend write accrues MEDIA-SPEND, so the tenant needs its chart on file.
+  await seedTestChart(ctx);
   await ctx.db.insert(schema.signalCampaigns).values({
     id: "cmp_1",
     tenantId: "t_1",
