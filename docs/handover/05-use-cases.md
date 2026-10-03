@@ -126,6 +126,7 @@ one-click button per persona; the password form works too.
 | Khalid Al Rashed | `khalid.rashed@gonxt.ae` | `tenant.compliance` (locale **ar**) | `/admin` |
 | Layla Hassan | `layla.hassan@gonxt.ae` | `axis.agent` | `/axis` |
 | Omar Farouk | `omar.farouk@gonxt.ae` | `axis.lead` | `/axis` |
+| Suhail Hamdan | `suhail.hamdan@gonxt.ae` | `axis.admin` | `/axis` |
 | Sara Al Nasser | `sara.nasser@gonxt.ae` | `orbit.agent` | `/orbit` |
 | Yusuf Karim | `yusuf.karim@gonxt.ae` | `orbit.retention` | `/orbit` |
 | Dana Aziz | `dana.aziz@gonxt.ae` | `orbit.partners` | `/orbit` |

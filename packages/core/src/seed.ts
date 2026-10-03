@@ -102,6 +102,11 @@ const PEOPLE: ReadonlyArray<{ local: string; name: string; role: string; locale?
   { local: "khalid.rashed", name: "Khalid Al Rashed", role: "tenant.compliance", locale: "ar" },
   { local: "layla.hassan", name: "Layla Hassan", role: "axis.agent" },
   { local: "omar.farouk", name: "Omar Farouk", role: "axis.lead" },
+  // Omar requests the binds, endorsements and claim settlements, and under
+  // dual control the requester may not decide them — so with axis.lead as the
+  // only AXIS decider none of those gates could ever clear without the
+  // all-roles demo login. approvals.deciders.test.ts holds every gate to two.
+  { local: "suhail.hamdan", name: "Suhail Hamdan", role: "axis.admin" },
   { local: "sara.nasser", name: "Sara Al Nasser", role: "orbit.agent" },
   { local: "yusuf.karim", name: "Yusuf Karim", role: "orbit.retention" },
   { local: "dana.aziz", name: "Dana Aziz", role: "orbit.partners" },
@@ -121,6 +126,9 @@ const PEOPLE: ReadonlyArray<{ local: string; name: string; role: string; locale?
   // other role having a persona for journey/e2e coverage.
   { local: "yasmin.faris", name: "Yasmin Faris", role: "provider.viewer" }
 ];
+
+/** The seeded staff personas, read-only — what approvals.deciders.test.ts holds to two deciders per gate. */
+export const SEED_PEOPLE = PEOPLE;
 
 /**
  * The one login a demo is given: every internal role at once, so a single

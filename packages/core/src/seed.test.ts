@@ -242,6 +242,28 @@ describe("seed", () => {
   });
 
   /**
+   * The AXIS second decider (approvals.deciders.test.ts) is only a second
+   * decider on the demo tenant if it reaches it — which, provisioned before
+   * the persona existed, is only through this backfill.
+   */
+  it("backfills the axis.admin persona so AXIS gates have a second decider", async () => {
+    const { tenantId } = await seed(db, { password: "gonxt-test-password" });
+    const [suhail] = await db.select().from(schema.users).where(eq(schema.users.email, "suhail.hamdan@gonxt.ae"));
+    await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, suhail!.id));
+    await db.delete(schema.users).where(eq(schema.users.id, suhail!.id));
+
+    expect((await ensureSeedPeople(db, tenantId)).created).toEqual(["suhail.hamdan@gonxt.ae"]);
+    const [role] = await db
+      .select({ key: schema.roles.key })
+      .from(schema.users)
+      .innerJoin(schema.userRoles, eq(schema.userRoles.userId, schema.users.id))
+      .innerJoin(schema.roles, eq(schema.roles.id, schema.userRoles.roleId))
+      .where(eq(schema.users.email, "suhail.hamdan@gonxt.ae"));
+    expect(role!.key).toBe("axis.admin");
+    expect((await ensureSeedPeople(db, tenantId)).created).toEqual([]);
+  });
+
+  /**
    * ADR-0109: `cost_per_acquisition_low`/`_high` were added to NORTH_METRICS
    * after the demo tenant was provisioned. The snapshotter iterates the rows,
    * so without a backfill the bound a success fee references is never written.

@@ -643,6 +643,12 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // ADR-0106: a cession posts RI-CEDE to the ledger, so the controller is the
     // second seat on it beside axis.admin — reads the treaty, signs the amount.
     "axis:reinsurance:read", "axis:reinsurance:approve",
+    // Same second seat on an escrow release: `axis:escrow:reconcile` (what
+    // raises `axis.escrow_release`) and `:approve` were both axis.admin's alone,
+    // so under dual control "always" the only reconciler was the only approver
+    // and no release could ever clear. The controller signs money out; it does
+    // not reconcile, so it can never be the requester it is approving.
+    "axis:escrow:read", "axis:escrow:approve",
     // ADR-0105: reconciles a provider's inbound bordereau against our books.
     "axis:bordereaux:read", "axis:bordereaux:reconcile",
     "analytics:*:read", "analytics:reports:run", "analytics:exports:create", "analytics:exports:download",
