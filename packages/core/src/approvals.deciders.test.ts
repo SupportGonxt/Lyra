@@ -28,8 +28,6 @@ const SELF_DECIDABLE =
   "dualControl never: the requester may decide their own request (approvals.ts only refuses self-decision under dual control), so one holder clears it";
 const SPLIT_VERB =
   "the requesting verb and the deciding verb are never granted to the same role, so the one decider is never the requester";
-const UNEXAMINED =
-  "single seeded holder, not yet examined: outside the AXIS finding this guard was written for (2026-10-03); remove once a second seat is decided";
 
 /**
  * Policies a seeded tenant reaches that have fewer than two seeded deciders,
@@ -55,15 +53,7 @@ const ONE_DECIDER: Readonly<Record<string, string>> = {
   "signal.outreach_send": SELF_DECIDABLE,
   "orbit.renewal_offer": SELF_DECIDABLE,
   "scout.whitespace_promote": SELF_DECIDABLE,
-  "ai.prompt_publish": SELF_DECIDABLE,
-  "signal.budget_commit": UNEXAMINED,
-  // No seeded persona holds `scout:data_products:publish` at all.
-  "scout.data_product_subscribe": UNEXAMINED,
-  "compliance.erasure": UNEXAMINED,
-  "compliance.legal_hold_release": UNEXAMINED,
-  "compliance.shariah_certify": UNEXAMINED,
-  "ai.autonomy_raise": UNEXAMINED,
-  "ai.budget_raise": UNEXAMINED
+  "ai.prompt_publish": SELF_DECIDABLE
 };
 
 const TENANT = "t_guard";
@@ -109,6 +99,20 @@ describe("approval policies have two seeded deciders", () => {
       .map((k) => ({ key: k, decide: APPROVAL_POLICIES[k]!.decide, deciders: decidersOf(k) }))
       .filter((r) => new Set(r.deciders).size < 2);
     expect(short).toEqual([]);
+  });
+
+  it("the dual-control gates outside AXIS that had one seeded decider now have two", () => {
+    for (const key of [
+      "signal.budget_commit",
+      "scout.data_product_subscribe",
+      "compliance.erasure",
+      "compliance.legal_hold_release",
+      "compliance.shariah_certify",
+      "ai.autonomy_raise",
+      "ai.budget_raise"
+    ]) {
+      expect(new Set(decidersOf(key)).size, key).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it("the AXIS gates named in the finding each have two deciders", () => {
