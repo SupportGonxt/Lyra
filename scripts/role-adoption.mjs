@@ -12,6 +12,7 @@
 // Prints one `SEAT {json}` line per persona and `JOB {json}` per job; the
 // report reads those. SWEEP_PERSONA narrows to one seat.
 import { chromium } from "@playwright/test";
+import { hasData as showsData } from "./adoption-verdict.mjs";
 import { BASE, signIn, signOut } from "./sweep-lib.mjs";
 
 /** [journey, job, path] per seat, from docs/06 §2 and each module's shell. */
@@ -134,9 +135,15 @@ const measure = () =>
     if (!main) return null;
     const top = main.getBoundingClientRect().top;
     const first = main.querySelector("tbody tr, dd, [data-stat], svg[role=img], ul:not(nav ul) > li, ol:not(nav ol) > li, article");
-    const rows = main.querySelectorAll("tbody tr").length;
+    // An empty table draws its empty state inside a body row, so a row or an
+    // item that sits in an empty state is not data (adoption-verdict.mjs).
+    const inEmpty = (e) => !!e.closest(".border-dashed");
+    const rows = [...main.querySelectorAll("tbody tr")].filter((e) => !inEmpty(e)).length;
     const stats = main.querySelectorAll("[data-stat], dd").length;
-    const empties = [...main.querySelectorAll(".border-dashed")].filter((e) => e.querySelector("h3")).length;
+    const items = [...main.querySelectorAll("ul:not(nav ul) > li, ol:not(nav ol) > li, article")].filter((e) => !inEmpty(e)).length;
+    const emptyStates = [...main.querySelectorAll(".border-dashed")].filter((e) => e.querySelector("h3"));
+    const guided = emptyStates.filter((e) => e.querySelector("a[href], button")).length;
+    const bare = emptyStates.length - guided;
     const actions = [...main.querySelectorAll("button:not([disabled]), a[href]")].filter((e) => !e.closest("nav, header [aria-label=breadcrumb]")).length;
     const text = main.innerText ?? "";
     return {
@@ -144,7 +151,9 @@ const measure = () =>
       firstDataPx: first ? Math.round(first.getBoundingClientRect().top - top) : null,
       rows,
       stats,
-      empties,
+      items,
+      guided,
+      bare,
       actions,
       ai: (text.match(/✦/g) ?? []).length,
       words: text.split(/\s+/).filter(Boolean).length
@@ -180,7 +189,7 @@ for (const [email, jobs] of Object.entries(JOBS)) {
     const m = status && status < 400 ? await measure() : null;
     const clicks = depth.get(path) ?? null;
     const opened = status > 0 && status < 400;
-    const hasData = !!m && (m.rows > 0 || m.stats > 0) && m.empties === 0;
+    const hasData = showsData(m);
     const aboveFold = !!m && m.firstDataPx !== null && m.firstDataPx <= 450;
     const actionable = !!m && m.actions > 0;
     const score = [clicks !== null && clicks <= 2, opened, hasData, aboveFold, actionable].filter(Boolean).length;
