@@ -32,7 +32,13 @@ jobs:
       # docs/10 §5 order. Separate steps so a failure names its own gate.
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      # @lyra/api runs in a step of its own. Inside the nine-package concurrent
+      # turbo run its 178 files starve vitest's main process, and the worker's
+      # fixed 60s birpc call fails the job ("Timeout calling onTaskUpdate")
+      # with every test passed — three times in a row on 2dee3ab. Run alone, it
+      # has never reproduced (CLAUDE.md, Operational traps).
+      - run: pnpm turbo run test --filter=!@lyra/api
+      - run: pnpm --filter @lyra/api test
 
       # Typecheck does not catch a server-only module reaching the client
       # bundle — only the bundler does, and until this step existed the first
