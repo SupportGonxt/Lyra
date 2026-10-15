@@ -1,0 +1,50 @@
+# Check of a deployed environment: health, the build the hostname actually
+# serves, and the e2e/live suite (read-only by construction,
+# playwright.live.config.ts). Run it after a deploy from a machine whose
+# network cannot reach the hostnames. The one write is opt-in: `resync` calls
+# the idempotent demo resync-roles so seed rows added since provisioning
+# (personas, grants) reach the tenant — CLAUDE.md sighting 9.
+name: live-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Web origin to check
+        default: https://lyra.vantax.co.za
+      resync:
+        description: Call POST /v1/auth/demo/resync-roles first (writes; demo builds only)
+        type: boolean
+        default: false
+  pull_request:
+    paths: [.github/workflows/live-check.yml]
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      LIVE_BASE_URL: ${{ inputs.base || 'https://lyra.vantax.co.za' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Health and served build
+        run: |
+          api="${LIVE_BASE_URL/:\/\//://api.}"
+          curl -fsS "$api/health"; echo
+          html="$(curl -fsS "$LIVE_BASE_URL/login")"
+          echo "login: ${#html} bytes"
+          echo "$html" | grep -oE 'assets/(manifest|entry\.client|root)-[A-Za-z0-9_-]+\.js' | sort -u
+      - name: Resync demo seed rows
+        if: inputs.resync
+        run: |
+          api="${LIVE_BASE_URL/:\/\//://api.}"
+          curl -sS -m 120 -o resync.json -w "resync: HTTP %{http_code} in %{time_total}s\n" -X POST "$api/v1/auth/demo/resync-roles" || true
+          head -c 2000 resync.json; echo
+          curl -sS "$api/v1/auth/demo/personas" | python3 -c "import json,sys; d=json.load(sys.stdin); d=d.get('data',d); print('personas:', len(d)); print([p.get('email') for p in d])"
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e:live
