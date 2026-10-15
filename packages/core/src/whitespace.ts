@@ -90,12 +90,7 @@ export function computeWhitespaceCandidates(
 export const WHITESPACE_STATES = [
   "candidate", // the sweep flagged it; nothing decided
   "validating", // an analyst is checking the evidence
-  // Live data confirmed the gap — the verdict an experiment's conclusion writes.
-  // This comment read "promoted: a SIGNAL campaign exists for it" until the
-  // 2026-10-01 sweep, and that sentence was the bug: promotion is `promotedAt` plus
-  // the `scout.whitespace.promoted` event, never this state. One value answering two
-  // questions meant the verdict was silently discarded on every promoted gap.
-  "validated",
+  "validated", // promoted: a SIGNAL campaign exists for it
   "parked" // rejected or deferred; the next sweep may re-flag the category
 ] as const;
 export type WhitespaceState = (typeof WHITESPACE_STATES)[number];

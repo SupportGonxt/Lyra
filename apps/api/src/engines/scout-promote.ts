@@ -3,6 +3,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { id as newId, schema } from "@lyra/db";
 import {
   actorRef,
+  assertWhitespaceTransition,
   audit,
   checkKAnonymity,
   conflict,
@@ -86,10 +87,7 @@ export async function promoteWhitespace(
       demandEstimate: schema.scoutWhitespaces.demandEstimate,
       competitionScore: schema.scoutWhitespaces.competitionScore,
       clusterId: schema.scoutWhitespaces.clusterId,
-      evidenceRefsJson: schema.scoutWhitespaces.evidenceRefsJson,
-      // Read so the double-promotion refusal below can be about the fact rather
-      // than about the lifecycle state.
-      promotedAt: schema.scoutWhitespaces.promotedAt
+      evidenceRefsJson: schema.scoutWhitespaces.evidenceRefsJson
     })
     .from(schema.scoutWhitespaces)
     .where(and(eq(schema.scoutWhitespaces.tenantId, ctx.tenantId), eq(schema.scoutWhitespaces.id, whitespaceId)))
@@ -99,24 +97,9 @@ export async function promoteWhitespace(
   if (!row) throw notFound("whitespace");
   if (!row.category) throw conflict("whitespace has no category to brief against");
 
-  // Both refusals happen before the approval is asked for: an already-promoted
+  // The hop is checked before the approval is asked for: an already-promoted
   // candidate is a 409, not a pending approval someone then has to decline.
-  //
-  // The 2026-10-01 sweep found this guard doing double duty. It used to be
-  // `assertWhitespaceTransition(row.status, "validated")` — and promotion **wrote**
-  // `status: "validated"`, so the lifecycle state was carrying two unrelated facts:
-  // *a SIGNAL campaign exists* and *live data confirmed the gap*. `scout-validate`
-  // writes `validated` for the second and refuses to touch a gap that already holds
-  // it (`scout-validate.ts:88`, *"terminal stays terminal"*), so **promoting a gap
-  // silently discarded its experiment's verdict** — and because `validated` had no
-  // self-hop (`whitespace.ts:104`), the verdict could never be written afterwards
-  // either. One value answered two questions, and the second answer was lost.
-  //
-  // Promotion already has its own field: `promotedAt`, written below and rendered by
-  // the radar (`scout-radar.tsx:292`). So promotion is guarded by the fact it
-  // actually is, and the state machine goes back to guarding legality only.
-  if (row.promotedAt) throw conflict("this gap has already been promoted");
-  if (row.status === "parked") throw conflict("a parked gap is not promoted; unpark it first");
+  assertWhitespaceTransition(row.status, "validated");
 
   const signalCount = cellSize(row, await clusterSizes(ctx, [row.clusterId]));
   // A brief built from a thin cell would restate a handful of quotes as market
@@ -222,10 +205,7 @@ export async function promoteWhitespace(
 
   await ctx.db
     .update(schema.scoutWhitespaces)
-    // `promotedAt`, not `status`: the campaign's existence is this field and the
-    // `scout.whitespace.promoted` event below. Writing `validated` here is what cost
-    // the gap its verdict.
-    .set({ promotedAt: ctx.now, owner: actorRef(ctx), updatedAt: ctx.now })
+    .set({ status: "validated", promotedAt: ctx.now, owner: actorRef(ctx), updatedAt: ctx.now })
     .where(and(eq(schema.scoutWhitespaces.tenantId, ctx.tenantId), eq(schema.scoutWhitespaces.id, whitespaceId)));
 
   await audit(ctx, {
