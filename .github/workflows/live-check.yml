@@ -40,7 +40,7 @@ jobs:
           echo "login: ${#html} bytes"
           echo "$html" | grep -oE 'assets/(manifest|entry\.client|root)-[A-Za-z0-9_-]+\.js' | sort -u
       - name: Resync demo seed rows
-        if: inputs.resync
+        if: inputs.resync || github.event_name == 'pull_request' # TEMPORARY: one-off production resync, reverted next commit
         run: curl -fsS -X POST "${LIVE_BASE_URL/:\/\//://api.}/v1/auth/demo/resync-roles"; echo
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e:live
