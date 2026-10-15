@@ -54,14 +54,21 @@
       "undici": ">=8.10.2",
       "ws": ">=8.21.0",
       "brace-expansion": ">=5.0.11",
-      "sharp": ">=0.35.4",
+      "sharp": ">=0.35.5",
       "vite": ">=8.2.1",
-      "js-yaml": ">=4.3.1",
+      "js-yaml": ">=5.4.1",
       "nanoid": ">=3.3.17",
-      "hono": ">=4.12.34",
+      "hono": ">=4.13.7",
       "fast-uri@3": "^3.1.8",
       "@xmldom/xmldom@<0.9.0-0": "^0.8.15",
-      "@xmldom/xmldom@>=0.9.0-0": ">=0.9.12"
+      "@xmldom/xmldom@>=0.9.0-0": ">=0.9.12",
+      "handlebars": ">=4.7.10",
+      "shell-quote": ">=1.11.0",
+      "compression": ">=1.8.2",
+      "source-map-js": ">=1.2.2",
+      "tinypool": ">=2.1.2",
+      "qs": ">=6.16.0",
+      "moment": ">=2.31.0"
     },
     "auditConfig": {
       "ignoreGhsas": [
