@@ -1,0 +1,37 @@
+# Read-only check of a deployed environment: health, the build the hostname
+# actually serves, and the e2e/live suite. Nothing here writes — e2e/live is
+# read-only by construction (playwright.live.config.ts). Run it after a deploy
+# from a machine whose network cannot reach the hostnames.
+name: live-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Web origin to check
+        default: https://lyra.vantax.co.za
+  pull_request:
+    paths: [.github/workflows/live-check.yml]
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      LIVE_BASE_URL: ${{ inputs.base || 'https://lyra.vantax.co.za' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Health and served build
+        run: |
+          api="${LIVE_BASE_URL/:\/\//://api.}"
+          curl -fsS "$api/health"; echo
+          html="$(curl -fsS "$LIVE_BASE_URL/login")"
+          echo "login: ${#html} bytes"
+          echo "$html" | grep -oE 'assets/(manifest|entry\.client|root)-[A-Za-z0-9_-]+\.js' | sort -u
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e:live
