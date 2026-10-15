@@ -41,6 +41,10 @@ jobs:
           echo "$html" | grep -oE 'assets/(manifest|entry\.client|root)-[A-Za-z0-9_-]+\.js' | sort -u
       - name: Resync demo seed rows
         if: inputs.resync || github.event_name == 'pull_request' # TEMPORARY: one-off production resync, reverted next commit
-        run: curl -fsS -X POST "${LIVE_BASE_URL/:\/\//://api.}/v1/auth/demo/resync-roles"; echo
+        run: |
+          api="${LIVE_BASE_URL/:\/\//://api.}"
+          curl -sS -m 120 -o resync.json -w "resync: HTTP %{http_code} in %{time_total}s\n" -X POST "$api/v1/auth/demo/resync-roles" || true
+          head -c 2000 resync.json; echo
+          curl -sS "$api/v1/auth/demo/personas" | python3 -c "import json,sys; d=json.load(sys.stdin); d=d.get('data',d); print('personas:', len(d)); print([p.get('email') for p in d])"
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm e2e:live
