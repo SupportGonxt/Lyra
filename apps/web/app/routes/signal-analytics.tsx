@@ -7,6 +7,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   Badge,
   Button,
@@ -82,6 +83,18 @@ interface ExportRow {
   error: string | null;
 }
 
+/** One campaign's funnel, as `GET /v1/signal/attribution/funnel` answers. */
+interface FunnelRow {
+  campaignId: string | null;
+  channel: string;
+  impressions: number;
+  clicks: number;
+  visits: number;
+  leads: number;
+  binds: number;
+  valueMinor: number;
+}
+
 const empty = <T,>(): Page<T> => ({ data: [] });
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
@@ -101,6 +114,17 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     )
   ]);
 
+  // The per-campaign funnel the engine already computes and nothing read
+  // (`engines/signal-attribution.ts`: its return is documented as *"what the
+  // measurement screen reads"* — and no screen did). Read here rather than derived
+  // from the touch page above for the reason the endpoint exists: a touch page is
+  // capped at 200 rows, so a client-side funnel would silently truncate the window
+  // it is supposed to measure.
+  const funnel = await safe(
+    () => api<{ data: FunnelRow[] }>(`/v1/signal/attribution/funnel?from=${from}`, { env, request }),
+    { data: [] as FunnelRow[] }
+  );
+
   const rolls = rollByChannel(spend.data, touches.data);
   const binds = touches.data.filter((touch) => touch.touchType === "bind");
   const spentMinor = totalSpendMinor(spend.data);
@@ -112,7 +136,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     days,
     from,
     apiOrigin: env.API_ORIGIN,
-    currency: spend.data[0]?.currency ?? "ZAR",
+    currency: spend.data[0]?.currency ?? FALLBACK_CURRENCY,
     spentMinor,
     cacMinor: cac,
     ltvMinor: ltv,
@@ -121,7 +145,8 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     rolls,
     // ponytail: cohorts read the same window as everything else, so a 7-day view
     // has one cohort. The wider windows are what this table is for.
-    cohorts: cohorts(touches.data)
+    cohorts: cohorts(touches.data),
+    funnel: funnel.data
   };
 }
 
@@ -225,6 +250,30 @@ export default function GrowthAnalytics() {
           value={loaded.perClickMinor === null ? l("none") : money(loaded.perClickMinor)}
         />
       </KPIWall>
+
+      <Card title={l("funnel.title")} description={l("funnel.caption")}>
+        {loaded.funnel.length === 0 ? (
+          <EmptyState title={l("funnel.none.title")} body={l("funnel.none.body")} className="mt-4" />
+        ) : (
+          <Table
+            className="mt-4"
+            caption={l("funnel.caption")}
+            captionHidden
+            rowKey={(row) => `${row.campaignId ?? "unattributed"}:${row.channel}`}
+            rows={loaded.funnel}
+            columns={[
+              { key: "campaign", header: l("funnel.campaign"), render: (row) => row.campaignId ?? l("funnel.unattributed") },
+              { key: "channel", header: l("funnel.channel"), render: (row) => channelLabel(row.channel, locale) },
+              { key: "impressions", header: l("funnel.impressions"), numeric: true, render: (row) => row.impressions.toLocaleString(locale) },
+              { key: "clicks", header: l("funnel.clicks"), numeric: true, render: (row) => row.clicks.toLocaleString(locale) },
+              { key: "visits", header: l("funnel.visits"), numeric: true, render: (row) => row.visits.toLocaleString(locale) },
+              { key: "leads", header: l("funnel.leads"), numeric: true, render: (row) => row.leads.toLocaleString(locale) },
+              { key: "binds", header: l("funnel.binds"), numeric: true, render: (row) => row.binds.toLocaleString(locale) },
+              { key: "value", header: l("funnel.value"), numeric: true, render: (row) => (row.valueMinor ? money(row.valueMinor) : l("none")) }
+            ]}
+          />
+        )}
+      </Card>
 
       <Card title={l("growth.attribution")} description={l("growth.attributionCaption")}>
         {loaded.rolls.length === 0 ? (

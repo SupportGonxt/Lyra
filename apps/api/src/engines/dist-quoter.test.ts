@@ -440,3 +440,156 @@ describe("reaching a carrier over a service binding", () => {
     expect(out.premiumMinor).toBeUndefined();
   });
 });
+
+/* ---------------------------------------------------- portal automation (§2.1) */
+
+// docs/modules/axis.md §2.1 names three quoting paths: an API, portal automation
+// through headless Chrome, and structured email. Only the API existed. This is the
+// second, and the tests are about what it *refuses*: a portal with no tenant map
+// must never be guessed at, because a made-up selector yields a quote attributed
+// to an underwriter who never gave one.
+
+const PORTAL_ENDPOINT = JSON.stringify({
+  url: "https://portal.falcon.example/motor/quote",
+  authRef: "CARRIER_FALCON_API_KEY",
+  adapter: "browser-portal",
+  portal: {
+    fill: { age: "#driver-age", sumInsuredMinor: "#sum-insured" },
+    submit: "#get-quote",
+    read: ["premiumMinor", "taxMinor", "feesMinor", "currency"],
+    declineText: "not eligible"
+  }
+});
+
+/** A browser service that answers whatever the test says, and records the ask. */
+function browserService(reply: (req: { url: string; body: any }) => unknown) {
+  const spy = vi.fn(async (input: unknown, init: RequestInit = {}) => {
+    const out = reply({ url: String(input), body: typeof init.body === "string" ? JSON.parse(init.body) : undefined });
+    return out instanceof Response ? out : new Response(JSON.stringify(out), { status: 200 });
+  });
+  return spy;
+}
+
+function portalEnv(spy: ReturnType<typeof browserService>) {
+  return { CARRIER_FALCON_API_KEY: "portal-user:portal-pass", BROWSER: { fetch: spy } } as unknown as Env;
+}
+
+const portalEntry = (endpoint: string = PORTAL_ENDPOINT) => entry(endpoint);
+
+const portalQuote = (e: PanelEntry, envWithBrowser: Env, inputs: Record<string, unknown> = { age: 34, sumInsuredMinor: 28_000_000 }) =>
+  quoteOne(ctx, e, inputs, quoterFor(envWithBrowser));
+
+const PORTAL_QUOTED = { values: { premiumMinor: "214500", taxMinor: "10725", feesMinor: "2500", currency: "AED" } };
+
+describe("the portal carrier quoter", () => {
+  it("drives the tenant's own selectors and returns a row the caller cannot tell from an API quote", async () => {
+    const spy = browserService(() => PORTAL_QUOTED);
+    const row = await portalQuote(portalEntry(), portalEnv(spy));
+
+    expect(row.state).toBe("quoted");
+    expect(row.premiumMinor).toBe(214_500);
+    expect(row.taxMinor).toBe(10_725);
+    expect(row.feesMinor).toBe(2_500);
+    expect(row.currency).toBe("AED");
+
+    // It asked our own service, at the contract's path, with the tenant's map.
+    const [calledUrl, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("https://browser-rendering/v1/portal-quote");
+    const body = JSON.parse(String(init.body));
+    expect(body.url).toBe("https://portal.falcon.example/motor/quote");
+    expect(body.fill).toEqual([
+      { selector: "#driver-age", value: "34" },
+      { selector: "#sum-insured", value: "28000000" }
+    ]);
+    expect(body.submit).toBe("#get-quote");
+    expect(body.read).toEqual(["premiumMinor", "taxMinor", "feesMinor", "currency"]);
+    // The portal credential is the CARRIER_* secret, forwarded opaquely: a login
+    // is not a bearer token and only the service knows how to present it.
+    expect(body.credential).toBe("portal-user:portal-pass");
+  });
+
+  it("refuses to guess at a portal the tenant has not mapped", async () => {
+    // The whole safety property: no map, no quote.
+    const spy = browserService(() => PORTAL_QUOTED);
+    const unmapped = JSON.stringify({
+      url: "https://portal.falcon.example/motor/quote",
+      adapter: "browser-portal"
+    });
+    const row = await portalQuote(portalEntry(unmapped), portalEnv(spy));
+    expect(row.state).toBe("error");
+    expect(row.declineReason).toContain("portal");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a map that names no inputs or no outputs", async () => {
+    const spy = browserService(() => PORTAL_QUOTED);
+    const noFill = JSON.stringify({ url: "https://p.example/q", adapter: "browser-portal", portal: { fill: {}, read: ["premiumMinor"] } });
+    expect((await portalQuote(portalEntry(noFill), portalEnv(spy))).declineReason).toContain("input selectors");
+    const noRead = JSON.stringify({ url: "https://p.example/q", adapter: "browser-portal", portal: { fill: { age: "#a" }, read: [] } });
+    expect((await portalQuote(portalEntry(noRead), portalEnv(spy))).declineReason).toContain("output selectors");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("names the input the map expects and the risk does not carry, rather than filling it empty", async () => {
+    const spy = browserService(() => PORTAL_QUOTED);
+    const row = await portalQuote(portalEntry(), portalEnv(spy), { age: 34 });
+    expect(row.state).toBe("error");
+    expect(row.declineReason).toContain("sumInsuredMinor");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("is an error, not a crash, when no browser is bound", async () => {
+    const without = { CARRIER_FALCON_API_KEY: "x" } as unknown as Env;
+    const row = await portalQuote(portalEntry(), without);
+    expect(row.state).toBe("error");
+    expect(row.declineReason).toContain("no browser service");
+  });
+
+  it("reads a decline and a broken page as different facts", async () => {
+    const declining = browserService(() => ({ values: { decline: "not eligible" } }));
+    const declined = await portalQuote(portalEntry(), portalEnv(declining));
+    expect(declined.state).toBe("declined");
+    expect(declined.declineReason).toContain("not eligible");
+
+    const broken = browserService(() => ({ values: {} }));
+    const unreadable = await portalQuote(portalEntry(), portalEnv(broken));
+    expect(unreadable.state).toBe("error");
+    expect(unreadable.declineReason).toContain("no usable premium");
+  });
+
+  it("lands every service failure on the visible error row, never on a number", async () => {
+    const http = browserService(() => new Response("nope", { status: 502 }));
+    expect((await portalQuote(portalEntry(), portalEnv(http))).declineReason).toContain("http 502");
+
+    const notJson = browserService(() => new Response("<html>", { status: 200 }));
+    expect((await portalQuote(portalEntry(), portalEnv(notJson))).declineReason).toContain("not json");
+
+    const serviceSays = browserService(() => ({ error: "selector #get-quote matched nothing" }));
+    expect((await portalQuote(portalEntry(), portalEnv(serviceSays))).declineReason).toContain("#get-quote matched nothing");
+
+    // A premium a form could not have produced is a parsing bug, not a price.
+    const fractional = browserService(() => ({ values: { premiumMinor: "214500.5" } }));
+    expect((await portalQuote(portalEntry(), portalEnv(fractional))).declineReason).toContain("no usable premium");
+  });
+
+  it("refuses a portal quote in another currency rather than relabelling it", async () => {
+    const other = browserService(() => ({ values: { premiumMinor: "1000", currency: "USD" } }));
+    const row = await portalQuote(portalEntry(), portalEnv(other));
+    expect(row.state).toBe("error");
+    expect(row.declineReason).toContain("USD");
+  });
+
+  it("still refuses an unnamespaced credential and an internal host on this path", async () => {
+    // The guards in `quoterFor` are wire-format independent, and these prove it.
+    const spy = browserService(() => PORTAL_QUOTED);
+    const badRef = JSON.stringify({ url: "https://p.example/q", authRef: "FIELD_KEY", adapter: "browser-portal", portal: { fill: { age: "#a" }, read: ["premiumMinor"] } });
+    expect((await portalQuote(portalEntry(badRef), portalEnv(spy))).declineReason).toContain("CARRIER_");
+
+    // https, so this reaches the internal-host guard rather than the earlier
+    // "must use https" one — the metadata address is refused whichever it hits,
+    // but the test should exercise the guard it names.
+    const internal = JSON.stringify({ url: "https://169.254.169.254/q", adapter: "browser-portal", portal: { fill: { age: "#a" }, read: ["premiumMinor"] } });
+    expect((await portalQuote(portalEntry(internal), portalEnv(spy))).declineReason).toContain("not reachable");
+    expect(spy).not.toHaveBeenCalled();
+  });
+});

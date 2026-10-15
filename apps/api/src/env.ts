@@ -72,6 +72,11 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   OPENAI_COMPAT_URL?: string;
   OPENAI_COMPAT_API_KEY?: string;
+  /** ADR-0118: Aletheia (cortex0) grounded engine base URL + bearer token. */
+  ALETHEIA_URL?: string;
+  ALETHEIA_TOKEN?: string;
+  /** ADR-0118: the Aletheia tenant when the routed model slug does not name one. */
+  ALETHEIA_TENANT?: string;
   SESSION_COOKIE?: string;
   /**
    * Cookie `Domain` for the session, when web and api sit on sibling hosts —

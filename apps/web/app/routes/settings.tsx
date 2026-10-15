@@ -35,6 +35,8 @@ import { Problem } from "./module";
 import { useShellData } from "./workspace";
 import { CALENDARS, FALLBACK_CURRENCY, calendarFrom, timezoneFrom, zones } from "../calendar";
 import type { CalendarPreference } from "@lyra/ui";
+import { TAX_MARKETS, marketsAwaitingRulepack } from "@lyra/db/tax-rulepack";
+import { MARKETS } from "@lyra/core/operating-model";
 
 // The actor's own account, and — for whoever administers the tenant — the parts
 // of the tenant that are settings rather than records.
@@ -348,6 +350,18 @@ export const LABELS: Record<string, Record<string, string>> = {
     "brand.ok": "Appearance saved. It applies on the next screen you open.",
     "brand.unavailable": "The tenant's appearance could not be read just now.",
 
+    "markets.title": "Markets that can price",
+    "markets.intro":
+      "This platform prices tax from a rulepack per market. Where a rate has not been confirmed, it refuses rather than assuming one.",
+    "markets.canPrice": "Pricing today",
+    "markets.licensed": "Licence on file",
+    "markets.notLicensed": "No licence on file",
+    "markets.tradeable": "Can trade",
+    "markets.notTradeable": "Cannot trade yet",
+    "markets.lede":
+      "Two independent gates. A market can be priced and still not tradeable, because a placement also needs a licence on file.",
+    "markets.awaiting": "Waiting for a confirmed rate",
+    "markets.yours": "Your market",
     "calendar.title": "Dates, language and money",
     "calendar.intro":
       "How this tenant reads dates, which language it opens in, and the currency its money is written in. Nothing is re-dated or re-priced: the same instant and the same amount are simply written the way your business writes them.",
@@ -550,6 +564,17 @@ export const LABELS: Record<string, Record<string, string>> = {
     "brand.ok": "تم حفظ الهوية. تُطبَّق على الشاشة التالية التي تفتحها.",
     "brand.unavailable": "تعذّرت قراءة هوية المؤسسة الآن.",
 
+    "markets.title": "الأسواق القادرة على التسعير",
+    "markets.intro":
+      "يسعّر هذا النظام الضريبة من حزمة قواعد لكل سوق. وحيث لم يتم تأكيد النسبة، يرفض بدل أن يفترضها.",
+    "markets.canPrice": "تسعّر اليوم",
+    "markets.licensed": "ترخيص مسجّل",
+    "markets.notLicensed": "لا ترخيص مسجّل",
+    "markets.tradeable": "قابلة للتداول",
+    "markets.notTradeable": "غير قابلة للتداول بعد",
+    "markets.lede": "بوابتان مستقلتان. قد يكون السوق قابلاً للتسعير وغير قابل للتداول، لأن الكتابة تتطلب ترخيصاً مسجّلاً.",
+    "markets.awaiting": "بانتظار نسبة مؤكدة",
+    "markets.yours": "سوقك",
     "calendar.title": "التواريخ واللغة والعملة",
     "calendar.intro":
       "كيف تُقرأ التواريخ في هذه المؤسسة، وبأي لغة تُفتح، وبأي عملة تُكتب مبالغها. لا يتغيّر أي تاريخ ولا أي مبلغ: اللحظة نفسها والمبلغ نفسه يُكتبان بالطريقة التي تكتبها بها.",
@@ -747,7 +772,53 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     dsar: dsar.value?.data ?? [],
     dsarReadable: dsar.value !== null,
     lens: lens.value ? { workspace: lens.value.lens.workspace, isDefault: lens.value.isDefault } : null,
-    lensReadable: lens.value !== null
+    lensReadable: lens.value !== null,
+    /**
+     * Which of the client's nine markets the platform can **price** in, and which are
+     * waiting for a confirmed rate.
+     *
+     * The 2026-10-01 sweep's MONEY work left `marketsAwaitingRulepack()` read by
+     * **nothing but its own test** — a dead seam of mine, and the one that matters most
+     * for a nine-market broker: the only thing in the platform that said which six
+     * markets could not be priced was a function nobody called, and no screen mentioned
+     * the tenant's market at all.
+     *
+     * (This comment named `taxDraftsFor()` alongside it. That one is **still**
+     * test-only, and deliberately so — see its own docstring: the drafts are a code
+     * constant, so promoting one is a code change rather than a screen action. Corrected
+     * here because a sentence claiming two things are dead, three lines above where one
+     * of them was fixed, is the defect this whole build is about.)
+     *
+     * A draft rulepack **refuses** rather than applying a remembered rate (CLAUDE.md:
+     * never invent a regulatory claim), which is right — but a refusal nobody can see
+     * coming is indistinguishable from a broken product. This is where it becomes
+     * visible, and the drafts themselves are deliberately **not** shown here: a rate
+     * with no citation on a settings screen is exactly the thing that must not exist.
+     */
+    markets: {
+      canPrice: [...TAX_MARKETS],
+      awaiting: marketsAwaitingRulepack(),
+      tenant: typeof me.policy?.taxMarket === "string" ? me.policy.taxMarket : null,
+      /**
+       * **Both gates, per market.** A market is tradeable when the platform can price
+       * in it *and* the tenant holds a licence for it — two independent facts, and this
+       * panel showed only the first.
+       *
+       * The 2026-10-01 sweep's AXIS and MONEY works are exactly these two gates, and
+       * conflating them is the mistake §55 records one level down: *"no licence"* is
+       * eight markets, *"no rate"* is six, and **both are called ungoverned in English
+       * and neither is the other.** An operator reading "Markets that can price" would
+       * conclude that confirming Qatar's VAT unlocks Qatar, and it does not — the market
+       * also needs a licence the platform holds no number for.
+       */
+      rows: MARKETS.map((market) => ({
+        code: market.code,
+        name: market.name.en,
+        currency: market.currency,
+        licensed: market.regulators.length > 0,
+        priced: TAX_MARKETS.includes(market.code)
+      }))
+    }
   };
 }
 
@@ -1388,6 +1459,32 @@ export default function Settings() {
 
       {tab === "tenant" ? (
         <>
+        <Section id="settings-markets" title={label("markets.title")} lead={label("markets.intro")}>
+          <p className="max-w-prose font-ui text-13 text-subtle">{label("markets.lede")}</p>
+          <div className="flex flex-col gap-2">
+            {loaded.markets.rows.map((market) => {
+              const tradeable = market.licensed && market.priced;
+              return (
+                <div key={market.code} className="flex flex-wrap items-center gap-2">
+                  <span className="font-ui text-13">
+                    {market.code} · {market.name}
+                    {loaded.markets.tenant === market.code ? ` · ${label("markets.yours")}` : ""}
+                  </span>
+                  <Badge tone={market.licensed ? "success" : "neutral"}>
+                    {label(market.licensed ? "markets.licensed" : "markets.notLicensed")}
+                  </Badge>
+                  <Badge tone={market.priced ? "success" : "neutral"}>
+                    {label(market.priced ? "markets.canPrice" : "markets.awaiting")}
+                  </Badge>
+                  {/* The verdict, so nobody has to combine two badges in their head. */}
+                  <Badge tone={tradeable ? "accent" : "warning"}>
+                    {label(tradeable ? "markets.tradeable" : "markets.notTradeable")}
+                  </Badge>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
         {loaded.can.brand ? (
           <Section id="settings-calendar" title={label("calendar.title")} lead={label("calendar.intro")}>
             {failure("calendar")}

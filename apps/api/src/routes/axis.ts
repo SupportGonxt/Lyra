@@ -19,11 +19,13 @@ import {
   hashObject,
   notFound,
   openFields,
+  productLineOf,
   require_,
   requireAny,
   scoped,
   sealFields,
   sha256Hex,
+  taxMarketOf,
   verifyGroundedness,
   withIdempotency,
   type Ctx
@@ -44,6 +46,10 @@ import { body, csvBody, formOf, InstantMs, jsonOf, parse } from "../http.js";
 import { readUpload } from "../upload.js";
 import { must } from "../rows.js";
 import { EndorseBody, changeSetHashOf, endorsePolicy, priceEndorsement } from "../engines/axis-endorse.js";
+import { assembleCaseBundle, trailLabelsFor, trailTables } from "../engines/axis-audit-bundle.js";
+import { diffCensus, normaliseCensus, rollupCensus } from "@lyra/core";
+import { toPdf } from "../engines/export/pdf.js";
+import { utf8, zip } from "../engines/export/zip.js";
 import { MAX_POINTS_PER_BATCH, TelematicsIngest, repriceFromTelemetry, unpricedExposureKey } from "../engines/telematics.js";
 import { bindGroup, brokerFee } from "../engines/group-commission.js";
 import { importCases } from "../engines/axis-case-import.js";
@@ -236,6 +242,67 @@ const ExtractBody = z.object({
  * tenants have no browser-rendering/vision route today, so they must supply
  * `rawText` directly.
  */
+/**
+ * docs/modules/axis.md §2.2's census normaliser, as a route.
+ *
+ * Any-format employee list in, canonical census out — banded lives, a roll-up and
+ * every row that could not be read, named. `priorRows` adds the diff against a
+ * previous year, which is what a group renewal is actually argued with.
+ *
+ * A **read**: it derives and returns, and stores nothing. That is deliberate for a
+ * first cut — the file a broker sends is not a record until somebody accepts it,
+ * and accepting it is a decision (which lives with the group case) rather than a
+ * side effect of looking at the numbers.
+ */
+const CensusBody = z.object({
+  rows: z.array(z.array(z.string())).max(5_000),
+  /** The date the ages are taken at — in practice, the renewal date. */
+  asOf: InstantMs,
+  /** Overrides for column detection, for a file with unusual headings. */
+  mapping: z.record(z.string(), z.string()).optional(),
+  headerless: z.boolean().optional(),
+  /** Last year's list, for the diff. Same shape as `rows`. */
+  priorRows: z.array(z.array(z.string())).max(5_000).optional()
+});
+
+axisRoutes.post("/census/normalise", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "axis:documents:extract", { tenantId: ctx.tenantId, module: "axis" });
+  const input = await body(c, CensusBody);
+
+  const census = normaliseCensus(input.rows, {
+    asOf: input.asOf,
+    ...(input.mapping ? { mapping: input.mapping as never } : {}),
+    ...(input.headerless !== undefined ? { headerless: input.headerless } : {})
+  });
+  const prior = input.priorRows
+    ? normaliseCensus(input.priorRows, {
+        asOf: input.asOf,
+        ...(input.mapping ? { mapping: input.mapping as never } : {}),
+        ...(input.headerless !== undefined ? { headerless: input.headerless } : {})
+      })
+    : null;
+
+  // Audited without the rows: a census is names, dates of birth and salaries for
+  // a whole employer, and the audit log is not where that belongs (docs/12 §1).
+  await audit(ctx, {
+    action: "axis.census.normalised",
+    subjectRef: `census:${input.asOf}`,
+    after: {
+      lives: census.members.length,
+      problems: census.problems.length,
+      mapping: census.mapping,
+      diffed: prior !== null
+    }
+  });
+
+  return c.json({
+    census,
+    rollup: rollupCensus(census),
+    ...(prior ? { diff: diffCensus(prior, census), priorRollup: rollupCensus(prior) } : {})
+  });
+});
+
 axisRoutes.post("/documents/:id/extract", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "axis:documents:extract", { tenantId: ctx.tenantId, module: "axis" });
@@ -703,6 +770,96 @@ async function enforceUnderwritingAuthority(
   }
 }
 
+/**
+ * ADR-0125. A placement names the market and the licence it was made under, and
+ * before this there was nowhere to write either: `MARKETS` and `REGULATORS`
+ * (`@lyra/core` operating-model.ts) held the broker's two real licence numbers
+ * and no route, engine or screen read them.
+ *
+ * The market is the tenant's own statement — `taxMarketOf` (tax.ts), which is
+ * `policy.taxMarket` or the declared launch default — and the line is the
+ * product's own catalogue line read through `productLineOf`, which answers null
+ * for a line the operating model does not name. **Absence is the refusal**: a
+ * tenant with no row covering the placement cannot bind, and an invented licence
+ * number would be worse than the 400. `expired` is distinct from `none_on_file`,
+ * because "we let this lapse" and "we never held this" are different
+ * conversations with a regulator.
+ *
+ * Deliberately not a fallback to `MARKETS[].status`: a market the platform marks
+ * `licensed` says the *client* holds a licence somewhere, not that *this tenant*
+ * holds one here.
+ */
+type AuthorisationRefusal = "none_on_file" | "expired" | "suspended" | "not_yet_valid";
+
+/** The line keys a register row covers. A malformed row covers nothing. */
+function authorisationLines(json: string | null): readonly string[] {
+  if (!json) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((line): line is string => typeof line === "string") : [];
+  } catch {
+    // A data bug must not authorise a placement.
+    return [];
+  }
+}
+
+async function enforceAuthorisation(ctx: Ctx, policy: PolicyRow): Promise<void> {
+  const market = taxMarketOf(ctx);
+  const product = policy.productId
+    ? (
+        await ctx.db
+          .select({ line: schema.products.line })
+          .from(schema.products)
+          .where(scoped(ctx, schema.products, eq(schema.products.id, policy.productId)))
+      )[0]
+    : undefined;
+  const line = product ? productLineOf(product.line) : null;
+
+  const rows = await ctx.db
+    .select()
+    .from(schema.axisAuthorisations)
+    .where(scoped(ctx, schema.axisAuthorisations, eq(schema.axisAuthorisations.market, market)));
+
+  // Only rows that actually cover this line count, which is what makes "no
+  // authorisation for this market" and "none for this line in this market" the
+  // same refusal.
+  const covering = line ? rows.filter((row) => authorisationLines(row.productLinesJson).includes(line)) : [];
+
+  const valid = (row: (typeof covering)[number]): boolean =>
+    row.status === "active" && row.validFrom <= ctx.now && (row.validTo === null || row.validTo > ctx.now);
+  if (covering.some(valid)) return;
+
+  const reason: AuthorisationRefusal = covering.some((row) => row.validTo !== null && row.validTo <= ctx.now)
+    ? "expired"
+    : covering.some((row) => row.status === "suspended")
+      ? "suspended"
+      : covering.some((row) => row.status === "active" && row.validFrom > ctx.now)
+        ? "not_yet_valid"
+        : "none_on_file";
+
+  const covered = line ? `market ${market} and product line ${line}` : `market ${market}`;
+  const expiry = covering
+    .map((row) => row.validTo)
+    .filter((to): to is number => to !== null && to <= ctx.now)
+    .sort((a, b) => b - a)[0];
+  const detail =
+    line === null
+      ? `this policy's product (${product?.line ?? "none"}) is not a product line the operating model names, so no authorisation can cover it in market ${market}`
+      : reason === "expired"
+        ? `the authorisation covering ${covered} expired on ${new Date(expiry ?? ctx.now).toISOString()}`
+        : reason === "suspended"
+          ? `the authorisation covering ${covered} is suspended`
+          : reason === "not_yet_valid"
+            ? `the authorisation covering ${covered} is not valid yet`
+            : `no authorisation is on file covering ${covered}`;
+
+  throw new AppError(400, "authorisation_required", "Bad request", detail, {
+    reason,
+    market,
+    product_line: line
+  });
+}
+
 /** The half both bind entrypoints share: transaction, version 1, head, audit, event. */
 async function bindPolicy(
   ctx: Ctx,
@@ -714,6 +871,9 @@ async function bindPolicy(
   assertPolicyTransition(policy.status, "bound");
   if (policy.currentVersionId) throw conflict("policy already has a version history");
   await enforceUnderwritingAuthority(ctx, policy, opts);
+  // The licence the risk is placed under, checked before any money moves: a bind
+  // with no authorisation is a placement nobody recorded (ADR-0125).
+  await enforceAuthorisation(ctx, policy);
   // BIND is financial (docs/19 §4) and `buildRecipe` refuses a batch of fewer
   // than two lines, so a zero-commission bind would strand the transaction in
   // `failed`. A 400 naming the reason is more use than that.
@@ -920,6 +1080,10 @@ axisRoutes.post("/quote-responses/:id/bind", async (c) => {
         grossMinor: premiumMinor + response.taxMinor + response.feesMinor,
         currency: response.currency ?? request.currency,
         commissionMinor: response.commissionMinor ?? 0,
+        // ADR-0128: the market is recorded from the same statement the licence
+        // check reads, so a policy cannot be stamped with a market the placement
+        // was not authorised in.
+        market: taxMarketOf(ctx),
         status: "draft",
         createdAt: ctx.now,
         updatedAt: ctx.now
@@ -1002,6 +1166,124 @@ const ManualQuoteBody = z.object({
  * panel's own answers, so comparison, ranking, selection and bind read one
  * table. `axis_quotes` is retired as a write target.
  */
+/**
+ * docs/modules/axis.md §8 criterion 3: any case exports a complete signed audit
+ * bundle.
+ *
+ * The shape is the one ledger recon and compliance already use — the same
+ * `compliance_evidence_bundles` row, the same `evidence/<tenant>/<id>.zip`
+ * layout, the same manifest-inside-the-archive idiom — so this is a third caller
+ * rather than a third format.
+ *
+ * "Signed" here means hash-manifested and tamper-evident, not cryptographically
+ * signed by a key; `bundleHash` covers the archive including its manifest, so one
+ * hash proves the set. The manifest says so itself rather than letting a reader
+ * assume more.
+ */
+axisRoutes.post("/cases/:id/audit-bundle", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "axis:cases:export", { tenantId: ctx.tenantId, module: "axis" });
+  const caseId = c.req.param("id");
+  // A case that is not this tenant's is not found, never a 403 that confirms it
+  // exists elsewhere.
+  const kase = await must(ctx, schema.axisCases, caseId, "case");
+
+  const bundle = await assembleCaseBundle(ctx, caseId);
+  const { contents, manifest, scope } = bundle;
+
+  // docs/modules/axis.md §2.4: the export is a **PDF+JSON** bundle. Both halves
+  // are rendered from the same assembly, so they cannot disagree about what the
+  // case holds. Arabic gets RTL direction and its own furniture — a document an
+  // Arabic reader cannot read is not an audit trail they can rely on.
+  const ar = ctx.locale === "ar";
+  const trail = toPdf(trailTables(bundle, ar ? "ar" : "en"), {
+    orientation: "portrait",
+    meta: { case: kase.ref, generated: new Date(ctx.now).toISOString() },
+    ...(ar ? { direction: "rtl" as const, labels: trailLabelsFor("ar") } : {})
+  });
+
+  const archive = zip([
+    ...contents,
+    { path: "trail.pdf", data: trail },
+    { path: "manifest.json", data: utf8(JSON.stringify(manifest, null, 2)) }
+  ]);
+  const bundleHash = await sha256Hex(archive);
+
+  const bundleId = newId("evb", ctx.now);
+  const bucket = c.env.FILES;
+  const fileId = bucket ? newId("file", ctx.now) : null;
+  if (bucket && fileId) {
+    const r2Key = `evidence/${ctx.tenantId}/${bundleId}.zip`;
+    await bucket.put(r2Key, archive, { httpMetadata: { contentType: "application/zip" } });
+    await ctx.db.insert(schema.files).values({
+      id: fileId,
+      tenantId: ctx.tenantId,
+      r2Key,
+      kind: "evidence_bundle",
+      subjectRef: bundleId,
+      sha256: bundleHash,
+      sizeBytes: archive.length,
+      contentType: "application/zip",
+      piiLevel: "high",
+      createdAt: ctx.now,
+      deletedAt: null
+    });
+  }
+
+  const row = {
+    id: bundleId,
+    tenantId: ctx.tenantId,
+    purpose: "audit" as const,
+    scopeJson: JSON.stringify(scope),
+    manifestJson: JSON.stringify(manifest),
+    bundleHash,
+    fileId,
+    requestedBy: actorRef(ctx),
+    approvedBy: null,
+    // No bucket is a deployment without FILES, and the bundle is then not
+    // retrievable — saying `failed` beats a `ready` row whose download 404s.
+    state: bucket ? ("ready" as const) : ("failed" as const),
+    deliveredTo: null,
+    createdAt: ctx.now,
+    updatedAt: ctx.now
+  };
+  await ctx.db.insert(schema.evidenceBundles).values(row);
+  await audit(ctx, {
+    action: "axis.case.audit_bundle.export",
+    subjectRef: `axis_case:${caseId}`,
+    after: { bundleId, bundleHash, counts: manifest.counts, missing: manifest.missing, caseRef: kase.ref }
+  });
+  return c.json({ ...row, manifest }, 201);
+});
+
+axisRoutes.get("/cases/:id/audit-bundle/:bundleId/download", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "axis:cases:export", { tenantId: ctx.tenantId, module: "axis" });
+  const bundle = await must(ctx, schema.evidenceBundles, c.req.param("bundleId"), "audit bundle");
+  // The bundle must belong to the case in the path, or the route would serve any
+  // case's evidence to anyone holding the permission for one of them.
+  const scope = JSON.parse(bundle.scopeJson) as { caseId?: string };
+  if (scope.caseId !== c.req.param("id")) throw notFound("audit bundle");
+  if (!bundle.fileId) throw notFound("audit bundle file");
+  const file = await must(ctx, schema.files, bundle.fileId, "audit bundle file");
+  const object = await c.env.FILES?.get(file.r2Key);
+  if (!object) throw notFound("audit bundle file");
+
+  await audit(ctx, {
+    action: "axis.case.audit_bundle.download",
+    subjectRef: `axis_case:${c.req.param("id")}`,
+    after: { bundleId: bundle.id, fileId: file.id, bundleHash: bundle.bundleHash }
+  });
+  await meterEgress(ctx, file.sizeBytes ?? object.size);
+  return new Response(object.body, {
+    headers: {
+      "content-type": "application/zip",
+      "content-disposition": `attachment; filename="case-${c.req.param("id")}.zip"`,
+      "cache-control": "no-store"
+    }
+  });
+});
+
 axisRoutes.post("/cases/:id/quotes", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "axis:quotes:create", { tenantId: ctx.tenantId, module: "axis" });
@@ -1132,6 +1414,13 @@ axisRoutes.post("/policies/:id/bind-group", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "axis:policies:bind", { tenantId: ctx.tenantId, module: "axis" });
   const before = await must(ctx, schema.axisPolicies, c.req.param("id"), "policies");
+  // The same licence check the individual bind makes (ADR-0125), because a group
+  // placement is a placement: `bindGroup` goes straight to its own accrual and
+  // never enters `bindPolicy`, so without this a broker could write group medical
+  // in a market it is not licensed in while the individual path refused it. The
+  // hole was found by the sweep and left open by the first implementation — the
+  // register is only a control where every door asks it.
+  await enforceAuthorisation(ctx, before);
   const input = await body(
     c,
     z.object({

@@ -13,6 +13,7 @@ import {
 } from "@lyra/core";
 import { promptNouns, type Gateway, type PromptNouns } from "@lyra/model-gateway";
 import { disclosureScope } from "./compliance-disclosure.js";
+import { brandKitFor } from "./signal-brand-kit.js";
 
 // docs/modules/signal.md §2.1 + §8 acceptance: "Brief -> 20 compliant ar/en
 // variants -> publish to Meta+Google in < 1 hour with human review only at the
@@ -224,10 +225,14 @@ async function generateLocale(
     // SIG-013: appended after generation, deterministically — no prompt
     // changes, and nothing the model writes can drop or paraphrase it.
     const scope = await disclosureScope(ctx, brief.productLine ?? null, locale);
+    // The tenant's own house rules ride the same pre-flight as the built-ins
+    // (docs/modules/signal.md §2.1). No kit configured is the empty kit, which
+    // is exactly what every tenant ran on before this existed.
+    const kit = await brandKitFor(ctx);
 
     for (const drafted of parseVariants(res.text)) {
       const text = appendDisclosure(drafted, scope.disclosure);
-      const compliance = preflightCreative(text, scope);
+      const compliance = preflightCreative(text, scope, kit);
       const id = newId("crv", ctx.now);
 
       await ctx.db.insert(schema.signalCreatives).values({

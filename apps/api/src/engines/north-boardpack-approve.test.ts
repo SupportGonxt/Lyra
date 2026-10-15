@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
-import { approveBoardpack, distributeBoardpack } from "./north-boardpack.js";
+import { approveBoardpack, assembleBoardpackSections, distributeBoardpack } from "./north-boardpack.js";
 
 // docs/30 NORTH 5. A board pack stopped at "review": the columns for approval
 // and a distribution log existed and nothing wrote them. Approval moves it to
@@ -86,5 +86,62 @@ describe("distributing a board pack", () => {
     await approveBoardpack(ctx, "bpk_review");
     await expect(distributeBoardpack(ctx, "bpk_review", ["u_board1", "u_elsewhere"])).rejects.toMatchObject({ status: 400 });
     expect(await ctx.db.select().from(schema.notifications)).toEqual([]);
+  });
+});
+
+/* ---------------------- a board pack says which row is the headline */
+
+/**
+ * The 2026-10-01 sweep's NORTH finding. `north_snapshots` holds one row per metric
+ * **per slice** — `dimsHash` `""` is the grand total — and the pack's "Metric
+ * snapshot" table selected `metricKey`, `period` and `value` with **no dimension**.
+ * For period "2025-12" that printed `gwp` three times (3,507,200 gross; 3,091,200
+ * web; 416,000 brokerAlpha) with nothing to distinguish them, in the artifact a
+ * board signs off.
+ */
+describe("the metric snapshot distinguishes a headline from its slices", () => {
+  it("names the dimension, leads with the total, and keeps the breakdown", async () => {
+    // The registry row first: `north_metrics` is what the snapshotter reads to decide
+    // what to compute, and it is where the currency is stated (item 4).
+    await ctx.db.insert(schema.northMetrics).values({
+      id: "mtr_gwp",
+      tenantId: "t_1",
+      key: "gwp",
+      nameJson: JSON.stringify({ en: "Gross written premium" }),
+      definitionSqlRef: "sql/metrics/gwp.sql",
+      unit: "money",
+      currency: "AED",
+      grain: "month",
+      direction: "up",
+      sensitivity: "internal",
+      createdAt: NOW,
+      updatedAt: NOW
+    } as never);
+
+    await ctx.db.insert(schema.northSnapshots).values([
+      { id: "s_web", tenantId: "t_1", metricKey: "gwp", grain: "month", period: "2026-07", dimsHash: "channel=web", value: 3_091_200, ts: 1 },
+      { id: "s_broker", tenantId: "t_1", metricKey: "gwp", grain: "month", period: "2026-07", dimsHash: "channel=brokerAlpha", value: 416_000, ts: 2 },
+      { id: "s_total", tenantId: "t_1", metricKey: "gwp", grain: "month", period: "2026-07", dimsHash: "", value: 3_507_200, ts: 3 }
+    ]);
+
+    const sections = await assembleBoardpackSections(ctx, "2026-07");
+    const rows = sections.metrics.rows as { metricKey: string; dimension?: string; value: number }[];
+
+    // Three rows, three distinguishable facts — not three rows that look alike.
+    expect(rows).toHaveLength(3);
+    expect(rows[0]!.dimension).toBe("Total");
+    expect(rows[0]!.value).toBe(3_507_200);
+    // The breakdown survives: a headline without its slices hides where the money
+    // is, which is why the fix labelled the rows rather than filtering them out.
+    expect(rows.slice(1).map((r) => r.dimension).sort()).toEqual(["channel=brokerAlpha", "channel=web"]);
+    // And the total leads, so a reader scanning the column sees the headline first.
+    expect(rows.findIndex((r) => r.dimension === "Total")).toBe(0);
+
+    // Every row names the currency the figure is **in** — the number alone was the
+    // finding: a board read "3,507,200" with nothing saying which currency, after the
+    // multi-market work had made nine of them possible in one table.
+    const priced = sections.metrics.rows as { currency?: string }[];
+    expect(priced.every((r) => r.currency === "AED")).toBe(true);
+    expect(sections.metrics.columns.map((c) => c.key)).toContain("currency");
   });
 });

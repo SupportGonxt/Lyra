@@ -469,3 +469,59 @@ describe("the audiences resource refuses a rule outreach cannot run", () => {
     await expect(write({ definitionJson: JSON.stringify({ all: [{ field: "policy.status", op: "eq", value: "y" }] }) }, stored)).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("the suppression floor (docs/modules/signal.md §2.2)", () => {
+  // The wiring, not the rule: `recipientsFor` is the one door a send passes
+  // through, so a floor that is not applied here is not applied at all. The rule
+  // itself is pinned in signal-suppression-floor.test.ts.
+  const campaign = { id: "cmp_1", name: "Motor — always-on search", audienceId: "aud_1" };
+
+  it("stops drafting to somebody who bought inside the window", async () => {
+    await seedCampaign();
+    expect(await recipientsFor(ctx, campaign)).toHaveLength(1);
+
+    await ctx.db.insert(schema.signalAttributionEvents).values({
+      id: "ate_1",
+      tenantId: "t_1",
+      customerId: "cus_1",
+      touchType: "bind",
+      channel: "meta",
+      ts: ctx.now - 86_400_000
+    });
+    expect(await recipientsFor(ctx, campaign)).toEqual([]);
+  });
+
+  it("stops drafting to somebody with an open complaint", async () => {
+    await seedCampaign();
+    await ctx.db.insert(schema.axisComplaints).values({
+      id: "cpl_1",
+      tenantId: "t_1",
+      ref: "CMP-1",
+      customerId: "cus_1",
+      channel: "email",
+      categoryCode: "service",
+      receivedAt: ctx.now - 86_400_000,
+      dueAt: ctx.now + 2 * 86_400_000,
+      state: "investigating",
+      redressMinor: 0,
+      createdAt: ctx.now - 86_400_000,
+      updatedAt: ctx.now - 86_400_000
+    });
+    expect(await recipientsFor(ctx, campaign)).toEqual([]);
+  });
+
+  it("drafts again once the purchase is outside the window", async () => {
+    // A floor that over-reaches silently shrinks a legitimate audience, so the
+    // boundary matters as much as the rule.
+    await seedCampaign();
+    await ctx.db.insert(schema.signalAttributionEvents).values({
+      id: "ate_old",
+      tenantId: "t_1",
+      customerId: "cus_1",
+      touchType: "bind",
+      channel: "meta",
+      ts: ctx.now - 200 * 86_400_000
+    });
+    expect(await recipientsFor(ctx, campaign)).toHaveLength(1);
+  });
+});

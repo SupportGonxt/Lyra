@@ -67,11 +67,15 @@ async function book(ctx: Ctx, subject: Subject, input: Omit<AccrueInput, "policy
     premiumMinor: subject.premiumMinor
   });
 
-  // Tax comes off the net share and can never exceed it: a taxMinor above
-  // net is a caller error, and clamping it would hide that error inside a
-  // silently wrong accrual.
-  if (input.taxMinor > split.netMinor) {
-    throw badRequest(`taxMinor (${input.taxMinor}) exceeds the net commission (${split.netMinor})`);
+  // The market's rulepack is the **only** source of tax on a commission accrual, so
+  // a caller who states a different figure is either restating it or contradicting
+  // it — and silently ignoring the second is exactly how the caller's tax and the
+  // resolved tax diverged for the whole life of this file. Loud rather than quiet:
+  // a stated tax that agrees is accepted, and one that disagrees refuses.
+  if (input.taxMinor !== 0 && input.taxMinor !== split.taxMinor) {
+    throw badRequest(
+      `stated taxMinor (${input.taxMinor}) does not match the ${split.taxMinor} the market's rulepack resolves; tax on a commission accrual comes from the rulepack (ADR-0121)`
+    );
   }
 
   // The position is only knowable once the rate has been applied, so the
@@ -100,8 +104,20 @@ async function book(ctx: Ctx, subject: Subject, input: Omit<AccrueInput, "policy
     premiumMinor: subject.premiumMinor,
     grossCommissionMinor: split.grossMinor,
     channelCommissionMinor: split.channelMinor,
-    netCommissionMinor: split.netMinor - input.taxMinor,
-    taxMinor: input.taxMinor,
+    // The tax on this row is the **market's resolved tax**, which `quoteCommission`
+    // already took off `split.netMinor` (commission.ts:204,211: net = gross −
+    // channel − tax). Recording `input.taxMinor` here discarded it: `:241` below and
+    // `routes/dist.ts:442` both pass 0, so **every live accrual stored tax = 0 on a
+    // net that was already 5% lighter** (AE/commission), while the column's own
+    // contract (schema/dist.ts:237-239) says the row decomposes into these parts.
+    // The commission statement's Tax total and the report engine's Tax metric both
+    // read this column, so both reported zero on every accrual ever written.
+    //
+    // Subtracting only once is the other half of the same bug: `split.netMinor` is
+    // already net of `split.taxMinor`, so `split.netMinor - input.taxMinor`
+    // double-counted any tax a caller did state.
+    netCommissionMinor: split.netMinor,
+    taxMinor: split.taxMinor,
     currency: subject.currency,
     earnedOn: input.earnedOn,
     earnedAt: input.earnedOn === "issue" ? ctx.now : null,

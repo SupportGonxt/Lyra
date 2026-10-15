@@ -32,6 +32,7 @@ export const north: WorkspaceSpec = {
       "link.whatif": "What-if",
       "link.board": "Board pack",
     "link.decisions": "Decisions",
+    "link.posture": "Compliance posture",
     "link.admin": "Insight admin",
     "link.dev": "Insight dev",
       "link.health": "Data health",
@@ -157,6 +158,7 @@ export const north: WorkspaceSpec = {
       "link.whatif": "ماذا لو",
       "link.board": "حزمة مجلس الإدارة",
     "link.decisions": "القرارات",
+    "link.posture": "وضع الامتثال",
     "link.admin": "إدارة التحليلات التنفيذية",
     "link.dev": "مطوّرو التحليلات التنفيذية",
       "link.health": "سلامة البيانات",
@@ -561,6 +563,11 @@ export const north: WorkspaceSpec = {
     { href: "/north/whatif", labelKey: "link.whatif", permission: "north:scenarios:read" },
     { href: "/north/board", labelKey: "link.board", permission: "north:boardpacks:read" },
     { href: "/north/decisions", labelKey: "link.decisions", permission: "north:decisions:read" },
+    // Gated on `core:audit:read`, not a `north:*` permission: docs/12 §5 names
+    // `tenant.compliance` as this tile's reader, and that role holds no NORTH
+    // permission at all — so a north gate would hide the posture from the only
+    // person the doc names.
+    { href: "/north/compliance-posture", labelKey: "link.posture", permission: "core:audit:read" },
     { href: "/north/admin", labelKey: "link.admin", permission: "north:metrics:write" },
     { href: "/north/dev", labelKey: "link.dev", permission: "north:snapshots:run" },
     // ponytail: health / semantic / usage were

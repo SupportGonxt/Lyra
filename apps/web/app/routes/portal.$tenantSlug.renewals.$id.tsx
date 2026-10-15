@@ -25,9 +25,16 @@ import { vocabulary } from "../modules/vocabulary";
 // `consequential: true` (CLAUDE.md §4) and no PSP connector exists, so accepting
 // records the customer's answer and stops the nudge campaign; a human confirms.
 //
-// No price on this page: `orbit_renewals.requotesJson` is written by nothing yet
-// (the auto-requote engine is an open gap in engines/renewal-campaign.ts), and a
-// renewal page that invents a number is worse than one that quotes none.
+// No price on this page, and the reason has changed. It used to be that
+// `orbit_renewals.requotesJson` was written by nothing — the auto-requote engine was
+// the gap. `engines/orbit-requote.ts` closes that (ADR-0129), so the column now
+// holds the panel's cheapest answer for every `auto_requote` renewal and the
+// remaining gap is **this page**, which does not render it yet.
+//
+// The second half of the old comment still stands and is why this is not a
+// one-liner: *a renewal page that invents a number is worse than one that quotes
+// none*. A price is null, never zero, and the page must say "the panel did not
+// answer" differently from "we have no price for you".
 
 export const LABELS: Record<string, Record<string, string>> = {
   en: {

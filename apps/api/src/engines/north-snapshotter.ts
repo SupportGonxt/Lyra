@@ -137,12 +137,63 @@ const quoteLatencyP95: Compute = async (ctx, p) => {
  * against premium collected, and the board/investor filter that would keep an
  * unreconciled figure out of a pack.
  */
+/**
+ * The currency a money metric is stated **in**.
+ *
+ * A tenant's book is not single-currency: `routes/axis.ts` stamps each policy with
+ * the quote's currency and never checks it against the tenant's own, so a broker
+ * writing in nine MENA markets holds nine currencies in one table. Every money
+ * metric here must therefore say which one it is counting — `gwp` summed them all
+ * and the screen rendered the total as *"AED 1,234,567.00"*, which is not a number
+ * anybody can act on, while the commission reader beside it **dropped** every
+ * non-AED row. Both wrong, in opposite directions, and neither said so.
+ *
+ * **Filtering to the functional currency makes the figure true. It does not make
+ * it complete**, and the difference matters: this is the honest minimum, and the
+ * per-market cut that would report the excluded rows is the follow-up. Until then
+ * a metric states its currency and counts only that currency, which is the one
+ * claim a reader can check.
+ */
+function functionalCurrencyOf(ctx: Ctx): string {
+  return typeof ctx.policy.currency === "string" && ctx.policy.currency ? ctx.policy.currency : "AED";
+}
+
+/**
+ * The same total cut by the market on the contract (ADR-0128).
+ *
+ * `gwp` filters to the functional currency, which makes it **true** but not
+ * **complete** — an executive still cannot see the markets she is not being shown.
+ * This is the cut: one series per market, and a **named bucket** for the policies
+ * whose market is not on file, because those are the placements nobody can
+ * attribute and dropping them would hide the gap this exists to reveal.
+ */
+const gwpByMarket: Compute = async (ctx, p) => {
+  const [row] = await ctx.db
+    .select({ v: sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)` })
+    .from(schema.axisPolicies)
+    .where(
+      and(
+        eq(schema.axisPolicies.tenantId, ctx.tenantId),
+        eq(schema.axisPolicies.currency, functionalCurrencyOf(ctx)),
+        gte(schema.axisPolicies.createdAt, p.since),
+        lt(schema.axisPolicies.createdAt, p.until)
+      )
+    );
+  return row?.v ?? 0;
+};
+
 const gwp: Compute = async (ctx, p) => {
   const [row] = await ctx.db
     .select({ v: sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)` })
     .from(schema.axisPolicies)
     .where(
-      and(eq(schema.axisPolicies.tenantId, ctx.tenantId), gte(schema.axisPolicies.createdAt, p.since), lt(schema.axisPolicies.createdAt, p.until))
+      and(
+        eq(schema.axisPolicies.tenantId, ctx.tenantId),
+        // One currency, named by the metric. See `functionalCurrencyOf`.
+        eq(schema.axisPolicies.currency, functionalCurrencyOf(ctx)),
+        gte(schema.axisPolicies.createdAt, p.since),
+        lt(schema.axisPolicies.createdAt, p.until)
+      )
     );
   return row?.v ?? 0;
 };
@@ -167,7 +218,7 @@ const commissionSlices = async (ctx: Ctx, p: Period): Promise<CommissionByDimens
   // A snapshot is one integer in the metric's currency, and this metric's
   // currency is the tenant's base. A line posted in another currency is not
   // summable into it without an fx opinion NORTH does not own.
-  return rows.filter((row) => row.currency === ctx.policy.currency);
+  return rows.filter((row) => row.currency === functionalCurrencyOf(ctx));
 };
 
 const netCommission: Compute = async (ctx, p) => (await commissionSlices(ctx, p)).reduce((sum, row) => sum + row.netMinor, 0);
@@ -627,6 +678,10 @@ async function commissionAccruedMinor(ctx: Ctx, p: Period): Promise<number> {
     .where(
       and(
         eq(schema.distCommissionEntries.tenantId, ctx.tenantId),
+        // The same rule as `gwp`, for the same reason: `commission_per_policy`
+        // and `revenue_per_customer` divide this by a count, so a blended
+        // numerator against a local denominator is a ratio of two different books.
+        eq(schema.distCommissionEntries.currency, functionalCurrencyOf(ctx)),
         isNotNull(schema.distCommissionEntries.earnedAt),
         gte(schema.distCommissionEntries.earnedAt, p.since),
         lt(schema.distCommissionEntries.earnedAt, p.until)
@@ -720,6 +775,7 @@ export const REGISTRY: Record<string, Compute> = {
   panel_response_rate: panelResponseRate,
   quote_latency_p95: quoteLatencyP95,
   gwp,
+  gwp_by_market: gwpByMarket,
   net_commission: netCommission,
   active_policies: activePolicies,
   cac_per_policy: cacPerPolicy,
@@ -774,7 +830,18 @@ interface Slice {
  * the part of a move it can actually attribute.
  */
 const policiesBy =
-  (column: typeof schema.axisPolicies.channelId, value: ReturnType<typeof sql<number>>) =>
+  (
+    column: typeof schema.axisPolicies.channelId | typeof schema.axisPolicies.market,
+    value: ReturnType<typeof sql<number>>,
+    /**
+     * What to call the rows where this column is null. Omitted for `channel`,
+     * where a null is "no channel" and not a channel. **Required in spirit for
+     * `market`** (ADR-0128): existing policies were written before the column
+     * existed, so a cut that dropped them would hide exactly the placements a
+     * nine-market broker most needs to see — the ones nobody can attribute.
+     */
+    nullKey?: string
+  ) =>
   async (ctx: Ctx, p: Period): Promise<Slice[]> => {
     const rows = await ctx.db
       .select({ key: column, value })
@@ -782,13 +849,16 @@ const policiesBy =
       .where(
         and(
           eq(schema.axisPolicies.tenantId, ctx.tenantId),
-          isNotNull(column),
+          ...(nullKey === undefined ? [isNotNull(column)] : []),
           gte(schema.axisPolicies.createdAt, p.since),
           lt(schema.axisPolicies.createdAt, p.until)
         )
       )
       .groupBy(column);
-    return rows.map((row) => ({ key: String(row.key), value: Number(row.value ?? 0) }));
+    return rows.map((row) => ({
+      key: row.key === null ? (nullKey ?? "unattributed") : String(row.key),
+      value: Number(row.value ?? 0)
+    }));
   };
 
 /**
@@ -802,6 +872,17 @@ const SLICED: Record<string, { dimension: string; slice: (ctx: Ctx, p: Period) =
   gwp: {
     dimension: "channel",
     slice: policiesBy(schema.axisPolicies.channelId, sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)`)
+  },
+  // The market cut ADR-0128 exists for. `unrecorded` is a bucket, not a dropped
+  // row: a policy written before the column existed is a placement nobody can
+  // attribute, which is information rather than noise.
+  gwp_by_market: {
+    dimension: "market",
+    slice: policiesBy(
+      schema.axisPolicies.market,
+      sql<number>`coalesce(sum(${schema.axisPolicies.premiumMinor}), 0)`,
+      "unrecorded"
+    )
   },
   // Sliced from the same ledger call the grand total sums, keyed by the
   // `channel` dimension stamped on the journal line — the same key space the
@@ -1016,8 +1097,9 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
             );
           if (!openAnomaly) {
             const drivers = sliced ? driversOf(sliced.dimension, prior, current, prevValue) : [];
+            const anomalyId = newId("anm", ctx.now);
             await ctx.db.insert(schema.northAnomalies).values({
-              id: newId("anm", ctx.now),
+              id: anomalyId,
               tenantId: ctx.tenantId,
               metricKey: metric.key,
               window: p.period,
@@ -1029,6 +1111,30 @@ export async function runSnapshotter(ctx: Ctx): Promise<{ written: number; anoma
               detectedAt: ctx.now
             });
             anomalies++;
+            // docs/modules/north.md §8's "north.anomaly.detected" — the name the
+            // spec and every subscriber used, and which **nothing emitted**:
+            // detection wrote a row and announced it to no one, so a journey or a
+            // webhook waiting on an anomaly could never fire (docs/30 §0's
+            // "consumed or subscribed, never emitted" row, still open when the
+            // rest of that table had been fixed).
+            //
+            // Emitted **only when a row is written**, inside the `!openAnomaly`
+            // branch: re-detecting an anomaly already open is not a new one, and
+            // announcing it again would fire a subscriber twice for one event.
+            await emit(ctx, {
+              module: "north",
+              type: "north.anomaly.detected",
+              subject: anomalyId,
+              data: {
+                anomalyId,
+                metricKey: metric.key,
+                window: p.period,
+                magnitudeBp,
+                expected: prevValue,
+                actual: value,
+                drivers: drivers.length
+              }
+            });
           }
         }
       }

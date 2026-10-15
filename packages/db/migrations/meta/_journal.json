@@ -344,6 +344,48 @@
       "when": 1790576895762,
       "tag": "0048_signal_lookalikes",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1791965846087,
+      "tag": "0049_ordinary_diamondback",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1791978655172,
+      "tag": "0050_safe_bulldozer",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1791999725932,
+      "tag": "0051_overjoyed_nomad",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1792001004090,
+      "tag": "0052_material_groot",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1792001497177,
+      "tag": "0053_fat_nehzno",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1792001871858,
+      "tag": "0054_perpetual_susan_delgado",
+      "breakpoints": true
     }
   ]
 }

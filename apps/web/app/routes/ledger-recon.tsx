@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   Form,
   Link,
@@ -708,7 +709,7 @@ export default function LedgerRecon() {
                       <Input name="counterpartyRef" />
                     </Field>
                     <Field label={l("recon.tolerance")} className="w-44">
-                      <MoneyField name="toleranceMinor" currency={currency || "ZAR"} locale={locale} min={0} />
+                      <MoneyField name="toleranceMinor" currency={currency || FALLBACK_CURRENCY} locale={locale} min={0} />
                     </Field>
                   </div>
 
@@ -740,7 +741,7 @@ export default function LedgerRecon() {
 
                   <StatementPreview
                     text={statement}
-                    currency={currency || "ZAR"}
+                    currency={currency || FALLBACK_CURRENCY}
                     locale={locale}
                     l={l}
                   />

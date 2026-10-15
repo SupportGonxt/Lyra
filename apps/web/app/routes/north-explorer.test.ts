@@ -100,6 +100,32 @@ describe("north-explorer loader asOf", () => {
     }
   });
 
+  // docs/modules/north.md §8: "A metric definition change shows as a chart
+  // annotation from the change date." The dates come from the metric's own
+  // history — written by the API's `metrics` resource when the value actually
+  // differs — so the screen has to ask for them, and ask for the metric it is
+  // showing rather than the tenant's whole history.
+  it("asks for the definition history of the metric being read", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ data: [{ key: "net_commission", grain: "month" }] });
+    vi.mocked(api).mockResolvedValueOnce({ data: [] });
+    vi.mocked(api).mockResolvedValueOnce({ points: [], fit: {} });
+    vi.mocked(api).mockResolvedValueOnce({
+      data: [{ id: "mdf_1", metricKey: "net_commission", definitionSqlRef: "v2", changedAt: 1700000000000, changedBy: "user:rana" }]
+    });
+    const result = (await loader({
+      request: new Request("https://lyra.test/north/explorer?metric=net_commission&grain=month"),
+      context: fakeContext()
+    } as never)) as unknown as { definitionChanges: { changedAt: number }[] };
+
+    const historyCall = vi
+      .mocked(api)
+      .mock.calls.map(([url]) => url as string)
+      .find((url) => url.startsWith("/v1/north/metric-definitions"));
+    expect(historyCall).toContain("metricKey=net_commission");
+    expect(result.definitionChanges).toHaveLength(1);
+    expect(result.definitionChanges[0]!.changedAt).toBe(1700000000000);
+  });
+
   // docs/27 F50. The endpoint exists to be read by something; this is the
   // something.
   it("asks for a projection of the metric and grain being read", async () => {
@@ -147,5 +173,65 @@ describe("north-explorer loader asOf", () => {
       context: fakeContext()
     } as never)) as { snapshots: unknown };
     expect(out.snapshots).toBeNull();
+  });
+});
+
+/* --------------- a dimensioned metric is read as a breakdown */
+
+/**
+ * The 2026-10-01 sweep's NORTH work made the market cut a **metric**
+ * (`gwp_by_market`), which writes **only** dimensional rows (`dimsHash != ""`).
+ * This loader filtered those out — with a reason that was right for the chart and
+ * wrong for the metric — so the market metric appeared in the picker and rendered
+ * *"No snapshots for this metric yet"*: a money figure with no reader at all.
+ *
+ * A dims row is not an extra point on a line. It is a row of a **breakdown**, and a
+ * breakdown is read as a table.
+ */
+describe("north-explorer loader keeps dimensional rows", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const snap = (id: string, dimsHash: string, period: string, value: number) => ({
+    id,
+    metricKey: "gwp_by_market",
+    grain: "month",
+    period,
+    value,
+    dimsHash,
+    ts: 1
+  });
+
+  it("returns the slices for a metric that has only slices", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ data: [{ key: "gwp_by_market", grain: "month" }] });
+    vi.mocked(api).mockResolvedValueOnce({
+      data: [snap("a", "market=AE", "2026-07", 3_091_200), snap("b", "market=unrecorded", "2026-07", 416_000)]
+    });
+
+    const out = (await loader({
+      request: new Request("https://lyra.test/north/explorer?metric=gwp_by_market"),
+      context: fakeContext()
+    } as never)) as unknown as { snapshots: unknown[]; slices: { dimsHash: string }[] };
+
+    // Nothing for the single-series chart, because a breakdown has no single line —
+    // and both rows kept, because dropping them was the defect.
+    expect(out.snapshots).toHaveLength(0);
+    expect(out.slices.map((r) => r.dimsHash).sort()).toEqual(["market=AE", "market=unrecorded"]);
+  });
+
+  it("still separates a metric that carries both", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ data: [{ key: "gwp", grain: "month" }] });
+    vi.mocked(api).mockResolvedValueOnce({
+      data: [snap("t", "", "2026-07", 3_507_200), snap("s", "channel=web", "2026-07", 3_091_200)]
+    });
+
+    const out = (await loader({
+      request: new Request("https://lyra.test/north/explorer?metric=gwp"),
+      context: fakeContext()
+    } as never)) as unknown as { snapshots: unknown[]; slices: unknown[] };
+
+    expect(out.snapshots).toHaveLength(1);
+    expect(out.slices).toHaveLength(1);
   });
 });

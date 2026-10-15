@@ -167,8 +167,20 @@ export async function closeChecks(ctx: Ctx, code: string): Promise<CloseCheck[]>
     detail: stuck ? `${plural(stuck, "transaction", "transactions")} still waiting on a provider` : undefined
   });
 
+  // ADR-0126. A breach row now names the pair it is about, so the check can
+  // say *which market* is short. The count alone was never the useful half:
+  // this check is the only thing between a shortfall and a forced close, and a
+  // controller reading "1 client-money breach recorded" on a tenant with two
+  // segregated accounts has been told nothing they can act on. Rows written
+  // before `account_code` existed name no account and fall back to the currency
+  // they were struck in.
   const breaches = await ctx.db
-    .select({ n: sql<number>`count(*)` })
+    .select({
+      accountCode: schema.ledgerClientMoneyChecks.accountCode,
+      liabilityCode: schema.ledgerClientMoneyChecks.liabilityCode,
+      currency: schema.ledgerClientMoneyChecks.currency,
+      shortfallMinor: schema.ledgerClientMoneyChecks.shortfallMinor
+    })
     .from(schema.ledgerClientMoneyChecks)
     .where(
       and(
@@ -177,11 +189,29 @@ export async function closeChecks(ctx: Ctx, code: string): Promise<CloseCheck[]>
         isNull(schema.ledgerClientMoneyChecks.resolvedAt)
       )
     );
-  const open = breaches[0]?.n ?? 0;
+  const heldFor = new Map<string, { account: string; currency: string; shortfallMinor: number }>();
+  for (const b of breaches) {
+    // Rows written before `account_code` existed name no account: they are still
+    // breaches, and the currency they were struck in is the most such a row can
+    // honestly say.
+    const account = b.accountCode
+      ? b.liabilityCode
+        ? `${b.accountCode} (${b.liabilityCode})`
+        : b.accountCode
+      : "unattributed";
+    const key = `${account}\u0000${b.currency}`;
+    const held = heldFor.get(key) ?? { account, currency: b.currency, shortfallMinor: 0 };
+    held.shortfallMinor += b.shortfallMinor;
+    heldFor.set(key, held);
+  }
   checks.push({
     name: "no_open_client_money_breach",
-    ok: open === 0,
-    detail: open ? `${plural(open, "client-money breach", "client-money breaches")} recorded` : undefined
+    ok: breaches.length === 0,
+    detail: breaches.length
+      ? `${plural(breaches.length, "breach", "breaches")}: ${[...heldFor.values()]
+          .map((h) => `${h.account} short ${h.shortfallMinor} ${h.currency}`.trim())
+          .join("; ")}`
+      : undefined
   });
 
   // ADR-0083. Three checks docs/27 P2 named as missing, in the same

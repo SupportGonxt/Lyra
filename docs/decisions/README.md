@@ -74,6 +74,11 @@ and do not pick.
 | [0029](ADR-0029-platform-staff-cross-tenant-pattern.md) | Platform staff cross-tenant reads reuse the scheduler's per-tenant loop | accepted |
 | [0030](ADR-0030-public-portal-surface.md) | A public, unauthenticated comparison-site surface | accepted |
 | [0031](ADR-0031-nav-landmark-and-where-overlay.md) | Keep the persistent nav landmark; the design's "Where" overlay becomes ⌘K's first block | accepted, implemented |
+| [0125](ADR-0125-a-placement-names-its-licence.md) | A placement names the market and the licence it was made under | accepted |
+| [0127](ADR-0127-a-coverage-gap-and-a-coverage-term-are-two-facts.md) | A coverage gap and a coverage term are two facts, not one column | accepted |
+| [0128](ADR-0128-a-contract-records-the-market-it-was-placed-in.md) | A contract records the market it was placed in | accepted |
+
+*(0032–0124 are not indexed here; the table stopped being maintained at 0031.)*
 
 ## Spec edits these ADRs imply
 

@@ -1,4 +1,4 @@
-import { UiCalendarProvider, UiTimeZoneProvider } from "@lyra/ui";
+import { UiCalendarProvider, UiCurrencyProvider, UiTimeZoneProvider } from "@lyra/ui";
 import type { SessionBootstrap } from "../session.server";
 
 /**
@@ -22,12 +22,18 @@ export function SessionRegion({
   session,
   children
 }: {
-  session: Pick<SessionBootstrap, "calendar" | "timezone">;
+  session: Pick<SessionBootstrap, "calendar" | "currency" | "timezone">;
   children: React.ReactNode;
 }) {
   return (
     <UiCalendarProvider calendar={session.calendar}>
-      <UiTimeZoneProvider timeZone={session.timezone}>{children}</UiTimeZoneProvider>
+      {/* The tenant's functional currency, so a spec-driven money input knows what it
+          is editing. `session.server.ts` resolves it from `me.policy.currency` and
+          falls back to `FALLBACK_CURRENCY` (ADR-0121's launch market), so this is a
+          decision already recorded rather than a default chosen here. */}
+      <UiCurrencyProvider currency={session.currency}>
+        <UiTimeZoneProvider timeZone={session.timezone}>{children}</UiTimeZoneProvider>
+      </UiCurrencyProvider>
     </UiCalendarProvider>
   );
 }

@@ -23,9 +23,10 @@ export async function seedTestChart(ctx: Ctx): Promise<void> {
         type: a.type,
         normalSide: a.normalSide,
         clientMoney: a.clientMoney ?? false,
+        clientMoneyPair: a.clientMoneyPair ?? null,
         suspense: a.suspense ?? false,
         cashFlow: a.cashFlow ?? null,
-        currency: "AED",
+        currency: a.currency ?? "AED",
         status: "active",
         createdAt: ctx.now
       }))

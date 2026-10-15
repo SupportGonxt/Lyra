@@ -1,0 +1,13 @@
+-- ADR-0128: a contract records the market it was placed in.
+--
+-- The AXIS finding behind this: `axis_policies` could place a risk anywhere and
+-- record **nowhere** which market it was placed under, so a broker licensed in nine
+-- MENA markets could not answer a per-market question from its own book — not the
+-- regulator, not the tax jurisdiction, and not the money.
+--
+-- **Nullable, and deliberately so.** A `NOT NULL DEFAULT 'AE'` would write an
+-- invented market onto every existing row, which is the silent-substitution failure
+-- ADR-0121's `taxMarketOf` had to be corrected for: a contract with no market on
+-- file is a fact ("we do not know where this was written"), and a default would
+-- look like a fact and be wrong. Rows written from now on carry it at bind.
+ALTER TABLE `axis_policies` ADD `market` text;

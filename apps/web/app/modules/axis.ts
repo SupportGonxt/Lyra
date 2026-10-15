@@ -299,7 +299,25 @@ export const axis: WorkspaceSpec = {
       "treaties.retentionHint": "Surplus only: what is kept on every risk before anything is ceded.",
       "treaties.linesHint": "Surplus only: how many retentions the reinsurer takes above the first.",
       "treaties.productLineHint": "Leave empty to cover every line.",
-      "treaties.priorityHint": "Lower goes first; each treaty takes its share of what the one before kept."
+      "treaties.priorityHint": "Lower goes first; each treaty takes its share of what the one before kept.",
+
+      // The licence register (ADR-0125). The desk reads it; the compliance
+      // officer keeps it; the bind seam refuses a placement no row covers.
+      authorisations: "Authorisations",
+      market: "Market",
+      regulatorKey: "Regulator",
+      licenceNumber: "Licence number",
+      scope: "Scope",
+      productLinesJson: "Product lines",
+      validFrom: "Valid from",
+      validTo: "Valid to",
+      "status.suspended": "Suspended",
+      "scope.insurance_broking": "Insurance broking",
+      "scope.health_intermediary": "Health intermediation",
+      "scope.banking": "Banking",
+      "scope.securities": "Securities",
+      "authorisations.linesHint":
+        "One or more operating-model line keys: car_insurance, health_insurance, group_health_insurance, home_insurance, travel_insurance, life_insurance."
     },
     ar: {
       cases: "الحالات",
@@ -580,7 +598,23 @@ export const axis: WorkspaceSpec = {
       "treaties.retentionHint": "للفائض فقط: ما يُحتفظ به من كل خطر قبل التنازل عن أي شيء.",
       "treaties.linesHint": "للفائض فقط: عدد مرات الاحتفاظ التي يتحملها معيد التأمين فوق الأول.",
       "treaties.productLineHint": "اتركه فارغًا ليشمل جميع الخطوط.",
-      "treaties.priorityHint": "الأقل أولًا؛ كل اتفاقية تأخذ حصتها مما احتفظت به السابقة."
+      "treaties.priorityHint": "الأقل أولًا؛ كل اتفاقية تأخذ حصتها مما احتفظت به السابقة.",
+
+      authorisations: "التراخيص",
+      market: "السوق",
+      regulatorKey: "الجهة التنظيمية",
+      licenceNumber: "رقم الترخيص",
+      scope: "النطاق",
+      productLinesJson: "خطوط المنتجات",
+      validFrom: "ساري من",
+      validTo: "ساري حتى",
+      "status.suspended": "معلّق",
+      "scope.insurance_broking": "وساطة التأمين",
+      "scope.health_intermediary": "الوساطة الصحية",
+      "scope.banking": "الخدمات المصرفية",
+      "scope.securities": "الأوراق المالية",
+      "authorisations.linesHint":
+        "مفتاح سطر واحد أو أكثر من خطوط النموذج التشغيلي: car_insurance، health_insurance، group_health_insurance، home_insurance، travel_insurance، life_insurance."
     }
   },
   // Nothing here is a duplicate of a tab: reconciliation lives in the ledger and
@@ -685,7 +719,7 @@ export const axis: WorkspaceSpec = {
           type: "select",
           options: ["web", "orbit", "partner", "import", "api", "agent"]
         },
-        { name: "valueMinor", type: "money" },
+        { name: "valueMinor", type: "money", currencyFrom: "currency" },
         { name: "currency", type: "text" },
         { name: "slaDueAt", type: "datetime" },
         { name: "ownerRef", type: "text" },
@@ -711,7 +745,7 @@ export const axis: WorkspaceSpec = {
         { name: "ownerRef", type: "text" },
         { name: "teamId", type: "text" },
         { name: "slaDueAt", type: "datetime" },
-        { name: "valueMinor", type: "money" },
+        { name: "valueMinor", type: "money", currencyFrom: "currency" },
         { name: "riskScore", type: "number" },
         { name: "metaJson", type: "json" }
       ],
@@ -751,14 +785,14 @@ export const axis: WorkspaceSpec = {
         { name: "caseId", type: "text", required: true },
         { name: "providerId", type: "text", required: true },
         { name: "offeringId", type: "text" },
-        { name: "premiumMinor", type: "money", required: true },
+        { name: "premiumMinor", type: "money", currencyFrom: "currency", required: true },
         { name: "currency", type: "text", required: true },
         { name: "validUntil", type: "date" },
         { name: "coverageJson", type: "json" },
         { name: "declineReason", type: "text" }
       ],
       editable: [
-        { name: "premiumMinor", type: "money" },
+        { name: "premiumMinor", type: "money", currencyFrom: "currency" },
         { name: "validUntil", type: "date" },
         { name: "winFlag", type: "boolean" },
         { name: "declineReason", type: "text" },
@@ -892,9 +926,9 @@ export const axis: WorkspaceSpec = {
         { name: "channelId", type: "text" },
         { name: "startAt", type: "date", required: true },
         { name: "endAt", type: "date", required: true },
-        { name: "premiumMinor", type: "money", required: true },
+        { name: "premiumMinor", type: "money", currencyFrom: "currency", required: true },
         { name: "currency", type: "text", required: true },
-        { name: "commissionMinor", type: "money" }
+        { name: "commissionMinor", type: "money", currencyFrom: "currency" }
       ],
       editable: [
         // `status` is deliberately absent: every hop out of `active` moves money
@@ -902,7 +936,7 @@ export const axis: WorkspaceSpec = {
         // it against the arrears — and a PATCH would write the word without any
         // of the journal lines (docs/19). The hops are the actions below.
         { name: "endAt", type: "date" },
-        { name: "commissionMinor", type: "money" }
+        { name: "commissionMinor", type: "money", currencyFrom: "currency" }
       ],
       actions: [
         {
@@ -988,7 +1022,7 @@ export const axis: WorkspaceSpec = {
         { name: "caseId", type: "text" },
         { name: "incidentAt", type: "datetime" },
         { name: "reportedAt", type: "datetime", required: true },
-        { name: "amountMinor", type: "money" },
+        { name: "amountMinor", type: "money", currencyFrom: "currency" },
         { name: "currency", type: "text", required: true },
         { name: "fnolJson", type: "json" }
       ],
@@ -1017,7 +1051,7 @@ export const axis: WorkspaceSpec = {
         { name: "assessorRef", type: "text" },
         // Settling is consequential: the API routes this through an approval
         // (resources.ts, axis.claim_settlement) rather than writing it directly.
-        { name: "settledMinor", type: "money" }
+        { name: "settledMinor", type: "money", currencyFrom: "currency" }
       ]
     },
     // docs/27 §D.8. Both registers already had tables, permissions, transition
@@ -1086,7 +1120,7 @@ export const axis: WorkspaceSpec = {
         { name: "rootCauseCode", type: "text" },
         // Above zero this trips dual control (axis.claim_exgratia): the save
         // comes back as an approval refusal, not a write.
-        { name: "redressMinor", type: "money", hintKey: "complaints.redressHint" },
+        { name: "redressMinor", type: "money", currencyFrom: "currency", hintKey: "complaints.redressHint" },
         { name: "ownerRef", type: "text" },
         { name: "acknowledgedAt", type: "datetime" },
         { name: "resolvedAt", type: "datetime" },
@@ -1122,7 +1156,7 @@ export const axis: WorkspaceSpec = {
         },
         { name: "assignedTo", type: "text" },
         { name: "outcome", type: "text" },
-        { name: "savedMinor", type: "money", hintKey: "siu.savedHint" },
+        { name: "savedMinor", type: "money", currencyFrom: "currency", hintKey: "siu.savedHint" },
         { name: "closedAt", type: "datetime" }
       ]
     },
@@ -1144,7 +1178,7 @@ export const axis: WorkspaceSpec = {
       ],
       editable: [
         { name: "status", type: "select", options: ["open", "reconciling", "matched", "variance", "closed"] },
-        { name: "receivedMinor", type: "money" },
+        { name: "receivedMinor", type: "money", currencyFrom: "currency" },
         { name: "varianceReason", type: "text" },
         { name: "evidenceFileId", type: "text" }
       ]
@@ -1187,7 +1221,7 @@ export const axis: WorkspaceSpec = {
         { name: "currency", type: "text", required: true },
         { name: "cededSharePpm", type: "rate", hintKey: "treaties.shareHint" },
         { name: "limitMinor", type: "money", hintKey: "treaties.limitHint" },
-        { name: "retentionMinor", type: "money", hintKey: "treaties.retentionHint" },
+        { name: "retentionMinor", type: "money", currencyFrom: "currency", hintKey: "treaties.retentionHint" },
         { name: "lines", type: "number", hintKey: "treaties.linesHint" },
         { name: "cedingCommissionPpm", type: "rate", required: true },
         { name: "priority", type: "number", hintKey: "treaties.priorityHint" },
@@ -1198,7 +1232,7 @@ export const axis: WorkspaceSpec = {
         { name: "status", type: "select", options: ["draft", "active", "closed"] },
         { name: "cededSharePpm", type: "rate", hintKey: "treaties.shareHint" },
         { name: "limitMinor", type: "money", hintKey: "treaties.limitHint" },
-        { name: "retentionMinor", type: "money", hintKey: "treaties.retentionHint" },
+        { name: "retentionMinor", type: "money", currencyFrom: "currency", hintKey: "treaties.retentionHint" },
         { name: "lines", type: "number", hintKey: "treaties.linesHint" },
         { name: "cedingCommissionPpm", type: "rate" },
         { name: "priority", type: "number", hintKey: "treaties.priorityHint" },
@@ -1302,6 +1336,57 @@ export const axis: WorkspaceSpec = {
       editable: [
         { name: "status", type: "select", options: ["active", "disabled"] },
         { name: "valueJson", type: "json" }
+      ]
+    },
+    // ADR-0125. The licences the tenant places risk under — the market and the
+    // regulator's own number. The desk reads it (every `axis:*:read` carries the
+    // tab); tenant.compliance keeps it; the bind seam refuses a placement that no
+    // row here covers, which is why an empty register is a refused bind rather
+    // than a silent one. `productLinesJson` holds operating-model line keys, so
+    // its input is the comma list `spec.ts` gives every `*Json` list column.
+    {
+      key: "authorisations",
+      api: "/v1/axis/authorisations",
+      read: "axis:authorisations:read",
+      create: "axis:authorisations:write",
+      update: "axis:authorisations:write",
+      remove: "axis:authorisations:write",
+      search: true,
+      sort: "validFrom",
+      filters: [
+        { name: "status", options: ["active", "suspended", "expired"] },
+        { name: "scope", options: ["insurance_broking", "health_intermediary", "banking", "securities"] }
+      ],
+      columns: [
+        { name: "market", type: "text", sortable: true },
+        { name: "regulatorKey", type: "text" },
+        { name: "licenceNumber", type: "text" },
+        { name: "scope", type: "text", badge: true },
+        { name: "productLinesJson", type: "json" },
+        { name: "validFrom", type: "datetime", sortable: true },
+        { name: "validTo", type: "datetime" },
+        { name: "status", type: "text", badge: true }
+      ],
+      fields: [
+        { name: "market", type: "text", required: true },
+        { name: "regulatorKey", type: "text", required: true },
+        { name: "licenceNumber", type: "text", required: true },
+        {
+          name: "scope",
+          type: "select",
+          options: ["insurance_broking", "health_intermediary", "banking", "securities"],
+          required: true
+        },
+        { name: "productLinesJson", type: "json", required: true, hintKey: "authorisations.linesHint" },
+        { name: "validFrom", type: "datetime", required: true },
+        { name: "validTo", type: "datetime" },
+        { name: "evidenceFileId", type: "text" }
+      ],
+      editable: [
+        { name: "status", type: "select", options: ["active", "suspended", "expired"] },
+        { name: "licenceNumber", type: "text" },
+        { name: "validTo", type: "datetime" },
+        { name: "evidenceFileId", type: "text" }
       ]
     }
   ]

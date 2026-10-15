@@ -19,6 +19,8 @@ export default [
   route("portal/:tenantSlug/register", "routes/portal.$tenantSlug.register.tsx"),
   route("portal/:tenantSlug/quotes/:id", "routes/portal.$tenantSlug.quotes.$id.tsx"),
   route("portal/:tenantSlug/partners", "routes/portal.$tenantSlug.partners.tsx"),
+  route("portal/:tenantSlug/suppliers/:id", "routes/portal.$tenantSlug.suppliers.$id.tsx"),
+  route("portal/:tenantSlug/channels/:id", "routes/portal.$tenantSlug.channels.$id.tsx"),
   route("portal/:tenantSlug/renewals/:id", "routes/portal.$tenantSlug.renewals.$id.tsx"),
   route("portal/:tenantSlug/feedback/:id", "routes/portal.$tenantSlug.feedback.$id.tsx"),
   route("portal/:tenantSlug/chat", "routes/portal.$tenantSlug.chat.tsx"),
@@ -75,6 +77,9 @@ export default [
     // Record memory (ADR-0089): the panel's loader/action, and the vault file.
     route("memory", "routes/memory.ts"),
     route("memory/export", "routes/memory-export.ts"),
+    // Opens an external portal: mints the tokened link server-side and hands
+    // the browser to it. No screen of its own (PORTALS-DESIGN-AND-AUDIT.md).
+    route("portal-link/:kind/:id", "routes/portal-link.$kind.$id.tsx"),
     // The checklist is the same screen for every subject; the pair of segments
     // is what it is about (partners|channels|staff, then the subject's id).
     route("onboarding/:kind/:ref", "routes/onboarding.tsx"),
@@ -178,6 +183,7 @@ export default [
     ? [
         layout("routes/north-shell.tsx", [
           route("north/brief", "routes/north-brief.tsx"),
+    route("north/compliance-posture", "routes/north-compliance-posture.tsx"),
           route("north/explorer", "routes/north-explorer.tsx"),
           route("north/anomalies", "routes/north-anomalies.tsx"),
           route("north/journeys", "routes/north-journeys.tsx"),

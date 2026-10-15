@@ -4,6 +4,14 @@
 // number below comes from the tenant's own panel answers (dist_quote_responses):
 // LYRA holds no market feed, and inventing one would be the third-party
 // integration ADR-0078 refuses to make silently.
+//
+// The one shape this builder writes into `coverage_gaps_json` is the `reach`
+// half of the Coverage union (ADR-0127): the panel's unanswered requests and
+// this provider's declines are counts, not a list of terms. `CoverageGaps` used
+// to be a second interface for that one fact; it is now `CoverageReach` from
+// coverage.ts, so a reader cannot hold two vocabularies for one column.
+
+import { coverageReach, type CoverageReach } from "./coverage.js";
 
 /** One provider answer in one comparative shop, as the builder needs it. */
 export interface BenchQuote {
@@ -33,16 +41,10 @@ export interface BenchRow {
   /** Answers this provider gave in the cell, whatever their state. This is the
    *  cell the k-anonymity floor gates on (resources.ts `rowVisible`). */
   readonly volume: number;
-  readonly coverageGaps: CoverageGaps;
-}
-
-/** Where a provider is absent rather than expensive — the other half of a
- *  negotiation pack's story. */
-export interface CoverageGaps {
-  /** Requests the panel answered on this line that this provider never did. */
-  readonly unquotedRequests: number;
-  /** Requests it answered with a decline. */
-  readonly declined: number;
+  /** ADR-0127: where a provider is absent rather than expensive. The other
+   *  half of the coverage column — terms — is written by the seed and by a
+   *  wording diff, never by this builder. */
+  readonly coverageGaps: CoverageReach;
 }
 
 /** UTC YYYY-MM. Local time would move a month boundary per deployment. */
@@ -128,10 +130,10 @@ export function buildPanelBench(quotes: readonly BenchQuote[]): BenchRow[] {
       marketPriceIdx: panel !== null && panel > 0 ? MARKET_BASELINE : null,
       winRate: quoted.length ? Math.round((won / quoted.length) * 100) : null,
       volume: cell.rows.length,
-      coverageGaps: {
-        unquotedRequests: Math.max(0, seen - answered),
-        declined: cell.rows.filter((q) => q.state === "declined").length
-      }
+      coverageGaps: coverageReach(
+        Math.max(0, seen - answered),
+        cell.rows.filter((q) => q.state === "declined").length
+      )
     });
   }
 

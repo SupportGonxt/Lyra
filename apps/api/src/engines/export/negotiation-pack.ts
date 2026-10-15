@@ -5,7 +5,7 @@
 // how to draw.
 
 import type { ReportTable } from "@lyra/ledger";
-import { checkKAnonymity, DEFAULT_K_FLOOR, type WhitespaceCandidate } from "@lyra/core";
+import { checkKAnonymity, DEFAULT_K_FLOOR, type Coverage, type WhitespaceCandidate } from "@lyra/core";
 
 /** The columns of one scout_panel_bench row this pack needs. */
 export interface PanelBenchRow {
@@ -16,6 +16,19 @@ export interface PanelBenchRow {
   readonly marketPriceIdx: number | null;
   readonly winRate: number | null;
   readonly volume: number;
+  /** ADR-0127. The column the pack's own copy promises ("the wording gaps"),
+   *  normalised by the caller through `coverageOf` — this file never parses the
+   *  raw column, so it cannot read a count as a list. */
+  readonly coverage: Coverage | null;
+}
+
+/** The coverage cell: a term list, the builder's counts, or nothing recorded.
+ *  The pack's own labels are English literals ("Provider", "Win rate"), so its
+ *  cell text is too. */
+export function coverageCell(coverage: Coverage | null): string {
+  if (coverage === null) return "-";
+  if (coverage.kind === "reach") return `${coverage.unquotedRequests} unquoted, ${coverage.declined} declined`;
+  return coverage.terms.length ? coverage.terms.map((one) => one.term).join(", ") : "-";
 }
 
 /**
@@ -38,7 +51,11 @@ export function buildNegotiationPackTables(
       { key: "period", label: "Period", kind: "text" },
       { key: "ourPriceIdx", label: "Our price idx", kind: "number" },
       { key: "marketPriceIdx", label: "Market price idx", kind: "number" },
-      { key: "winRate", label: "Win rate", kind: "number" }
+      { key: "winRate", label: "Win rate", kind: "number" },
+      // The column the pack exists to carry and did not have: the panel-bench
+      // select omitted it, so a pack that advertises "the wording gaps"
+      // (scout.shared.ts `panel.packHint`) went out without any.
+      { key: "coverage", label: "Coverage gaps", kind: "text" }
     ],
     rows: benchRows
       .filter((r) => checkKAnonymity(r.volume, kFloor).allowed)
@@ -48,7 +65,8 @@ export function buildNegotiationPackTables(
         period: r.period,
         ourPriceIdx: r.ourPriceIdx,
         marketPriceIdx: r.marketPriceIdx,
-        winRate: r.winRate
+        winRate: r.winRate,
+        coverage: coverageCell(r.coverage)
       })),
     generatedAt
   };

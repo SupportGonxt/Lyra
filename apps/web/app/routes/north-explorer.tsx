@@ -29,6 +29,19 @@ import {
  * built by packages/core/src/north-forecast.ts. Every field here exists there;
  * `reason` is present only when `points` is empty.
  */
+/**
+ * One row of `north_metric_definitions`, written by the metrics resource when a
+ * definition actually changed. `changedAt` is the date the annotation is drawn
+ * from.
+ */
+interface DefinitionChange {
+  id: string;
+  metricKey: string;
+  definitionSqlRef: string;
+  changedAt: number;
+  changedBy: string;
+}
+
 interface Forecast {
   points: { period: string; p10: number; p50: number; p90: number }[];
   fit: {
@@ -71,7 +84,14 @@ const LABELS: Labels = {
     title: "Metric explorer",
     kicker: "One metric, its series, and the definition behind it",
     intro:
-      "Every point is a closed snapshot from the semantic layer. Change the definition and the change shows here as an annotation, not a silent restatement.",
+      // This sentence once promised more than the screen did — "change the
+      // definition and the change shows here as an annotation" — while nothing
+      // marked the series and nothing recorded *when* a definition changed. Both
+      // are now true: the history exists (`north_metric_definitions`, written only
+      // when the value actually differs), and the **chart itself** marks the period
+      // each change landed in, with the series table naming the date. The promise
+      // and the implementation have met.
+      "Every point is a closed snapshot from the semantic layer. Change the definition and the moment it changed is marked on the series, not silently restated.",
     metric: "Metric",
     grain: "Grain",
     day: "Daily",
@@ -84,7 +104,14 @@ const LABELS: Labels = {
     "series.value": "Value",
     "series.change": "Change",
     "series.taken": "Snapshot taken",
+    "definition.changed": "Definition changed",
     "series.none.title": "No snapshots for this metric yet",
+    "breakdown.title": "Breakdown",
+    "breakdown.caption":
+      "This metric is measured per dimension, so it has no single line to draw. One row per dimension per period.",
+    "breakdown.dimension": "Dimension",
+    "breakdown.period": "Period",
+    "breakdown.value": "Value",
     "series.none.body":
       "The snapshotter writes a row when the period closes. Run it from NORTH dev if you need one before the nightly window.",
     "forecast.title": "What the next periods look like",
@@ -122,7 +149,7 @@ const LABELS: Labels = {
   ar: {
     title: "مستكشف المؤشرات",
     kicker: "مؤشر واحد، وسلسلته، والتعريف الذي وراءه",
-    intro: "كل نقطة لقطة مغلقة من الطبقة الدلالية. أي تغيير في التعريف يظهر هنا كتعليق توضيحي لا كإعادة صياغة صامتة.",
+    intro: "كل نقطة لقطة مغلقة من الطبقة الدلالية. غيّر التعريف وستُعلَّم لحظة تغيّره على السلسلة، لا يُعاد صياغتها بصمت.",
     metric: "المؤشر",
     grain: "التفصيل",
     day: "يومي",
@@ -135,7 +162,13 @@ const LABELS: Labels = {
     "series.value": "القيمة",
     "series.change": "التغير",
     "series.taken": "وقت اللقطة",
+    "definition.changed": "تغيّر التعريف",
     "series.none.title": "لا توجد لقطات لهذا المؤشر بعد",
+    "breakdown.title": "التفصيل",
+    "breakdown.caption": "يُقاس هذا المؤشر حسب بُعد، فلا يوجد خط واحد لرسمه. صف لكل بُعد في كل فترة.",
+    "breakdown.dimension": "البُعد",
+    "breakdown.period": "الفترة",
+    "breakdown.value": "القيمة",
     "series.none.body": "يكتب المُلقِط صفاً عند إغلاق الفترة. شغّله من قسم تطوير التحليلات التنفيذية إذا احتجت لقطة قبل النافذة الليلية.",
     "forecast.title": "كيف تبدو الفترات القادمة",
     "forecast.caption": "القيمة المتوقعة لكل فترة، مع المدى الذي يضعه النموذج حولها",
@@ -231,6 +264,17 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       )
     : { data: [] as Snapshot[] };
   const snapshots = page ? page.data.filter((row) => !row.dimsHash).slice(0, WINDOW).reverse() : null;
+  // ...and the dimensional rows are kept rather than discarded.
+  //
+  // The 2026-10-01 sweep's NORTH work made the market cut a **metric**
+  // (`gwp_by_market`), which writes **only** dimensional rows. This filter drops
+  // exactly those, so the market metric appeared in the picker and rendered
+  // "No snapshots for this metric yet" — a money figure with no reader at all.
+  //
+  // A dims row is not an extra point on a line (which is why the chart still gets
+  // only the undimensioned ones: `LineChart` is single-series). It is a **row of a
+  // breakdown**, and a breakdown is read as a table.
+  const slices = page ? page.data.filter((row) => !!row.dimsHash).slice(0, MAX_PAGE) : [];
 
   // The projection (docs/27 F50). `north:forecasts:read` is its own permission,
   // deliberately not implied by `north:snapshots:read` — a forward-looking
@@ -248,13 +292,26 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
         )) ?? null)
       : null;
 
-  return { metrics, metric, grain, snapshots, forecast };
+  // The definition's history (docs/modules/north.md §8: "a metric definition
+  // change shows as a chart annotation from the change date"). Readable, so a
+  // reader who lacks `north:metrics:read` loses the annotation and keeps the
+  // series — the same taper as the forecast card.
+  const definitionChanges = metric
+    ? ((await readable(
+        api<Page<DefinitionChange>>(
+          `/v1/north/metric-definitions?metricKey=${encodeURIComponent(metric.key)}&sort=changedAt&order=desc&limit=50`,
+          opts
+        )
+      ))?.data ?? [])
+    : [];
+
+  return { metrics, metric, grain, snapshots, slices, forecast, definitionChanges };
 }
 
 /* --------------------------------------------------------------- the screen */
 
 export default function NorthExplorer() {
-  const { metrics, metric, grain, snapshots, forecast } = useLoaderData<typeof loader>();
+  const { metrics, metric, grain, snapshots, slices, forecast, definitionChanges } = useLoaderData<typeof loader>();
   const shell = useNorthSessionData();
   const navigation = useNavigation();
 
@@ -267,6 +324,23 @@ export default function NorthExplorer() {
   const direction = headlineDirection(values);
   const change = pct(deltaBps(values), locale);
   const target = parsed<{ value?: number } | null>(metric?.targetJson, null);
+
+  // Where each definition change landed in the series: the **first snapshot taken
+  // at or after** the change. A snapshot taken before it was computed from the
+  // old definition, so marking it would put the annotation on the wrong period —
+  // and one period can carry only the most recent change, because a second mark
+  // on the same row says nothing a reader can act on.
+  const changeAt = new Map<string, DefinitionChange>();
+  for (const change of definitionChanges) {
+    const landed = rows.find((row) => row.ts >= change.changedAt);
+    if (landed && !changeAt.has(landed.id)) changeAt.set(landed.id, change);
+  }
+  // The same landing period, as a position in the series, so the chart can mark
+  // it from the change date. Chart and table are derived from one map, so they
+  // cannot disagree about when the definition changed.
+  const chartMarks = rows
+    .map((row, index) => (changeAt.has(row.id) ? { index, label: l("definition.changed") } : null))
+    .filter((mark): mark is { index: number; label: string } => mark !== null);
 
   const shown = (value: number) => (
     <MetricValue value={value} unit={metric?.unit ?? "count"} currency={metric?.currency ?? null} locale={locale} />
@@ -333,6 +407,32 @@ export default function NorthExplorer() {
 
           {snapshots === null ? (
             <Card><p className="font-ui text-13 text-subtle">{l("denied")}</p></Card>
+          ) : rows.length === 0 && slices.length > 0 ? (
+            // A dimensioned metric, read as a breakdown. It has **no single line to
+            // draw** — `LineChart` is single-series, and one line through nine markets
+            // would mean nothing — so the reader is a table rather than an empty state.
+            // Before this the market metric rendered "No snapshots for this metric yet"
+            // because the loader dropped exactly the rows it writes.
+            <Card title={l("breakdown.title")} description={l("breakdown.caption")}>
+              <Table
+                caption={l("breakdown.title")}
+                rowKey={(row) => `${row.period}:${row.dimension}`}
+                columns={[
+                  { key: "period", header: l("breakdown.period"), render: (row) => row.period },
+                  { key: "dimension", header: l("breakdown.dimension"), render: (row) => row.dimension },
+                  { key: "value", header: l("breakdown.value"), numeric: true, render: (row) => row.value }
+                ]}
+                rows={[...slices]
+                  // Newest first, and within a period the dimensions in a stable order,
+                  // so the same market does not move between refreshes.
+                  .sort((a, b) => b.period.localeCompare(a.period) || a.dimsHash.localeCompare(b.dimsHash))
+                  .map((row) => ({
+                    period: row.period,
+                    dimension: row.dimsHash,
+                    value: shown(row.value)
+                  }))}
+              />
+            </Card>
           ) : rows.length === 0 ? (
             <EmptyState title={l("series.none.title")} body={l("series.none.body")} />
           ) : (
@@ -348,6 +448,7 @@ export default function NorthExplorer() {
                   values={values}
                   label={metric ? metricName(metric, locale) : l("series.title")}
                   xLabels={rows.map((row) => row.period)}
+                  annotations={chartMarks}
                   format={(value) => metricText(value, metric?.unit ?? "count", metric?.currency ?? null, locale)}
                 />
               </Card>
@@ -358,7 +459,26 @@ export default function NorthExplorer() {
                   rows={[...rows].reverse()}
                   rowKey={(row) => row.id}
                   columns={[
-                    { key: "period", header: l("series.period"), render: (row) => row.period },
+                    {
+                      key: "period",
+                      header: l("series.period"),
+                      render: (row) =>
+                        changeAt.has(row.id) ? (
+                          // The annotation docs/modules/north.md §8 asks for, on
+                          // the period the definition changed in. A chart mark
+                          // would need `LineChart` to grow one; a marked row is
+                          // what the table can carry today, and it names the date
+                          // rather than implying it.
+                          <span className="flex flex-col">
+                            <span>{row.period}</span>
+                            <span className="font-ui text-12 text-accent">
+                              {l("definition.changed")} <DateTime value={changeAt.get(row.id)!.changedAt} locale={locale} />
+                            </span>
+                          </span>
+                        ) : (
+                          row.period
+                        )
+                    },
                     { key: "value", header: l("series.value"), numeric: true, render: (row) => shown(row.value) },
                     {
                       key: "taken",

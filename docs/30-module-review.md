@@ -42,7 +42,46 @@ modules' tables and cannot run on imported data as its spec promises.
 **Many emitted events have no in-process consumer**, and several seeded
 consumers listen for events nothing emits. The in-process consumers are a
 handful of branches in `apps/api/src/dispatch.ts` plus the generic journey and
-webhook fan-out. Dead in both directions:
+webhook fan-out.
+
+> **Re-verified at source 2026-10-01.** Of the four directions below, **three were
+> already fixed** when the table was last read, and the fourth is now. The rows are
+> kept, struck where they are stale, because the table is what a reader believes
+> without checking — the same reason `ui.md` §6's heading is pinned by a test.
+>
+> - ~~Emitted under the wrong name~~ — **fixed**. The consents resource emits
+>   `core.consent.updated` (which suppression, prospects and responses all listen
+>   for) *alongside* the generic `core.consents.created` it always emitted, and says
+>   so in a comment (`resources.ts:256`). **And the save desk was fixed too —
+>   corrected 2026-10-01, having first been written the other way round here.**
+>   The renewals resource does not ride the generic `orbit.renewals.updated`: it
+>   emits `RENEWAL_EVENTS[state]` — `orbit.renewal.offered` / `.accepted` / `.lost`
+>   (`resources.ts:782,836`) — **on a state change only**, with the comment *"so a
+>   later edit to a decided row announces nothing twice"*. The indirect emit is what
+>   the seam guard pins (`event-seams.test.ts` `INDIRECT`), and sweeping those lists
+>   is what caught this row reading the opposite of the truth.
+> - ~~Emitted twice~~ — **fixed**. `ledger.settlement.approved` and
+>   `ledger.settlement.paid` have one emitter each (`settlement.ts:547,628`), and the
+>   CRUD path now passes **no** `event` — both sites carry a comment saying why.
+> - ~~Consumed or subscribed, never emitted~~ — **mostly fixed** by
+>   `SEED_EVENT_RENAMES` (`packages/core/src/seed.ts:2751`), which maps the eight
+>   names the seed once shipped to the names the facts are actually announced as,
+>   so a tenant seeded earlier is repaired rather than stranded;
+>   `signal.campaign.launched` and `north.briefing.published` are emitted too.
+>   **One remained genuinely dead: `north.anomaly.detected`** — nothing emitted it,
+>   because the detector wrote a `north_anomalies` row and announced it to nobody.
+>   Fixed 2026-10-01 (`north-snapshotter.ts`): it emits when a row is written and
+>   **only** then, inside the `!openAnomaly` branch, so re-detecting an already-open
+>   anomaly does not fire a subscriber twice for one event. **Tested** 2026-10-01
+>   (`north-anomaly-event.test.ts`): announced once with its figures and subject, and
+>   a second sweep over the same open anomaly adds nothing. No test had exercised
+>   `runSnapshotter` before, which is why this took a deliberate fixture.
+> - **Emitted, never consumed in-process** — ~~still true~~ **true by design**.
+>   These are for the journey, webhook and external consumers, which is what the
+>   in-process consumer list beside it says; the defect was never the absence of an
+>   in-process branch but a name nobody emitted.
+
+Dead in both directions:
 
 | Direction | Examples |
 | --- | --- |
@@ -107,7 +146,7 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 1. ~~Data-product subscribe/deliver routes (billing functions exist, called only from tests).~~ **Fixed** 2026-09-27: `POST /v1/scout/data-products/{id}/subscribe` records a provider's fee per delivery under the new `scout.data_product_subscribe` approval and posts `DPROD-SUB`, and `…/deliver` builds the cut the definition names (consented rows only, thin cells suppressed), lets the `DPROD-DELIVER` k-anonymity precondition refuse it, bills the approved fee through `deliverDataProduct` and logs the artefact where the screen's delivery log reads — both idempotent, audited and wired to `/scout/data-products` (ADR-0101).
 2. ~~First external source adapter (news/RSS), per ADR-0078.~~ **Fixed** 2026-09-27: `engines/scout-rss.ts` reads the https feeds a tenant lists in `moduleConfig.scout.settings.rssFeeds` through the harvest's one write path (deduped by feed host and guid), refusing any DOCTYPE/ENTITY, following no redirect, sending nothing of the tenant's and keeping no author, with `fetch` injected for tests (ADR-0101).
 3. ~~Watch alerts routed to notifications.~~ **Fixed** 2026-09-26: the nightly window runs the watch after the harvest and `notifyUrgentWatch` tells every `scout.lead`, once per subject per day.
-4. PDF wording diff via the AXIS extraction path. *Open 2026-09-27, needs a decision first:* the AXIS path produces no text to diff — `POST /v1/axis/documents/:id/extract` either takes caller-supplied `rawText` (never stored) or renders page 1 to an image and reads the named fields of `eid`/`mulkiya` (`EXTRACTION_FIELDS`), storing only those fields; `axis_documents` rows also require a case. Choosing a PDF-text dependency (docs/02 §9, ADR-0016) or a multi-page vision transcription purpose (eval-first), and where a wording's text lives, is the decision.
+4. PDF wording diff via the AXIS extraction path. ***Decided 2026-10-01: ADR-0123 — transcribed, not parsed.*** The choice was between a PDF-text dependency and a vision path; the answer is a `wording.transcribe` purpose through `packages/model-gateway`, the transcription stored and pinned to the document, the diff labelling each side as transcribed, and an eval gating it before default-on. The library lost on its **failure mode**, not its cost: on a scanned wording it returns the empty string and the differ then reports *no coverage-term change* between two documents it could not read — a confident false negative taken to a provider. **Implemented the same day**: purpose, migration `0056`, `engines/scout-wording.ts`, `POST /v1/scout/wording-diff/documents` and the eval — gate passes (`termRecall 1.000`, `localeParity 1.000`, `hallucinatedFigureRate 0.000`). Building the eval found **two Arabic normalisation bugs, neither the model's**: punctuation inside the Arabic block, and the attached `و` particle. The screen still takes text rather than documents. The original note, kept as the reasoning that framed the decision was: *Open 2026-09-27, needs a decision first:* the AXIS path produces no text to diff — `POST /v1/axis/documents/:id/extract` either takes caller-supplied `rawText` (never stored) or renders page 1 to an image and reads the named fields of `eid`/`mulkiya` (`EXTRACTION_FIELDS`), storing only those fields; `axis_documents` rows also require a case. Choosing a PDF-text dependency (docs/02 §9, ADR-0016) or a multi-page vision transcription purpose (eval-first), and where a wording's text lives, is the decision.
 5. ~~Price elasticity from bench data on the pricing screen.~~ **Fixed** 2026-09-27: `estimateElasticity` (packages/core/src/elasticity.ts) fits a volume-weighted log-log slope of win rate on price index per line over the bench cells above the k-anonymity floor, with a 95% interval and an honest "not enough data" / "prices too close" state, served by `GET /v1/scout/price-elasticity` and rendered as a third panel on `/scout/pricing`.
 
 ### NORTH · Insight
@@ -152,6 +191,93 @@ Counts are of the 12–18 capabilities each review listed (✓ exists, ◐ parti
 3. ~~Approvals pagination (F60).~~ **Fixed** 2026-09-26: `/v1/me/inbox` pages by keyset `(requestedAt, id)`; the approvals screen follows the cursor.
 4. ~~DLQ replay~~ **fixed** 2026-09-26 (`replayDead`, `POST /v1/core/event-dlq/{id}/replay`, a Replay action on the DLQ tab: only the dead consumer re-runs). The platform AI kill switch has its button (2026-09-26): a card on `/platform` that stops all AI with a stated reason and releases through the gated route, never the generic flag toggle.
 5. ~~SCIM provisioning~~ **Fixed** 2026-09-27 (ADR-0096): `/v1/scim/v2` Users and Groups (roles, membership only) for an API key carrying `core:users:*`/`core:roles:*` scopes; deactivation suspends; a Group grant is held to `assertCanGrant`. SAML **fixed** the same day (ADR-0097, superseding ADR-0001): xml-crypto verifies, identity is read only from the signed reference, and the comment-truncation, signature-wrapping, entity, SHA-1, replay and audience vectors are tests (`engines/saml.test.ts`).
+
+## 2b. The market-leader queue (2026-10-01)
+
+Findings from a 24-agent sweep with adversarial verification — twelve recon agents, twelve verifiers whose
+only instruction was to falsify. **Six survived; six were overstated or wrong.** Only the survivors are acted
+on, and the killed ones are recorded as killed so nobody re-chases them.
+
+**Closed:**
+
+- **A placement names its licence** (`ADR-0125`). `axis_authorisations` is a tenant-owned register per market,
+  regulator, scope and product line; `enforceAuthorisation` refuses a bind with four distinct reasons
+  (`none_on_file`, `expired`, `suspended`, `not_yet_valid`). This also closed a dead seam: `operating-model.ts`
+  had **no production reader** and now has five — the seed derives from `MARKETS`/`REGULATORS` and re-types
+  **zero** licence numbers.
+- **Client money is many accounts.** `clientMoneyPairs` derives each asset's liability from the tenant's own
+  chart, so the posting invariant, position report, period-close check and Money Map are per account. A **KSA
+  pair (1011/2011, SAR)** is seeded. The invariant evaluates **every pair, including ones a batch never
+  named** — because a check that reads only the accounts a batch mentions is exactly how a second client-money
+  account stays invisible.
+- **Entitlements had no owner.** `admin:entitlements:write` was exempt with the reason *"entitlements are
+  edited by the platform operator, not by a tenant route"* — a claim about code that did not exist — while the
+  tenant's own route accepted the field, so a tenant admin could add every module and raise their own seat
+  limit. Closed as a named refusal, and the exemption retired because its reason had become false.
+
+**Closed since:**
+
+- **The group-bind hole.** `/policies/:id/bind-group` went straight to its own accrual and never entered
+  `bindPolicy`, so a broker could write group medical in a market it holds no licence in while the individual
+  path refused the same market. **A register is only a control where every door asks it.**
+- **The eleventh backfill.** The authorisation register is checked on the bind path, so a tenant provisioned
+  before migration `0057` held no licence row and **every bind was refused** — an outage, not a gap, and one
+  this change introduced. `ensureSeedAuthorisations` is now the eleventh `ensure…`/`sync…` beside
+  `syncTaxRules` and nine others in `POST /v1/auth/demo/resync-roles`, whose own comments name this exact
+  shape. **A compiled table read only at provisioning time has one delivery.**
+- **NORTH's per-market money** (ADR-0128). `gwp` sums nine currencies into one integer and the screen called it
+  *"AED 1,234,567.00"*; the commission reader beside it *dropped* non-AED rows. Now `functionalCurrencyOf`
+  states the currency in all three readers, `axis_policies.market` records the market on the contract (nullable,
+  written at bind from the same statement the licence check reads), and `gwp_by_market` cuts the total with a
+  named `unrecorded` bucket for rows written before the column existed. **Two screens are still owed.**
+- **SCOUT's coverage column** (ADR-0127). One column, two facts, four shapes; the panel rendered `NaN`, the
+  portal "None", the negotiation pack omitted it. `coverageOf` now normalises all four on read and every reader
+  routes through it.
+
+## 2c. An open decision the client owns: does accepting a renewal renew it? (2026-10-02)
+
+Found while closing item 3, and it is a **design question rather than a defect**, so it is put here rather than
+decided in code.
+
+**What the platform does today:**
+
+1. ORBIT's re-quote engine prices an `auto_requote` renewal across the panel and writes
+   `orbit_renewals.requotes_json` — the cheapest answer, or a null price when the panel did not answer
+   (`engines/orbit-requote.ts`, ADR-0129).
+2. The save desk records the offer; acceptance is a generic resource write of `state: "accepted"`
+   (`resources.ts:891` maps it to the `orbit.renewal.accepted` event).
+3. That event has **one** consumer: attribution (`dispatch.ts:211`), which measures the outcome for docs/17
+   SIG-007.
+
+**What it does not do:** create the successor policy. `renewPolicy` — which carries `quoteResponseId` onto the
+successor's version and posts the renewal's journal — is reachable only from
+`POST /v1/axis/policies/:id/renew`. **The retention loop therefore ends at a number and a label**, and a person
+who wants the renewal to actually happen must go to AXIS and re-key the price the engine already computed.
+
+**The decision:**
+
+- **(a) Acceptance renews**, carrying the chosen quote. This is a saga — it creates a policy version and posts
+  money — and CLAUDE.md rule 4 names pricing as its first gated example, so it needs a stated approver. It is the
+  step that makes "the retention loop carries a price" true end to end.
+- **(b) The human renews in AXIS and ORBIT only measures.** Then nothing in the product is broken, and the defect
+  is only the docstring that implied otherwise — now corrected in `axis-lifecycle.ts`.
+
+**We have not chosen, deliberately.** Option (a) creates policies and posts money on an event, and *"the engine
+did it silently"* is not an answer this platform accepts anywhere else. Both readings are consistent with
+docs/17's wording, so the client's intent decides it.
+
+**Recorded, not yet built:**
+
+- **The six missing rulepacks.** `TAX_MARKETS` is `["AE","EG","SA"]`; the client operates in nine. Proposed
+  rates for the other six live in `TAX_RULEPACK_DRAFTS` (`packages/db/src/tax-rulepack.ts`) and are **never
+  applied**: a test asserts the applied rulepack and the drafts share no market, so a draft cannot become law
+  by being copied. A draft of `0` means *"no rate known"* and says so in words — **not** zero-rated, and the
+  two must not be confused when one is promoted. Verification means supplying a citation; a rate confirmed
+  without one is confirmed by memory.
+- **`bindGroup` is not gated by the authorisation register.** A group placement goes through
+  `engines/group-commission.ts` and never enters `bindPolicy`. A real hole in the shipped feature.
+- **No backfill of authorisations for existing tenants.** `seed()` refuses a second call, so a tenant
+  provisioned before `0057` holds no licence and its next bind is refused — the sighting-9 shape.
 
 ## 3. Order of work
 

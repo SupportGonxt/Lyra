@@ -24,6 +24,7 @@ import { onDsarCreated } from "./engines/compliance-dsar.js";
 import { onDsarUpdated } from "./engines/compliance-erasure.js";
 import { onJourneyEvent } from "./engines/orbit-journeys.js";
 import { onAlertTriggered } from "./engines/north-alert-notify.js";
+import { onCreativeFlagged } from "./engines/signal-creative-notify.js";
 import { onAccrualDecided, onPolicyIssuedAccrue } from "./engines/commission-accrual.js";
 import { onInboundMessage } from "./engines/orbit-auto-reply.js";
 import type { Gateway } from "@lyra/model-gateway";
@@ -76,6 +77,17 @@ export const AUTO_REPLY_CONSUMER = "orbit.auto_reply";
 
 export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100, deps?: DrainDeps): Promise<DrainResult> {
   const events = await pendingOutbox(ctx.db, limit, ctx.now);
+  // Retries run **first and unconditionally**, because they replay rows a prior
+  // `deliver()` already wrote (`webhook_deliveries`), so they have nothing to do
+  // with whether a new event arrived.
+  //
+  // The 2026-10-01 sweep found the opposite: `retryFailed` sat at the end of this
+  // function, behind the empty-batch return below — so a failed delivery was
+  // retried only when some **unrelated** event happened to be pending in the same
+  // tick, and on a quiet tenant it was never retried at all. The comment where the
+  // call used to be said *"Retries run every tick regardless of the queue"*, which
+  // is what the code was supposed to do and did not.
+  await retryFailed(ctx);
   if (!events.length) return { published: 0, delivered: 0, failed: 0, queued: 0 };
 
   let delivered = 0;
@@ -169,6 +181,11 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100, dep
       if (event.type === "north.alert.triggered" && on("north")) {
         await consume(ctx.db, event, "north.alert.notify", (e) => onAlertTriggered(ctx, e), ctx.now);
       }
+      // A variant the pre-flight flagged reaches the people who can clear it.
+      // The event was emitted and consumed by nobody until this line.
+      if (event.type === "signal.creative.flagged" && on("signal")) {
+        await consume(ctx.db, event, "signal.creative.notify", (e) => onCreativeFlagged(ctx, e), ctx.now);
+      }
       // docs/12 §3, ADR-0089: a fulfilled erasure reaches per-record memory —
       // the AI's memories and the notes staff wrote — and logs what it erased.
       if (event.type === "compliance.dsar-requests.updated") {
@@ -211,9 +228,8 @@ export async function drainOutbox(ctx: Ctx, queue?: EventQueue, limit = 100, dep
   }
 
   await markPublished(ctx.db, done, ctx.now);
-  // Retries run every tick regardless of the queue: they replay rows already
-  // written to webhook_deliveries by a prior `deliver()` call, queued or not.
-  await retryFailed(ctx);
+  // `retryFailed` already ran at the top of this function — unconditionally, which
+  // is what "every tick regardless of the queue" requires.
   return { published: done.length, delivered, failed, queued };
 }
 

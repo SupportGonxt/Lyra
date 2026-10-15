@@ -85,6 +85,12 @@ export const PURPOSES: Record<string, PurposeDef> = {
   // The brief a promoted whitespace hands SIGNAL. Internal: a human reviews the
   // campaign and the creative generator's own purpose governs the copy that ships.
   "whitespace.brief": { module: "scout", customerFacing: false },
+  // ADR-0123: a policy wording is transcribed, not parsed. Internal — a wording
+  // is a provider's document, and the diff built from it goes to a negotiation,
+  // so nothing here is customer-facing. It is its own purpose rather than
+  // `axis.document.extract` because what it returns is the document's **words**
+  // (page after page), where extraction returns named fields from one page.
+  "wording.transcribe": { module: "scout", customerFacing: false },
   "scout.signal.embed": { module: "scout", customerFacing: false },
   "scout.signal.similar": { module: "scout", customerFacing: false },
 

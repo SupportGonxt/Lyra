@@ -15,6 +15,7 @@ import {
   Card,
   Checkbox,
   DateTime,
+  Money,
   EmptyState,
   EvidenceLink,
   Field,
@@ -178,8 +179,18 @@ export const LABELS: Labels = {
     riskWhyBody:
       "The churn score is written by the retention model on the renewal record. It reads tenure, claims history, payment behaviour and recent conversation sentiment. It is a ranking aid, not a decision.",
     noOffer: "No offer figures yet",
+    requoted: "Re-quoted",
+    /** The panel was asked and did not answer — not the same as no price on file. */
+    noPanelAnswer: "No panel answer",
+    // This read "Nothing in the platform generates a re-quote today, so the offer
+    // recorded here is the fact that one was made, not its price" — and it was
+    // rendered unconditionally to the retention operator. The 2026-10-01 sweep found
+    // it three rounds after `engines/orbit-requote.ts` and its day-0 wiring landed:
+    // the engine prices every `auto_requote` renewal and writes the panel's cheapest
+    // answer to `requotesJson`. **The operator was being told no re-quote exists
+    // while the row behind the notice held one.**
     noOfferBody:
-      "Nothing in the platform generates a re-quote today, so the offer recorded here is the fact that one was made, not its price.",
+      "A re-quote is computed when the renewal is raised. Where the panel answered, the price is on the renewal; where it did not, this desk still records that an offer was made.",
     noneQueue: "Nothing is at risk right now.",
     noneOutstanding: "No offer is waiting on a customer.",
     noneSettled: "Nothing has been decided yet.",
@@ -250,6 +261,8 @@ export const LABELS: Labels = {
     riskWhyBody:
       "درجة التسرب يكتبها نموذج الاستبقاء على سجل التجديد، بناءً على مدة العلاقة وسجل المطالبات وسلوك الدفع ونبرة المحادثات الأخيرة. هي مساعدة في الترتيب وليست قرارًا.",
     noOffer: "لا توجد أرقام عرض بعد",
+    requoted: "أعيد التسعير",
+    noPanelAnswer: "لا إجابة من السوق",
     noOfferBody:
       "لا يوجد في المنصة ما يُنشئ إعادة تسعير اليوم، لذا ما يُسجَّل هنا هو حدوث العرض لا سعره.",
     noneQueue: "لا شيء معرّض للخطر الآن.",
@@ -552,6 +565,29 @@ export default function SaveDesk() {
   );
 }
 
+/**
+ * `orbit_renewals.requotes_json` as `orbit-requote.ts` writes it (ADR-0129).
+ *
+ * Read defensively because the column has two surviving writers: the engine's
+ * `{ premiumMinor, currency, offeredBy, quotes, unanswered, at }` and
+ * `make_renewal_offer`'s hand-typed `{ premiumMinor, currency, offeredBy }`. Both
+ * carry the two fields this column needs, so both render; anything else is a shape
+ * this desk does not know how to state, and it says "no panel answer" rather than
+ * inventing a figure.
+ */
+export function requoteOf(raw: unknown): { premiumMinor: number | null; currency: string } | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { premiumMinor?: unknown; currency?: unknown };
+    if (typeof parsed.currency !== "string") return null;
+    if (parsed.premiumMinor === null) return { premiumMinor: null, currency: parsed.currency };
+    if (typeof parsed.premiumMinor !== "number") return null;
+    return { premiumMinor: parsed.premiumMinor, currency: parsed.currency };
+  } catch {
+    return null;
+  }
+}
+
 function Desk({
   rows,
   l,
@@ -636,6 +672,23 @@ function Desk({
           </Badge>
         </EvidenceLink>
       )
+    },
+    {
+      key: "requotesJson",
+      header: l("requoted"),
+      // The reader the engine has been missing (ADR-0129, sweep §42). `requotesJson`
+      // was declared on this row and never rendered, while the notice above told the
+      // operator no re-quote existed.
+      //
+      // **Null is not zero.** `premiumMinor` is null when the panel was asked and did
+      // not answer, and the column says so in words rather than printing 0 — the
+      // distinction the engine was written to keep.
+      render: (row) => {
+        const q = requoteOf(row.requotesJson);
+        if (!q) return <span className="text-13 text-muted">{l("noPanelAnswer")}</span>;
+        if (q.premiumMinor === null) return <span className="text-13 text-muted">{l("noPanelAnswer")}</span>;
+        return <Money amountMinor={q.premiumMinor} currency={q.currency} locale={locale} />;
+      }
     },
     { key: "strategy", header: l("strategy"), render: (row) => <Badge tone="neutral">{l(row.strategy)}</Badge> },
     {

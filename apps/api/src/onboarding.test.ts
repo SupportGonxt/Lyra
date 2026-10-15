@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { and, eq } from "drizzle-orm";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { id as newId, schema, type Db } from "@lyra/db";
 import { seed, totpAt, TOTP_STEP_SEC, type SeedResult } from "@lyra/core";
 import { app } from "./index.js";
@@ -556,5 +556,99 @@ describe("another tenant's onboarding is invisible and immovable", () => {
       .from(schema.onboardingSteps)
       .where(eq(schema.onboardingSteps.id, foreignStep));
     expect(rows[0]!.state).toBe("pending");
+  });
+});
+
+/* ------------------------------------------- the live key J-X3 ends with */
+
+// docs/modules/orbit.md §8: "Partner sandbox → live key promotion without code
+// changes." The signup route mints a `test` key and says of itself that it "can
+// never mint a live key"; `advancePartner` moved a partner to `live` behind an
+// approval; and **no live credential was ever issued**. A live partner held only
+// a sandbox key, and issuing one meant a code change.
+//
+// The stage is set directly here rather than by re-walking the ladder: the
+// ladder has its own tests above, and this one is about the key.
+
+const liveKey = (id = partnerId) => call("orbit.partners", "POST", `/v1/onboarding/partners/${id}/live-key`);
+
+/**
+ * This partner's live keys, not the table's: the seed writes a six-key
+ * credential register of its own, so counting `apiKeys` counts the demo tenant.
+ */
+const partnerLiveKeys = () =>
+  database
+    .select()
+    .from(schema.apiKeys)
+    .where(and(eq(schema.apiKeys.mode, "live"), eq(schema.apiKeys.createdBy, `partner:${partnerId}`)));
+
+async function atStage(stage: string) {
+  await database
+    .update(schema.orbitPartners)
+    .set({ stage, status: "active", sandboxFlag: stage !== "live" })
+    .where(eq(schema.orbitPartners.id, partnerId));
+}
+
+describe("promoting a partner to a live key", () => {
+  // The seeded database is shared across this file's tests, so a key minted by
+  // one of them is still there for the next — which is how the "mints one"
+  // assertion first read 7.
+  beforeEach(async () => {
+    await database.delete(schema.apiKeys).where(and(eq(schema.apiKeys.mode, "live"), eq(schema.apiKeys.createdBy, `partner:${partnerId}`)));
+  });
+
+  it("refuses before the partner is live, because a live credential is for live partners", async () => {
+    await atStage("sandbox");
+    const res = await liveKey();
+    expect(res.status).toBe(409);
+    expect(res.body.detail).toContain("sandbox");
+    expect(await partnerLiveKeys()).toHaveLength(0);
+  });
+
+  it("mints a live key once, and points the partner at it", async () => {
+    await atStage("live");
+    const res = await liveKey();
+    expect(res.status).toBe(201);
+    expect(res.body.mode).toBe("live");
+    expect(res.body.prefix).toMatch(/^qvk_live_/);
+    // The plaintext comes back exactly once and is never stored — the row holds
+    // the hash, same rule as every other mint here.
+    expect(res.body.key).toMatch(/^qvk_live_/);
+
+    const keys = await partnerLiveKeys();
+    expect(keys).toHaveLength(1);
+    expect(keys[0]!.mode).toBe("live");
+    expect(keys[0]!.keyHash).not.toContain(res.body.key);
+    expect(JSON.parse(keys[0]!.scopesJson)).toContain("dist:quote_requests:create");
+
+    const [partner] = await database.select().from(schema.orbitPartners).where(eq(schema.orbitPartners.id, partnerId));
+    expect(partner!.apiKeyRef).toBe(res.body.id);
+  });
+
+  it("refuses a second one, because two live keys is a credential nobody can account for", async () => {
+    await atStage("live");
+    expect((await liveKey()).status).toBe(201);
+    const again = await liveKey();
+    expect(again.status).toBe(409);
+    expect(again.body.detail).toContain("already holds a live key");
+    expect(await partnerLiveKeys()).toHaveLength(1);
+  });
+
+  it("refuses a partner who is suspended, whatever stage they reached", async () => {
+    await atStage("live");
+    await database.update(schema.orbitPartners).set({ status: "suspended" }).where(eq(schema.orbitPartners.id, partnerId));
+    const res = await liveKey();
+    expect(res.status).toBe(409);
+    expect(res.body.detail).toContain("suspended");
+  });
+
+  it("refuses a caller without the live-key permission", async () => {
+    await atStage("live");
+    // An axis seat runs its own desk and cannot mint a partner credential. A
+    // seat that is not in the demo roster authenticates as nobody and gets a 401
+    // rather than a 403 — either way the point is that no key was minted.
+    const res = await call("axis.lead", "POST", `/v1/onboarding/partners/${partnerId}/live-key`);
+    expect([401, 403]).toContain(res.status);
+    expect(await partnerLiveKeys()).toHaveLength(0);
   });
 });

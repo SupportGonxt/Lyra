@@ -484,7 +484,27 @@ export const RenewBody = z.object({
   commissionMinor: z.number().int().nonnegative().optional(),
   /** The introducer's share of the new term's commission. */
   channelMinor: z.number().int().nonnegative().default(0),
-  /** Set when the renewal was re-shopped rather than rolled at the same price. */
+  /**
+   * The panel answer this renewal was priced on, written onto the **successor
+   * policy's version** at `:587`.
+   *
+   * **No flow in the platform sets it.** This read *"Set when the renewal was
+   * re-shopped rather than rolled at the same price"* — which describes a step that
+   * does not exist. The 2026-10-01 sweep looked for the handoff and the truth is
+   * larger than a missing argument: ORBIT prices a renewal and writes
+   * `orbit_renewals.requotes_json` (`engines/orbit-requote.ts`), but a renewal becomes
+   * **accepted** by a generic resource PATCH setting `state: "accepted"`
+   * (`resources.ts:891`), whose `orbit.renewal.accepted` event is consumed by
+   * **attribution only** (`dispatch.ts:211`). **No successor policy is created by the
+   * platform**, so `renewPolicy` — this route, the field's only caller — is never
+   * reached from the retention loop, and the price the engine computed has to be
+   * re-keyed by hand.
+   *
+   * Two honest resolutions, and the choice is the client's because one of them creates
+   * policies and posts money: acceptance grows a **gated** renew step carrying the
+   * chosen quote, or this comment says plainly that nothing sets the field yet. See
+   * `MODULE-AUDIT.md` §49 and `docs/30-module-review.md`.
+   */
   quoteResponseId: z.string().min(1).nullish(),
   terms: z.record(z.string(), z.unknown()).optional(),
   note: z.string().max(500).nullish()

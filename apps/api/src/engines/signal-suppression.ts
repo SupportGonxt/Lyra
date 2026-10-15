@@ -1,14 +1,15 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { id as newId, schema, PurposesJson, parseJson } from "@lyra/db";
-import { audit, actorRef, type Ctx, type Envelope } from "@lyra/core";
+import { audit, actorRef, SUPPRESSION_AUDIENCE_NAME, type Ctx, type Envelope } from "@lyra/core";
 
 // docs/25 M4 SIGNAL row — "suppression propagation test": a consumer wired to
 // core.consent.updated that refreshes the suppression audience and cascades to
 // live campaign membership. Runs inline off the outbox drain (dispatch.ts), so
 // consent withdrawal -> suppression is one drain tick, not a 15-minute cron.
 
-export const SUPPRESSION_AUDIENCE_NAME =
-  "Do not contact — withdrawn consent, complaints, open claims";
+/** The seed writes this row too, so the name comes from @lyra/core and there is
+ *  exactly one literal for it. */
+export { SUPPRESSION_AUDIENCE_NAME } from "@lyra/core";
 
 interface ConsentUpdatedData {
   customerId: string;
@@ -136,4 +137,146 @@ async function liveCampaignsExcluding(ctx: Ctx, suppressionAudienceId: string): 
   }
 
   return campaigns.filter((c) => c.audienceId && referencing.has(c.audienceId)).map((c) => c.id);
+}
+
+/* ---------------------------------------------------- the suppression floor */
+
+// docs/modules/signal.md §2.2: "suppression lists always applied (recent
+// purchasers, do-not-contact, complainers)". Consent was the only one wired:
+// the file above says so in its own words, and the seed's suppression audience
+// advertises all three. So a UAE marketing team's first send would have emailed
+// people who bought last week and people with an open regulated complaint — the
+// two most reliable ways to turn a legitimate campaign into a complaint.
+//
+// This is a *floor*, not an audience rule, and that is deliberate: consent, the
+// frequency cap and quiet hours are floors too. A tenant can build any audience
+// it likes; none of them may reach someone this function suppresses.
+
+/** Days after a purchase during which marketing is suppressed. */
+export const PURCHASER_WINDOW_DAYS = 30;
+/** Days after a complaint is resolved during which marketing is suppressed. */
+export const COMPLAINER_WINDOW_DAYS = 30;
+
+export type SuppressionReason = "recent_purchaser" | "complainer";
+
+export interface SuppressionWindows {
+  purchaserDays: number;
+  complainerDays: number;
+}
+
+/** The windows this tenant runs, from `moduleConfig.signal.settings.suppression`. */
+export function suppressionWindows(settings: Record<string, unknown>): SuppressionWindows {
+  const raw = settings.suppression;
+  const bag = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const days = (value: unknown, fallback: number) =>
+    typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 3650 ? value : fallback;
+  return {
+    purchaserDays: days(bag.purchaserDays, PURCHASER_WINDOW_DAYS),
+    complainerDays: days(bag.complainerDays, COMPLAINER_WINDOW_DAYS)
+  };
+}
+
+/** Whether a purchase that landed at `boundAt` still suppresses contact. */
+export function purchaseSuppresses(boundAt: number, now: number, windows: SuppressionWindows): boolean {
+  return now - boundAt <= windows.purchaserDays * 86_400_000;
+}
+
+/**
+ * Whether a complaint suppresses contact. An **open** complaint always does —
+ * whatever its age — because marketing to somebody mid-complaint is the case
+ * that becomes a regulator's letter. A resolved one suppresses for the window.
+ */
+export function complaintSuppresses(
+  complaint: { state: string; resolvedAt: number | null },
+  now: number,
+  windows: SuppressionWindows
+): boolean {
+  if (complaint.resolvedAt === null) return true;
+  return now - complaint.resolvedAt <= windows.complainerDays * 86_400_000;
+}
+
+const CLOSED_COMPLAINT_STATES = new Set(["resolved", "closed"]);
+
+export interface SuppressionFloor {
+  /** Customer id → why they are suppressed. First reason wins; the order is stable. */
+  byCustomer: Map<string, SuppressionReason>;
+  counts: { recent_purchaser: number; complainer: number };
+  windows: SuppressionWindows;
+}
+
+/**
+ * The customers a marketing send may not touch, for reasons other than consent.
+ *
+ * Reads two facts the platform already holds: a bind touch
+ * (`signal_attribution_events.touch_type = 'bind'`) is a purchase, and an
+ * `axis_complaints` row is a regulated complaint with a state and a resolution
+ * date. Nothing here is inferred, and nothing is guessed from a case's `kind`.
+ */
+export async function suppressionFloor(
+  ctx: Ctx,
+  settings: Record<string, unknown> = {},
+  customerIds?: readonly string[]
+): Promise<SuppressionFloor> {
+  const windows = suppressionWindows(settings);
+  const byCustomer = new Map<string, SuppressionReason>();
+
+  const scoped = customerIds && customerIds.length > 0 ? [...customerIds] : null;
+  // D1 binds at most 100 parameters per statement.
+  const chunks: (readonly string[] | null)[] = scoped
+    ? Array.from({ length: Math.ceil(scoped.length / 90) }, (_, i) => scoped.slice(i * 90, i * 90 + 90))
+    : [null];
+
+  for (const chunk of chunks) {
+    // Two predicates, not one: an `inArray` carries its own table reference, so
+    // reusing the attribution one on the complaints query filters on a column
+    // that is not in that FROM.
+    const withinPurchases = chunk ? inArray(schema.signalAttributionEvents.customerId, chunk as string[]) : undefined;
+    const withinComplaints = chunk ? inArray(schema.axisComplaints.customerId, chunk as string[]) : undefined;
+    const purchases = await ctx.db
+      .select({ customerId: schema.signalAttributionEvents.customerId, ts: schema.signalAttributionEvents.ts })
+      .from(schema.signalAttributionEvents)
+      .where(
+        and(
+          eq(schema.signalAttributionEvents.tenantId, ctx.tenantId),
+          eq(schema.signalAttributionEvents.touchType, "bind"),
+          gte(schema.signalAttributionEvents.ts, ctx.now - windows.purchaserDays * 86_400_000),
+          ...(withinPurchases ? [withinPurchases] : [])
+        )
+      );
+    for (const row of purchases) {
+      if (row.customerId && !byCustomer.has(row.customerId)) byCustomer.set(row.customerId, "recent_purchaser");
+    }
+
+    const complaints = await ctx.db
+      .select({
+        customerId: schema.axisComplaints.customerId,
+        state: schema.axisComplaints.state,
+        resolvedAt: schema.axisComplaints.resolvedAt
+      })
+      .from(schema.axisComplaints)
+      .where(
+        and(
+          eq(schema.axisComplaints.tenantId, ctx.tenantId),
+          // An open complaint is unbounded in age; a resolved one is only
+          // relevant inside its window, so the SQL filter takes both.
+          or(
+            sql`${schema.axisComplaints.resolvedAt} is null`,
+            gte(schema.axisComplaints.resolvedAt, ctx.now - windows.complainerDays * 86_400_000)
+          ),
+          ...(withinComplaints ? [withinComplaints] : [])
+        )
+      );
+    for (const row of complaints) {
+      if (!row.customerId) continue;
+      if (CLOSED_COMPLAINT_STATES.has(row.state) && row.resolvedAt === null) continue;
+      if (!complaintSuppresses({ state: row.state, resolvedAt: row.resolvedAt }, ctx.now, windows)) continue;
+      // A purchaser who also has an open complaint is a complainer first: that
+      // is the fact an operator needs to see.
+      byCustomer.set(row.customerId, "complainer");
+    }
+  }
+
+  const counts = { recent_purchaser: 0, complainer: 0 };
+  for (const reason of byCustomer.values()) counts[reason] += 1;
+  return { byCustomer, counts, windows };
 }

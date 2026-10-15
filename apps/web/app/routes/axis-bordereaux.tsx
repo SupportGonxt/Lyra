@@ -23,6 +23,7 @@ import {
   type Section
 } from "@lyra/ui";
 import { ApiError, api, fetchMe, type Problem } from "../api.server";
+import { FALLBACK_CURRENCY } from "../calendar";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { useAxisSessionData } from "./axis-shell";
@@ -492,7 +493,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     if (!(BORDEREAU_KINDS as readonly string[]).includes(kind)) return { ...nothing, error: "kindRequired" };
     const period = text("period");
     if (!ISO_MONTH.test(period)) return { ...nothing, error: "periodRequired" };
-    const currency = text("currency") || "AED";
+    const currency = text("currency") || FALLBACK_CURRENCY;
 
     // Outbound is built server-side straight from the ledger; only inbound
     // needs the counterparty's raw rows, and only a period nobody has
@@ -529,7 +530,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     if (!(BORDEREAU_KINDS as readonly string[]).includes(kind)) return { ...nothing, error: "kindRequired" };
     const period = text("period");
     if (!ISO_MONTH.test(period)) return { ...nothing, error: "periodRequired" };
-    const currency = text("currency") || "AED";
+    const currency = text("currency") || FALLBACK_CURRENCY;
     const file = form.get("file");
     const csv = file instanceof File ? await file.text() : "";
     if (!csv.trim()) return { ...nothing, error: "csvRequired" };

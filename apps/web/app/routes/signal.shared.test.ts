@@ -7,6 +7,10 @@ import {
   budgetHeadline,
   citationsOf,
   cockpitHeadline,
+  conversionValueFromForm,
+  conversionValueOf,
+  exportsRoll,
+  type ConversionExportRow,
   devHeadline,
   DISCLOSURE_REASONS,
   disclosureNotes,
@@ -540,5 +544,119 @@ describe("explain", () => {
       l
     );
     expect(out.title).toBe(l("studio.disclosure.disclosure_missing"));
+  });
+});
+
+/* ---------------------------------------------- value-based bidding (SIG-032) */
+
+// docs/17 SIG-032, ADR-0112. The export engine stands down unless
+// `moduleConfig.signal.settings.conversionValue` is set, and until this control
+// existed nothing in the product could set it — three adapters and an engine,
+// permanently unreachable. These pin the read half and the form half; the
+// arithmetic that turns the value into a reported number stays in @lyra/core.
+
+describe("conversionValueOf", () => {
+  const policy = (settings: unknown) => ({ moduleConfig: { signal: { settings: settings as Record<string, unknown> } } });
+
+  it("reads each basis, and treats anything else as off", () => {
+    expect(conversionValueOf(policy({ conversionValue: { basis: "commission" } }))).toEqual({ basis: "commission" });
+    expect(conversionValueOf(policy({ conversionValue: { basis: "premium_rate", ratePpm: 75_000 } }))).toEqual({
+      basis: "premium_rate",
+      ratePpm: 75_000
+    });
+    // A rate basis with no usable rate is off, not a zero: reporting a value of
+    // nothing teaches the bidder a price nobody set.
+    expect(conversionValueOf(policy({ conversionValue: { basis: "premium_rate" } }))).toBeNull();
+    expect(conversionValueOf(policy({ conversionValue: { basis: "premium_rate", ratePpm: 0 } }))).toBeNull();
+    expect(conversionValueOf(policy({ conversionValue: { basis: "invented" } }))).toBeNull();
+  });
+
+  it("is off when the policy says nothing, and survives a malformed one", () => {
+    expect(conversionValueOf({})).toBeNull();
+    expect(conversionValueOf(undefined)).toBeNull();
+    expect(conversionValueOf(policy({ conversionValue: "commission" }))).toBeNull();
+    expect(conversionValueOf(policy({ conversionValue: null }))).toBeNull();
+    expect(conversionValueOf({ moduleConfig: "not an object" })).toBeNull();
+  });
+});
+
+describe("conversionValueFromForm", () => {
+  it("turns a percentage into the parts per million the setting stores", () => {
+    expect(conversionValueFromForm("premium_rate", "7.5")).toEqual({
+      ok: true,
+      basis: "premium_rate",
+      setting: { basis: "premium_rate", ratePpm: 75_000 }
+    });
+    expect(conversionValueFromForm("premium_rate", "100")).toEqual({
+      ok: true,
+      basis: "premium_rate",
+      setting: { basis: "premium_rate", ratePpm: 1_000_000 }
+    });
+  });
+
+  it("passes commission through untouched, and switches the export off cleanly", () => {
+    expect(conversionValueFromForm("commission", "")).toEqual({ ok: true, basis: "commission", setting: { basis: "commission" } });
+    expect(conversionValueFromForm("none", "")).toEqual({ ok: true, basis: "none", setting: null });
+    // An unknown basis is off rather than an error: the export stops, which is
+    // the safe direction.
+    expect(conversionValueFromForm("", "")).toEqual({ ok: true, basis: "none", setting: null });
+  });
+
+  it("refuses a rate that would report more than the premium", () => {
+    // A typo here teaches the platform's bidder a price nobody set, so it is
+    // refused rather than clamped.
+    expect(conversionValueFromForm("premium_rate", "101")).toEqual({ ok: false, errorKey: "admin.convRateBad" });
+    expect(conversionValueFromForm("premium_rate", "0")).toEqual({ ok: false, errorKey: "admin.convRateBad" });
+    expect(conversionValueFromForm("premium_rate", "")).toEqual({ ok: false, errorKey: "admin.convRateBad" });
+    expect(conversionValueFromForm("premium_rate", "abc")).toEqual({ ok: false, errorKey: "admin.convRateBad" });
+    expect(conversionValueFromForm("premium_rate", "-5")).toEqual({ ok: false, errorKey: "admin.convRateBad" });
+  });
+
+  it("round-trips through the reader", () => {
+    const parsed = conversionValueFromForm("premium_rate", "3.25");
+    expect(parsed.ok).toBe(true);
+    const policy = { moduleConfig: { signal: { settings: { conversionValue: parsed.ok ? parsed.setting : null } } } };
+    expect(conversionValueOf(policy)).toEqual({ basis: "premium_rate", ratePpm: 32_500 });
+  });
+});
+
+/* --------------------------------------- conversion exports (SIG-032) */
+
+// `GET /v1/signal/conversions/exports` existed at the API and no screen read it,
+// so an operator could set value-based bidding and never learn whether a single
+// bind reached Google. This is the read half.
+
+describe("exportsRoll", () => {
+  const row = (over: Partial<ConversionExportRow> = {}): ConversionExportRow => ({
+    id: "exp_1",
+    touchId: "ate_1",
+    provider: "google",
+    status: "sent",
+    detail: null,
+    valueMinor: 75_000,
+    currency: "AED",
+    attempts: 1,
+    attemptedAt: 1000,
+    ...over
+  });
+
+  it("counts what happened, and finds the newest attempt", () => {
+    const roll = exportsRoll([
+      row({ id: "a", status: "sent", attemptedAt: 500 }),
+      row({ id: "b", status: "failed", attemptedAt: 900 }),
+      row({ id: "c", status: "skipped", attemptedAt: 700 }),
+      row({ id: "d", status: "sent", attemptedAt: 300 })
+    ]);
+    expect(roll).toEqual({ sent: 2, skipped: 1, failed: 1, lastAt: 900 });
+  });
+
+  it("has no last attempt rather than zero when nothing was ever tried", () => {
+    // Zero is a timestamp (1970) and would render as a date.
+    expect(exportsRoll([])).toEqual({ sent: 0, skipped: 0, failed: 0, lastAt: null });
+  });
+
+  it("ignores a status it does not know rather than counting it as a success", () => {
+    const roll = exportsRoll([row({ status: "queued" })]);
+    expect(roll).toEqual({ sent: 0, skipped: 0, failed: 0, lastAt: 1000 });
   });
 });

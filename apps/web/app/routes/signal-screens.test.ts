@@ -25,6 +25,7 @@ import {
   type TouchRow
 } from "./signal.shared";
 import { action as cockpitAction, loader as cockpitLoader } from "./signal-cockpit";
+import { loader as analyticsLoader } from "./signal-analytics";
 import { cacRange } from "@lyra/core/attribution-range";
 import { action as studioAction, continuable } from "./signal-studio";
 import { action as budgetAction } from "./signal-budget";
@@ -512,7 +513,7 @@ describe("studio action", () => {
     expect(calls[0]?.key).toBe("signal-studio:k1");
     expect(JSON.parse(calls[0]?.body ?? "{}")).toMatchObject({
       channelsJson: ["meta", "google"],
-      budgetJson: { dailyMinor: 100_000, currency: "ZAR", autopilotBoundMinor: 25_000 }
+      budgetJson: { dailyMinor: 100_000, currency: "AED", autopilotBoundMinor: 25_000 }
     });
   });
 
@@ -821,5 +822,77 @@ describe("continuable", () => {
 
   it("keeps the API's newest-first order within each group", () => {
     expect(continuable([row("new", "draft"), row("old", "scheduled")]).map((one) => one.id)).toEqual(["new", "old"]);
+  });
+});
+
+describe("analytics loader: the campaign funnel", () => {
+  // `GET /v1/signal/attribution/funnel` existed, was tested, and **nothing read
+  // it** — the engine's own doc comment called its return "what the measurement
+  // screen reads", and no measurement screen did. This is the wiring that gap was
+  // missing, and the reason it is read from the API rather than derived from the
+  // touch page above: that page is capped at 200 rows, so a client-side funnel
+  // would silently truncate the window it claims to measure.
+  it("reads the per-campaign funnel for the same window as the rest of the screen", async () => {
+    const calls = stubFetch(
+      json({ data: [] }), // spend
+      json({ data: [] }), // attribution touches
+      json({ data: [{ campaignId: "cmp_1", channel: "google", impressions: 1000, clicks: 40, visits: 30, leads: 6, binds: 2, valueMinor: 500_000 }] })
+    );
+    const before = Date.now();
+
+    const loaded = (await analyticsLoader({
+      request: new Request("https://web.test/signal/analytics?days=30"),
+      context: { get: () => ({ env, ctx: null }) },
+      params: {}
+    } as unknown as LoaderFunctionArgs)) as unknown as { funnel: { campaignId: string; binds: number }[] };
+
+    const asked = calls.find((call) => call.url.includes("/v1/signal/attribution/funnel"));
+    expect(asked).toBeTruthy();
+    const from = Number(new URL(asked!.url).searchParams.get("from"));
+    // The same window as the KPI wall, or the funnel would describe a different
+    // period from the numbers beside it.
+    expect(from).toBeGreaterThanOrEqual(before - 30 * 86_400_000);
+    expect(from).toBeLessThanOrEqual(Date.now() - 30 * 86_400_000);
+    expect(loaded.funnel).toHaveLength(1);
+    expect(loaded.funnel[0]!.binds).toBe(2);
+  });
+
+  /**
+   * The 2026-10-01 sweep's SIGNAL finding, and the reason the test above could not
+   * catch it: it ran at `?days=30` — **the one window where the server's default
+   * happens to equal what the screen sent** — so it passed whether or not the
+   * endpoint read the parameter at all. A test that only exercises the window where
+   * the two agree cannot see them disagree.
+   *
+   * The endpoint now reads the platform's own `from` (`listParams`), and this
+   * asserts the screen's half on windows where the two **differ**: 7 and 90 days
+   * against a 30-day default. If the screen ever stops passing its window, the
+   * funnel describes a different period from the numbers beside it and this fails.
+   */
+  it.each([7, 90])("passes the reader's %i-day window, not the default", async (days) => {
+    const calls = stubFetch(json({ data: [] }), json({ data: [] }), json({ data: [] }));
+    const before = Date.now();
+
+    await analyticsLoader({
+      request: new Request(`https://web.test/signal/analytics?days=${days}`),
+      context: { get: () => ({ env, ctx: null }) },
+      params: {}
+    } as unknown as LoaderFunctionArgs);
+
+    const asked = calls.find((call) => call.url.includes("/v1/signal/attribution/funnel"));
+    expect(asked).toBeTruthy();
+    const from = Number(new URL(asked!.url).searchParams.get("from"));
+    expect(from).toBeGreaterThanOrEqual(before - days * 86_400_000);
+    expect(from).toBeLessThanOrEqual(Date.now() - days * 86_400_000);
+  });
+
+  it("shows no funnel, rather than crashing, when the reader may not see attribution", async () => {
+    stubFetch(json({ data: [] }), json({ data: [] }), json({ title: "forbidden", status: 403 }, 403));
+    const loaded = (await analyticsLoader({
+      request: new Request("https://web.test/signal/analytics"),
+      context: { get: () => ({ env, ctx: null }) },
+      params: {}
+    } as unknown as LoaderFunctionArgs)) as unknown as { funnel: unknown[] };
+    expect(loaded.funnel).toEqual([]);
   });
 });

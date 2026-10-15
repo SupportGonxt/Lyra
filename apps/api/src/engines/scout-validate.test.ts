@@ -152,3 +152,45 @@ describe("onExperimentConcluded", () => {
     expect(row?.status).toBe("validating");
   });
 });
+
+/* ---------------- a promoted gap still gets its verdict (the 2026-10-01 sweep) */
+
+/**
+ * `validated` used to mean two things — *a SIGNAL campaign exists* (written by
+ * `promoteWhitespace`) and *live data confirmed the gap* (written here) — so
+ * promoting a gap made this function return `false` at its terminal check and
+ * **silently discard the experiment's verdict**, with no way to write it later
+ * because `validated` had no self-hop.
+ *
+ * Promotion is `promotedAt` now, and the state is back to one meaning. This is the
+ * assertion that would have failed before: a gap carrying `promotedAt` must still
+ * accept its verdict, while a gap the data already confirmed must not be reopened.
+ */
+describe("promotion is a fact, not a lifecycle state", () => {
+  it("writes the verdict on a gap that has already been promoted", async () => {
+    const whitespaceId = await seedWhitespace("candidate");
+    // Promotion, as it now records itself: a campaign exists, the data has not
+    // spoken.
+    await ctx.db
+      .update(schema.scoutWhitespaces)
+      .set({ promotedAt: ctx.now, updatedAt: ctx.now })
+      .where(eq(schema.scoutWhitespaces.id, whitespaceId));
+
+    const experiment = await seedExperiment(whitespaceId, { significant: true, liftBps: 4_200 });
+    expect(await onExperimentConcluded(ctx, experiment)).toBe(true);
+
+    const [row] = await ctx.db.select().from(schema.scoutWhitespaces).where(eq(schema.scoutWhitespaces.id, whitespaceId));
+    expect(row?.status).toBe("validated");
+  });
+
+  it("still refuses to reopen a gap live data already confirmed", async () => {
+    // The terminal rule the old guard was protecting, preserved exactly: what
+    // changes is *which* fact makes a gap terminal — the verdict, not the promotion.
+    const whitespaceId = await seedWhitespace("validated");
+    const experiment = await seedExperiment(whitespaceId, { significant: true, liftBps: 9_999 });
+
+    expect(await onExperimentConcluded(ctx, experiment)).toBe(false);
+    const [row] = await ctx.db.select().from(schema.scoutWhitespaces).where(eq(schema.scoutWhitespaces.id, whitespaceId));
+    expect(row?.status).toBe("validated");
+  });
+});

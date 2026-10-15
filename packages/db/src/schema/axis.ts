@@ -82,6 +82,16 @@ export const documents = sqliteTable(
     extractionJson: text("extraction_json"),
     extractionConfidence: integer("extraction_confidence"), // 0-100
     extractionModel: text("extraction_model"),
+    /**
+     * The document's own words, transcribed (ADR-0123), as
+     * `{ text, model, modelVersion, tier, at }` — or null when it has not been
+     * read for a wording diff.
+     *
+     * Pinned rather than derived: a transcription is a model's reading of a legal
+     * document, two runs may disagree, and a coverage comparison that cannot say
+     * which reading it used cannot be defended in a negotiation.
+     */
+    wordingJson: text("wording_json"),
     verifiedBy: text("verified_by"),
     verifiedAt: integer("verified_at"),
     status: text("status").notNull().default("received"), // received|extracting|extracted|verified|rejected
@@ -141,6 +151,16 @@ export const policies = sqliteTable(
     offeringId: text("offering_id"), // -> dist_offerings.id, the underwriter's variant sold
     channelId: text("channel_id"), // -> dist_channels.id, who sold it — drives commission split
     policyNo: text("policy_no").notNull(),
+    /**
+     * The market this contract was placed **in** (ADR-0128), written at bind from
+     * the tenant's own statement of where it is established — the same source the
+     * authorisation check reads, so the licence that permitted the placement and
+     * the market recorded on it cannot disagree.
+     *
+     * Nullable: a contract written before this column existed has no market on
+     * file, which is a fact. A default would be an invented one.
+     */
+    market: text("market"),
     startAt: integer("start_at").notNull(),
     endAt: integer("end_at").notNull(),
     premiumMinor: integer("premium_minor").notNull(),
@@ -703,6 +723,58 @@ export const reinsuranceTreaties = sqliteTable(
  * `planCessions` returned at issue and what the RI-CEDE transaction posts; a
  * later edit to the treaty does not rewrite a cession already made.
  */
+/**
+ * ADR-0125. The licence a risk was placed under, held by the **tenant**.
+ *
+ * AXIS could place a risk anywhere and record nowhere which market or which
+ * licence it was placed under, while the operating model that names both
+ * (`packages/core/src/operating-model.ts` — `MARKETS`, `REGULATORS`) was read by
+ * nothing but its own test. This is the tenant-owned half of that register: the
+ * platform states what it knows (a regulator, its scope, its number, or `null`),
+ * the tenant states which of them it holds.
+ *
+ * `scope` is `RegulatorDef["scope"]` in `packages/core/src/operating-model.ts` —
+ * the union is the authority, restated here for the reason every other enum
+ * column in this file is (a column comment cannot import a type without the
+ * packages importing each other).
+ *
+ * `productLinesJson` holds **operating-model line keys** (`car_insurance`,
+ * `health_insurance`, …) — the class of business the licence covers, not the
+ * tenant's own catalogue line. `productLineOf` in the same file is the one
+ * bridge, and it answers `null` for a catalogue line the model does not name.
+ */
+export const authorisations = sqliteTable(
+  "axis_authorisations",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    /** ISO 3166-1 alpha-2, as `MARKETS[].code` spells it. */
+    market: text("market").notNull(),
+    /** `REGULATORS[].key`. */
+    regulatorKey: text("regulator_key").notNull(),
+    /** The registration the regulator issued — never invented, never optional. */
+    licenceNumber: text("licence_number").notNull(),
+    scope: text("scope").notNull(), // insurance_broking|health_intermediary|banking|securities
+    productLinesJson: text("product_lines_json").notNull(), // ProductLineKey[]
+    validFrom: integer("valid_from").notNull(),
+    /** Null means no expiry is on file, which is not the same as never expiring. */
+    validTo: integer("valid_to"),
+    evidenceFileId: text("evidence_file_id"), // -> core_files.id, the certificate
+    status: text("status").notNull().default("active"), // active|suspended|expired
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [
+    // The bind seam's question: which authorisations does this tenant hold for
+    // this market? The product line is inside a JSON column and is filtered in
+    // memory, so the index is the market and the status.
+    index("axis_authorisations_market_idx").on(t.tenantId, t.market, t.status),
+    // One row per licence per tenant. Renewing extends `validTo` on this row;
+    // two rows for one licence would let the register contradict itself.
+    uniqueIndex("axis_authorisations_licence_uq").on(t.tenantId, t.regulatorKey, t.licenceNumber)
+  ]
+);
+
 export const reinsuranceCessions = sqliteTable(
   "axis_reinsurance_cessions",
   {

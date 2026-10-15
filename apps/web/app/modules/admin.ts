@@ -98,6 +98,7 @@ export const admin: WorkspaceSpec = {
       linesJson: "Lines",
       commissionJson: "Commission",
       settlementTermsJson: "Settlement terms",
+      insurerPortal: "Open insurer portal",
       r2Key: "Storage key",
       subjectRef: "Subject",
       contentType: "Content type",
@@ -223,8 +224,11 @@ export const admin: WorkspaceSpec = {
       "provider.whatsapp-cloud-api": "WhatsApp Cloud API",
       "provider.mailgun-email": "Mailgun",
       "provider.lyra-webchat": "Web chat",
+      "provider.unifonic-voice": "Unifonic Voice",
       "provider.google-ads": "Google Ads",
       "provider.meta-ads": "Meta Ads",
+      "provider.tiktok-ads": "TikTok Ads",
+      "provider.telr": "Telr (payment gateway)",
       ads: "Ad account",
       agent: "Agent",
       portal: "Portal",
@@ -429,6 +433,7 @@ export const admin: WorkspaceSpec = {
       linesJson: "الخطوط",
       commissionJson: "العمولة",
       settlementTermsJson: "شروط التسوية",
+      insurerPortal: "فتح بوابة شركة التأمين",
       r2Key: "مفتاح التخزين",
       subjectRef: "الموضوع",
       contentType: "نوع المحتوى",
@@ -553,8 +558,11 @@ export const admin: WorkspaceSpec = {
       "provider.whatsapp-cloud-api": "واتساب كلاود API",
       "provider.mailgun-email": "ميلغن",
       "provider.lyra-webchat": "دردشة الويب",
+      "provider.unifonic-voice": "صوت يونيفونيك",
       "provider.google-ads": "إعلانات جوجل",
       "provider.meta-ads": "إعلانات ميتا",
+      "provider.tiktok-ads": "إعلانات تيك توك",
+      "provider.telr": "تلر (بوابة دفع)",
       ads: "حساب إعلاني",
       import: "استيراد",
       agent: "وكيل",
@@ -811,7 +819,7 @@ export const admin: WorkspaceSpec = {
       update: "core:channels:write",
       remove: "core:channels:write",
       filters: [
-        { name: "transport", options: ["whatsapp", "email", "web", "voice", "agent", "ads"] },
+        { name: "transport", options: ["whatsapp", "email", "web", "voice", "agent", "ads", "payment", "aeo"] },
         { name: "status", options: ["active", "disabled"] }
       ],
       columns: [
@@ -823,8 +831,8 @@ export const admin: WorkspaceSpec = {
       ],
       fields: [
         { name: "label", type: "text", required: true },
-        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email", "lyra-webchat", "google-ads", "meta-ads"], required: true },
-        { name: "transport", type: "select", options: ["whatsapp", "email", "web", "voice", "agent", "ads"], required: true },
+        { name: "provider", type: "select", options: ["whatsapp-cloud-api", "mailgun-email", "lyra-webchat", "unifonic-voice", "google-ads", "meta-ads", "tiktok-ads", "telr", "openai-compatible"], required: true },
+        { name: "transport", type: "select", options: ["whatsapp", "email", "web", "voice", "agent", "ads", "payment", "aeo"], required: true },
         { name: "secretsJson", type: "json", required: true, hintKey: "secretsJson.hint" },
         { name: "configJson", type: "json" }
       ],
@@ -1014,7 +1022,10 @@ export const admin: WorkspaceSpec = {
         { name: "currency", type: "text" },
         { name: "commissionJson", type: "json" },
         { name: "settlementTermsJson", type: "json" }
-      ]
+      ],
+      // The insurer's own door (PORTALS-DESIGN-AND-AUDIT.md §1): opens the
+      // tokened, branded page showing its panel position and the settlement.
+      recordLink: { href: "/portal-link/supplier/{id}", labelKey: "insurerPortal" }
     },
     {
       key: "files",
@@ -1080,14 +1091,14 @@ export const admin: WorkspaceSpec = {
         { name: "principalRef", type: "text", required: true },
         { name: "agentIdentity", type: "text", required: true },
         { name: "scopeJson", type: "json", required: true },
-        { name: "spendCapMinor", type: "money" },
+        { name: "spendCapMinor", type: "money", currencyFrom: "currency" },
         { name: "currency", type: "text" },
         { name: "verificationRef", type: "text" },
         { name: "expiry", type: "datetime" }
       ],
       editable: [
         { name: "status", type: "text" },
-        { name: "spendCapMinor", type: "money" },
+        { name: "spendCapMinor", type: "money", currencyFrom: "currency" },
         { name: "expiry", type: "datetime" },
         { name: "scopeJson", type: "json" }
       ]

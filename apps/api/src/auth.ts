@@ -9,6 +9,7 @@ import {
   emit,
   ensureDemoAdmin,
   ensureSeedMetrics,
+  ensureSeedAuthorisations,
   ensureSeedPeople,
   syncSeedCreativeCopy,
   syncSeedEventNames,
@@ -216,9 +217,33 @@ export async function allTenants(env: Env): Promise<string[]> {
 }
 
 /**
- * What the scheduler runs a tenant on: its own policy and entitlements, with
- * every module it did not buy or switched off (ADR-0087) forced off, so sweeps
- * and consumers stand down with the routes. Reads the row directly rather than
+ * A tenant's policy and entitlements as every non-session caller needs them:
+ * parsed, defaults on a corrupt blob, and every module the tenant did not buy or
+ * switched off (ADR-0087) forced off so sweeps, consumers and public pages stand
+ * down with the routes.
+ *
+ * The one place this pair is derived. It was previously inlined in
+ * `scheduledConfig` alone, which is why the public portal routes — reading a
+ * policy of `{}` — silently used the *default* module settings, including the
+ * SCOUT k-anonymity floor: a tenant that raised its floor would have had a cell
+ * below it served over a public URL.
+ */
+export function tenantConfigFrom(row: { policyJson: string | null; entitlementsJson: string | null } | undefined): {
+  policy: PolicyJson;
+  entitlements: EntitlementsJson;
+} {
+  const parsedPolicy = PolicyJson.safeParse(safeJson<Record<string, unknown>>(row?.policyJson ?? null) ?? {});
+  const policy = parsedPolicy.success ? parsedPolicy.data : PolicyJson.parse({});
+  const bought = EntitlementsJson.safeParse(safeJson<Record<string, unknown>>(row?.entitlementsJson ?? null) ?? {});
+  const entitlements = bought.success ? bought.data : EntitlementsJson.parse({});
+  const off = GATED_MODULES.filter((m) => !entitlements.modules.includes(m) || !moduleEnabled(policy, m));
+  const moduleConfig = { ...policy.moduleConfig };
+  for (const m of off) moduleConfig[m] = { settings: {}, ...moduleConfig[m], enabled: false };
+  return { policy: { ...policy, moduleConfig }, entitlements };
+}
+
+/**
+ * What the scheduler runs a tenant on. Reads the row directly rather than
  * `tenantConfig`, which refuses a suspended tenant whose outbox must still
  * drain; a corrupt blob falls back to defaults, as tenantConfig's does.
  */
@@ -228,14 +253,7 @@ export async function scheduledConfig(env: Env, tenantId: string): Promise<{ pol
     .from(schema.tenants)
     .where(eq(schema.tenants.id, tenantId))
     .limit(1);
-  const parsedPolicy = PolicyJson.safeParse(safeJson<Record<string, unknown>>(rows[0]?.policyJson ?? null) ?? {});
-  const policy = parsedPolicy.success ? parsedPolicy.data : PolicyJson.parse({});
-  const bought = EntitlementsJson.safeParse(safeJson<Record<string, unknown>>(rows[0]?.entitlementsJson ?? null) ?? {});
-  const entitlements = bought.success ? bought.data : EntitlementsJson.parse({});
-  const off = GATED_MODULES.filter((m) => !entitlements.modules.includes(m) || !moduleEnabled(policy, m));
-  const moduleConfig = { ...policy.moduleConfig };
-  for (const m of off) moduleConfig[m] = { settings: {}, ...moduleConfig[m], enabled: false };
-  return { policy: { ...policy, moduleConfig }, entitlements };
+  return tenantConfigFrom(rows[0]);
 }
 
 /** The modules the scheduler stands down for a tenant. */
@@ -604,9 +622,12 @@ authRoutes.post("/demo/seed", async (c) => {
  * One-time maintenance for a staging tenant seeded before a `system` role
  * gained a new permission in rbac.ts (docs/24 sim plan day-2 finding: the
  * demo tenant's signal.lead was seeded before signal:autopilot:run existed).
- * `resyncSystemRolePermissions` never touches a deliberately narrowed bundle
- * (approvals.ts's grantsFor trusts whatever is stored); this just refreshes
- * every system role's snapshot to match the current compiled table. Remove
+ * `resyncSystemRolePermissions` **overwrites** every system role's stored bundle
+ * with the current compiled one — including a deliberately narrowed one. (This
+ * sentence used to claim the opposite, and the code has never done that; the
+ * 2026-10-01 sweep found it, and ADR-0116 §5 plus `e2e/global-setup.ts` both
+ * record the overwrite as the intent, because a grant added to rbac.ts after a
+ * tenant was seeded has no other way to arrive.) Remove
  * this route once the 30-day exercise is done, same as /demo/seed.
  *
  * The chart of accounts has the same shape of staleness — provisioned once at
@@ -651,7 +672,12 @@ authRoutes.post("/demo/resync-roles", async (c) => {
   // Tenth (ADR-0109): NORTH metrics added after provisioning — the CPA bounds a
   // success fee references. The snapshotter computes only metrics with a row.
   const metrics = await ensureSeedMetrics(database as unknown as CoreDb, tenantId);
-  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs, prospects, creatives, metrics });
+  // Eleventh (ADR-0125): the licence register. Louder than the tax rulepack above
+  // — that one refuses a supply with no rule, this one refuses **every bind** for a
+  // tenant that holds no authorisation, because the check is on the bind path. A
+  // tenant provisioned before migration 0057 cannot place anything until this runs.
+  const authorisations = await ensureSeedAuthorisations(database as unknown as CoreDb, tenantId);
+  return c.json({ tenantId, updated, accounts, demo, people, taxRules, events, journeyGraphs, prospects, creatives, metrics, authorisations });
 });
 
 /**

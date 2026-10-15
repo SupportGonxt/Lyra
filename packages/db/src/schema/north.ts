@@ -25,6 +25,28 @@ export const metrics = sqliteTable(
   (t) => [uniqueIndex("north_metrics_key_uq").on(t.tenantId, t.key)]
 );
 
+/**
+ * Every definition this metric has had, newest last.
+ *
+ * docs/modules/north.md §8 asks for a definition change to show as a chart
+ * annotation "from the change date". `north_metrics` holds the definition in
+ * force and `updated_at`, which is one date and no history — so a metric edited
+ * three times could only ever say when it was last touched, and never what
+ * changed. Append-only: a row per change, written only when the value differs.
+ */
+export const metricDefinitions = sqliteTable(
+  "north_metric_definitions",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    metricKey: text("metric_key").notNull(),
+    definitionSqlRef: text("definition_sql_ref").notNull(),
+    changedAt: integer("changed_at").notNull(),
+    changedBy: text("changed_by").notNull()
+  },
+  (t) => [index("north_metric_definitions_key_idx").on(t.tenantId, t.metricKey, t.changedAt)]
+);
+
 export const snapshots = sqliteTable(
   "north_snapshots",
   {

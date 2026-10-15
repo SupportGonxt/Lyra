@@ -495,6 +495,16 @@ export interface LineChartProps {
   /** How a y-axis figure reads — money, percent, plain. Defaults to the locale's number. */
   format?: (value: number) => string;
   tone?: "accent" | "success" | "danger" | "info";
+  /**
+   * Events worth marking on the series — a definition change, a release, a
+   * campaign start. `index` is a position in `values`, so a mark moves with the
+   * data rather than with a date the chart would have to parse.
+   *
+   * Every mark is also named in the figure's text alternative and listed beneath
+   * it: a vertical line with no label is decoration, and a reader who cannot see
+   * the plot has no other way to learn the event happened.
+   */
+  annotations?: readonly { index: number; label: string }[] | undefined;
   className?: string;
 }
 
@@ -510,6 +520,7 @@ export function LineChart({
   xLabels,
   format = (value) => String(value),
   tone = "accent",
+  annotations,
   className
 }: LineChartProps) {
   const finite = values.filter(Number.isFinite);
@@ -529,6 +540,18 @@ export function LineChart({
   const first = xLabels?.[0];
   const last = xLabels?.[xLabels.length - 1];
 
+  // A mark sits at the same x the point does, using the same divisor, so a mark
+  // on the last point lands on the right edge rather than beside it. Out-of-range
+  // indices are dropped rather than clamped: a mark on the wrong point is worse
+  // than no mark, because it is read as evidence.
+  const xFor = (index: number) =>
+    (finite.length === 1 ? w / 2 : (index / (finite.length - 1)) * w).toFixed(2);
+  const marks = (annotations ?? []).filter((mark) => mark.index >= 0 && mark.index < finite.length);
+  // The alternative carries them, because the plot itself cannot be read aloud.
+  const described = marks.length
+    ? `${label}. Marked: ${marks.map((mark) => `${xLabels?.[mark.index] ?? `point ${mark.index + 1}`} — ${mark.label}`).join("; ")}`
+    : label;
+
   return (
     <figure className={cn("flex flex-col gap-2", className)}>
       <div className="flex items-stretch gap-2">
@@ -545,7 +568,7 @@ export function LineChart({
           viewBox={`0 0 ${w} ${h}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={label}
+          aria-label={described}
           className="h-32 w-full min-w-0"
         >
           {[0, h / 2, h].map((y) => (
@@ -571,6 +594,23 @@ export function LineChart({
             vectorEffect="non-scaling-stroke"
             className="motion-safe:animate-chart-draw"
           />
+          {/* Vertical marks, drawn under the line (this is after it in source but
+              before it in paint order only for the axis rules above — so the mark
+              is a dashed rule at 60% opacity rather than a solid one that would
+              hide the data it explains). */}
+          {marks.map((mark) => (
+            <line
+              key={`${mark.index}-${mark.label}`}
+              x1={xFor(mark.index)}
+              x2={xFor(mark.index)}
+              y1={0}
+              y2={h}
+              stroke="var(--accent)"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
         </svg>
       </div>
       {first || last ? (
@@ -581,6 +621,27 @@ export function LineChart({
           <span className="truncate">{first}</span>
           {last && last !== first ? <span className="truncate">{last}</span> : null}
         </figcaption>
+      ) : null}
+      {/* The key to the marks. Present whenever there is a mark to explain, and
+          not aria-hidden: this is the only place a reader learns what the line
+          means, and the text alternative says the same thing for a screen
+          reader. */}
+      {marks.length ? (
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 font-ui text-12 text-muted">
+          {marks.map((mark) => (
+            <li key={`legend-${mark.index}-${mark.label}`} className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block h-2.5 w-0.5 shrink-0 rounded-full bg-accent"
+              />
+              <span>
+                {xLabels?.[mark.index] ? <span className="text-text">{xLabels[mark.index]}</span> : null}
+                {xLabels?.[mark.index] ? " — " : null}
+                {mark.label}
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </figure>
   );

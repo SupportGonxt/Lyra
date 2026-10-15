@@ -1,0 +1,1 @@
+ALTER TABLE `ledger_tax_rules` ADD `kind` text DEFAULT 'vat' NOT NULL;

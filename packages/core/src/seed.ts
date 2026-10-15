@@ -18,6 +18,7 @@ import { cacRange } from "./attribution-range.js";
 import type { CoreDb } from "./context.js";
 import { seedAdmin } from "./seed/admin.js";
 import { seedAnalytics } from "./seed/analytics.js";
+import { seedAuthorisations } from "./seed/authorisations.js";
 import { seedAxis } from "./seed/axis.js";
 import { seedCompliance } from "./seed/compliance.js";
 import { seedLedger } from "./seed/ledger.js";
@@ -185,6 +186,21 @@ export const NORTH_METRICS: ReadonlyArray<{
     en: "Gross written premium",
     ar: "إجمالي الأقساط المكتتبة",
     def: "v_exec_daily.premium_minor",
+    unit: "money",
+    grain: "month",
+    direction: "up",
+    owner: "faisal.omar",
+    target: { value: 230_000_000, scale: "minor", currency: "AED" }
+  },
+  {
+    // ADR-0128: the same premium cut by the market on the contract. `gwp` states
+    // one currency, which makes it true but not complete; this is the cut that
+    // shows a nine-market broker where the money actually is — including an
+    // `unrecorded` bucket for policies written before the column existed.
+    key: "gwp_by_market",
+    en: "Gross written premium by market",
+    ar: "إجمالي الأقساط المكتتبة حسب السوق",
+    def: "v_exec_daily.premium_minor by policy market",
     unit: "money",
     grain: "month",
     direction: "up",
@@ -760,9 +776,10 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
       type: acc.type,
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
+      clientMoneyPair: acc.clientMoneyPair ?? null,
       suspense: acc.suspense ?? false,
       cashFlow: acc.cashFlow ?? null,
-      currency: "AED",
+      currency: acc.currency ?? "AED",
       status: "active",
       createdAt: now
     });
@@ -1732,6 +1749,9 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
   };
   await seedAdmin(ctx);
   await seedAxis(ctx);
+  // The licence register the bind seam reads (ADR-0125), so a tenant
+  // provisioned from this seed can place a risk the day the workspace opens.
+  await seedAuthorisations(ctx);
   await seedLedger(ctx);
   await seedOrbit(ctx);
   // Onboarding reads partners by name, so it follows orbit. Settlement reads
@@ -2524,16 +2544,6 @@ This is a draft and the ${lastMonthName} figures are unaudited.`,
 export const SEED_TENANT_SLUG = "gonxt";
 
 /**
- * `core_roles.permissions_json` is a one-time snapshot of ROLES[key] written
- * at seed time (see the role-provisioning loop above); it never resyncs, so a
- * permission added to an existing role in rbac.ts after a tenant was seeded
- * never reaches that tenant. This overwrites every `system` role's stored
- * bundle with the current compiled one for one tenant — a manual, explicit
- * maintenance action (not run automatically), since a stored bundle can also
- * be a deliberate narrowing (approvals.ts's grantsFor trusts it either way)
- * that this must not silently undo.
- */
-/**
  * The chart of accounts is provisioned once, at seed time, so a code added to
  * CHART_OF_ACCOUNTS afterwards never reaches a tenant that already exists —
  * which is how the 3xxx equity accounts (docs/27 F3) would have left every
@@ -2571,6 +2581,23 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
             )
           );
       }
+      // ADR-0126, the same staleness one column over and the sharper kind: a
+      // tenant provisioned before the pairing existed has `client_money_pair`
+      // null on its 1010/2010 rows, and a null pair is a control that refuses
+      // every posting rather than one that silently does not run. Only where
+      // unset — a pair an operator re-pointed deliberately is theirs.
+      if (acc.clientMoneyPair) {
+        await db
+          .update(schema.ledgerAccounts)
+          .set({ clientMoneyPair: acc.clientMoneyPair })
+          .where(
+            and(
+              eq(schema.ledgerAccounts.tenantId, tenantId),
+              eq(schema.ledgerAccounts.code, acc.code),
+              isNull(schema.ledgerAccounts.clientMoneyPair)
+            )
+          );
+      }
       continue;
     }
     await db.insert(schema.ledgerAccounts).values({
@@ -2581,9 +2608,10 @@ export async function syncChartOfAccounts(db: CoreDb, tenantId: string): Promise
       type: acc.type,
       normalSide: acc.normalSide,
       clientMoney: acc.clientMoney ?? false,
+      clientMoneyPair: acc.clientMoneyPair ?? null,
       suspense: acc.suspense ?? false,
       cashFlow: acc.cashFlow ?? null,
-      currency: "AED",
+      currency: acc.currency ?? "AED",
       status: "active",
       createdAt: now
     });
@@ -2626,6 +2654,10 @@ export async function syncTaxRules(
       tenantId,
       market: rule.market,
       code: rule.code,
+      // ADR-0121. Idempotency is by (market, code) and an existing row is left
+      // alone, so a tenant provisioned before the column keeps `vat` — the
+      // default, and the only kind any row compiled before it could have been.
+      kind: rule.kind ?? "vat",
       ratePpm: rule.ratePpm,
       placeOfSupply: rule.placeOfSupply ?? null,
       reverseCharge: rule.reverseCharge ?? false,
@@ -3007,6 +3039,34 @@ export async function ensureDemoAdmin(
   return { userId, created: !found, granted };
 }
 
+/**
+ * `core_roles.permissions_json` is a one-time snapshot of ROLES[key] written at
+ * seed time; it never resyncs, so a permission added to an existing role in rbac.ts
+ * after a tenant was seeded never reaches that tenant. This overwrites every
+ * `system` role's stored bundle with the current compiled one for one tenant — a
+ * manual, explicit maintenance action, not run automatically.
+ *
+ * **It does overwrite a deliberately narrowed bundle, and that is deliberate.**
+ * The docstring used to end *"a stored bundle can also be a deliberate narrowing
+ * (approvals.ts's grantsFor trusts it either way) that this must not silently
+ * undo"* — a promise the code has never kept (`:3061` overwrites unconditionally,
+ * with no read of the stored value), and one that **cannot** be kept without
+ * breaking the function's only purpose: ADR-0116 §5 states a new grant *"arrives
+ * through resyncSystemRolePermissions in the same call"*, and `e2e/global-setup.ts`
+ * records the same reading — *"restoring the source of truth, not overriding an
+ * operator's narrowing."*
+ *
+ * The 2026-10-01 sweep found the sentence, and its verifier established that the
+ * proposed fix — skip any stored bundle narrower than the compiled one — would
+ * stop every future grant from ever reaching an existing tenant. **So the sentence
+ * is corrected rather than the code**: what a reader needs to know is that this
+ * widens by design, and that a tenant wanting a narrower role should not express it
+ * by editing a `system` role.
+ *
+ * It was also attached to nothing: it sat ~500 lines above this function, in front
+ * of `syncChartOfAccounts`'s own comment block, so the invariant it states was
+ * never read beside the code it governs.
+ */
 export async function resyncSystemRolePermissions(db: CoreDb, tenantId: string): Promise<string[]> {
   const rows = await db
     .select({ id: schema.roles.id, key: schema.roles.key })

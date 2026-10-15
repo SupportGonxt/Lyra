@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   Form,
   Link,
@@ -36,7 +37,10 @@ import {
   type BadgeTone,
   type Column,
   type DesignFormat,
-  type DesignTemplate
+  type DesignTemplate,
+  NoData,
+  formatMoney,
+  ProgressBar
 } from "@lyra/ui";
 import { ApiError, api, directory } from "../api.server";
 import { cloudflare } from "../context";
@@ -72,7 +76,11 @@ import {
   type Page,
   type Problemish,
   type SpendRow,
-  type TouchRow
+  type TouchRow,
+  cacMinor,
+  ltvToCac,
+  multipleText,
+  rollLtvMinor
 } from "./signal.shared";
 
 // The campaign studio: goal → drafted content → review → launch → watch it run,
@@ -171,6 +179,17 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   // The picker submits a real ref (ADR-0047).
   const assignees = await directory({ env, request });
 
+  // Where each variant actually landed. Filtered to this campaign's variants in
+  // the loader rather than with a query the list API does not have: the table's
+  // own key is the creative, and a campaign holds a handful.
+  const variantIds = new Set(creatives.data.map((c) => c.id));
+  const placements =
+    variantIds.size > 0
+      ? (await safe(() => api<Page<PlacementRow>>("/v1/signal/creative-publishes?limit=200", { env, request }), empty<PlacementRow>())).data.filter(
+          (p) => variantIds.has(p.creativeId)
+        )
+      : [];
+
   return {
     campaign,
     opportunity,
@@ -180,6 +199,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     audiences: audiences.data,
     campaigns: continuable(recent.data),
     creatives: creatives.data,
+    placements,
     spend: spend.data,
     touches: touches.data,
     // One key per load: a double-submitted launch is one launch (docs/19 §4).
@@ -188,6 +208,17 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 }
 
 /* -------------------------------------------------------------------- action */
+
+/** Mirrors `signal_creative_publishes` through the read-only resource. */
+export interface PlacementRow {
+  id: string;
+  creativeId: string;
+  provider: string;
+  externalId: string | null;
+  status: string;
+  error: string | null;
+  publishedAt: number;
+}
 
 export interface ActionResult {
   problem: Problemish | null;
@@ -248,7 +279,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
             channelsJson: channels,
             budgetJson: {
               dailyMinor,
-              currency: text(form, "currency") || "ZAR",
+              currency: text(form, "currency") || FALLBACK_CURRENCY,
               // The autopilot's per-decision ceiling. Named here rather than
               // left to the engine default so the bound is the operator's.
               ...(bound === null ? {} : { autopilotBoundMinor: bound })
@@ -371,6 +402,27 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
           body: { complianceStatus: intent === "clear-variant" ? "passed" : "blocked" }
         });
         return { problem: null, done: intent };
+      }
+
+      // docs/modules/signal.md §8 clause 1, the half that did not exist: put a
+      // cleared variant on the platforms. Consequential, so the API gates it on
+      // `signal.creative_publish` — a 202 means it queued for an approver and
+      // nothing was placed, which the screen says rather than pretending.
+      case "publish-variant": {
+        const id = text(form, "creativeId");
+        if (!id) return refuse("creative_required");
+        const picked = form.getAll("provider").map(String).filter(Boolean);
+        const answer = await api<{ queued?: boolean; outcomes?: { provider: string; status: string; reason: string | null }[] }>(
+          `/v1/signal/creatives/${id}/publish`,
+          {
+            env,
+            request,
+            method: "POST",
+            headers,
+            ...(picked.length ? { body: { providers: picked } } : {})
+          }
+        );
+        return { problem: null, done: answer.queued ? "publish-queued" : "publish-variant" };
       }
 
       // Consequential (CLAUDE.md §4): the API gates this on
@@ -594,7 +646,7 @@ export default function CampaignStudio() {
     ? loaded.audiences.find((row) => row.id === campaign.audienceId)
     : undefined;
   const pool = audience ? poolOf(audience) : null;
-  const currency = budget.currency ?? "ZAR";
+  const currency = budget.currency ?? FALLBACK_CURRENCY;
   const mine = loaded.creatives;
   const cleared = mine.filter((creative) => creative.complianceStatus === "passed");
   const live = campaign ? LIVE_STATES.includes(campaign.state) : false;
@@ -985,6 +1037,41 @@ export default function CampaignStudio() {
                       </span>
                     </div>
 
+                    {/* Where this variant actually is. The module could clear a
+                        variant and stop; this is the receipt that says a
+                        platform took it, and the reason when one did not. */}
+                    {loaded.placements.filter((p) => p.creativeId === creative.id).length ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {loaded.placements
+                          .filter((p) => p.creativeId === creative.id)
+                          .map((p) => (
+                            <Badge key={p.id} tone={p.status === "published" ? "success" : "danger"} dot>
+                              {p.provider} · {p.status === "published" ? l("studio.placed") : l("studio.placeFailed")}
+                            </Badge>
+                          ))}
+                        {loaded.placements
+                          .filter((p) => p.creativeId === creative.id && p.error)
+                          .slice(0, 1)
+                          .map((p) => (
+                            <span key={`${p.id}-why`} className="font-ui text-12 text-subtle">
+                              {l("studio.placeWhy")}: {p.error}
+                            </span>
+                          ))}
+                      </div>
+                    ) : null}
+
+                    {creative.complianceStatus === "passed" && canLaunch(campaign, mine) ? (
+                      <Form method="post" className="flex flex-wrap items-center gap-3">
+                        <input type="hidden" name="intent" value="publish-variant" />
+                        <input type="hidden" name="key" value={loaded.key} />
+                        <input type="hidden" name="creativeId" value={creative.id} />
+                        <Button type="submit" variant="secondary" size="sm" disabled={busy}>
+                          {l("studio.publish")}
+                        </Button>
+                        <span className="font-ui text-12 text-subtle">{l("studio.publishHint")}</span>
+                      </Form>
+                    ) : null}
+
                     {creative.complianceStatus === "blocked" ? (
                       <GuardrailNotice
                         title={l("blocked")}
@@ -1154,6 +1241,84 @@ export default function CampaignStudio() {
   );
 }
 
+/**
+ * Where the money went — docs/modules/signal.md §4.1's "budget map".
+ *
+ * The table below answers "what did each channel cost and what did it return".
+ * This answers the question an operator asks *before* that one: what shape is my
+ * spend, and how much of the plan has it used. A distribution is genuinely easier
+ * to read as a shape than as a column of amounts, which is the whole reason to
+ * draw it.
+ *
+ * The denominator is the plan when there is one and the actual total when there
+ * is not, and the header says which — so the bar is never quietly measuring
+ * something other than what its label claims.
+ */
+export function BudgetMap({
+  rolls,
+  plannedMinor,
+  currency,
+  locale,
+  l
+}: {
+  rolls: readonly ChannelRoll[];
+  plannedMinor: number;
+  currency: string;
+  locale: string;
+  l: (key: string, vars?: Record<string, string>) => string;
+}) {
+  const spent = rolls.reduce((sum, roll) => sum + roll.spendMinor, 0);
+  if (spent <= 0) return null;
+  const againstPlan = plannedMinor > 0;
+  const denominator = againstPlan ? plannedMinor : spent;
+  // Reading order is by weight: the shape is the point, so the biggest bar is
+  // first rather than whichever channel the join happened to see first.
+  const rows = [...rolls].filter((roll) => roll.spendMinor > 0).sort((a, b) => b.spendMinor - a.spendMinor);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="font-ui text-13 text-muted">
+        {againstPlan
+          ? l("cockpit.map.againstPlan", {
+              spent: formatMoney(spent, currency, locale),
+              plan: formatMoney(plannedMinor, currency, locale),
+              pct: String(Math.round((spent / plannedMinor) * 100))
+            })
+          : l("cockpit.map.ofActual", { spent: formatMoney(spent, currency, locale) })}
+      </p>
+      <ul className="flex flex-col gap-3">
+        {rows.map((roll) => {
+          const share = Math.round((roll.spendMinor / denominator) * 100);
+          const cac = cacMinor(roll.spendMinor, roll.binds);
+          return (
+            <li key={roll.channel} className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-ui text-13 text-text">{channelLabel(roll.channel, locale)}</span>
+                <span className="flex items-baseline gap-3 font-ui text-12 text-muted">
+                  <Money amountMinor={roll.spendMinor} currency={currency} locale={locale} />
+                  <span>{l("cockpit.map.share", { pct: String(share) })}</span>
+                  {roll.binds > 0 ? (
+                    <span>{l("cockpit.map.binds", { n: String(roll.binds) })}</span>
+                  ) : (
+                    <NoData reason={l("cockpit.col.noBinds")} />
+                  )}
+                  {cac !== null ? (
+                    <span className="text-subtle">{l("cockpit.map.each", { amount: formatMoney(cac, currency, locale) })}</span>
+                  ) : null}
+                </span>
+              </div>
+              <ProgressBar
+                value={share}
+                label={l("cockpit.map.bar", { channel: channelLabel(roll.channel, locale), pct: String(share) })}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /** Shared with the cockpit's pipeline table — the same six numbers per channel. */
 export function channelColumns(
   l: (key: string) => string,
@@ -1171,6 +1336,43 @@ export function channelColumns(
     { key: "impressions", header: l("impressions"), numeric: true, render: (roll) => roll.impressions },
     { key: "clicks", header: l("clicks"), numeric: true, render: (roll) => roll.clicks },
     { key: "conversions", header: l("conversions"), numeric: true, render: (roll) => roll.conversions },
-    { key: "binds", header: l("binds"), numeric: true, render: (roll) => roll.binds }
+    { key: "binds", header: l("binds"), numeric: true, render: (roll) => roll.binds },
+    // docs/modules/signal.md §4.1: "CAC/LTV by channel". The figures were being
+    // computed for a headline and never shown per channel, so an operator could
+    // see that acquisition cost *something* without seeing which channel was
+    // buying customers above what they are worth — which is the only question
+    // the table exists to answer.
+    {
+      key: "cac",
+      header: l("cockpit.col.cac"),
+      numeric: true,
+      // A CAC of infinity is a number this screen would render as money, and
+      // zero is a lie; a channel that bought nobody shows a dash.
+      render: (roll) => {
+        const cac = cacMinor(roll.spendMinor, roll.binds);
+        return cac === null ? <NoData reason={l("cockpit.col.noBinds")} /> : <Money amountMinor={cac} currency={currency} locale={locale} />;
+      }
+    },
+    {
+      key: "ltv",
+      header: l("cockpit.col.ltv"),
+      numeric: true,
+      render: (roll) => {
+        const ltv = rollLtvMinor(roll);
+        return ltv === null ? <NoData reason={l("cockpit.col.noBinds")} /> : <Money amountMinor={ltv} currency={currency} locale={locale} />;
+      }
+    },
+    {
+      key: "ltvCac",
+      header: l("cockpit.col.ltvCac"),
+      numeric: true,
+      render: (roll) => {
+        const multiple = ltvToCac(rollLtvMinor(roll), cacMinor(roll.spendMinor, roll.binds));
+        if (multiple === null) return <NoData reason={l("cockpit.col.noBinds")} />;
+        // Below 1 the channel loses money on every customer it buys, which is
+        // the one thing in this table worth colouring.
+        return <span className={multiple < 1 ? "text-danger" : "text-success"}>{multipleText(locale, multiple)}</span>;
+      }
+    }
   ];
 }

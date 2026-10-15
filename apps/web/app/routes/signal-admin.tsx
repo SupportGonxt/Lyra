@@ -1,12 +1,40 @@
-import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import { Badge, Card, DateTime, EmptyState, KPIWall, Money, Stat, Table, type BadgeTone, type Column } from "@lyra/ui";
-import { api, fetchMe } from "../api.server";
+import {
+  Form,
+  Link,
+  useActionData,
+  useLoaderData,
+  useNavigation,
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs
+} from "react-router";
+import {
+  Badge,
+  Button,
+  Card,
+  DateTime,
+  EmptyState,
+  Field,
+  Input,
+  KPIWall,
+  Money,
+  NoData,
+  Select,
+  Stat,
+  Table,
+  type BadgeTone,
+  type Column
+} from "@lyra/ui";
+import { ApiError, api, fetchMe } from "../api.server";
 import { cloudflare } from "../context";
 import { translator } from "../i18n";
 import { useSignalSessionData } from "./signal-shell";
 import {
   PERM,
   REACHING_STATES,
+  conversionValueFromForm,
+  conversionValueOf,
+  exportsRoll,
+  type ConversionExportRow,
   adminFaults,
   adminHeadline,
   budgetOf,
@@ -105,7 +133,12 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const may = {
     campaigns: held.has(PERM.campaignsRead),
     audiences: held.has(PERM.audiencesRead),
-    disclosures: held.has(DISCLOSURES_READ)
+    disclosures: held.has(DISCLOSURES_READ),
+    // The modules-config route gates on this, so the control is withheld rather
+    // than rendered as a door into a 403.
+    configure: held.has(PERM.settingsUpdate),
+    // The exports read is its own permission (`/conversions/exports`).
+    exports: held.has(PERM.attributionRead)
   };
   const read = async <T,>(path: string, allowed: boolean): Promise<Page<T>> =>
     allowed ? safe(() => api<Page<T>>(path, { env, request }), empty<T>()) : empty<T>();
@@ -116,8 +149,16 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     read<DisclosureRow>("/v1/compliance/disclosures?sort=ts&limit=200", may.disclosures)
   ]);
 
+  // Whether value-based bidding is actually reporting anything back. The list
+  // existed at the API with no reader, so the one question the setting raises —
+  // "did my binds reach Google?" — had no answer on any screen.
+  const exports = may.exports
+    ? await safe(() => api<{ data: ConversionExportRow[] }>("/v1/signal/conversions/exports?limit=20", { env, request }), { data: [] })
+    : { data: [] };
+
   return {
     may,
+    exports: exports.data,
     brand: me.tenant.brand,
     autopilotPaused: me.policy.signalAutopilotPaused === true,
     autoApprove: autoApprovedIn(me.policy),
@@ -128,11 +169,75 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     currency: mainCurrency(campaigns.data),
     // ponytail: derived server-side so the whole read stays one pass, and pure
     // over what is already returned so the tests call adminFaults directly.
-    faults: adminFaults({ campaigns: campaigns.data, audiences: audiences.data })
+    faults: adminFaults({ campaigns: campaigns.data, audiences: audiences.data }),
+    // Read off the policy /v1/me already returned, so the screen costs no extra
+    // call for one setting.
+    conversion: conversionValueOf(me.policy)
   };
 }
 
+/** The only write on this screen: value-based bidding's setting. */
+export interface AdminActionResult {
+  problem: { title: string; status: number } | null;
+  saved: string | null;
+}
+
+export async function action({ request, context }: ActionFunctionArgs): Promise<AdminActionResult> {
+  const env = context.get(cloudflare).env;
+  const form = await request.formData();
+  const intent = String(form.get("intent") ?? "");
+  if (intent !== "conversion-value") return { problem: { title: "bad_intent", status: 400 }, saved: null };
+
+  const parsed = conversionValueFromForm(String(form.get("basis") ?? "none"), String(form.get("ratePercent") ?? ""));
+  if (!parsed.ok) return { problem: { title: parsed.errorKey, status: 400 }, saved: null };
+
+  try {
+    // The one writer of module settings is this route (routes/core.ts), so the
+    // screen goes through it rather than inventing a second path to the policy.
+    await api("/v1/core/modules/signal/config", {
+      env,
+      request,
+      method: "PATCH",
+      body: { settings: { conversionValue: parsed.setting } }
+    });
+    return { problem: null, saved: intent };
+  } catch (error) {
+    // A key of this screen's own, never the API's own title: an API problem
+    // title is English prose, and this screen is read in two languages.
+    if (error instanceof ApiError) return { problem: { title: "admin.convFailed", status: error.status }, saved: null };
+    throw error;
+  }
+}
+
 /* --------------------------------------------------------------- component */
+
+/** The last few exports, so a failure is inspectable rather than just counted. */
+function exportColumns(l: Label, locale: string): Array<Column<ConversionExportRow>> {
+  const tone = (status: string): BadgeTone => (status === "sent" ? "success" : status === "failed" ? "danger" : "neutral");
+  return [
+    { key: "attemptedAt", header: l("admin.exports.col.when"), render: (row) => <DateTime value={row.attemptedAt} locale={locale} /> },
+    { key: "provider", header: l("admin.exports.col.provider"), render: (row) => row.provider },
+    {
+      key: "status",
+      header: l("admin.exports.col.status"),
+      render: (row) => <Badge tone={tone(row.status)}>{l(`admin.exports.status.${row.status}`)}</Badge>
+    },
+    {
+      key: "value",
+      header: l("admin.exports.col.value"),
+      numeric: true,
+      render: (row) =>
+        row.valueMinor === null || row.currency === null ? (
+          <NoData reason={l("admin.exports.noValue")} />
+        ) : (
+          <Money amountMinor={row.valueMinor} currency={row.currency} locale={locale} />
+        )
+    },
+    // The engine's own word for why, unrendered: a glossary is not worth an i18n
+    // key per `detail` code, and the code is what a support ticket needs.
+    { key: "detail", header: l("admin.exports.col.detail"), render: (row) => row.detail ?? "—" }
+  ];
+}
 
 function check(value: string | undefined, l: Label): { tone: BadgeTone; text: string } {
   if (!value) return { tone: "neutral", text: l("admin.guardNone") };
@@ -141,10 +246,14 @@ function check(value: string | undefined, l: Label): { tone: BadgeTone; text: st
 
 export default function SignalAdmin() {
   const loaded = useLoaderData<typeof loader>();
+  const result = useActionData<typeof action>();
+  const navigation = useNavigation();
   const shell = useSignalSessionData();
   const locale = shell?.locale ?? "en";
   const t = translator(locale);
   const l = labelsIn(locale, shell?.domainPack);
+  const busy = navigation.state !== "idle";
+  const roll = exportsRoll(loaded.exports);
 
   if (!loaded.may.campaigns && !loaded.may.audiences) {
     return (
@@ -423,6 +532,98 @@ export default function SignalAdmin() {
           </div>
         </Card>
       ) : null}
+
+      {/* docs/17 SIG-032, ADR-0112. Three adapters and an engine were built and
+          permanently unreachable: the export stands down unless this setting is
+          written, and the only writer is the modules-config PATCH, whose only UI
+          toggled `enabled`. This is the missing control. */}
+      <Card title={l("admin.convTitle")} description={l("admin.convLede")}>
+        {result?.problem ? <p role="alert" className="mb-3 font-ui text-13 text-danger">{l(result.problem.title)}</p> : null}
+        {result?.saved ? <p className="mb-3 font-ui text-13 text-success">{l("admin.convSaved")}</p> : null}
+
+        <p className="mb-3 font-ui text-13 text-muted">
+          {loaded.conversion === null
+            ? l("admin.convOff")
+            : l("admin.convOn", {
+                how:
+                  loaded.conversion.basis === "commission"
+                    ? l("admin.convBasis.commission")
+                    : l("admin.convBasis.premium_rate"),
+                rate:
+                  loaded.conversion.ratePpm !== undefined
+                    ? `${Math.round((loaded.conversion.ratePpm / 10_000) * 100) / 100}%`
+                    : "—"
+              })}
+        </p>
+
+        {loaded.may.configure ? (
+          <Form method="post" className="flex flex-col gap-4">
+            <input type="hidden" name="intent" value="conversion-value" />
+            <Field label={l("admin.convBasis")} id="conv-basis" hint={l("admin.convBasis.hint")}>
+              <Select
+                name="basis"
+                defaultValue={loaded.conversion?.basis ?? "none"}
+                options={[
+                  { value: "none", label: l("admin.convBasis.none") },
+                  { value: "commission", label: l("admin.convBasis.commission") },
+                  { value: "premium_rate", label: l("admin.convBasis.premium_rate") }
+                ]}
+              />
+            </Field>
+            <Field label={l("admin.convRate")} id="conv-rate" hint={l("admin.convRate.hint")}>
+              {/* A percentage, not parts per million: the field says "% of
+                  premium" and nobody types 75 000. */}
+              <Input
+                name="ratePercent"
+                inputMode="decimal"
+                maxLength={7}
+                className="w-28"
+                defaultValue={
+                  loaded.conversion?.ratePpm !== undefined
+                    ? String(Math.round((loaded.conversion.ratePpm / 10_000) * 100) / 100)
+                    : ""
+                }
+              />
+            </Field>
+            <div>
+              <Button type="submit" variant="primary" loading={busy}>
+                {busy ? t("common.working") : l("admin.convSubmit")}
+              </Button>
+            </div>
+          </Form>
+        ) : null}
+
+        {/* The reading half of the setting above: whether anything has actually
+            been reported back, and what a failure said. */}
+        {loaded.may.exports ? (
+          <div className="mt-5 flex flex-col gap-3 border-t border-border pt-4">
+            <span className="eyebrow">{l("admin.exportsTitle")}</span>
+            {loaded.exports.length === 0 ? (
+              <p className="font-ui text-13 text-subtle">{l("admin.exports.none")}</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-5">
+                  <Stat label={l("admin.exports.sent")} value={String(roll.sent)} />
+                  <Stat label={l("admin.exports.skipped")} value={String(roll.skipped)} />
+                  <Stat label={l("admin.exports.failed")} value={String(roll.failed)} />
+                </div>
+                {roll.lastAt !== null ? (
+                  <p className="font-ui text-12 text-subtle">
+                    {l("admin.exports.last")} <DateTime value={roll.lastAt} locale={locale} />
+                  </p>
+                ) : null}
+                <Table
+                  caption={l("admin.exportsTitle")}
+                  captionHidden
+                  rowKey={(row) => row.id}
+                  rows={loaded.exports.slice(0, 8)}
+                  columns={exportColumns(l, locale)}
+                />
+              </>
+            )}
+          </div>
+        ) : null}
+      </Card>
 
       <Card title={l("admin.policyTitle")} description={l("admin.policyLede")}>
         <div className="flex flex-col gap-3">

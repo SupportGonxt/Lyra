@@ -144,6 +144,13 @@ export function monthRangeMs(period: string): { start: number; end: number } {
  * core/identity-verifications, is `ro` — bounded anyway, and it stays bounded
  * if that ever goes writable.
  *
+ * `validFrom`/`validTo` are whole keys too (ADR-0125): the two columns on
+ * `axis/authorisations` are a licence's effective window, and the resource is
+ * `rw`, so both are caller input. They are named rather than matched by a
+ * `valid` prefix because `validUntil` (`axis.quotes`, `dist.quoteResponses`,
+ * `dist.offerings`) is a different question already handled at its own
+ * endpoints — see the ceiling paragraph below.
+ *
  * No line numbers here on purpose: two fix waves in a row wrote them and both
  * went stale inside the same wave. Grep the resource names against
  * resources.ts.
@@ -179,7 +186,9 @@ export const isInstantKey = (key: string): boolean =>
   key === "ts" ||
   key === "expiry" ||
   key === "freshness" ||
-  key === "reversibleUntil";
+  key === "reversibleUntil" ||
+  key === "validFrom" ||
+  key === "validTo";
 
 /* ------------------------------------------------------------- pagination */
 

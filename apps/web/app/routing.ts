@@ -45,6 +45,12 @@ export const HIDDEN_ROUTES: Record<string, string> = {
     "public CSAT tap, no session and no shell — reached only with the link token sent after the conversation closed (docs/modules/orbit.md §5)",
   "/portal/:tenantSlug/chat":
     "public web chat, no session and no shell — linked from the storefront footer while the tenant has an active web chat connector (ADR-0099)",
+  "/portal/:tenantSlug/suppliers/:id":
+    "the insurer's portal — no session and no shell, reached only with the link token minted from its provider record behind core:providers:read (PORTALS-DESIGN-AND-AUDIT.md §1)",
+  "/portal/:tenantSlug/channels/:id":
+    "the channel partner's portal — no session and no shell, reached only with the link token minted from its channel record behind dist:channels:read (PORTALS-DESIGN-AND-AUDIT.md §2)",
+  "/portal-link/:kind/:id":
+    "no screen: it mints an external portal link server-side and redirects to it, opened from the provider or channel record's own action (PORTALS-DESIGN-AND-AUDIT.md §4)",
   "/logout": "action only, no UI",
   "/settings": "reached from the account menu in the header, not the module rail",
   "/settings/:tab": "one settings section — profile, sign-in, brand, regional, data — reached from the tabs on /settings",
@@ -104,8 +110,11 @@ export const HIDDEN_ROUTES: Record<string, string> = {
   "/admin/automation":
     "the auto-approve allowlist inside the admin workspace, linked from its tools list beside security and access",
   "/axis/documents/:id/file": "streams one document's source file, opened from the verify-queue viewer",
+  // The path is historical (it said "recon" and served a compliance bundle); it
+  // now streams the case's own audit bundle and **enforces** the case id, which
+  // the compliance proxy it replaced did not.
   "/axis/cases/:id/evidence-bundles/:bundleId/download":
-    "streams one recon evidence bundle's file, opened from the case detail evidence list",
+    "streams one case audit bundle's file, opened from the case detail evidence list",
   "/signal/creatives/:id/image": "streams one generated creative's image, opened from the studio's creative list",
   "/admin/customers/:id/360": "opens everything known about one customer from the customers list",
   "/admin/products/:id/detail": "opens one product definition from the products list",

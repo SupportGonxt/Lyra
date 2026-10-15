@@ -87,6 +87,17 @@ export const JOURNEY_FUNNELS: readonly JourneyFunnel[] = [
     { key: "proposed", actions: ["signal.budget_move.created"] },
     { key: "revised", actions: ["signal.budget-moves.update"] }
   ] },
+  // J-M3 "citation share trend over 8 weeks" (docs/06:69). It had no funnel
+  // because the step it measures did not exist: the only writer of a citation
+  // was the demo seed, so there was nothing to count. The monitor
+  // (engines/signal-aeo-monitor.ts) records a sample per query per assistant
+  // per week, and these are its three steps — the query is tracked, the
+  // assistant is asked, the box is ours or it is not.
+  { id: "J-M3", persona: "signal.lead", steps: [
+    { key: "tracked", actions: ["signal.aeo-pages.create", "signal.aeo-pages.update"] },
+    { key: "sampled", actions: ["signal.aeo.sampled"] },
+    { key: "cited", actions: ["signal.aeo.cited"] }
+  ] },
   { id: "J-P1", persona: "scout.lead", steps: [
     { key: "promoted", actions: ["scout.whitespace.promoted"] },
     { key: "experiment", actions: ["scout.scout-experiments.create"] },
@@ -105,9 +116,21 @@ export const JOURNEY_FUNNELS: readonly JourneyFunnel[] = [
     { key: "asked", actions: ["north.scenarios.create"] },
     { key: "revisited", actions: ["north.scenarios.update"] }
   ] },
+  // J-E1 "the 7am read": the brief reaching the reader, then the reader opening
+  // it (once per reader per brief per UTC day, so a refresh is not a second read).
+  { id: "J-E1", persona: "north.exec", steps: [
+    { key: "delivered", actions: ["north.briefing.generated"] },
+    { key: "read", actions: ["north.briefing.read"] }
+  ] },
   { id: "J-A2", persona: "tenant.admin", steps: [
     { key: "invited", actions: ["core.staff.invite"] },
     { key: "roles", actions: ["core.staff.roles_changed", "core.user-roles.create"] }
+  ] },
+  // J-A1 "new tenant in a day": both actions land in the platform tenant (the
+  // one the platform admin is signed into), which is where this funnel reads.
+  { id: "J-A1", persona: "platform.admin", steps: [
+    { key: "created", actions: ["platform.tenant.created"] },
+    { key: "admin_invited", actions: ["platform.tenant.admin_invited"] }
   ] },
   { id: "J-A3", persona: "module admin", steps: [
     { key: "paused", actions: ["ai.module.paused", "ai.tenant.paused", "ai.agent.pause", "signal.autopilot.paused"] },

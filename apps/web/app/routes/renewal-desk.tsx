@@ -78,9 +78,12 @@ export interface Row {
 const LABELS: Record<string, Record<string, string>> = {
   en: {
     title: "Renewal desk",
-    // No requote engine writes orbit_renewals.requotes_json yet, so this desk
-    // shows the current gross and no re-quoted price — the intro must not
-    // promise a column that does not exist.
+    // `orbit-requote.ts` writes `requotes_json` now (ADR-0129): the day-0 campaign
+    // step prices an `auto_requote` renewal across the panel and stores the cheapest
+    // answer. **This desk still shows the current gross and no re-quoted price** —
+    // the comment used to say no engine existed, which stopped being true, and the
+    // remaining gap is a column here rather than a missing engine. The intro must
+    // not promise a column that does not exist *yet*.
     intro: "Terms expiring in the next 60 days, their churn risk, and the one-tap bind.",
     empty: "No terms expiring in the next 60 days.",
     emptyTitle: "Nothing to renew yet",

@@ -1,3 +1,9 @@
+// The subpath, not the barrel. `@lyra/core`'s index re-exports `seed.js`, which
+// imports `@lyra/db`'s root — and that declares `makeDb(binding: D1Database)`,
+// a Workers global a web bundle does not have. This file was the only web import
+// of the barrel, so it was the only place the chain could start; the subpath ends
+// it. `@lyra/db/schema` exists for the same reason.
+import { coverageOf } from "@lyra/core/coverage";
 import { vocabulary } from "../modules/vocabulary";
 import { pseudoText } from "../i18n";
 import { asJson } from "../json.js";
@@ -199,8 +205,13 @@ export interface ProviderRoll {
   ourIdx: number | null;
   marketIdx: number | null;
   lines: string[];
-  /** Terms where our wording differs from the panel median. */
-  gaps: number;
+  /** ADR-0127. Terms where our wording differs from the panel median, summed
+   *  over the roll's rows — or null when no row in the roll carries a terms
+   *  fact at all, which is not the same claim as zero. A `reach` row (the Bench
+   *  Builder's unanswered-request counts) is a different fact and is never
+   *  added into this column: reading a count as a list is exactly how this cell
+   *  came to render NaN. */
+  gaps: number | null;
 }
 
 export function rollByProvider(rows: readonly PanelRow[]): ProviderRoll[] {
@@ -216,7 +227,10 @@ export function rollByProvider(rows: readonly PanelRow[]): ProviderRoll[] {
       ourIdx: weighted(own, (row) => row.ourPriceIdx),
       marketIdx: weighted(own, (row) => row.marketPriceIdx),
       lines: [...new Set(own.map((row) => row.line))].sort(),
-      gaps: own.reduce((sum, row) => sum + asJson<unknown[]>(row.coverageGapsJson, []).length, 0)
+      gaps: own.reduce<number | null>((sum, row) => {
+        const coverage = coverageOf(row.coverageGapsJson);
+        return coverage?.kind === "terms" ? (sum ?? 0) + coverage.terms.length : sum;
+      }, null)
     }))
     .sort((a, b) => b.volume - a.volume);
 }

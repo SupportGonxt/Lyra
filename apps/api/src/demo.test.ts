@@ -133,6 +133,44 @@ describe("POST /v1/auth/demo/resync-roles", () => {
     expect(second.body.events).toEqual({ journeys: [], webhooks: [] });
   });
 
+  /**
+   * The 2026-10-01 sweep's AUTH finding, pinned as behaviour rather than as prose.
+   *
+   * The route's docstring claimed `resyncSystemRolePermissions` *"never touches a
+   * deliberately narrowed bundle"* — and the code has never done that. The sweep's
+   * verifier also established that the obvious "fix" (skip a stored bundle narrower
+   * than the compiled one) would **break ADR-0116 §5**, because a role stored equal
+   * to the *previous* compiled set is now a proper subset, so every future grant
+   * would stop reaching every existing tenant.
+   *
+   * So the sentence was corrected, and this is what keeps it corrected: a narrowed
+   * system role is **restored**, deliberately. If someone later implements the
+   * rejected fix, this fails.
+   */
+  it("restores a deliberately narrowed system role — the overwrite is the point", async () => {
+    const [role] = await database
+      .select()
+      .from(schema.roles)
+      .where(eq(schema.roles.system, true))
+      .limit(1);
+    expect(role).toBeTruthy();
+
+    const compiled = JSON.parse(role!.permissionsJson) as string[];
+    const narrowed = compiled.slice(0, 1);
+    await database
+      .update(schema.roles)
+      .set({ permissionsJson: JSON.stringify(narrowed) })
+      .where(eq(schema.roles.id, role!.id));
+
+    const res = await call("staging", "POST", "/v1/auth/demo/resync-roles");
+    expect(res.status).toBe(200);
+
+    const [after] = await database.select().from(schema.roles).where(eq(schema.roles.id, role!.id));
+    const restored = JSON.parse(after!.permissionsJson) as string[];
+    expect(restored).toEqual(compiled);
+    expect(restored.length).toBeGreaterThan(narrowed.length);
+  });
+
   // ADR-0109: the CPA bounds are NORTH metrics the demo tenant was provisioned
   // without; the snapshotter computes only metrics that have a row.
   it("backfills a NORTH metric the tenant lacks, and a second call backfills nothing", async () => {

@@ -26,8 +26,23 @@ export interface AccountDef {
   type: AccountType;
   /** debit|credit — the side that increases this account. */
   normalSide: "debit" | "credit";
-  /** Segregated client money (CBUAE). Guarded by the 1010 ≥ 2010 invariant. */
+  /** Segregated client money (CBUAE). Guarded by the per-pair 1010 ≥ 2010 invariant. */
   clientMoney?: true;
+  /**
+   * ADR-0126. On a client-money account, the code of the account holding the
+   * same clients' money on the other side: the asset names its liability and
+   * the liability names the asset back. A broker is licensed per market, so
+   * segregation is a property of the *pair* and never of the tenant's total.
+   */
+  clientMoneyPair?: string;
+  /**
+   * The currency the account is held in, where it is fixed (a segregated
+   * account is opened for one market's licence). Absent on the many accounts
+   * that hold any currency; provisioning falls back to the tenant's own.
+   * A reporting label only — every balance is still summed from the journal
+   * lines' own currency.
+   */
+  currency?: string;
   /** A clearing/suspense account that must net to zero at period close (ADR-0083). */
   suspense?: true;
   /** IAS 7 class (ADR-0090); absent = derived from `type`. */
@@ -37,7 +52,13 @@ export interface AccountDef {
 export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
   // assets
   { code: "1000", en: "Cash – Operating", ar: "النقد – التشغيلي", type: "asset", normalSide: "debit", cashFlow: "cash" },
-  { code: "1010", en: "Cash – Client Money", ar: "النقد – أموال العملاء", type: "asset", normalSide: "debit", clientMoney: true },
+  { code: "1010", en: "Cash – Client Money", ar: "النقد – أموال العملاء", type: "asset", normalSide: "debit", clientMoney: true, clientMoneyPair: "2010", currency: "AED" },
+  // ADR-0126. The second licence, held to the same rule as the first. A broker
+  // is licensed per market, and one market's client money may not be spent on
+  // another market's clients, so this is a pair of its own and not a currency
+  // column on 1010. `1011` sits beside `1010` because the chart is grouped by
+  // kind; the pairing, not the number, is what binds it to `2011`.
+  { code: "1011", en: "Cash – Client Money (KSA)", ar: "النقد – أموال العملاء (السعودية)", type: "asset", normalSide: "debit", clientMoney: true, clientMoneyPair: "2011", currency: "SAR" },
   { code: "1100", en: "Commission Receivable", ar: "عمولات مستحقة القبض", type: "asset", normalSide: "debit" },
   { code: "1150", en: "Financier Receivable", ar: "مستحقات من جهة التمويل", type: "asset", normalSide: "debit" },
   { code: "1155", en: "Recovery Receivable", ar: "مستحقات الاسترداد", type: "asset", normalSide: "debit" },
@@ -47,10 +68,21 @@ export const CHART_OF_ACCOUNTS: readonly AccountDef[] = [
 
   // liabilities
   { code: "2000", en: "Insurer Payable", ar: "مستحقات لشركات التأمين", type: "liability", normalSide: "credit" },
-  { code: "2010", en: "Client Money Liability", ar: "التزام أموال العملاء", type: "liability", normalSide: "credit", clientMoney: true },
+  { code: "2010", en: "Client Money Liability", ar: "التزام أموال العملاء", type: "liability", normalSide: "credit", clientMoney: true, clientMoneyPair: "1010", currency: "AED" },
+  // ADR-0126, the liability side of the KSA licence. It names `1011` back, so a
+  // pair that is half-written is a chart the controls refuse rather than one
+  // they silently skip.
+  { code: "2011", en: "Client Money Liability (KSA)", ar: "التزام أموال العملاء (السعودية)", type: "liability", normalSide: "credit", clientMoney: true, clientMoneyPair: "1011", currency: "SAR" },
   { code: "2100", en: "Partner / Publisher Payable", ar: "مستحقات الشركاء والناشرين", type: "liability", normalSide: "credit" },
   { code: "2150", en: "Creator Payable", ar: "مستحقات صنّاع المحتوى", type: "liability", normalSide: "credit" },
   { code: "2200", en: "Tax Payable", ar: "ضرائب مستحقة الدفع", type: "liability", normalSide: "credit" },
+  // ADR-0121 / docs/29 G1. One tax liability could not say which tax it held:
+  // an EU/UK insurance premium tax posted as though it were recoverable VAT, and
+  // Egypt's table tax on a premium landed in the same account as the VAT beside
+  // it — two returns, one balance. The rule's `kind` decides which of the three
+  // the money belongs to.
+  { code: "2210", en: "Insurance Premium Tax Payable", ar: "ضريبة أقساط التأمين مستحقة الدفع", type: "liability", normalSide: "credit" },
+  { code: "2220", en: "Table Tax Payable", ar: "ضريبة الجدول مستحقة الدفع", type: "liability", normalSide: "credit" },
   { code: "2250", en: "Accrued Expenses", ar: "مصروفات مستحقة", type: "liability", normalSide: "credit" },
   { code: "2300", en: "Deferred Revenue", ar: "إيرادات مؤجلة", type: "liability", normalSide: "credit" },
   { code: "2350", en: "Customer Deposits", ar: "ودائع العملاء", type: "liability", normalSide: "credit" },
@@ -133,6 +165,25 @@ export function account(code: string): AccountDef | undefined {
   return BY_CODE.get(code);
 }
 
-/** Segregated client-money accounts (docs/19 §5.2 B invariant). */
+/**
+ * The **legacy singular** client-money accounts.
+ *
+ * Read these and you will reintroduce the defect item 2 of the 2026-10 audit removed.
+ * They say there is **one** client-money asset and **one** liability; the platform has
+ * as many pairs as the tenant's chart declares — `1010/2010` (AED) and `1011/2011`
+ * (SAR) ship in the seed — so the segregation invariant, the position report, the
+ * Money Map and the period-close check all read `clientMoneyPairs(ctx)`
+ * (`packages/core/src/chart.ts`) instead.
+ *
+ * **They have no caller in the repository**, verified by counting rather than by
+ * reading: a repo-wide sweep finds these two lines and nothing else. They are kept
+ * because `docs/specs/gap-finance-design.md:539` says to keep them — *"stay exported
+ * unchanged so no existing caller breaks"* — and that reason has since **expired**,
+ * since there is no existing caller. Deleting them is a change to a client-facing
+ * design, so it is **not** made here; what is fixed here is the comment that presented
+ * them as the answer.
+ *
+ * `clientMoneyPairs` is the answer. This is a leftover with a spec paragraph behind it.
+ */
 export const CLIENT_MONEY_ACCOUNT = "1010";
 export const CLIENT_MONEY_LIABILITY_ACCOUNT = "2010";

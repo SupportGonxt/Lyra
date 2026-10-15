@@ -7,6 +7,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   AGENT_MARK,
   Badge,
@@ -29,7 +30,7 @@ import { arrowFor } from "../i18n";
 import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { CacMethod, CacRangeValue } from "../components/cac-range";
-import { channelColumns } from "./signal-studio";
+import { BudgetMap, channelColumns } from "./signal-studio";
 import { useSignalSessionData } from "./signal-shell";
 import {
   PERM,
@@ -71,6 +72,17 @@ import {
 const empty = <T,>(): Page<T> => ({ data: [] });
 
 const RUNNING_STATES = ["live", "paused"];
+
+/** Mirrors GET /v1/signal/next (engines/signal-next.ts). */
+export interface SuggestionRow {
+  key: string;
+  kind: string;
+  urgency: "now" | "soon" | "when-you-can";
+  title: string;
+  why: string;
+  evidence: Record<string, unknown>;
+  action: { href: string; labelKey: string; permission: string } | null;
+}
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
@@ -114,8 +126,16 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       }).then((reply) => reply.range),
     null
   );
+  // What to do next (docs/modules/signal.md §4.1). The API does the reading and
+  // the reasoning; this screen renders the answer — so the rules are tested once,
+  // against fixtures, rather than reimplemented in a component.
+  const next = await safe(
+    () => api<{ suggestions: SuggestionRow[] }>("/v1/signal/next", { env, request }),
+    { suggestions: [] as SuggestionRow[] }
+  );
   return {
     acquisition,
+    suggestions: next.suggestions,
     days,
     // The kill switch lives on the tenant policy, and /v1/me is the only read
     // that returns it (apps/api/src/routes/signal.ts setAutopilotPaused).
@@ -249,6 +269,46 @@ export default function GrowthCockpit() {
         </nav>
       </header>
 
+      {/* What to do next, and why (docs/modules/signal.md §4.1). This is the
+          first thing on the screen on purpose: the module's job is to suggest,
+          and an operator who has to know which of eleven tabs to open is doing
+          the platform's reasoning for it. Each item names the figures behind it
+          and links to the screen that acts on it, gated on that screen's own
+          permission — so a suggestion is never a door into a 403. */}
+      {loaded.suggestions.length ? (
+        <Card title={l("cockpit.next")} description={l("cockpit.nextHint")}>
+          <ul className="flex flex-col divide-y divide-border border-y border-border">
+            {loaded.suggestions.slice(0, 6).map((suggestion) => {
+              const allowed = !suggestion.action || may.has(suggestion.action.permission);
+              return (
+                <li key={suggestion.key} className="flex flex-wrap items-start justify-between gap-3 py-3">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={suggestion.urgency === "now" ? "danger" : suggestion.urgency === "soon" ? "warning" : "neutral"} dot>
+                        {l(`cockpit.urgency.${suggestion.urgency}`)}
+                      </Badge>
+                      <span className="font-ui text-14 font-medium text-text">{suggestion.title}</span>
+                    </div>
+                    {/* The reading, with its numbers — the inspectable "why". */}
+                    <p className="max-w-prose font-ui text-13 text-muted">{suggestion.why}</p>
+                  </div>
+                  {suggestion.action && allowed ? (
+                    <Button asChild variant="secondary" size="sm">
+                      <Link to={suggestion.action.href}>{l(suggestion.action.labelKey)}</Link>
+                    </Button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          {loaded.suggestions.length > 6 ? (
+            <p className="mt-3 font-ui text-12 text-subtle">
+              {l("cockpit.nextMore", { n: String(loaded.suggestions.length - 6) })}
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
+
       {result?.problem ? <Gate problem={explain(result.problem, l)} l={l} /> : null}
       {result?.adjusted !== null && result?.adjusted !== undefined ? (
         <p className="font-ui text-13 text-success">
@@ -337,6 +397,16 @@ export default function GrowthCockpit() {
           />
         )}
       </Card>
+
+      {/* docs/modules/signal.md §4.1's budget map. The table answers what each
+          channel cost and returned; this answers the question asked before it —
+          what shape is the spend, and how much of the plan has it used. A
+          distribution is genuinely easier to read as a shape than as a column. */}
+      {rolls.length ? (
+        <Card title={l("cockpit.mapTitle")} description={l("cockpit.mapLede")}>
+          <BudgetMap rolls={rolls} plannedMinor={loaded.plannedMinor} currency={currency} locale={locale} l={l} />
+        </Card>
+      ) : null}
 
       {/* The acquisition loop (engines/signal-outreach.ts): spend → message →
           lead → bind, with the closed loops named. A converted row IS the
@@ -498,7 +568,7 @@ function campaignColumns(l: (key: string) => string, locale: string): Array<Colu
         return (
           <Money
             amountMinor={budget.dailyMinor ?? 0}
-            currency={budget.currency ?? "ZAR"}
+            currency={budget.currency ?? FALLBACK_CURRENCY}
             locale={locale}
           />
         );

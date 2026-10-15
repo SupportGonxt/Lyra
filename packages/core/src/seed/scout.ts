@@ -1,4 +1,5 @@
 import { id, schema } from "@lyra/db";
+import { coverageTerms, encodeCoverage, type CoverageTerm } from "../coverage.js";
 import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
 import { monthKey, monthName } from "./period.js";
 
@@ -420,6 +421,11 @@ export async function seedScout(ctx: SeedContext): Promise<void> {
   // be claiming something GONXT cannot show. `winRate` is share of requests the
   // provider was quoted into and won, so it only means anything alongside
   // `volume`: Gulf Health's 34% is 41 requests.
+  // ADR-0127: the column holds two facts in one union. The seed writes the
+  // *terms* half — where our wording differs from the panel median — and every
+  // position below is a `CoverPosition` (`present`, `minor` for money, `note`
+  // for a figure the type has no field for) rather than the four shapes this
+  // one function used to write.
   const bench = (
     n: number,
     providerId: string,
@@ -429,7 +435,7 @@ export async function seedScout(ctx: SeedContext): Promise<void> {
     marketPriceIdx: number | null,
     winRate: number | null,
     volume: number,
-    gaps: ReadonlyArray<Record<string, unknown>>,
+    terms: readonly CoverageTerm[],
     updatedAt: number
   ): typeof schema.scoutPanelBench.$inferInsert => ({
     id: id("pnb", now + n),
@@ -441,7 +447,7 @@ export async function seedScout(ctx: SeedContext): Promise<void> {
     marketPriceIdx,
     winRate,
     volume,
-    coverageGapsJson: JSON.stringify(gaps),
+    coverageGapsJson: encodeCoverage(coverageTerms(terms)),
     updatedAt
   });
 
@@ -449,41 +455,43 @@ export async function seedScout(ctx: SeedContext): Promise<void> {
     // Two periods for the motor rows so the trend the negotiation packs quote
     // is actually in the table rather than asserted in prose.
     bench(0, ctx.providers.cedar, "motor", monthKey(now), 9_420, 10_000, 44, 1_812, [
-      { term: "agency_repair", ours: false, panelMedian: true, note: "The cheapest row is cheapest partly because of this." },
-      { term: "roadside", ours: false, panelMedian: true }
+      { term: "agency_repair", ours: { present: false }, panelMedian: { present: true }, note: "The cheapest row is cheapest partly because of this." },
+      { term: "roadside", ours: { present: false }, panelMedian: { present: true } }
     ], now - 6 * HOUR),
     bench(1, ctx.providers.falcon, "motor", monthKey(now), 10_380, 10_000, 27, 1_640, [
-      { term: "excess", oursMinor: 50_000, panelMedianMinor: 100_000, note: "Better cover at a higher index — the value score, not the price rank, is what sells it." }
+      { term: "excess", ours: { present: true, minor: 50_000 }, panelMedian: { present: true, minor: 100_000 }, note: "Better cover at a higher index — the value score, not the price rank, is what sells it." }
     ], now - 6 * HOUR),
     bench(2, ctx.providers.gonxt, "motor", monthKey(now), 10_110, 10_000, 19, 1_704, [
-      { term: "agency_repair", ours: false, panelMedian: true, note: "Own paper is mid-price without agency repair, which is where the 19% comes from." }
+      { term: "agency_repair", ours: { present: false }, panelMedian: { present: true }, note: "Own paper is mid-price without agency repair, which is where the 19% comes from." }
     ], now - 6 * HOUR),
     bench(3, ctx.providers.oryx, "motor", monthKey(now), 10_640, 10_000, 6, 388, [
-      { term: "quote_latency", oursSeconds: 118, panelMedianSeconds: 3, note: "Priced by hand against a 120s SLA, so most requests are decided before the row arrives." }
+      // A latency has no `minor`: the figure both sides are compared on lives in
+      // the note, which is where the old `oursSeconds` shape put the unit.
+      { term: "quote_latency", ours: { present: true, note: "118 seconds" }, panelMedian: { present: true, note: "3 seconds" }, note: "Priced by hand against a 120s SLA, so most requests are decided before the row arrives." }
     ], now - 6 * HOUR),
     bench(4, ctx.providers.cedar, "motor", monthKey(now, -1), 9_510, 10_000, 47, 1_996, [
-      { term: "agency_repair", ours: false, panelMedian: true }
+      { term: "agency_repair", ours: { present: false }, panelMedian: { present: true } }
     ], now - 5 * DAY),
     bench(5, ctx.providers.falcon, "motor", monthKey(now, -1), 10_220, 10_000, 31, 1_733, [
-      { term: "excess", oursMinor: 50_000, panelMedianMinor: 100_000 }
+      { term: "excess", ours: { present: true, minor: 50_000 }, panelMedian: { present: true, minor: 100_000 } }
     ], now - 5 * DAY),
     bench(6, ctx.providers.oryx, "motor", monthKey(now, -1), 10_450, 10_000, 11, 502, [
-      { term: "quote_latency", oursSeconds: 96, panelMedianSeconds: 3 }
+      { term: "quote_latency", ours: { present: true, note: "96 seconds" }, panelMedian: { present: true, note: "3 seconds" } }
     ], now - 5 * DAY),
     bench(7, ctx.providers.gulfHealth, "health", monthKey(now), 9_880, 10_000, 34, 41, [
-      { term: "maternity_waiting_days", ours: 365, panelMedian: null, note: "Nothing to compare against: Gulf Health is the only health row on the panel." }
+      { term: "maternity_waiting_days", ours: { present: true, note: "365 days" }, panelMedian: { present: false }, note: "Nothing to compare against: Gulf Health is the only health row on the panel." }
     ], now - 6 * HOUR),
     bench(8, ctx.providers.gonxt, "travel", monthKey(now), 9_240, 10_000, 61, 623, [
-      { term: "trip_basis", ours: "annual_only", panelMedian: "single_trip", note: "Feeds the visa-trip whitespace." }
+      { term: "trip_basis", ours: { present: true, note: "annual only" }, panelMedian: { present: true, note: "single trip" }, note: "Feeds the visa-trip whitespace." }
     ], now - 6 * HOUR),
     bench(9, ctx.providers.cedar, "home", monthKey(now), 10_050, 10_000, 52, 214, [], now - 6 * HOUR),
     bench(10, ctx.providers.oryx, "life", monthKey(now), null, null, 38, 76, [
-      { term: "pricing_mode", ours: "manual", note: "Manual pricing with no second life row means there is no median to index against." }
+      { term: "pricing_mode", ours: { present: true, note: "manual" }, panelMedian: { present: false }, note: "Manual pricing with no second life row means there is no median to index against." }
     ], now - 6 * HOUR),
     // Meridian is a financier, not an underwriter: the referral has no premium,
     // so the price columns stay empty and only the funnel numbers are readable.
     bench(11, ctx.providers.meridian, "loan", monthKey(now), null, null, 71, 132, [
-      { term: "index", ours: null, note: "A loan referral has no premium to index. Win rate here is referrals accepted, not price competitiveness." }
+      { term: "index", ours: { present: false }, panelMedian: { present: false }, note: "A loan referral has no premium to index. Win rate here is referrals accepted, not price competitiveness." }
     ], now - 6 * HOUR)
   ]);
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FALLBACK_CURRENCY } from "../calendar";
 import { Link } from "react-router";
 import { surfaceCatalogue } from "../modules/surfaces";
 import { shouldInclude } from "../routing";
@@ -569,7 +570,7 @@ export function Doctrine({
             <h3 className="font-display text-14 font-semibold text-tx">{l("flow.post.title")}</h3>
             <PostingFlow
               legs={SPECIMEN_LEGS}
-              currency="ZAR"
+              currency={FALLBACK_CURRENCY}
               balance={SPECIMEN_BALANCE}
               fromLabel={l("flow.debits")}
               toLabel={l("flow.credits")}

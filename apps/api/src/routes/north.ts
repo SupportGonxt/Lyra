@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, eq, inArray, max } from "drizzle-orm";
+import { and, count, eq, gte, inArray, max } from "drizzle-orm";
 import type { ReportTable } from "@lyra/ledger";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, forecast, journeyHealth, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
+import { actorRef, audit, buildCompliancePosture, forecast, journeyHealth, notFound, require_, sha256Hex, type Ctx } from "@lyra/core";
 import { body, csvBody, IsoDay, parse } from "../http.js";
-import { must } from "../rows.js";
+import { must, one } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateBriefing } from "../engines/narrator.js";
 import { runSnapshotter } from "../engines/north-snapshotter.js";
@@ -42,7 +42,57 @@ northRoutes.post("/briefings/generate", async (c) => {
     ...(input.locale !== undefined ? { locale: input.locale } : {})
   });
   await pushToActor(c.env, ctx.tenantId, ctx.actor.id, "north.briefing.generated", { id: result.id }, ctx.now);
+  // J-E1: the briefing reaching the reader is its own audit step, so the
+  // journey funnel has a "delivered" end that a push cannot supply.
+  await audit(ctx, {
+    action: "north.briefing.generated",
+    subjectRef: result.id,
+    after: { date: input.date, audience: result.audience, status: result.status }
+  });
   return c.json(result, 201);
+});
+
+// J-E1 "the 7am read": opening a briefing is the read half of the journey. Once
+// per reader per briefing per UTC day — a refresh is not a second read, and the
+// audit log is not a page-view log.
+northRoutes.post("/briefings/:id/read", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:briefings:read", { tenantId: ctx.tenantId, module: "north" });
+  const briefing = await must(ctx, schema.northBriefings, c.req.param("id"), "briefing");
+  const dayStart = ctx.now - (ctx.now % 86_400_000);
+  const [seen] = await ctx.db
+    .select({ id: schema.auditLog.id })
+    .from(schema.auditLog)
+    .where(
+      and(
+        eq(schema.auditLog.tenantId, ctx.tenantId),
+        eq(schema.auditLog.action, "north.briefing.read"),
+        eq(schema.auditLog.subjectRef, briefing.id),
+        eq(schema.auditLog.actorRef, actorRef(ctx)),
+        gte(schema.auditLog.ts, dayStart)
+      )
+    )
+    .limit(1);
+  if (!seen) await audit(ctx, { action: "north.briefing.read", subjectRef: briefing.id });
+  return c.json({ read: true, alreadyReadToday: Boolean(seen) });
+});
+
+// ADR-0118: the grounding provenance behind a briefing's narrative — epistemic
+// coverage, the assembled facts and their sources, whether it refused to guess.
+// Read-only and tenant-scoped; a briefing the narrator never grounded (or that
+// predates the grounding column) answers `{ grounding: null }`, never a guess.
+northRoutes.get("/briefings/:id/grounding", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "north:briefings:read", { tenantId: ctx.tenantId, module: "north" });
+  const briefing = await must(ctx, schema.northBriefings, c.req.param("id"), "briefing");
+  if (!briefing.aiAuditId) return c.json({ grounding: null });
+  const audit = await one(ctx, schema.aiAuditLog, briefing.aiAuditId);
+  if (!audit?.groundingJson) return c.json({ grounding: null });
+  try {
+    return c.json({ grounding: JSON.parse(audit.groundingJson) });
+  } catch {
+    return c.json({ grounding: null });
+  }
 });
 
 const GenerateBoardpackBody = z.object({ period: z.string().min(1), title: z.string().min(1).max(200) });
@@ -94,6 +144,48 @@ northRoutes.post("/boardpacks/:id/distribute", async (c) => {
 // behind it. Status lands on "review", never "final": rule 4 (human-in-the-
 // loop) — distribution is the consequential step (docs/modules/north.md §3),
 // not assembly: approval and distribution are the two routes above.
+/**
+ * docs/12-security-compliance.md §5's closing claim, which was not true until
+ * now: *"NORTH surfaces a live 'Compliance posture' tile for `tenant.compliance`
+ * from these signals."* Every figure below is read at the moment of the request
+ * — this tile is a query, not a stored score, so it cannot drift from the data
+ * it describes.
+ *
+ * Gated on `core:audit:read`, which `tenant.compliance` holds: the posture is an
+ * evidence map, and the person who reads it is the one who can already read the
+ * trail behind it.
+ */
+northRoutes.get("/compliance-posture", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "core:audit:read", { tenantId: ctx.tenantId, module: "north" });
+  const scoped = <T extends { tenantId: unknown }>(table: T) =>
+    eq((table as unknown as { tenantId: never }).tenantId, ctx.tenantId as never);
+
+  const [consents, aiRuns, disclosureRows, briefingRows, purges] = await Promise.all([
+    ctx.db.select({ n: count() }).from(schema.consents).where(scoped(schema.consents)),
+    ctx.db.select({ n: count() }).from(schema.aiAuditLog).where(scoped(schema.aiAuditLog)),
+    ctx.db.select({ n: count() }).from(schema.disclosures).where(scoped(schema.disclosures)),
+    ctx.db.select({ n: count() }).from(schema.northBriefings).where(scoped(schema.northBriefings)),
+    ctx.db
+      .select({ last: max(schema.retentionRuns.startedAt) })
+      .from(schema.retentionRuns)
+      .where(and(scoped(schema.retentionRuns), eq(schema.retentionRuns.state, "done")))
+  ]);
+
+  return c.json({
+    controls: buildCompliancePosture({
+      consentRows: consents[0]?.n ?? 0,
+      aiAuditRows: aiRuns[0]?.n ?? 0,
+      disclosures: disclosureRows[0]?.n ?? 0,
+      briefings: briefingRows[0]?.n ?? 0,
+      retentionCadence: ctx.policy.retention.schedule,
+      lastPurgedAt: purges[0]?.last ?? null,
+      // A stub screening provider is not a configured one, and the tile says so.
+      screeningConfigured: Boolean(c.env.OPENSANCTIONS_API_KEY ?? c.env.OPENSANCTIONS_URL)
+    })
+  });
+});
+
 northRoutes.post("/boardpacks", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "north:boardpacks:generate", { tenantId: ctx.tenantId, module: "north" });
@@ -101,7 +193,31 @@ northRoutes.post("/boardpacks", async (c) => {
 
   const sections = await assembleBoardpackSections(ctx, input.period);
   const tables: ReportTable[] = [sections.briefing, sections.metrics, sections.decisions];
-  const bytes = toPdf(tables, { footer: ctx.tenantId, meta: { Period: input.period, "Requested by": actorRef(ctx) } });
+  // CLAUDE.md §5, brand tokens not brand strings — and this footer carried
+  // **`ctx.tenantId`**, so every page of a document that goes to a board named
+  // the tenant by an internal id like `t_01J…`. `toPdf`'s own comment says what
+  // the field is for ("e.g. the tenant name"), and the policy schedule already
+  // reads it the right way (`axis-policy-document.ts:288`, whose comment says the
+  // footer is "the tenant's own name, never the platform's"). This is that same
+  // idiom, in the one renderer that missed it.
+  const [tenant] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenantId));
+  const brand = tenant?.brandJson ? (JSON.parse(tenant.brandJson) as { name?: string }) : {};
+  // `actorRef(ctx)` is `user:<id>`, which is the same defect one field over: a
+  // board pack should say who asked for it, in words a board reads.
+  const requestedBy =
+    ctx.actor.kind === "user"
+      ? ((
+          await ctx.db
+            .select({ name: schema.users.name })
+            .from(schema.users)
+            .where(and(eq(schema.users.tenantId, ctx.tenantId), eq(schema.users.id, ctx.actor.id)))
+            .limit(1)
+        )[0]?.name ?? actorRef(ctx))
+      : actorRef(ctx);
+  const bytes = toPdf(tables, {
+    footer: brand.name ?? tenant?.name ?? "",
+    meta: { Period: input.period, "Requested by": requestedBy }
+  });
 
   const boardpackId = id("bpk", ctx.now);
   const fileId = id("file", ctx.now);

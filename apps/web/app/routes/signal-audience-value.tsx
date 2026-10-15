@@ -1,4 +1,5 @@
 import { Form, Link, useActionData, useLoaderData, useNavigation, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { FALLBACK_CURRENCY } from "../calendar";
 import { Badge, Button, Card, EmptyState, Field, Input, KPIWall, Money, NoData, Stat, Table, hueVar, renderSection, type Column, type Section } from "@lyra/ui";
 import { ApiError, api } from "../api.server";
 import { cloudflare } from "../context";
@@ -112,7 +113,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   return {
     days,
     rows,
-    currency: spend.data[0]?.currency ?? touches.data.find((touch) => touch.currency)?.currency ?? "ZAR",
+    currency: spend.data[0]?.currency ?? touches.data.find((touch) => touch.currency)?.currency ?? FALLBACK_CURRENCY,
     totalValueMinor: rows.reduce((sum, row) => sum + row.valueMinor, 0),
     best: measured.reduce<AudienceValue | null>(
       (top, row) => (top === null || (row.multiple ?? 0) > (top.multiple ?? 0) ? row : top),

@@ -33,6 +33,7 @@ import {
 } from "@lyra/ui";
 import { ApiError, api, fetchMe, names, type Problem } from "../api.server";
 import { cloudflare } from "../context";
+import { parseCensusText } from "./census-text";
 import { translator } from "../i18n";
 import { humanise } from "../modules/spec";
 import { Entry, Facts, Header, Payload, labelsFrom, rowsOf, safe, tag, type Label, type Page } from "./detail-kit";
@@ -121,9 +122,12 @@ export const PERM = {
   approvals: "axis:cases:approve",
   events: "axis:metrics:read",
   tasks: "axis:tasks:read",
-  export: "compliance:evidence:export",
-  download: "compliance:evidence:read",
+  export: "axis:cases:export",
+  download: "axis:cases:export",
   copilot: "axis:cases:read",
+  // The census route gates on this (`routes/axis.ts`): deriving structure from a
+  // document is the extraction verb, not a case read.
+  census: "axis:documents:extract",
   audit: "core:audit:read"
 } as const;
 
@@ -218,6 +222,27 @@ export const LABELS: Record<string, Record<string, string>> = {
     exportSubmit: "Build the bundle",
     exported: "The bundle is ready.",
     copilotTitle: "Ask the case copilot",
+    censusTitle: "Group census",
+    censusIntro:
+      "Paste an employee list in any format. The census is derived, not saved — nothing here becomes a record until the group case accepts it.",
+    censusPaste: "Paste the employee list (from a spreadsheet, or as CSV)",
+    censusPrior: "Paste last year's list for the renewal comparison",
+    censusPriorHint: "Optional. With it, the panel reports who joined, who left and whose band moved.",
+    censusSubmit: "Read the census",
+    censusRequired: "Paste a list first.",
+    censusLives: "Lives",
+    censusDependents: "Dependents",
+    censusAverage: "Dependents each",
+    censusUnpriced: "Not priceable",
+    censusByAge: "Lives by age band",
+    censusProblems: "Rows that could not be read",
+    censusRow: "Row",
+    censusDiff: "Against last year",
+    censusAdded: "Joined",
+    censusRemoved: "Left",
+    censusMoved: "Moved band",
+    censusDependentsChanged: "Household changed",
+    censusUnchanged: "Unchanged",
     slaPredict: "Will it miss its SLA?",
     slaLikely: "{p}% likely to miss its SLA — {left}",
     slaHoursLeft: "{h} h left",
@@ -307,6 +332,26 @@ export const LABELS: Record<string, Record<string, string>> = {
     exportSubmit: "إنشاء الحزمة",
     exported: "الحزمة جاهزة.",
     copilotTitle: "اسأل مساعد الحالة",
+    censusTitle: "بيانات الجماعة",
+    censusIntro: "الصق قائمة الموظفين بأي صيغة. تُستخرج البيانات ولا تُحفظ — فلا شيء هنا يصبح سجلًا حتى تقبله الحالة الجماعية.",
+    censusPaste: "الصق قائمة الموظفين (من جدول بيانات، أو بصيغة CSV)",
+    censusPrior: "الصق قائمة العام الماضي للمقارنة عند التجديد",
+    censusPriorHint: "اختياري. معها يبيّن الجدول من انضم ومن غادر ومن تغيّرت فئته.",
+    censusSubmit: "اقرأ البيانات",
+    censusRequired: "الصق قائمة أولًا.",
+    censusLives: "الأفراد",
+    censusDependents: "المعالون",
+    censusAverage: "معالون لكل فرد",
+    censusUnpriced: "غير قابل للتسعير",
+    censusByAge: "الأفراد حسب الفئة العمرية",
+    censusProblems: "صفوف تعذّرت قراءتها",
+    censusRow: "الصف",
+    censusDiff: "مقارنة بالعام الماضي",
+    censusAdded: "انضموا",
+    censusRemoved: "غادروا",
+    censusMoved: "تغيّرت فئتهم",
+    censusDependentsChanged: "تغيّرت أسرهم",
+    censusUnchanged: "بلا تغيير",
     slaPredict: "هل ستفوّت اتفاقية الخدمة؟",
     slaLikely: "احتمال {p}٪ أن تفوّت اتفاقية الخدمة — {left}",
     slaHoursLeft: "متبقٍ {h} ساعة",
@@ -449,7 +494,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     update: held.has(PERM.update),
     verify: held.has(PERM.verify),
     export: held.has(PERM.export),
-    copilot: held.has(PERM.copilot)
+    copilot: held.has(PERM.copilot),
+    census: held.has(PERM.census)
   };
 
   const empty = {
@@ -513,6 +559,103 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
 
 /* ------------------------------------------------------------------ action */
 
+/** Mirrors POST /v1/axis/census/normalise (`packages/core/src/census.ts`). */
+export interface CensusRollup {
+  lives: number;
+  byAgeBand: Record<string, number>;
+  bySalaryBand: Record<string, number>;
+  dependents: number;
+  averageDependents: number | null;
+  unpriced: number;
+}
+export interface CensusResult {
+  census: {
+    asOf: number;
+    members: { memberRef: string; name: string; age: number | null; ageBand: string | null; salaryBand: string | null; dependents: number }[];
+    problems: { row: number; reason: string }[];
+  };
+  rollup: CensusRollup;
+  diff?: {
+    added: { name: string }[];
+    removed: { name: string }[];
+    moved: { name: string; from: string; to: string; what: string }[];
+    dependentsChanged: { name: string; from: number; to: number }[];
+    unchanged: number;
+  };
+  priorRollup?: CensusRollup;
+}
+
+/**
+ * The canonical census, as a reader needs it: the roll-up first, the diff second,
+ * and **every unreadable row named**. A census quietly one life short is a scheme
+ * priced on the wrong number of people, so `problems` is not a footnote.
+ */
+function CensusReadout({ result, l }: { result: CensusResult; l: Label }) {
+  const { rollup, diff } = result;
+  return (
+    <div className="mt-4 flex flex-col gap-4">
+      <div className="flex flex-wrap gap-5">
+        <Stat label={l("censusLives")} value={String(rollup.lives)} />
+        <Stat label={l("censusDependents")} value={String(rollup.dependents)} />
+        {rollup.averageDependents !== null ? (
+          <Stat label={l("censusAverage")} value={String(rollup.averageDependents)} />
+        ) : null}
+        {rollup.unpriced > 0 ? <Stat label={l("censusUnpriced")} value={String(rollup.unpriced)} /> : null}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <span className="eyebrow">{l("censusByAge")}</span>
+        <ul className="flex flex-wrap gap-3 font-ui text-13 text-muted">
+          {/* Declared bands, so a band with nobody in it still reads as zero
+              rather than vanishing — its absence would look like a band the
+              scheme does not have. */}
+          {Object.entries(rollup.byAgeBand).map(([band, count]) => (
+            <li key={band} className="tabular-nums">
+              {band}: <span className="text-text">{count}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {result.census.problems.length ? (
+        <div className="flex flex-col gap-1">
+          <span className="eyebrow">{l("censusProblems")}</span>
+          <ul className="flex flex-col gap-0.5 font-ui text-13 text-danger">
+            {result.census.problems.map((problem, index) => (
+              <li key={`${problem.row}-${index}`}>
+                {l("censusRow")} {problem.row}: {problem.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {diff ? (
+        <div className="flex flex-col gap-1">
+          <span className="eyebrow">{l("censusDiff")}</span>
+          <ul className="flex flex-col gap-0.5 font-ui text-13 text-muted">
+            <li>
+              {l("censusAdded")}: <span className="text-text">{diff.added.length}</span>
+            </li>
+            <li>
+              {l("censusRemoved")}: <span className="text-text">{diff.removed.length}</span>
+            </li>
+            <li>
+              {l("censusMoved")}: <span className="text-text">{diff.moved.length}</span>
+            </li>
+            <li>
+              {l("censusDependentsChanged")}: <span className="text-text">{diff.dependentsChanged.length}</span>
+            </li>
+            <li>
+              {l("censusUnchanged")}: <span className="text-text">{diff.unchanged}</span>
+            </li>
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export async function action({ request, params, context }: ActionFunctionArgs) {
   const env = context.get(cloudflare).env;
   const form = await request.formData();
@@ -527,7 +670,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     answer: null as string | null,
     confidence: null as number | null,
     mismatches: null as number[] | null,
-    sla: null as SlaPrediction | null
+    sla: null as SlaPrediction | null,
+    census: null as CensusResult | null
   };
   // The loader mints one key per page load, but the hidden field carrying it
   // is shared by four forms (move/verify/export/copilot). Suffixing with the
@@ -550,14 +694,43 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       return { ...nothing, done: "verified" };
     }
     if (intent === "export") {
-      const bundle = await api<{ id: string }>("/v1/compliance/evidence-bundles/export", {
+      // docs/modules/axis.md §8 criterion 3: the case's own audit bundle — the
+      // comparative shop and the panel's answers, the policy it became, its
+      // documents, the commission it accrued and the audit chain for every
+      // subject ref it touched. This used to assemble a generic compliance
+      // bundle by `subjectRef`, which carried none of the domain artefacts and no
+      // chain.
+      const bundle = await api<{ id: string }>(`/v1/axis/cases/${id}/audit-bundle`, {
+        env,
+        request,
+        method: "POST",
+        ...headers
+      });
+      return { ...nothing, done: "exported", bundleId: bundle.id };
+    }
+    if (intent === "census") {
+      // docs/modules/axis.md §2.2. A paste-to-normalise tool: the API derives and
+      // stores nothing, and accepting a census as a record is a decision for the
+      // group case rather than a side effect of looking at the numbers.
+      const text = String(form.get("censusText") ?? "");
+      const priorText = String(form.get("priorCensusText") ?? "");
+      const rows = parseCensusText(text);
+      if (!rows.length) return { ...nothing, error: "censusRequired" };
+      const priorRows = parseCensusText(priorText);
+      const result = await api<CensusResult>("/v1/axis/census/normalise", {
         env,
         request,
         method: "POST",
         ...headers,
-        body: { purpose: "internal", subjectRef: id }
+        body: {
+          rows,
+          // Today: an age with no date is not an age, so the census states the
+          // date it is taken at and the screen uses the day it was pasted.
+          asOf: Date.now(),
+          ...(priorRows.length ? { priorRows } : {})
+        }
       });
-      return { ...nothing, done: "exported", bundleId: bundle.id };
+      return { ...nothing, done: "census", census: result };
     }
     if (intent === "copilot") {
       const question = String(form.get("question") ?? "").trim();
@@ -916,6 +1089,33 @@ export default function CaseDetail() {
               </a>
             ) : null}
           </Form>
+        </Card>
+      ) : null}
+
+      {loaded.may.census ? (
+        // docs/modules/axis.md §2.2. A paste-to-normalise tool, not a record: the
+        // API derives and stores nothing, so this panel is deliberately a
+        // question rather than a document the case owns. Accepting a census as a
+        // record is a decision for the group case.
+        <Card title={l("censusTitle")} description={l("censusIntro")}>
+          <Form method="post" replace className="flex flex-col items-start gap-3">
+            <input type="hidden" name="intent" value="census" />
+            <Field label={l("censusPaste")} labelHidden required className="w-full">
+              <Textarea name="censusText" placeholder={l("censusPaste")} rows={5} required />
+            </Field>
+            <Field label={l("censusPrior")} hint={l("censusPriorHint")} className="w-full">
+              <Textarea name="priorCensusText" rows={3} />
+            </Field>
+            <Button type="submit" disabled={busy}>
+              {l("censusSubmit")}
+            </Button>
+          </Form>
+          {result?.error === "censusRequired" ? (
+            <p role="alert" className="mt-3 font-ui text-13 text-danger">
+              {l("censusRequired")}
+            </p>
+          ) : null}
+          {result?.done === "census" && result.census ? <CensusReadout result={result.census} l={l} /> : null}
         </Card>
       ) : null}
 

@@ -13,7 +13,10 @@
     "./totp": "./src/totp.ts",
     "./words": "./src/words.ts",
     "./wikilinks": "./src/wikilinks.ts",
-    "./attribution-range": "./src/attribution-range.ts"
+    "./attribution-range": "./src/attribution-range.ts",
+    "./coverage": "./src/coverage.ts",
+    "./portal": "./src/portal.ts",
+    "./operating-model": "./src/operating-model.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

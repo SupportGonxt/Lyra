@@ -16,6 +16,7 @@ export * from "./ubi.js";
 export * from "./instant.js";
 export * from "./cx-judge.js";
 export * from "./vocabulary.js";
+export * from "./knowledge.js";
 export * from "./whitespace-brief.js";
 export * from "./audience-brief.js";
 export * from "./campaign-plan.js";

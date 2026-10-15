@@ -57,6 +57,21 @@ export interface FieldSpec {
   hintKey?: string;
   /** A friendlier input for a `json` field whose shape is known (modules/audience-rule.ts). */
   editor?: "audienceRule";
+  /**
+   * The column holding **this row's** currency, when it can differ from the tenant's.
+   *
+   * The read side has had this since it was written (`ColumnSpec.currencyFrom`), for
+   * the reason a list needs it: a list can mix currencies. A **form** edits one row for
+   * one tenant, so most money fields need nothing here — the tenant's functional
+   * currency comes from `useUiCurrency` (`packages/ui/src/text.tsx`). Declare this only
+   * where a row genuinely disagrees with the tenant, such as a policy priced in SAR by
+   * an AED-functional broker.
+   *
+   * Before this key existed the write path had **no currency at all**, which is why
+   * every spec money input posted raw minor units under a unitless label (the
+   * 2026-10-01 sweep's WEB finding).
+   */
+  currencyFrom?: string;
 }
 
 export interface ColumnSpec {
@@ -180,6 +195,14 @@ export interface ResourceSpec {
    * Rendered as an action on the record, which is the only place it makes sense.
    */
   recordLink?: { href: string; labelKey: string };
+  /**
+   * The rest of the deeper screens this record opens. A record with two of them
+   * (a channel opens its onboarding checklist *and* its partner portal) needs
+   * both without either becoming the only one — `recordLink` above is the first,
+   * this is everything after it, and `recordLinkList` is how a renderer reads
+   * the pair as one list.
+   */
+  recordLinks?: readonly { href: string; labelKey: string }[];
   /** State changes the API owns, offered on the record. See ActionSpec. */
   actions?: readonly ActionSpec[];
   bulk?: BulkSpec;
@@ -404,6 +427,11 @@ export function emptyDoor(tab: ResourceSpec, permissions: readonly string[]): No
   return door && permissions.includes(door.permission) ? door : null;
 }
 
+/** Every deeper screen this record opens, in declaration order. */
+export function recordLinkList(tab: ResourceSpec): readonly { href: string; labelKey: string }[] {
+  return [...(tab.recordLink ? [tab.recordLink] : []), ...(tab.recordLinks ?? [])];
+}
+
 /** `/v1/analytics/schedules` + `/{id}/pause` → `/v1/analytics/schedules/<id>/pause`. */
 export function actionUrl(tab: ResourceSpec, action: ActionSpec, id: string): string {
   return `${tab.api}${action.path.replace("{id}", encodeURIComponent(id))}`;
@@ -444,7 +472,16 @@ export const REF_SOURCES: Record<string, { api: string; label: string; prefix?: 
 };
 
 /** JSON columns that are a list of strings — typed as "a, b, c". */
-const LIST_JSON = new Set(["tagsJson", "emailsJson", "phonesJson", "skillsJson", "eventTypesJson", "recipients"]);
+const LIST_JSON = new Set([
+  "tagsJson",
+  "emailsJson",
+  "phonesJson",
+  "skillsJson",
+  "eventTypesJson",
+  "recipients",
+  // ADR-0125: the operating-model lines a licence covers, one key each.
+  "productLinesJson"
+]);
 /** JSON columns that hold one string per language — `{ en, ar }`. */
 const LOCALIZED_JSON = /^(name|title|label|description)Json$/;
 /** The languages a localised field is written in (docs CLAUDE.md §7). */

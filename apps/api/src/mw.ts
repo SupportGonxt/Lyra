@@ -30,6 +30,11 @@ const PUBLIC = new Set([
   "/v1/auth/demo/personas",
   "/v1/auth/demo/login",
   "/v1/auth/demo/clock",
+  // ADR-0124: the consumer's door. It captures its own consent basis and reaches
+  // no staff operation — the actor is `kind: "customer"` with no grants — so
+  // listing it here grants an anonymous reader nothing it does not already
+  // receive. Rate-limited before any fan-out.
+  "/v1/dist/public/quote-start",
   "/v1/auth/demo/seed",
   "/v1/auth/demo/resync-roles",
   // J-X3: portal signup has no session to authenticate against yet — that is
@@ -85,6 +90,9 @@ export function gatewayFor(env: Env): Gateway {
       ...(env.AI_GATEWAY_URL ? { AI_GATEWAY_URL: env.AI_GATEWAY_URL } : {}),
       ...(env.OPENAI_COMPAT_URL ? { OPENAI_COMPAT_URL: env.OPENAI_COMPAT_URL } : {}),
       ...(env.OPENAI_COMPAT_API_KEY ? { OPENAI_COMPAT_API_KEY: env.OPENAI_COMPAT_API_KEY } : {}),
+      ...(env.ALETHEIA_URL ? { ALETHEIA_URL: env.ALETHEIA_URL } : {}),
+      ...(env.ALETHEIA_TOKEN ? { ALETHEIA_TOKEN: env.ALETHEIA_TOKEN } : {}),
+      ...(env.ALETHEIA_TENANT ? { ALETHEIA_TENANT: env.ALETHEIA_TENANT } : {}),
       ...(env.TELEMETRY ? { TELEMETRY: env.TELEMETRY } : {})
     }
   });

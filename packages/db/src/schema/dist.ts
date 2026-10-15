@@ -194,6 +194,18 @@ export const quoteResponses = sqliteTable(
     valueScore: integer("value_score"), // 0-100
     rationaleKey: text("rationale_key"), // i18n key: why this one is highlighted
     declineReason: text("decline_reason"),
+    /**
+     * The decomposition the quote was priced from (ADR-0131): an ordered list of
+     * `{ label, amountMinor }` from whichever path priced it — the rating table's
+     * rules, or the carrier's own line items.
+     *
+     * Null is a quote with nothing to decompose (a decline, an error), **not** a
+     * breakdown of zeros. For carrier-priced rows this is the only record that will
+     * ever exist: the underwriter's line items are not reconstructible from
+     * `inputs_json`, so discarding them made "why this price" permanently
+     * unanswerable.
+     */
+    breakdownJson: text("breakdown_json"),
     latencyMs: integer("latency_ms"),
     validUntil: integer("valid_until"),
     rawRef: text("raw_ref"), // -> core_files.id, the provider's raw response for audit
@@ -347,5 +359,34 @@ export const partnerAgreements = sqliteTable(
   (t) => [
     uniqueIndex("dist_partner_agreements_uq").on(t.tenantId, t.partnerId, t.version),
     index("dist_partner_agreements_state_idx").on(t.tenantId, t.partnerId, t.state)
+  ]
+);
+
+/**
+ * docs/25 §7, J-C1's `pay` step. One row per hosted payment session a PSP
+ * opened for a consumer purchase. The card data never lands here — only the
+ * gateway's reference and the state its webhook reported. `providerRef` is what
+ * the webhook keys on, so the same callback replayed is the same row.
+ */
+export const payments = sqliteTable(
+  "dist_payments",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    /** What is being paid for — `quote-requests:<id>`. */
+    subjectRef: text("subject_ref").notNull(),
+    provider: text("provider").notNull(), // telr
+    providerRef: text("provider_ref"), // the gateway's order reference
+    amountMinor: integer("amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    state: text("state").notNull().default("created"), // created|pending|paid|failed|refunded
+    redirectUrl: text("redirect_url"),
+    failureCode: text("failure_code"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("dist_payments_provider_ref_uq").on(t.tenantId, t.provider, t.providerRef),
+    index("dist_payments_subject_idx").on(t.tenantId, t.subjectRef, t.createdAt)
   ]
 );

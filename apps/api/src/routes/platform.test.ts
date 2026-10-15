@@ -2,11 +2,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { beforeAll, describe, expect, it } from "vitest";
 import { EntitlementsJson, id, PolicyJson, schema, type Db } from "@lyra/db";
-import { hashPassword, notFound, ROLES, seed, totpAt, TOTP_STEP_SEC, type Ctx } from "@lyra/core";
+import { hashPassword, notFound, ROLES, seed, TENANT_ROLE_KEYS, totpAt, TOTP_STEP_SEC, type Ctx } from "@lyra/core";
 import { app } from "../index.js";
 import { onError } from "../mw.js";
 import { platformRoutes } from "./platform.js";
@@ -543,5 +543,48 @@ describe("impersonation (ADR-0027)", () => {
         .limit(1)
     )[0];
     expect(row?.endedAt).not.toBeNull();
+  });
+});
+
+// J-A1 "new tenant in a day": tenant creation was seed-only; this is the
+// runtime path — the tenant, its role set, and an invited first administrator.
+describe("tenant creation (J-A1)", () => {
+  it("provisions the tenant, its role set, and invites the first administrator", async () => {
+    const res = await call(
+      "POST",
+      "/v1/platform/tenants",
+      { slug: "acme-insurance", name: "Acme Insurance", adminEmail: "first.admin@acme.test", adminName: "First Admin" },
+      adminToken
+    );
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ slug: "acme-insurance", name: "Acme Insurance", adminInvited: true });
+
+    const [tenant] = await database.select().from(schema.tenants).where(eq(schema.tenants.slug, "acme-insurance"));
+    expect(tenant).toBeDefined();
+    expect(tenant!.status).toBe("active");
+
+    const roles = await database.select().from(schema.roles).where(eq(schema.roles.tenantId, tenant!.id));
+    expect(roles).toHaveLength(TENANT_ROLE_KEYS.length);
+    expect(roles.some((r) => r.key === "tenant.admin")).toBe(true);
+
+    const [admin] = await database
+      .select()
+      .from(schema.users)
+      .where(and(eq(schema.users.tenantId, tenant!.id), eq(schema.users.email, "first.admin@acme.test")));
+    expect(admin).toMatchObject({ status: "invited" });
+
+    const audits = await database
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "platform.tenant.created")));
+    expect(audits).toHaveLength(1);
+  });
+
+  it("refuses a duplicate slug and an actor without admin:tenants:write", async () => {
+    const dup = await call("POST", "/v1/platform/tenants", { slug: "acme-insurance", name: "Again" }, adminToken);
+    expect(dup.status).toBe(409);
+
+    const denied = await call("POST", "/v1/platform/tenants", { slug: "another", name: "Another" }, supportToken);
+    expect(denied.status).toBe(403);
   });
 });

@@ -4,6 +4,7 @@ import {
   displayValue,
   extractNumbers,
   previousPeriod,
+  verifyGroundedClaims,
   verifyNumericClaims,
   type BriefingSnapshot,
   type Ctx,
@@ -233,7 +234,12 @@ export async function generateBriefing(
   const res = await narrate(ctx, gateway, snapshot);
   if (!res) return templateBriefing(ctx, { date: opts.date, audience, locale });
 
-  const verification = verifyNumericClaims(res.text, snapshot);
+  // ADR-0118: a grounded answer (Aletheia) is verified against its own assembled
+  // facts, not regex'd against the snapshot — the fact with a source is the
+  // evidence. An LLM answer keeps the snapshot gate.
+  const verification = res.grounding
+    ? verifyGroundedClaims(res.text, res.grounding)
+    : verifyNumericClaims(res.text, snapshot);
   const status = verification.ok ? "review" : "draft";
 
   const id = newId("brf", ctx.now);

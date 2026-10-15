@@ -1,6 +1,6 @@
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -144,5 +144,95 @@ describe("drainOutbox", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0]?.userId).toBe("u_comp");
     expect(notes[0]?.subjectRef).toBe("dsr_1");
+  });
+});
+
+/* --------------- a failed delivery is retried on a quiet tenant too */
+
+/**
+ * The 2026-10-01 sweep's JOBS finding. `retryFailed` sat at the **end** of
+ * `drainOutbox`, behind an early return for an empty outbox — so a failed webhook
+ * delivery was retried only when some **unrelated** event happened to be pending in
+ * the same tick. On a quiet tenant it was never retried at all.
+ *
+ * The comment where the call used to be read *"Retries run every tick regardless of
+ * the queue"* — what the code was supposed to do and did not. This asserts it.
+ */
+describe("drainOutbox retries with nothing new to publish", () => {
+  it("replays a due failed delivery even though the outbox is empty", async () => {
+    await ctx.db.insert(schema.webhooks).values({
+      id: "whk_retry",
+      tenantId: ctx.tenantId,
+      url: "https://partner.test/hook",
+      secret: "s3cret",
+      status: "active",
+      eventTypesJson: JSON.stringify(["axis.policy.issued"]),
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    } as never);
+    await ctx.db.insert(schema.webhookDeliveries).values({
+      id: "whd_retry",
+      tenantId: ctx.tenantId,
+      webhookId: "whk_retry",
+      eventId: "evt_old",
+      eventType: "axis.policy.issued",
+      envelopeJson: JSON.stringify({
+        id: "evt_old",
+        tenantId: ctx.tenantId,
+        module: "axis",
+        type: "axis.policy.issued",
+        subject: "pol_1",
+        ts: ctx.now - 60_000,
+        data: { policyId: "pol_1" }
+      }),
+      status: "failed",
+      attempts: 1,
+      // Due now: the backoff has elapsed and it is waiting only on a tick.
+      nextAttemptAt: ctx.now - 1_000,
+      createdAt: ctx.now - 60_000,
+      updatedAt: ctx.now - 60_000
+    } as never);
+
+    // The event's outbox row exists and is **published** — so `pendingOutbox`
+    // returns nothing and the drain takes its empty-batch path. That is the case
+    // that used to skip the retry entirely, and it is the normal state of a tenant
+    // whose last delivery failed: the event was published, the *delivery* failed.
+    await ctx.db.insert(schema.eventOutbox).values({
+      id: "evt_old",
+      tenantId: ctx.tenantId,
+      module: "axis",
+      type: "axis.policy.issued",
+      subject: "pol_1",
+      envelopeJson: JSON.stringify({
+        id: "evt_old",
+        tenantId: ctx.tenantId,
+        module: "axis",
+        type: "axis.policy.issued",
+        subject: "pol_1",
+        ts: ctx.now - 60_000,
+        data: { policyId: "pol_1" }
+      }),
+      attempts: 1,
+      publishedAt: ctx.now - 60_000,
+      createdAt: ctx.now - 60_000,
+      updatedAt: ctx.now - 60_000
+    } as never);
+    const pending = await ctx.db
+      .select()
+      .from(schema.eventOutbox)
+      .where(and(eq(schema.eventOutbox.tenantId, ctx.tenantId), isNull(schema.eventOutbox.publishedAt)));
+    expect(pending).toHaveLength(0);
+
+    await drainOutbox(ctx);
+
+    // The observable is the **status**, not `attempts`: `retryFailed` supersedes
+    // rather than updates, because the delivery table is the attempt history — the
+    // superseded row keeps its original count and a new row carries the new attempt
+    // ("Supersede rather than update", dispatch.ts:364). Before the fix this row sat
+    // at `failed` with its deadline long past, for ever.
+    const [after] = await ctx.db.select().from(schema.webhookDeliveries).where(eq(schema.webhookDeliveries.id, "whd_retry"));
+    expect(after!.status).toBe("superseded");
+    const attempts = await ctx.db.select().from(schema.webhookDeliveries).where(eq(schema.webhookDeliveries.tenantId, ctx.tenantId));
+    expect(attempts.length).toBeGreaterThan(1);
   });
 });

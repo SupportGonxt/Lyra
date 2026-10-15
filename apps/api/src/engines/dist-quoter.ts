@@ -33,6 +33,32 @@ interface QuoteEndpoint {
    * quiet fall back to the open internet.
    */
   binding?: string;
+  /**
+   * The portal-automation map (`adapter: "browser-portal"`): the tenant's own
+   * selectors for its carrier portal. Required by that adapter and ignored by
+   * the others — a portal is not a protocol, so it cannot be inferred.
+   */
+  portal?: PortalMap;
+  /** Where the headless browser answers. Defaults to the platform's own binding. */
+  portalService?: string;
+}
+
+/**
+ * How to drive one carrier's portal. Supplied by the tenant because only the
+ * tenant can see the markup, and a map we invented would produce a quote
+ * attributed to an underwriter who never gave one.
+ */
+interface PortalMap {
+  /** Input name (as the risk carries it) → the portal field's selector. */
+  fill: Record<string, string>;
+  /** Clicked after filling, when the portal does not submit on change. */
+  submit?: string;
+  /** Output keys to read back: `premiumMinor`, `taxMinor`, `feesMinor`, `currency`. */
+  read: string[];
+  /** Text whose presence means "not eligible" rather than "unreadable". */
+  declineText?: string;
+  /** How long to wait for the result after submitting. */
+  settleMs?: number;
 }
 
 /** The one namespace on `env` a tenant-editable provider row may reach into. */
@@ -76,13 +102,20 @@ function internalHost(host: string): boolean {
   );
 }
 
+/** The headless-Chrome binding, typed to the one call this file makes. */
+interface BrowserBinding {
+  fetch(input: string | Request, init?: RequestInit): Promise<Response>;
+}
+
 /**
- * A carrier wire format. One today; the map exists so that an endpoint naming a
- * format nobody implements is a visible error rather than a request sent in the
- * wrong protocol and parsed as if it had worked.
+ * A carrier wire format. `http-json` is an API; `browser-portal` drives the
+ * carrier's own web portal through headless Chrome, for the underwriters who
+ * have no API and will not build one — docs/modules/axis.md §2.1 names exactly
+ * these two plus a structured-email path.
  *
- * ponytail: a Record of one. A second carrier that speaks SOAP or a signed
- * payload adds a key here and nothing else.
+ * The map exists so that an endpoint naming a format nobody implements is a
+ * visible error rather than a request sent in the wrong protocol and parsed as
+ * if it had worked.
  */
 type CarrierAdapter = (args: {
   url: string;
@@ -93,9 +126,13 @@ type CarrierAdapter = (args: {
   inputs: Record<string, unknown>;
   timeoutMs: number;
   now: number;
+  /** The tenant's own endpoint config, for formats that need more than a URL. */
+  cfg: QuoteEndpoint;
+  /** Headless Chrome (docs/02 §9), for the portal-automation format. */
+  browser: BrowserBinding | undefined;
 }) => Promise<Outcome>;
 
-const ADAPTERS: Record<string, CarrierAdapter> = { "http-json": httpJson };
+const ADAPTERS: Record<string, CarrierAdapter> = { "http-json": httpJson, "browser-portal": browserPortal };
 
 export function quoterFor(env: Env): ProviderQuoter {
   return async ({ offering, provider, inputs, timeoutMs, now }) => {
@@ -157,7 +194,17 @@ export function quoterFor(env: Env): ProviderQuoter {
     }
 
     try {
-      return await adapter({ url: url.toString(), send, token, offering, inputs, timeoutMs, now });
+      return await adapter({
+        url: url.toString(),
+        send,
+        token,
+        offering,
+        inputs,
+        timeoutMs,
+        now,
+        cfg,
+        browser: (env as unknown as { BROWSER?: BrowserBinding }).BROWSER
+      });
     } catch {
       // ponytail: the thrown text is deliberately dropped rather than logged —
       // fetch failures quote the request back at you, and the request carries a
@@ -256,5 +303,122 @@ async function httpJson({
     validUntil,
     ...(coverage ? { coverage } : {}),
     ...(breakdown.length ? { breakdown } : {})
+  };
+}
+
+/**
+ * The carrier's portal, driven by headless Chrome — docs/modules/axis.md §2.1's
+ * second quoting path.
+ *
+ * This is the honest shape for an underwriter with no API: rather than inventing
+ * a DOM, the **tenant** maps its own portal's fields to selectors in
+ * `quoteEndpointJson.portal`, and this adapter hands that map to the browser
+ * service. A portal with no map is a named error, never a guess — guessing at
+ * somebody's markup would produce a quote attributed to an underwriter who never
+ * gave one.
+ *
+ * The service contract (our own `render` service on-prem, Cloudflare Browser
+ * Rendering in the cloud; docs/02 §9) is one POST:
+ *
+ *   POST /v1/portal-quote
+ *   { "url", "fill": [{ "selector", "value" }], "submit", "read": ["premiumMinor", …],
+ *     "declineText", "settleMs", "timeoutMs", "credential" }
+ *   → { "values": { "<key>": "<text>" } } | { "error": "<why>" }
+ *
+ * The credential is the `CARRIER_*` secret's value, opened and forwarded by the
+ * caller: a portal login is a username and password, not a bearer token, so it
+ * is opaque here and the service decides how to present it.
+ */
+async function browserPortal({
+  cfg,
+  token,
+  offering,
+  inputs,
+  timeoutMs,
+  now,
+  browser
+}: Parameters<CarrierAdapter>[0]): Promise<Outcome> {
+  const base = { taxMinor: 0, feesMinor: 0, currency: offering.currency };
+  const bad = (reason: string): Outcome => ({ ...base, state: "error" as const, declineReason: reason });
+
+  if (!browser) return bad("no browser service is bound in this environment");
+  const portal = parse<PortalMap>(JSON.stringify(cfg.portal ?? null));
+  if (!portal) return bad("portal quoting needs a `portal` map on the provider's quote endpoint");
+  if (!portal.fill || !Object.keys(portal.fill).length) return bad("portal map names no input selectors");
+  if (!portal.read || !portal.read.length) return bad("portal map names no output selectors");
+
+  // Only selectors the tenant declared are filled, and only from the inputs the
+  // risk actually carries — a map naming an input we do not have is a config
+  // error the tenant has to see, not a silent empty field.
+  const fill: { selector: string; value: string }[] = [];
+  for (const [field, selector] of Object.entries(portal.fill)) {
+    const value = inputs[field];
+    if (value === undefined || value === null || value === "") {
+      return bad(`portal map expects input \`${clean(field)}\`, which this risk does not carry`);
+    }
+    fill.push({ selector: clean(selector), value: clean(value) });
+  }
+
+  const signal = AbortSignal.timeout(timeoutMs);
+  let res: Response;
+  try {
+    res = await browser.fetch(`${(cfg.portalService ?? "https://browser-rendering").replace(/\/$/, "")}/v1/portal-quote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        url: cfg.url,
+        fill,
+        submit: portal.submit ? clean(portal.submit) : undefined,
+        read: portal.read.map(clean),
+        declineText: portal.declineText ? clean(portal.declineText) : undefined,
+        settleMs: portal.settleMs ?? 2_000,
+        timeoutMs,
+        ...(token ? { credential: token } : {})
+      }),
+      signal
+    });
+  } catch (e) {
+    if (signal.aborted) return { ...base, state: "timeout", declineReason: `portal timeout after ${timeoutMs}ms` };
+    throw e;
+  }
+  if (!res.ok) return bad(`browser service returned http ${res.status}`);
+
+  let body: Record<string, unknown> | undefined;
+  try {
+    body = object(await res.json());
+  } catch {
+    return bad("browser service returned a body that is not json");
+  }
+  if (!body) return bad("browser service returned a body that is not a result");
+  if (typeof body.error === "string") return bad(`portal: ${clean(body.error)}`);
+
+  const values = object(body.values);
+  if (!values) return bad("browser service returned no field values");
+  // A portal that says "not eligible" is a decline; one that returns nothing is
+  // a page the service could not read, and those are different facts.
+  if (portal.declineText && typeof values.decline === "string" && values.decline) {
+    return { ...base, state: "declined", declineReason: clean(values.decline) };
+  }
+
+  // Read values arrive as text from a form; the same integer guards the API path
+  // uses apply, because a fractional or negative premium is a parsing bug rather
+  // than a price either way.
+  const premiumMinor = minor(Number(values.premiumMinor));
+  if (premiumMinor === undefined) return bad("portal quote has no usable premium");
+  const taxMinor = minor(Number(values.taxMinor ?? 0));
+  const feesMinor = minor(Number(values.feesMinor ?? 0));
+  if (taxMinor === undefined || feesMinor === undefined) return bad("portal quote has unusable tax or fees");
+  if (values.currency !== undefined && values.currency !== offering.currency) {
+    return bad(`portal quoted in currency ${clean(values.currency)}, not ${offering.currency}`);
+  }
+
+  return {
+    ...base,
+    state: "quoted",
+    premiumMinor,
+    taxMinor,
+    feesMinor,
+    validUntil: now + WEEK,
+    ...(object(parse<Record<string, unknown>>(offering.coverageJson)) ? { coverage: parse<Record<string, unknown>>(offering.coverageJson)! } : {})
   };
 }

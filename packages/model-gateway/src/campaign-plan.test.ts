@@ -12,6 +12,7 @@ import {
   type PlanAudience
 } from "./campaign-plan.js";
 import { promptNouns } from "./vocabulary.js";
+import { knowledgeBlock } from "./knowledge.js";
 
 const AUDIENCE: PlanAudience = {
   name: "Gauteng upper-middle",
@@ -363,6 +364,24 @@ describe("campaignPlanMessages", () => {
     const system = messages[0]?.content ?? "";
     expect(system).toContain("Notes are your reading of the demand");
     expect(system).toContain("what a marketer should worry about");
+  });
+
+  // The knowledge pack (knowledge.ts) attached by the SIGNAL planner. Context,
+  // not evidence: it must reach the system turn and must never reach the
+  // evidence lines, or a model could cite a market fact as the tenant's data.
+  it("carries the tenant's world when the caller supplies it", () => {
+    const knowledge = knowledgeBlock("insurance-gulf", { markets: ["AE"] });
+    const withKnowledge = campaignPlanMessages(EV, NOUNS, knowledge);
+    expect(withKnowledge[0]?.content).toContain("pack insurance-gulf");
+    expect(withKnowledge[0]?.content).toContain("CBUAE");
+    expect(withKnowledge[1]?.content).toBe(campaignPlanEvidenceLines(EV, NOUNS).join("\n"));
+  });
+
+  it("is byte-identical to what it was when no knowledge is supplied", () => {
+    // A caller that has not adopted the pack keeps the prompt it had, so an
+    // existing eval's fixture does not silently change under it.
+    expect(campaignPlanMessages(EV, NOUNS)[0]?.content).toBe(messages[0]?.content);
+    expect(campaignPlanMessages(EV, NOUNS, "")[0]?.content).toBe(messages[0]?.content);
   });
 
   it("names every runnable channel, so a discarded option is the model's own fault", () => {

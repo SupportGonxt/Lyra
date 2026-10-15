@@ -1,4 +1,5 @@
 import { formatInstant, instantOf } from "@lyra/ui";
+import { FALLBACK_CURRENCY } from "../calendar";
 import { vocabulary } from "../modules/vocabulary";
 import { pseudoText } from "../i18n";
 import type { CacRange } from "@lyra/core/attribution-range";
@@ -37,6 +38,8 @@ export const PERM = {
   movesRead: "signal:budget_moves:read",
   movesApprove: "signal:budget_moves:approve",
   aeoRead: "signal:aeo:read",
+  /** The modules-config route's own permission: only a core settings writer may set it. */
+  settingsUpdate: "core:settings:update",
   aeoWrite: "signal:aeo:write",
   attributionRead: "signal:attribution:read",
   spendRead: "signal:spend:read",
@@ -448,7 +451,7 @@ export function totalSpendMinor(rows: readonly SpendRow[], currency?: string): n
  * AED campaigns — so every total here is scoped to this one and each row keeps
  * its own.
  */
-export function mainCurrency(campaigns: readonly CampaignRow[], fallback = "ZAR"): string {
+export function mainCurrency(campaigns: readonly CampaignRow[], fallback = FALLBACK_CURRENCY): string {
   const tally = new Map<string, number>();
   for (const campaign of campaigns) {
     const code = budgetOf(campaign).currency;
@@ -529,6 +532,15 @@ export function ltvMinor(touches: readonly TouchRow[]): number | null {
 export function ltvToCac(ltv: number | null, cac: number | null): number | null {
   if (ltv === null || cac === null || cac === 0) return null;
   return ltv / cac;
+}
+
+/**
+ * The mean value of a bind a channel produced — the lifetime signal a channel
+ * roll carries (`ChannelRoll.valueMinor` is the sum of the binds' contract
+ * values). Null when it produced none, because a mean of nothing is not zero.
+ */
+export function rollLtvMinor(roll: { binds: number; valueMinor: number }): number | null {
+  return roll.binds > 0 ? Math.round(roll.valueMinor / roll.binds) : null;
 }
 
 /** A ratio as "2.4×" in the reader's digits — `toFixed` always writes Latin ones. */
@@ -1256,6 +1268,18 @@ const LABELS: Record<string, Record<string, string>> = {
     clicks: "Clicks",
     impressions: "Impressions",
     conversions: "Conversions",
+    "cockpit.col.cac": "Cost per signup",
+    "cockpit.col.ltv": "Value per signup",
+    "cockpit.col.ltvCac": "Value : cost",
+    "cockpit.col.noBinds": "This channel has not signed anyone yet, so it has no cost or value per signup.",
+    "cockpit.mapTitle": "Where the money went",
+    "cockpit.mapLede": "How the spend is split across channels this window, and how much of the plan it has used.",
+    "cockpit.map.againstPlan": "{spent} spent of a {plan} plan — {pct}%.",
+    "cockpit.map.ofActual": "{spent} spent. No plan is set for these campaigns, so the bars show the split of what was actually spent.",
+    "cockpit.map.share": "{pct}% of it",
+    "cockpit.map.binds": "{n} signed",
+    "cockpit.map.each": "{amount} each",
+    "cockpit.map.bar": "{channel}: {pct}% of the spend",
     cac: "Cost per acquisition",
     "attribution.to": "to",
     "attribution.unbounded": "no upper bound",
@@ -1282,6 +1306,18 @@ const LABELS: Record<string, Record<string, string>> = {
     /* cockpit */
     "cockpit.title": "Growth cockpit",
     "cockpit.lede": "What the money bought this window, and what the agents changed while you were away.",
+    "cockpit.next": "What to do next",
+    "cockpit.nextHint": "Read from your own campaigns, audiences, answer pages and budgets — worst first. Each one says why.",
+    "cockpit.urgency.now": "Now",
+    "cockpit.urgency.soon": "Soon",
+    "cockpit.urgency.when-you-can": "When you can",
+    "cockpit.nextMore": "{n} more below the fold",
+    "signal.next.openStudio": "Open the studio",
+    "signal.next.openBudget": "Open the budget",
+    "signal.next.openAeo": "Open answer engines",
+    "signal.next.openAudiences": "Open audiences",
+    "signal.next.openExperiments": "Open experiments",
+    "signal.next.openAdmin": "Open SIGNAL admin",
     "cockpit.answer.moved": "The autopilot moved budget {n} time(s) this window.",
     "cockpit.answer.overPlan": "Spend is {n}% over plan this window.",
     "cockpit.answer.running": "{n} campaign(s) running, nothing moved yet.",
@@ -1392,6 +1428,14 @@ const LABELS: Record<string, Record<string, string>> = {
     "studio.disclosure.disclosure_unscoped": "This draft names no product line, so no disclosure could be matched to it. A compliance reviewer must decide which applies.",
     "studio.discard": "Discard",
     "studio.launch": "Launch the campaign",
+    "studio.publish": "Publish to channels",
+    "studio.publishHint":
+      "Puts this cleared variant on every connected ad platform, paused. A human turns it on where the money is.",
+    "studio.noChannel": "No ad platform is connected yet",
+    "studio.placed": "Placed",
+    "studio.placeFailed": "Not placed",
+    "studio.placeQueued": "Sent for approval — nothing has been published yet",
+    "studio.placeWhy": "Why",
     "studio.launchHint": "Going live spends money. It is recorded, and it may need an approver.",
     "studio.launchBlocked": "Clear at least one draft before launching.",
     "studio.launched": "The campaign is live.",
@@ -1487,6 +1531,15 @@ const LABELS: Record<string, Record<string, string>> = {
     "aeo.publishedPages": "Published",
     "aeo.citedPages": "Cited",
     "aeo.share": "Citation share",
+    "aeo.observedShare": "Observed share",
+    "aeo.observedOf": "{cited} cited of {sampled} sampled",
+    "aeo.notSampled": "No assistant has been sampled yet",
+    "aeo.notSampled.body": "Connect an AEO assistant in Admin and the weekly monitor starts recording what it answers.",
+    "aeo.notSampled.short": "not sampled",
+    "aeo.sampledN": "{n} sampled",
+    "aeo.trend": "Citation share, week by week",
+    "aeo.trendHint":
+      "What the assistants answered, not what the page rows claim. A week nobody asked about shows a dash rather than a zero.",
     "aeo.stalePages": "Needs re-checking",
     "aeo.cluster": "Question cluster",
     "aeo.citedBy": "Quoted by",
@@ -1628,6 +1681,19 @@ const LABELS: Record<string, Record<string, string>> = {
     "growth.ratioHint": "Three or better is a business that can afford to grow.",
     "growth.attribution": "Where they came from",
     "growth.attributionCaption": "Spend, signings and cost per acquisition by channel",
+    "funnel.title": "Campaign funnel",
+    "funnel.caption": "Impressions through to binds, per campaign, for the window above — read from the attribution store rather than re-derived, so a long window is not truncated by a page limit.",
+    "funnel.campaign": "Campaign",
+    "funnel.channel": "Channel",
+    "funnel.impressions": "Impressions",
+    "funnel.clicks": "Clicks",
+    "funnel.visits": "Visits",
+    "funnel.leads": "Leads",
+    "funnel.binds": "Binds",
+    "funnel.value": "Value",
+    "funnel.unattributed": "Not attributed to a campaign",
+    "funnel.none.title": "No funnel yet",
+    "funnel.none.body": "The funnel counts attribution touches. Once a campaign has been seen, clicked or bound, it appears here.",
     "growth.cohorts": "Coming back",
     "growth.cohortsCaption": "Customers by the month they first signed, and how many returned",
     "growth.cohort": "First signed",
@@ -1761,6 +1827,37 @@ const LABELS: Record<string, Record<string, string>> = {
     "admin.applied": "Applied",
     "admin.notApplied": "Not applied",
     "admin.boundsTitle": "Budget bounds and approvals",
+    "admin.convTitle": "Value-based bidding",
+    "admin.convLede":
+      "What a bind is worth when it is reported back to the ad platform, so its bidder optimises on value rather than on lead count.",
+    "admin.convOff": "Off. No bind is reported back, so the platforms are still bidding on lead count alone.",
+    "admin.convOn": "On: {how}, at {rate} of the premium. Every bind is reported back with what it was worth.",
+    "admin.convBasis": "Value a conversion by",
+    "admin.convBasis.hint": "Commission is what we actually earned on the bind. A percentage of premium is a rate you choose — it is not a margin we measured.",
+    "admin.convBasis.none": "Nothing — keep bidding on lead count",
+    "admin.convBasis.commission": "The commission the bind earned",
+    "admin.convBasis.premium_rate": "A percentage of the premium",
+    "admin.convRate": "Rate (% of premium)",
+    "admin.convRate.hint": "Entered as a percentage, such as 7.5. It applies only when the basis above is a percentage of premium.",
+    "admin.convSubmit": "Save",
+    "admin.convSaved": "Saved. The next export uses it.",
+    "admin.convRateBad": "Enter a rate above 0 and at most 100, as a percentage such as 7.5.",
+    "admin.convFailed": "That did not save. You may not hold the permission that changes tenant settings.",
+    "admin.exportsTitle": "Reported back to the ad platforms",
+    "admin.exports.none": "Nothing has been reported back yet. A bind is reported on the next export run.",
+    "admin.exports.sent": "Sent",
+    "admin.exports.skipped": "Skipped",
+    "admin.exports.failed": "Failed",
+    "admin.exports.last": "Last attempt",
+    "admin.exports.col.when": "When",
+    "admin.exports.col.provider": "Platform",
+    "admin.exports.col.status": "Result",
+    "admin.exports.col.value": "Value reported",
+    "admin.exports.col.detail": "Reason",
+    "admin.exports.noValue": "Nothing was reported for this bind — it was skipped before a value was needed.",
+    "admin.exports.status.sent": "Sent",
+    "admin.exports.status.skipped": "Skipped",
+    "admin.exports.status.failed": "Failed",
     "admin.boundsLede": "How far the agents may go alone, and what waits for a person.",
     "admin.boundsCaption": "Daily budget, per-move ceiling and autonomy per campaign",
     "admin.boundsEmpty": "No campaign yet.",
@@ -1892,6 +1989,18 @@ const LABELS: Record<string, Record<string, string>> = {
     clicks: "النقرات",
     impressions: "مرات الظهور",
     conversions: "التحويلات",
+    "cockpit.col.cac": "الكلفة لكل تعاقد",
+    "cockpit.col.ltv": "القيمة لكل تعاقد",
+    "cockpit.col.ltvCac": "القيمة : الكلفة",
+    "cockpit.col.noBinds": "لم تتعاقد هذه القناة مع أي عميل بعد، فلا كلفة ولا قيمة لكل تعاقد.",
+    "cockpit.mapTitle": "إلى أين ذهب المال",
+    "cockpit.mapLede": "كيف توزّع الإنفاق على القنوات في هذه الفترة، وكم استُهلك من الخطة.",
+    "cockpit.map.againstPlan": "أُنفق {spent} من خطة قدرها {plan} — {pct}٪.",
+    "cockpit.map.ofActual": "أُنفق {spent}. ولا توجد خطة لهذه الحملات، لذا تُظهر الأشرطة توزيع ما أُنفق فعلًا.",
+    "cockpit.map.share": "{pct}٪ منه",
+    "cockpit.map.binds": "{n} تعاقدًا",
+    "cockpit.map.each": "{amount} لكل تعاقد",
+    "cockpit.map.bar": "{channel}: {pct}٪ من الإنفاق",
     cac: "تكلفة الاستحواذ",
     "attribution.to": "إلى",
     "attribution.unbounded": "بلا حد أعلى",
@@ -1918,6 +2027,18 @@ const LABELS: Record<string, Record<string, string>> = {
     /* cockpit */
     "cockpit.title": "مركز قيادة النمو",
     "cockpit.lede": "ماذا حقّق الإنفاق في هذه الفترة، وما غيّره الوكلاء في غيابك.",
+    "cockpit.next": "ما الذي يجب فعله تاليًا",
+    "cockpit.nextHint": "مقروء من حملاتك وجماهيرك وصفحات إجاباتك وميزانياتك — الأهم أولًا. ولكل بند سببه.",
+    "cockpit.urgency.now": "الآن",
+    "cockpit.urgency.soon": "قريبًا",
+    "cockpit.urgency.when-you-can": "عند الاستطاعة",
+    "cockpit.nextMore": "{n} أخرى أدناه",
+    "signal.next.openStudio": "افتح الاستوديو",
+    "signal.next.openBudget": "افتح الميزانية",
+    "signal.next.openAeo": "افتح محركات الإجابة",
+    "signal.next.openAudiences": "افتح الجماهير",
+    "signal.next.openExperiments": "افتح التجارب",
+    "signal.next.openAdmin": "افتح إدارة SIGNAL",
     "cockpit.answer.moved": "حرّك الطيار الآلي الميزانية {n} مرة (مرات) في هذه الفترة.",
     "cockpit.answer.overPlan": "الإنفاق يتجاوز الخطة بنسبة {n}٪ في هذه الفترة.",
     "cockpit.answer.running": "{n} حملة (حملات) تعمل الآن، ولم يُنفَّذ أي تحويل بعد.",
@@ -2028,6 +2149,13 @@ const LABELS: Record<string, Record<string, string>> = {
     "studio.disclosure.disclosure_unscoped": "لا تحدد هذه المسودة خط منتج، لذا تعذّرت مطابقة أي إفصاح لها. على مراجع الامتثال تحديد ما ينطبق.",
     "studio.discard": "استبعاد",
     "studio.launch": "أطلق الحملة",
+    "studio.publish": "انشر إلى القنوات",
+    "studio.publishHint": "يضع هذا التنويعة المعتمدة على كل منصّة إعلانية متصلة، متوقفة. الموظف يشغّلها حيث تُصرف الأموال.",
+    "studio.noChannel": "لا توجد منصّة إعلانية متصلة بعد",
+    "studio.placed": "منشور",
+    "studio.placeFailed": "لم يُنشر",
+    "studio.placeQueued": "أُرسل للاعتماد — لم يُنشر شيء بعد",
+    "studio.placeWhy": "السبب",
     "studio.launchHint": "الإطلاق يصرف مالًا. يُسجَّل الأمر وقد يحتاج موافقًا.",
     "studio.launchBlocked": "اعتمد مسودة واحدة على الأقل قبل الإطلاق.",
     "studio.launched": "الحملة مباشرة الآن.",
@@ -2123,6 +2251,15 @@ const LABELS: Record<string, Record<string, string>> = {
     "aeo.publishedPages": "منشورة",
     "aeo.citedPages": "مُقتبسة",
     "aeo.share": "نسبة الاقتباس",
+    "aeo.observedShare": "النسبة المرصودة",
+    "aeo.observedOf": "{cited} مقتبس من {sampled} عيّنة",
+    "aeo.notSampled": "لم تُؤخذ أي عيّنة من المساعدين بعد",
+    "aeo.notSampled.body": "اربط مساعد AEO من الإدارة ليبدأ المراقب الأسبوعي بتسجيل إجاباته.",
+    "aeo.notSampled.short": "بلا عيّنة",
+    "aeo.sampledN": "{n} عيّنة",
+    "aeo.trend": "نسبة الاقتباس أسبوعًا بأسبوع",
+    "aeo.trendHint":
+      "ما أجاب به المساعدون، لا ما تدّعيه صفوف الصفحات. الأسبوع الذي لم يُسأل فيه يظهر بشرطة لا بصفر.",
     "aeo.stalePages": "تحتاج تحققًا",
     "aeo.cluster": "مجموعة الأسئلة",
     "aeo.citedBy": "نقل عنها",
@@ -2263,6 +2400,19 @@ const LABELS: Record<string, Record<string, string>> = {
     "growth.ratioHint": "ثلاثة أو أكثر يعني عملًا يقدر على النمو.",
     "growth.attribution": "من أين جاؤوا",
     "growth.attributionCaption": "الإنفاق والتعاقدات وتكلفة الاستحواذ حسب القناة",
+    "funnel.title": "قمع الحملة",
+    "funnel.caption": "من الظهور إلى الإصدار، لكل حملة، ضمن النافذة أعلاه — مقروء من مخزن الإسناد لا معاد اشتقاقه، حتى لا تُقتطع نافذة طويلة بحدّ الصفحات.",
+    "funnel.campaign": "الحملة",
+    "funnel.channel": "القناة",
+    "funnel.impressions": "الظهور",
+    "funnel.clicks": "النقرات",
+    "funnel.visits": "الزيارات",
+    "funnel.leads": "العملاء المحتملون",
+    "funnel.binds": "الإصدارات",
+    "funnel.value": "القيمة",
+    "funnel.unattributed": "غير منسوب إلى حملة",
+    "funnel.none.title": "لا يوجد قمع بعد",
+    "funnel.none.body": "يُحصي القمع لمسات الإسناد. بمجرد أن تُشاهد حملة أو تُنقر أو تُصدر، تظهر هنا.",
     "growth.cohorts": "العائدون",
     "growth.cohortsCaption": "العملاء حسب شهر أول تعاقد، وكم منهم عاد",
     "growth.cohort": "أول تعاقد",
@@ -2392,6 +2542,36 @@ const LABELS: Record<string, Record<string, string>> = {
     "admin.applied": "مطبّق",
     "admin.notApplied": "غير مطبّق",
     "admin.boundsTitle": "حدود الميزانية والموافقات",
+    "admin.convTitle": "المزايدة بالقيمة",
+    "admin.convLede": "قيمة الإصدار عند إبلاغ منصّة الإعلانات بها، ليُحسّن مزادها على القيمة لا على عدد العملاء المحتملين.",
+    "admin.convOff": "متوقّف. لا يُبلَّغ عن أي إصدار، فتبقى المنصّات تزايد على عدد العملاء المحتملين وحده.",
+    "admin.convOn": "مُفعّل: {how}، بنسبة {rate} من القسط. ويُبلَّغ عن كل إصدار بقيمته.",
+    "admin.convBasis": "قيمة التحويل بـ",
+    "admin.convBasis.hint": "العمولة هي ما كسبناه فعلًا من الإصدار. أما نسبة من القسط فهي سعر تختاره أنت، وليست هامشًا قِسناه.",
+    "admin.convBasis.none": "لا شيء — أبقِ المزايدة على عدد العملاء المحتملين",
+    "admin.convBasis.commission": "العمولة التي حققها الإصدار",
+    "admin.convBasis.premium_rate": "نسبة من القسط",
+    "admin.convRate": "النسبة (٪ من القسط)",
+    "admin.convRate.hint": "تُدخل كنسبة مئوية، مثل 7.5. وتُطبَّق فقط عندما يكون الأساس أعلاه نسبة من القسط.",
+    "admin.convSubmit": "احفظ",
+    "admin.convSaved": "تم الحفظ. سيُستخدم في التصدير التالي.",
+    "admin.convRateBad": "أدخل نسبة أكبر من 0 وحتى 100، مثل 7.5.",
+    "admin.convFailed": "لم يتم الحفظ. قد لا تملك الصلاحية اللازمة لتغيير إعدادات المستأجر.",
+    "admin.exportsTitle": "ما أُبلغت به منصّات الإعلانات",
+    "admin.exports.none": "لم يُبلَّغ عن أي شيء بعد. يُبلَّغ عن الإصدار في تشغيل التصدير التالي.",
+    "admin.exports.sent": "أُرسل",
+    "admin.exports.skipped": "تُخطّي",
+    "admin.exports.failed": "فشل",
+    "admin.exports.last": "آخر محاولة",
+    "admin.exports.col.when": "متى",
+    "admin.exports.col.provider": "المنصّة",
+    "admin.exports.col.status": "النتيجة",
+    "admin.exports.col.value": "القيمة المُبلَّغة",
+    "admin.exports.col.detail": "السبب",
+    "admin.exports.noValue": "لم تُبلَّغ أي قيمة لهذا الإصدار — تُخطّي قبل الحاجة إلى قيمة.",
+    "admin.exports.status.sent": "أُرسل",
+    "admin.exports.status.skipped": "تُخطّي",
+    "admin.exports.status.failed": "فشل",
     "admin.boundsLede": "إلى أي مدى يمضي الوكلاء وحدهم، وما الذي ينتظر إنسانًا.",
     "admin.boundsCaption": "الميزانية اليومية وسقف الحركة ومستوى الاستقلالية لكل حملة",
     "admin.boundsEmpty": "لا توجد حملة بعد.",
@@ -2540,4 +2720,107 @@ export function explain(problem: Problemish, l: Label): Problemish {
   if (field && DISCLOSURE_REASONS.some((r) => r === field)) return { ...problem, title: l(`studio.disclosure.${field}`) };
   const key = problem.code ? `problem.${problem.code}` : "";
   return key && LABELS.en![key] ? { ...problem, title: l(key) } : problem;
+}
+
+/* ------------------------------------------------ value-based bidding (SIG-032) */
+
+// docs/17 SIG-032, ADR-0112. `conversionValue` decides whether a bind is
+// reported back to the ad platform with what it was worth — and the engine
+// stands down entirely when it is unset (`engines/signal-conversions.ts`:
+// `if (rule.basis === "none") return standDown`). Three adapters and a whole
+// engine were built and permanently unreachable, because nothing in the product
+// could write the setting: the only writer is the modules-config PATCH, and its
+// only UI toggled `enabled`.
+
+export type ConversionValueBasis = "none" | "commission" | "premium_rate";
+
+export interface ConversionValueSetting {
+  basis: "commission" | "premium_rate";
+  /** Only for `premium_rate`: parts per million of the premium. */
+  ratePpm?: number;
+}
+
+/**
+ * The rule as the tenant's own policy holds it, or null for "off".
+ *
+ * Mirrors `conversionValueRule` in `@lyra/core` deliberately: the web may not
+ * import the gateway's arithmetic (apps/web has no dependency on it), so this is
+ * the read half and the engine remains the authority on what the value means.
+ */
+export function conversionValueOf(policy: Record<string, unknown> | undefined): ConversionValueSetting | null {
+  const settings = (policy?.moduleConfig as Record<string, { settings?: Record<string, unknown> }> | undefined)?.signal?.settings;
+  const raw = settings?.conversionValue;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rule = raw as { basis?: unknown; ratePpm?: unknown };
+  if (rule.basis === "commission") return { basis: "commission" };
+  const ppm = rule.ratePpm;
+  if (rule.basis === "premium_rate" && typeof ppm === "number" && Number.isInteger(ppm) && ppm > 0) {
+    return { basis: "premium_rate", ratePpm: ppm };
+  }
+  return null;
+}
+
+export type ConversionValueParse =
+  | { ok: true; basis: ConversionValueBasis; setting: ConversionValueSetting | null }
+  | { ok: false; errorKey: "admin.convRateBad" };
+
+/**
+ * The form's answer as a setting.
+ *
+ * A percentage, not parts per million: the field says "% of premium" and nobody
+ * types 75 000. `1% = 10 000 ppm`, and a rate above 100% is refused rather than
+ * clamped — a value that would report more than the premium is a typo, and
+ * reporting it would teach the platform's bidder a price nobody set.
+ */
+export function conversionValueFromForm(basis: string, ratePercent: string): ConversionValueParse {
+  if (basis === "none") return { ok: true, basis: "none", setting: null };
+  if (basis === "commission") return { ok: true, basis: "commission", setting: { basis: "commission" } };
+  if (basis !== "premium_rate") return { ok: true, basis: "none", setting: null };
+  const text = ratePercent.trim();
+  if (!/^\d{1,3}(?:\.\d{1,4})?$/.test(text)) return { ok: false, errorKey: "admin.convRateBad" };
+  const percent = Number(text);
+  if (!(percent > 0) || percent > 100) return { ok: false, errorKey: "admin.convRateBad" };
+  return { ok: true, basis: "premium_rate", setting: { basis: "premium_rate", ratePpm: Math.round(percent * 10_000) } };
+}
+
+/* ------------------------------------------- conversion exports (SIG-032) */
+
+/** Mirrors `signal_conversion_exports` (packages/db/src/schema/signal.ts). */
+export interface ConversionExportRow {
+  id: string;
+  touchId: string;
+  provider: string;
+  status: string;
+  detail: string | null;
+  valueMinor: number | null;
+  currency: string | null;
+  attempts: number;
+  attemptedAt: number;
+}
+
+export interface ExportsRoll {
+  sent: number;
+  skipped: number;
+  failed: number;
+  /** The newest attempt, or null when nothing has ever been attempted. */
+  lastAt: number | null;
+}
+
+/**
+ * What the platform has reported back to the ad platforms.
+ *
+ * The list existed at the API and no screen read it (`GET
+ * /v1/signal/conversions/exports`), so an operator could configure
+ * value-based bidding and never see whether a single bind reached Google —
+ * which is the only question that setting raises.
+ */
+export function exportsRoll(rows: readonly ConversionExportRow[]): ExportsRoll {
+  const roll: ExportsRoll = { sent: 0, skipped: 0, failed: 0, lastAt: null };
+  for (const row of rows) {
+    if (row.status === "sent") roll.sent += 1;
+    else if (row.status === "skipped") roll.skipped += 1;
+    else if (row.status === "failed") roll.failed += 1;
+    if (roll.lastAt === null || row.attemptedAt > roll.lastAt) roll.lastAt = row.attemptedAt;
+  }
+  return roll;
 }

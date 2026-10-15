@@ -25,7 +25,11 @@ export const CATALOGUE: Record<string, ModelDef> = {
   "ox-alpha": { provider: "openai-compat", model: "stealth/ox-alpha", inPer1k: 0, outPer1k: 0, maxTokens: 131_072, tools: true },
   // On-prem: whatever vLLM serves. Cost is the tenant's own hardware, so zero.
   "internal-chat": { provider: "openai-compat", model: "internal-chat", inPer1k: 0, outPer1k: 0, maxTokens: 32_000, tools: true },
-  "internal-embed": { provider: "openai-compat", model: "internal-embed", inPer1k: 0, outPer1k: 0, maxTokens: 8_192, tools: false }
+  "internal-embed": { provider: "openai-compat", model: "internal-embed", inPer1k: 0, outPer1k: 0, maxTokens: 8_192, tools: false },
+  // ADR-0118: Aletheia's grounded engine. No tokens are sampled (graph lookup),
+  // so cost is zero. `model` is the Aletheia tenant slug `cortex0/{tenant}`;
+  // a per-tenant deployment overrides the slug (see the ADR's open questions).
+  "aletheia-grounded": { provider: "aletheia", model: "cortex0/lyra", inPer1k: 0, outPer1k: 0, maxTokens: 32_000, tools: false }
 };
 
 /**

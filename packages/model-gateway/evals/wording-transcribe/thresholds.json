@@ -1,0 +1,5 @@
+{
+  "termRecallMin": 0.98,
+  "hallucinatedFigureRateMax": 0.0,
+  "localeParityMin": 0.95
+}

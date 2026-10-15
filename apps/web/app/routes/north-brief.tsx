@@ -94,6 +94,7 @@ const LABELS: Labels = {
     "brief.stale": "This brief is dated {date}, {days} days ago. It is not today's brief.",
     "brief.template.kicker": "Composed from the closed snapshots by a fixed template",
     "brief.template.body": "No model wrote this. Every figure is copied from the closed snapshot for its period and the open anomalies; nothing is interpreted.",
+    "brief.grounded": "Grounded answer — assembled from {count} verified facts with {coverage}% coverage; no probabilistic sampling.",
     "brief.draft": "Numbers unverified",
     "brief.draftWhy": "At least one figure in this narrative could not be matched to a snapshot, so it stays a draft. Read it, but do not circulate it.",
     "highlights.title": "What moved most",
@@ -144,6 +145,7 @@ const LABELS: Labels = {
     "brief.stale": "هذه الإحاطة مؤرخة في {date}، وليست إحاطة اليوم. الأيام المنقضية منذ ذلك: {days}.",
     "brief.template.kicker": "صيغت من اللقطات المغلقة بقالب ثابت",
     "brief.template.body": "لم يكتب هذه الإحاطة أي نموذج. كل رقم منقول من اللقطة المغلقة لفترته ومن الانحرافات المفتوحة، دون أي تفسير.",
+    "brief.grounded": "إجابة مؤصّلة — جُمّعت من {count} حقيقة موثّقة بتغطية {coverage}٪، دون أي توليد احتمالي.",
     "brief.draft": "أرقام غير موثّقة",
     "brief.draftWhy": "رقم واحد على الأقل في هذا السرد لم يُطابق أي لقطة، لذلك يبقى مسودة. اقرأه ولا تعمّمه.",
     "highlights.title": "أكبر التحركات",
@@ -196,6 +198,16 @@ export interface Briefing {
   approvedBy: string | null;
   publishedAt: number | null;
   createdAt: number;
+}
+
+/** ADR-0118: the provenance a grounded answer carried — coverage, facts, ood. */
+export interface Grounding {
+  epistemicCoverage: number;
+  state: "complete" | "partial" | "insufficient";
+  facts: { factId: string; entity: string; attribute: string; source: string }[];
+  contradictions: string[];
+  ood: boolean;
+  samplingUsed: boolean;
 }
 
 interface Highlight {
@@ -275,11 +287,14 @@ export function todayOf(asOf: string | undefined, now: number = Date.now()): str
 export function BriefProvenance({
   brief,
   today,
-  locale
+  locale,
+  grounding
 }: {
   brief: Pick<Briefing, "date" | "generatedBy" | "aiAuditId"> | null;
   today: string;
   locale: string;
+  /** ADR-0118: grounded provenance when the narrator assembled from facts. */
+  grounding?: Grounding | null;
 }) {
   const l = labelsIn(locale);
   const age = brief ? briefAge(brief.date, today) : null;
@@ -303,6 +318,14 @@ export function BriefProvenance({
           >
             <span aria-hidden="true">{AGENT_MARK}</span> {l("kicker")}
           </EvidenceLink>
+          {grounding && grounding.state !== "insufficient" && !grounding.ood ? (
+            <span className="block font-ui text-12 text-subtle">
+              {l("brief.grounded", {
+                count: num(grounding.facts.length, locale),
+                coverage: num(Math.round(grounding.epistemicCoverage * 100), locale)
+              })}
+            </span>
+          ) : null}
         </p>
       )}
       {brief ? <p className="font-ui text-12 text-subtle">{l("brief.dated", { date: brief.date })}</p> : null}
@@ -340,10 +363,33 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     )
   ]);
 
+  // ADR-0118: the provenance behind the brief the reader will actually see — the
+  // ?id= selection if one is named, else the newest. Grounding is a separate
+  // read (it lives on ai_audit_log), so a brief with no aiAuditId simply has no
+  // entry and renders no badge.
+  const briefs = briefings?.data ?? [];
+  const id = url.searchParams.get("id")?.trim();
+  const candidateIds = [...new Set([id, briefs[0]?.id].filter((x): x is string => Boolean(x)))];
+  const groundingByBrief: Record<string, Grounding | null> = {};
+  for (const briefId of candidateIds) {
+    const brief = briefs.find((b) => b.id === briefId);
+    if (!brief) continue;
+    // J-E1 "the 7am read": opening the brief is the read half of the journey.
+    // The API de-dupes to one row per reader per brief per day, so a refresh is
+    // not a second read; a failure here costs the funnel, never the page.
+    await api(`/v1/north/briefings/${encodeURIComponent(briefId)}/read`, { ...opts, method: "POST" }).catch(
+      () => undefined
+    );
+    if (!brief.aiAuditId) continue;
+    const g = await readable(api<{ grounding: Grounding | null }>(`/v1/north/briefings/${encodeURIComponent(briefId)}/grounding`, opts));
+    groundingByBrief[briefId] = g?.grounding ?? null;
+  }
+
   return {
     briefings: briefings?.data ?? null,
     metrics: metrics?.data ?? [],
     anomalies: anomalies?.data ?? [],
+    groundingByBrief,
     // What a brief's date is compared with: is this the morning's read?
     today: todayOf(asOf),
     // One key per load: a double-submitted generate is the same generate.
@@ -502,7 +548,12 @@ export default function NorthBrief() {
           </h1>
           {/* docs/15: one ✦ per AI artifact, and the "why" one interaction
               away — none on a template brief, which no model wrote. */}
-          <BriefProvenance brief={brief} today={loaded.today} locale={locale} />
+          <BriefProvenance
+            brief={brief}
+            today={loaded.today}
+            locale={locale}
+            grounding={brief ? (loaded.groundingByBrief[brief.id] ?? null) : null}
+          />
           <p className="font-ui text-12 text-subtle">{l("intro")}</p>
         </div>
 

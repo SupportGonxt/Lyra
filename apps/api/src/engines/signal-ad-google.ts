@@ -5,6 +5,7 @@ import {
   minorToMicros,
   minorToUnits,
   type AdConversionResult,
+  type AdCreativePushResult,
   type AdPlatform,
   type AdSpendRow,
   type AdSpendWindow,
@@ -214,6 +215,64 @@ export function googleAdsPlatform(fetchImpl: typeof fetch = (input, init) => fet
         operations: [{ update: { resourceName: budget.resourceName, amountMicros: String(minorToMicros(afterMinor, exponent)) }, updateMask: "amount_micros" }]
       });
       return { beforeMinor, afterMinor };
+    },
+
+    /**
+     * docs/modules/signal.md §2.1, §4.2 "one-click to channels".
+     *
+     * A Responsive Search Ad is the only search format Google still serves, and
+     * it is built from a *pool*: at least 3 headlines and 2 descriptions. That
+     * is why `AdCreativePush` carries the campaign's sibling variants — the
+     * adapter draws on them, and **refuses rather than inventing copy** when
+     * the pool is too thin, because padding a regulated ad with filler is not a
+     * transport decision.
+     *
+     * Config: `adGroupId` (where the ad lands). Created **PAUSED** for the same
+     * reason as Meta's: publishing places the object, a human spends the money.
+     *
+     * Shapes: the OAuth exchange and headers are the ones `session` already
+     * performs; the ad is created through `adGroupAds:mutate` with
+     * `ad.responsive_search_ad` and `ad.final_urls`.
+     */
+    async publishCreative(creative, secrets, config): Promise<AdCreativePushResult> {
+      const adGroupId = digitsOf(config, "adGroupId");
+      if (!adGroupId) return { status: "failed", error: "google-ads config adGroupId is required to publish a creative" };
+
+      const headlines = [...new Set([creative.headline, ...creative.pool.headlines].map((t) => t.trim()).filter(Boolean))];
+      const descriptions = [...new Set([creative.body, ...creative.pool.descriptions].map((t) => t.trim()).filter(Boolean))];
+      if (headlines.length < 3 || descriptions.length < 2) {
+        return {
+          status: "failed",
+          error: `google-ads needs 3 headlines and 2 descriptions; the campaign has ${headlines.length} and ${descriptions.length} cleared variants`
+        };
+      }
+      try {
+        const { post, customerId } = await session(secrets, config);
+        const made = (await post("adGroupAds:mutate", {
+          operations: [
+            {
+              create: {
+                adGroup: `customers/${customerId}/adGroups/${adGroupId}`,
+                status: "PAUSED",
+                ad: {
+                  // Google caps an RSA at 15 headlines and 4 descriptions.
+                  responsiveSearchAd: {
+                    headlines: headlines.slice(0, 15).map((text) => ({ text })),
+                    descriptions: descriptions.slice(0, 4).map((text) => ({ text }))
+                  },
+                  finalUrls: [creative.landingUrl]
+                }
+              }
+            }
+          ]
+        })) as { results?: ReadonlyArray<{ resourceName?: string }> };
+        const resourceName = made.results?.[0]?.resourceName;
+        return resourceName
+          ? { status: "published", externalId: resourceName }
+          : { status: "failed", error: "google-ads did not return a resource name for the ad" };
+      } catch (error) {
+        return { status: "failed", error: error instanceof Error ? error.message : String(error) };
+      }
     }
   };
 }

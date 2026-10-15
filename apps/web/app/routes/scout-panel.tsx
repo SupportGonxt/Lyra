@@ -283,7 +283,10 @@ export function panelColumns(
       key: "gaps",
       header: l("panel.gaps"),
       numeric: true,
-      render: (roll) => roll.gaps.toLocaleString(locale)
+      // Null, not 0, when no row in the roll carries a terms fact: a Bench
+      // Builder row holds unanswered-request counts, and showing a zero here
+      // would read "no wording gaps", which is a different claim (ADR-0127).
+      render: (roll) => (roll.gaps === null ? l("none") : roll.gaps.toLocaleString(locale))
     }
   ];
 }

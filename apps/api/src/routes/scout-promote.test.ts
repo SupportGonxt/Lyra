@@ -453,7 +453,10 @@ describe("POST /whitespaces/:id/promote-to-signal", () => {
       .select()
       .from(schema.scoutWhitespaces)
       .where(eq(schema.scoutWhitespaces.id, "wsp_marine"));
-    expect(row!.status).toBe("validated");
+    // Promotion records itself in `promotedAt` and no longer moves the lifecycle
+    // state, because `validated` means "live data confirmed it" and this gap's data
+    // has not spoken. Asserted as a negative so a reintroduced write fails here.
+    expect(row!.status).not.toBe("validated");
     expect(row!.promotedAt).toBe(NOW);
 
     const audits = await ctx.db
@@ -486,7 +489,7 @@ describe("POST /whitespaces/:id/promote-to-signal", () => {
     expect(stub.calls).toHaveLength(0);
   });
 
-  it("refuses a second promotion under a fresh key — validated has no self-hop", async () => {
+  it("refuses a second promotion under a fresh key — the guard is `promotedAt`, not the state", async () => {
     const res = await send(app(), "POST", "/whitespaces/wsp_marine/promote-to-signal", {
       "idempotency-key": "promote-marine-2"
     });
@@ -611,7 +614,8 @@ describe("POST /whitespaces/:id/promote-to-signal", () => {
       .select({ status: schema.scoutWhitespaces.status })
       .from(schema.scoutWhitespaces)
       .where(and(eq(schema.scoutWhitespaces.tenantId, tenantId), eq(schema.scoutWhitespaces.id, "wsp_nomodel")));
-    expect(row!.status).toBe("validated");
+    // Same contract as above: promoted, and still not data-validated.
+    expect(row!.status).not.toBe("validated");
     // The subject lives inside the envelope — event_outbox has no column for it.
     const events = await ctx.db
       .select({ envelopeJson: schema.eventOutbox.envelopeJson })

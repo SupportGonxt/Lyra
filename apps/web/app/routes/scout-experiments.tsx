@@ -7,6 +7,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
+import { FALLBACK_CURRENCY } from "../calendar";
 import { Badge, Button, Card, DateTime, EmptyState, Field, Ref, Select, Table, type Column } from "@lyra/ui";
 import { ApiError, api } from "../api.server";
 import { cloudflare } from "../context";
@@ -242,7 +243,7 @@ export function experimentColumns(
               <span className="font-ui text-12 text-subtle">
                 {l("xp.cap", {
                   amount: (plan.dailyCapMinor / 100).toLocaleString(locale, { minimumFractionDigits: 2 }),
-                  currency: plan.currency ?? "ZAR",
+                  currency: plan.currency ?? FALLBACK_CURRENCY,
                   days: String(plan.maxDays ?? 0)
                 })}
               </span>

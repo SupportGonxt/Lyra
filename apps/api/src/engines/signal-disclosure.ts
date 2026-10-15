@@ -1,5 +1,6 @@
 import { preflightCreative, unprocessable, type Ctx } from "@lyra/core";
 import { disclosureScope, presentDisclosure, wordingRefOf } from "./compliance-disclosure.js";
+import { brandKitFor } from "./signal-brand-kit.js";
 import { complianceNotes } from "./signal-creative.js";
 
 // docs/17 SIG-013 / SIG-015, ADR-0108 — the write side of the disclosure lane
@@ -33,7 +34,7 @@ export async function creativePreflightGuard(
   const text = String(pick("contentRef") ?? "");
   const locale = str(pick("locale")) ?? "en";
   const scope = await disclosureScope(ctx, str(pick("productLine")), locale);
-  const result = preflightCreative(text, scope);
+  const result = preflightCreative(text, scope, await brandKitFor(ctx));
 
   if (result.lane === "hard_block") {
     if (values.complianceStatus === "passed") {

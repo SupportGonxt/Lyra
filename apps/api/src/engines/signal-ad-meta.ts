@@ -4,6 +4,7 @@ import {
   decimalToMinor,
   minorToUnits,
   type AdConversionResult,
+  type AdCreativePushResult,
   type AdPlatform,
   type AdSpendRow,
   type AdSpendWindow,
@@ -174,6 +175,66 @@ export function metaAdsPlatform(fetchImpl: typeof fetch = (input, init) => fetch
       })) as { success?: boolean };
       if (done.success !== true) throw new Error(`meta-ads did not confirm the budget change on ${externalCampaignId}`);
       return { beforeMinor, afterMinor };
+    },
+
+    /**
+     * docs/modules/signal.md §2.1, §4.2 "one-click to channels". Two Graph
+     * calls, which is what Meta's own flow is: a *creative* is an immutable
+     * asset, an *ad* places it in an ad set.
+     *
+     * Config: `pageId` (the Page the ad runs as) and `adsetId` (where it
+     * lands). Both are required and neither is guessed: an ad is a public,
+     * spending object, and inventing a destination for it is not a default.
+     *
+     * The ad is created **PAUSED** on purpose. Publishing means "the platform
+     * has it"; turning it on moves money, and that stays a human's decision on
+     * the platform's own surface — the same line the autonomy envelope draws
+     * everywhere else.
+     *
+     * Shapes: `POST /act_{id}/adcreatives` with `object_story_spec`
+     * (`page_id` + `link_data`), then `POST /act_{id}/ads` with the returned
+     * `id`. Both are documented Graph edges; the copy is passed through
+     * verbatim because the pre-flight has already cleared it.
+     */
+    async publishCreative(creative, secrets, config): Promise<AdCreativePushResult> {
+      const pageId = String(config.pageId ?? "");
+      const adsetId = String(config.adsetId ?? "");
+      if (!DIGITS.test(pageId)) return { status: "failed", error: "meta-ads config pageId is required to publish a creative" };
+      if (!DIGITS.test(adsetId)) return { status: "failed", error: "meta-ads config adsetId is required to publish a creative" };
+      try {
+        const { graph, account, call } = session(secrets, config);
+        const linkData: Record<string, unknown> = {
+          message: creative.disclosure ? `${creative.body}\n\n${creative.disclosure}` : creative.body,
+          link: creative.landingUrl,
+          name: creative.headline
+        };
+        if (creative.callToAction) linkData.call_to_action = { type: creative.callToAction.toUpperCase() };
+        const made = (await call(`${graph}/act_${account}/adcreatives`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: `LYRA ${creative.creativeId}`,
+            object_story_spec: { page_id: pageId, link_data: linkData }
+          })
+        })) as { id?: string };
+        if (!made.id) return { status: "failed", error: "meta-ads did not return a creative id" };
+        const ad = (await call(`${graph}/act_${account}/ads`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name: `LYRA ${creative.creativeId}`,
+            adset_id: adsetId,
+            creative: { creative_id: made.id },
+            status: "PAUSED"
+          })
+        })) as { id?: string };
+        if (!ad.id) return { status: "failed", error: `meta-ads created creative ${made.id} but no ad` };
+        return { status: "published", externalId: ad.id };
+      } catch (error) {
+        // A platform refusal is an outcome for this platform, not a crash of the
+        // whole push: the other platforms still get their copy.
+        return { status: "failed", error: error instanceof Error ? error.message : String(error) };
+      }
     }
   };
 }

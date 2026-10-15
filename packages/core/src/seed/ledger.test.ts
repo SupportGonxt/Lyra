@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { schema } from "@lyra/db";
+import { schema, TAX_KINDS } from "@lyra/db";
 import type { CoreDb } from "../context.js";
 import { seedLedger } from "./ledger.js";
 import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
@@ -1266,9 +1266,9 @@ describe("fx rates", () => {
 });
 
 describe("tax rules", () => {
-  it("writes exactly 6 rows", async () => {
+  it("writes exactly 10 rows", async () => {
     const rows = await db.select().from(schema.ledgerTaxRules).where(eq(schema.ledgerTaxRules.tenantId, TENANT));
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(10);
   });
 
   it("AE VAT-ZERO-EXPORT is a real zero rate, not exempt", async () => {
@@ -1313,6 +1313,38 @@ describe("tax rules", () => {
     expect(current.ratePpm).toBe(150_000);
     expect(current.effectiveTo).toBeNull();
     expect(current.effectiveFrom).toBe(Date.UTC(2020, 6, 1));
+  });
+
+  // ADR-0121. Egypt is the market that justifies the `kind` column: the VAT and
+  // the table levy sit on the same premium and are reported separately, so a
+  // rate alone cannot say where the money goes.
+  it("EG carries VAT and a table levy as two kinds on one premium", async () => {
+    const rows = await db
+      .select()
+      .from(schema.ledgerTaxRules)
+      .where(eq(schema.ledgerTaxRules.market, "EG"));
+    expect(rows).toHaveLength(4);
+
+    const vat = rows.find((r) => r.code === "VAT-STD")!;
+    expect(vat.ratePpm).toBe(140_000);
+    expect(vat.kind).toBe("vat");
+
+    const table = rows.find((r) => r.code === "TABLE-TAX-INSURANCE")!;
+    expect(table.kind).toBe("table_tax");
+    expect(table.ratePpm).toBeGreaterThan(0);
+
+    const life = rows.find((r) => r.code === "VAT-EXEMPT-LIFE")!;
+    expect(life.exempt).toBe(true);
+    expect(life.ratePpm).toBe(0);
+  });
+
+  it("every row states a kind the resolver knows", async () => {
+    const rows = await db.select().from(schema.ledgerTaxRules).where(eq(schema.ledgerTaxRules.tenantId, TENANT));
+    for (const row of rows) {
+      expect(TAX_KINDS as readonly string[], row.code).toContain(row.kind);
+    }
+    // The UAE and KSA rows are all VAT; only Egypt carries a second kind.
+    expect(new Set(rows.map((r) => r.kind))).toEqual(new Set(["vat", "table_tax"]));
   });
 });
 

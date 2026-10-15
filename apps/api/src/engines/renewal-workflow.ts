@@ -39,7 +39,10 @@ export class RenewalWorkflow extends WorkflowEntrypoint<Env, RenewalWorkflowPara
         Date.now()
       );
 
-    const day0 = await step.do("day-0-offer", async () => renewalDay0(await freshCtx(), renewalId));
+    // `this.env` is what makes the day-0 step **price** the renewal rather than only
+    // open it: without it the re-quote engine is reachable but never reached, which is
+    // the dead-seam shape this wiring exists to avoid.
+    const day0 = await step.do("day-0-offer", async () => renewalDay0(await freshCtx(), renewalId, this.env));
     if (day0.done) return;
 
     await step.sleep("wait-7-days", "7 days");

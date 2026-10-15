@@ -33,7 +33,7 @@ describe("case evidence download loader", () => {
 
     const response = await loader(loaderArgs());
 
-    expect(requestedUrl).toBe("https://api.test/v1/compliance/evidence-bundles/evb_1/download");
+    expect(requestedUrl).toBe("https://api.test/v1/axis/cases/cas_1/audit-bundle/evb_1/download");
     expect(response.headers.get("content-type")).toBe("application/zip");
     // application/zip is outside the render-safe allowlist, so disposition is
     // forced to attachment — but the upstream filename must survive that, or
@@ -51,7 +51,7 @@ describe("case evidence download loader", () => {
 
     await loader(loaderArgs("evb/1 a"));
 
-    expect(requestedUrl).toBe("https://api.test/v1/compliance/evidence-bundles/evb%2F1%20a/download");
+    expect(requestedUrl).toBe("https://api.test/v1/axis/cases/cas_1/audit-bundle/evb%2F1%20a/download");
   });
 
   // Regression: a raw `Response` here drops the security headers withHeaders

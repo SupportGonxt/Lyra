@@ -5,10 +5,10 @@ import { pullAdSpend, spendPullWindow, SPEND_PULL_MAX_DAYS } from "../engines/si
 import { exportConversions, listConversionExports } from "../engines/signal-conversions.js";
 import { Hono, type Context } from "hono";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { require_, audit, badRequest, emit, holdoutReadout, notFound, withIdempotency, LOOKALIKE_MAX_SIZE, type Ctx } from "@lyra/core";
+import { require_, audit, badRequest, emit, gate, holdoutReadout, notFound, withIdempotency, LOOKALIKE_MAX_SIZE, type Ctx } from "@lyra/core";
 import { schema, DesignJson, PolicyJson, toJson, parseJson } from "@lyra/db";
 import { z } from "zod";
-import { body, csvBody, parse } from "../http.js";
+import { body, csvBody, listParams, parse } from "../http.js";
 import { must } from "../rows.js";
 import { meterEgress } from "../engines/egress.js";
 import { generateCreativeImage, generateCreatives } from "../engines/signal-creative.js";
@@ -18,6 +18,11 @@ import { creativeContextFor, planAudience, planCampaign } from "../engines/signa
 import { runBudgetAutopilot } from "../engines/signal-autopilot.js";
 import { acquisitionCostRange, funnelByCampaign } from "../engines/signal-attribution.js";
 import { experimentReadout } from "../engines/signal-experiment.js";
+import { publishCreative } from "../engines/signal-publish.js";
+import { aeoAssistants, aeoWeeks, latestCitations, openerFor as aeoOpener } from "../engines/signal-aeo-monitor.js";
+import { gatherNext, suggestNext } from "../engines/signal-next.js";
+import { runSpendWatch } from "../engines/signal-watch.js";
+import { brandKitFor, kitIsEmpty } from "../engines/signal-brand-kit.js";
 import { demoOnly } from "../auth.js";
 import type { App } from "../env.js";
 
@@ -25,8 +30,7 @@ import type { App } from "../env.js";
 // Not generic CRUD (creatives get generated in a batch from a brief, never
 // submitted one row at a time) so it is a bespoke route, same idiom as
 // orbit.ts's `/renewals/sweep`. The Meta/Google publish half of clause 1 is
-// credential-blocked and out of scope (see signal-creative.ts header) —
-// this route stops at "review-ready", same as the engine it calls.
+// `/creatives/:id/publish` below.
 
 export const signalRoutes = new Hono<App>();
 
@@ -225,6 +229,50 @@ const ImageBody = z.object({
 // renders client-side (apps/web's signal-studio.tsx). Bytes come back inline
 // as a data URL for immediate preview; the R2 write inside generateCreativeImage
 // is the durable copy the signal_creatives row actually points at.
+const PublishBody = z
+  .object({
+    /** Named platforms only; omitted means every active ad connector. */
+    providers: z.array(z.string().min(1).max(32)).min(1).max(8).optional()
+  })
+  .strict();
+
+/**
+ * docs/modules/signal.md §8 clause 1, the half that did not exist: "brief -> 20
+ * compliant ar/en variants -> **publish to Meta+Google** in under an hour".
+ *
+ * Consequential, so it asks first (CLAUDE.md §4): `signal.creative_publish` is
+ * the policy, and the approval is what decides. Publishing creates a public,
+ * spending object on somebody else's platform, and no autonomy bound shortens
+ * that — `gate` returns a queued approval here and the route answers 202 rather
+ * than placing anything.
+ *
+ * An idempotency key is accepted because a double-tap on a flaky connection is
+ * the ordinary way this route gets called twice, and the second call must not
+ * buy a second ad.
+ */
+signalRoutes.post("/creatives/:id/publish", async (c) => {
+  const ctx = ctxOf(c);
+  // Publishing is its own capability, and this route asked for the wrong one:
+  // `signal:creatives:approve` is held by `tenant.compliance`, while `signal.lead`
+  // — the role whose job this is — holds `signal:creatives:publish` and was
+  // refused by its own grant. Approving and publishing are separate acts; the
+  // consequential half of publishing is the `signal.creative_publish` approval
+  // below, which a different person decides.
+  require_(ctx.actor, "signal:creatives:publish", { tenantId: ctx.tenantId, module: "signal" });
+  const input = await body(c, PublishBody);
+  const id = c.req.param("id");
+
+  const approval = await gate(ctx, { policyKey: "signal.creative_publish", subjectRef: id });
+  if (approval) return c.json({ queued: true, approvalId: approval.id }, 202);
+
+  return c.json(
+    await withIdempotency(ctx, c.req.header("idempotency-key"), "signal.publish", { id, ...input }, () =>
+      publishCreative(ctx, c.env, { creativeId: id, providers: input.providers })
+    ),
+    201
+  );
+});
+
 signalRoutes.post("/creatives/image", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "signal:creatives:generate", { tenantId: ctx.tenantId, module: "signal" });
@@ -261,6 +309,49 @@ signalRoutes.post("/creatives/image", async (c) => {
 // resolve the creative's file row inside the tenant, meter egress, stream it.
 // docs/30 SIGNAL 4: where an experiment stands now, read from attribution —
 // the same readout the nightly sweep concludes on.
+/**
+ * The citation-share trend J-M3 measures (docs/modules/signal.md §4.5, §7).
+ *
+ * Bucketed here rather than in the browser because the rule that matters is a
+ * server rule: a week nobody sampled reports `share: null`, never 0. "We were
+ * not cited" and "nobody asked" are different facts, and a chart that merges
+ * them invents a collapse. `sampled` travels with every point so a reader can
+ * see how much evidence is behind it.
+ */
+/**
+ * docs/modules/signal.md §4.1: what to do next, and why.
+ *
+ * The reading is a pure function of a snapshot (`engines/signal-next.ts`), so
+ * this route's whole job is to gather the tenant's state and hand it over. It is
+ * deliberately a *suggestion* endpoint rather than a dashboard: every item names
+ * the figures that produced it and links to the screen that acts on it, gated on
+ * that screen's own permission, so a suggestion is never a door into a 403.
+ */
+signalRoutes.get("/next", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:campaigns:read", { tenantId: ctx.tenantId, module: "signal" });
+
+  const kit = await brandKitFor(ctx);
+  // A tenant with no assistant connected has an unmeasured citation share, which
+  // is a suggestion in its own right — and no FIELD_KEY means we cannot open a
+  // secret to find out, so the honest answer is the same one.
+  let assistants = 0;
+  if (c.env.FIELD_KEY) {
+    assistants = (await aeoAssistants(ctx, aeoOpener(c.env.FIELD_KEY))).length;
+  }
+
+  const input = await gatherNext(ctx, { kitConfigured: !kitIsEmpty(kit), assistants });
+  return c.json({ suggestions: suggestNext(input) });
+});
+
+signalRoutes.get("/aeo/trend", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:aeo:read", { tenantId: ctx.tenantId, module: "signal" });
+  const asked = Number(c.req.query("weeks") ?? 8);
+  const weeks = Number.isInteger(asked) && asked >= 1 && asked <= 52 ? asked : 8;
+  return c.json({ weeks: await aeoWeeks(ctx, weeks), latest: await latestCitations(ctx, 20) });
+});
+
 signalRoutes.get("/experiments/:id/readout", async (c) => {
   const ctx = c.get("ctx");
   require_(ctx.actor, "signal:experiments:read", { tenantId: ctx.tenantId, module: "signal" });
@@ -329,6 +420,21 @@ signalRoutes.post("/autopilot/run", async (c) => {
   return c.json({ adjusted: await runBudgetAutopilot(ctx, { fieldKey: c.env.FIELD_KEY }) });
 });
 
+/**
+ * docs/modules/signal.md §2.3: the anomaly guard, by hand.
+ *
+ * The nightly tick runs this after the spend pull; an operator pressing it here
+ * sees what it would stop *now* rather than discovering it tomorrow. Gated on
+ * the autopilot's own permission because it does the same kind of thing —
+ * changing how money is being spent without asking, on the tenant's own
+ * configured bounds.
+ */
+signalRoutes.post("/watch/run", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "signal:autopilot:run", { tenantId: ctx.tenantId, module: "signal" });
+  return c.json(await runSpendWatch(ctx));
+});
+
 // The acquisition outreach sweep (engines/signal-outreach.ts): draft, consent-
 // gate, approval-gate, send, and record the lead touch that closes the loop.
 // Manual trigger for the same sweep the nightly tick runs — a growth lead
@@ -349,8 +455,21 @@ const DAY_MS = 86_400_000;
 signalRoutes.get("/attribution/funnel", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "signal:attribution:read", { tenantId: ctx.tenantId, module: "signal" });
-  const since = Number(c.req.query("since") ?? ctx.now - 30 * DAY_MS);
-  const until = Number(c.req.query("until") ?? ctx.now);
+  // The window through the platform's own parser. The 2026-10-01 sweep found this
+  // endpoint reading `since` while its only screen sends `?from=`
+  // (`signal-analytics.tsx:124`), so on the 7- and 90-day windows the funnel
+  // silently reported **30 days** under a caption that says *"for the window above"*,
+  // while the spend and touch lists beside it honoured the reader's choice.
+  //
+  // **The sweep's scope was wider than the truth, and checking it mattered:** four
+  // SIGNAL endpoints hand-roll this window, but `/holdout/readout` and
+  // `/responses/rollup` read `since` and their callers send `since`, so they are
+  // self-consistent — applying this to all four would have broken two working
+  // screens. One parser here, and the two names for one window are recorded as owed
+  // rather than silently unified.
+  const { list } = listParams(c);
+  const since = list.from ?? ctx.now - 30 * DAY_MS;
+  const until = list.to ?? ctx.now;
   return c.json({ data: await funnelByCampaign(ctx, since, until) });
 });
 

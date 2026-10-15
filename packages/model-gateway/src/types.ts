@@ -6,7 +6,7 @@ import { z } from "zod";
 export const TIERS = ["fast", "standard", "reasoning"] as const;
 export type Tier = (typeof TIERS)[number];
 
-export const PROVIDERS = ["workers-ai", "anthropic", "openai-compat", "stub"] as const;
+export const PROVIDERS = ["workers-ai", "anthropic", "openai-compat", "stub", "aletheia"] as const;
 export type ProviderName = (typeof PROVIDERS)[number];
 
 export const Message = z.object({
@@ -54,6 +54,13 @@ export interface ModelRequest {
   locale?: string;
   /** What the answer is about — an id the audit trail can join on. */
   subjectRef?: string;
+  /**
+   * The tenant the gateway resolved for this request. Callers do not set it —
+   * the gateway stamps it from `ctx.tenantId` before the provider call, so a
+   * provider that is tenant-scoped (aletheia, ADR-0118) can address the right
+   * tenant without the caller ever passing one in.
+   */
+  tenantId?: string;
   /** The customer's classified intent this turn, so a reply that talks past it is detectable. */
   intent?: string;
   /** Ask the provider for a JSON object matching this schema. */
@@ -95,6 +102,38 @@ export interface ModelResponse {
   flags: string[];
   /** ai_audit_log row id — the handle for explainability surfaces. */
   auditId: string;
+  /**
+   * ADR-0118: grounded provenance + epistemic coverage, present only when the
+   * provider assembles from verified facts (aletheia). Absent for probabilistic
+   * providers. A caller that needs the "why" branches on this, never on prose.
+   */
+  grounding?: GroundingProof;
+}
+
+/**
+ * ADR-0118. The deterministic proof a grounded provider (Aletheia) returns with
+ * an answer: what facts it assembled, how complete the coverage is, and whether
+ * it refused to guess.
+ */
+export interface GroundingProof {
+  /** Epistemic Coverage Index, 0..1 — matched / required facts. */
+  epistemicCoverage: number;
+  state: "complete" | "partial" | "insufficient";
+  facts: GroundingFact[];
+  contradictions: string[];
+  /** Out-of-distribution: the engine will not guess. */
+  ood: boolean;
+  /** Must be false for a grounded answer (no probabilistic sampling). */
+  samplingUsed: boolean;
+}
+
+export interface GroundingFact {
+  factId: string;
+  entity: string;
+  attribute: string;
+  value: unknown;
+  /** Provenance: the source column/system the fact came from. */
+  source: string;
 }
 
 export interface EmbedRequest {
@@ -175,6 +214,8 @@ export interface ProviderResult {
   tokensIn: number;
   tokensOut: number;
   finishReason: ModelResponse["finishReason"];
+  /** ADR-0118: grounded provenance, set by the aletheia adapter. */
+  grounding?: GroundingProof;
 }
 
 /**
@@ -189,6 +230,12 @@ export interface ProviderEnv {
   /** on-prem vLLM/Ollama, e.g. http://vllm:8000/v1 */
   OPENAI_COMPAT_URL?: string;
   OPENAI_COMPAT_API_KEY?: string;
+  /** ADR-0118: Aletheia (cortex0) base URL, e.g. http://cortex0:8000 */
+  ALETHEIA_URL?: string;
+  /** ADR-0118: bearer token for mutating calls; the chat endpoint may not need one. */
+  ALETHEIA_TOKEN?: string;
+  /** ADR-0118: the Aletheia tenant when the model slug does not name one. */
+  ALETHEIA_TENANT?: string;
   fetch?: typeof fetch;
   /** Analytics Engine dataset (docs/10 §2): AI-usage metrics, one point per call. */
   TELEMETRY?: { writeDataPoint(point: { blobs?: string[]; doubles?: number[]; indexes?: string[] }): void };

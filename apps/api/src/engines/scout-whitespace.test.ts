@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { id as newId, schema } from "@lyra/db";
 import { EntitlementsJson, PolicyJson } from "@lyra/db";
-import { permissionsForRole, seed, type Ctx } from "@lyra/core";
+import { DEFAULT_K_FLOOR, permissionsForRole, seed, type Ctx } from "@lyra/core";
 import { Gateway, makeStub } from "@lyra/model-gateway";
 import { cellSize, clusterSizes, coveragePerLine, evidenceRefCount, sweepWhitespace } from "./scout-whitespace.js";
 
@@ -298,5 +298,75 @@ describe("coveragePerLine", () => {
     const scoutOnly = await coveragePerLine({ ...ctx, entitlements: EntitlementsJson.parse({ modules: ["scout"] }) });
     expect(scoutOnly.get("pet")).toBe(2);
     expect(withAxis.get("pet")).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------- docs/modules/scout.md §8 clause 1 */
+
+/**
+ * "Cold start: from tenant's 12-month quote export alone, produce a first Radar
+ * with >= 5 evidenced whitespace candidates."
+ *
+ * The sweep's mechanics each had a test; the **acceptance figure did not**. Every
+ * other test here seeds one category, so nothing pinned the claim that a cold
+ * start yields a Radar a person can act on rather than a single row. This walks
+ * the criterion: six fresh categories inside the 12-month window, one sweep, and
+ * at least five candidates that are **evidenced** — which is the half that
+ * matters, because a row below the k-anonymity floor is a candidate the Radar
+ * has to refuse to print.
+ */
+describe("cold start: a 12-month export yields a first Radar", () => {
+  // Prefixed so the fixture cannot collide: this file shares one database across
+  // its tests and `dist_offerings` is unique on `(tenant, provider, code)` with
+  // the code built from the category — so re-seeding `marine`, which an earlier
+  // test already seeded, fails on the index rather than seeding a second cluster.
+  const CATEGORIES = ["cold_cyber", "cold_gadget", "cold_travel", "cold_pet", "cold_legal", "cold_wedding"];
+
+  it("produces at least five evidenced whitespace candidates from quote demand alone", async () => {
+    // `seedQuoteCluster`'s own note: a fresh category with zero coverage and 20
+    // same-window quotes from distinct customers clears both the
+    // momentum-above-average bar and the k-anonymity floor of 20.
+    // A millisecond apart each: the helper mints its ids from the `at` it is
+    // given, so six calls at one instant collide on the primary key rather than
+    // seeding six categories.
+    let at = ctx.now;
+    for (const category of CATEGORIES) {
+      await seedQuoteCluster(category, 20, at);
+      at += 1;
+    }
+
+    // One grounded reply per category; the deterministic template is the
+    // fallback, so the candidate lands either way and the assertions below do
+    // not depend on the model answering.
+    const { gw } = stubbedGateway({
+      replies: CATEGORIES.map((category) => `${category} demand is running ahead of this tenant's own book.`)
+    });
+
+    const written = await sweepWhitespace(ctx, gw);
+    expect(written).toBeGreaterThanOrEqual(5);
+
+    const rows = await ctx.db
+      .select()
+      .from(schema.scoutWhitespaces)
+      .where(eq(schema.scoutWhitespaces.tenantId, tenantId));
+    const fromThisSweep = rows.filter((row) => row.category !== null && CATEGORIES.includes(row.category));
+    expect(fromThisSweep.length).toBeGreaterThanOrEqual(5);
+
+    // "Evidenced" is not decoration: each candidate must cite a cell at or above
+    // the floor, or the Radar suppresses it (k-anonymity, §8 clause 3).
+    const sizes = await clusterSizes(ctx, fromThisSweep.map((row) => row.clusterId));
+    for (const row of fromThisSweep) {
+      expect(cellSize(row, sizes)).toBeGreaterThanOrEqual(DEFAULT_K_FLOOR);
+      // Plottable: a cluster link and a scored competition are what the Radar
+      // draws a point from.
+      expect(row.clusterId).not.toBeNull();
+      expect(row.competitionScore).not.toBeNull();
+      expect(row.demandEstimate).not.toBeNull();
+    }
+
+    // Ordered, so the first Radar opens on the biggest movement rather than
+    // whatever the insert order happened to be.
+    const ranked = [...fromThisSweep].sort((a, b) => b.demandEstimate! - a.demandEstimate!);
+    expect(ranked.length).toBeGreaterThanOrEqual(5);
   });
 });
