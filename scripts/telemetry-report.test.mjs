@@ -22,7 +22,22 @@ describe("telemetrySql", () => {
 
 describe("evaluate", () => {
   it("passes a route inside both thresholds", () => {
-    expect(evaluate({ requests: 1000, errors: 2, p95: 120 })).toMatchObject({ verdict: "ok", reasons: [] });
+    // 1 error in 1000 is exactly 0.1%, the policy's ceiling — `>` not `>=`, so it passes.
+    // This fixture read `errors: 2` while the reader carried an invented 1% threshold.
+    expect(evaluate({ requests: 1000, errors: 1, p95: 120 })).toMatchObject({ verdict: "ok", reasons: [] });
+  });
+
+  it("breaches at the policy's p95, not at a number invented here", () => {
+    // runbooks/slo-error-budget.md says p95 < 150ms for API routes. A reader carrying
+    // 800ms would call 200ms healthy.
+    expect(evaluate({ requests: 1000, errors: 0, p95: 149 }).verdict).toBe("ok");
+    expect(evaluate({ requests: 1000, errors: 0, p95: 151 }).verdict).toBe("breach");
+  });
+
+  it("breaches at the policy's availability, not at 1%", () => {
+    // 99.9% availability means 0.1%. 0.2% must not pass.
+    expect(evaluate({ requests: 1000, errors: 1 }).verdict).toBe("ok");
+    expect(evaluate({ requests: 1000, errors: 2 }).verdict).toBe("breach");
   });
 
   it("breaches on the error rate and names the number", () => {
@@ -57,7 +72,7 @@ describe("evaluate", () => {
 });
 
 describe("summarise", () => {
-  const ok = { route: "/ok", requests: 500, errors: 1, p95: 100 };
+  const ok = { route: "/ok", requests: 1000, errors: 1, p95: 100 };
   const bad = { route: "/bad", requests: 500, errors: 100, p95: 100 };
 
   it("is as healthy as its worst judged route, not its average", () => {

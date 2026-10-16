@@ -13,7 +13,7 @@
 // This is that reader, and it carries the SLO so the numbers have thresholds rather
 // than a chart.
 //
-//   node scripts/telemetry-report.mjs                 # last 24h, SLO applied, exit 1 on breach
+//   node scripts/telemetry-report.mjs                 # the policy's 28d window, SLO applied, exit 1 on breach
 //   node scripts/telemetry-report.mjs --hours 1       # the launch-day window
 //   node scripts/telemetry-report.mjs --json          # for a dashboard or an alert
 //   node scripts/telemetry-report.mjs --env staging   # the staging dataset
@@ -25,14 +25,31 @@
 
 import { parseArgs } from "node:util";
 
-/** What "healthy" means, in numbers. A threshold nobody wrote down is a chart. */
+/**
+ * What "healthy" means — **taken from the policy that already exists, not invented here.**
+ *
+ * `runbooks/slo-error-budget.md` is the platform's SLO and error-budget policy (it satisfies docs/17 NFR-007):
+ * API routes **99.9% availability, p95 < 150ms**, rolling 28 days; AI routes 99.5%, latency excluded because it
+ * is bounded upstream; web 99.9%.
+ *
+ * **The first version of this file shipped `0.01` and `800`.** That is 1% against the policy's 0.1%, and 800ms
+ * against its 150ms — a reader that would report `ok` while the platform breached both commitments tenfold and
+ * fivefold. It is the same defect as inventing a rate or a licence number: **a number the record already fixes
+ * must be read from the record, not restated.** `MODULE-AUDIT.md` §60 records the correction.
+ *
+ * The AI-route tier (99.5%) is **not** applied here: this reader groups by route and does not know which routes
+ * are model-backed. That is a real limitation, stated rather than papered over — until it is closed, a
+ * model-backed route is judged against the stricter 150ms it is explicitly exempt from.
+ */
 export const SLO = {
-  /** Share of 5xx responses the platform accepts over the window. */
-  maxErrorRate: 0.01,
-  /** p95 request latency, milliseconds. */
-  maxP95Ms: 800,
+  /** 99.9% availability, verbatim from runbooks/slo-error-budget.md §1. */
+  maxErrorRate: 0.001,
+  /** p95 latency for non-AI routes, verbatim from the same table. */
+  maxP95Ms: 150,
   /** Below this many requests a window is too small to judge, and is reported as such. */
-  minRequests: 50
+  minRequests: 50,
+  /** The policy's window. `--hours` narrows it for an incident; it does not replace it. */
+  windowDays: 28
 };
 
 const DATASETS = { production: "lyra_telemetry", staging: "lyra_telemetry_staging" };
@@ -109,7 +126,7 @@ async function query(sql, { accountId, token }) {
 async function main() {
   const { values } = parseArgs({
     options: {
-      hours: { type: "string", default: "24" },
+      hours: { type: "string", default: String(SLO.windowDays * 24) },
       env: { type: "string", default: "production" },
       json: { type: "boolean", default: false }
     }
