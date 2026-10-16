@@ -6,7 +6,12 @@ import { and, eq } from "drizzle-orm";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, account, schema } from "@lyra/db";
-import { APPROVAL_POLICIES, needsDualControl, type Ctx } from "@lyra/core";
+import {
+  APPROVAL_POLICIES,
+  clientMoneyPairs,
+  needsDualControl,
+  type Ctx
+} from "@lyra/core";
 import { RECIPES, buildRecipe } from "./recipes.js";
 import { TXN_TYPES, autoApprovable } from "./types.js";
 import { post } from "./posting.js";
@@ -143,6 +148,240 @@ async function openTxnRow(ctx: Ctx, id: string, type: string, currency = "AED"):
     updatedAt: NOW
   });
 }
+
+/* ------------------------------------------- client money, per account pair */
+
+// docs/19 §5.2 B, the second half. A licensed broker holds a segregated
+// client-money account **per licence, per market**, so "is client money whole"
+// is a question about each pair and never about their sum. A surplus in one
+// account must not answer for a shortfall in another, and the position report
+// has to name both.
+//
+// These run against the seeded 1010/2010 (UAE, AED) and the seeded second pair
+// 1011/2011 (KSA, SAR). Recipes may not be touched to reach the second pair
+// (recipes.ts is the next slice), so the batches here are authored lines:
+// `post()` is the seam under test, not the recipe table.
+
+/** One client-money account row a test needs beyond the seeded chart. */
+async function addAccount(
+  ctx: Ctx,
+  a: {
+    code: string;
+    en: string;
+    type: "asset" | "liability";
+    normalSide: "debit" | "credit";
+    currency?: string;
+    clientMoneyPair?: string;
+  }
+): Promise<void> {
+  await ctx.db.insert(schema.ledgerAccounts).values({
+    id: `acc_test_${a.code}`,
+    tenantId: ctx.tenantId,
+    code: a.code,
+    nameJson: JSON.stringify({ en: a.en, ar: a.en }),
+    type: a.type,
+    normalSide: a.normalSide,
+    clientMoney: true,
+    suspense: false,
+    cashFlow: null,
+    currency: a.currency ?? "AED",
+    clientMoneyPair: a.clientMoneyPair ?? null,
+    status: "active",
+    createdAt: ctx.now
+  });
+}
+
+/** A settled transaction row, so `post()` has a transaction to update. */
+async function settleTxn(ctx: Ctx, txnId: string, type: string, currency: string): Promise<void> {
+  await ctx.db.insert(schema.ledgerTxns).values({
+    id: txnId,
+    tenantId: ctx.tenantId,
+    type,
+    version: 1,
+    idempotencyKey: txnId,
+    state: "settled",
+    actorKind: "system",
+    actorId: "sys",
+    currency,
+    baseCurrency: currency,
+    grossMinor: 0,
+    baseGrossMinor: 0,
+    createdAt: NOW,
+    updatedAt: NOW
+  });
+}
+
+/**
+ * Put the pair through a real receipt, so a test can then ask the report a
+ * question about a pair the posting rules already consider whole.
+ */
+async function receipt(
+  ctx: Ctx,
+  txnId: string,
+  currency: string,
+  lines: readonly { accountCode: string; side: "debit" | "credit"; amountMinor: number }[]
+): Promise<void> {
+  await settleTxn(ctx, txnId, "CM-RECEIPT", currency);
+  await post(ctx, { txnId, currency, fxRatePpm: 1_000_000, lines });
+}
+
+/**
+ * Why a call was refused, as an operator would read it — `AppError` keeps the
+ * reason in `detail`, so `toThrow(/…/)` matches the bare title "Bad request"
+ * and says nothing about which account or amount was wrong.
+ */
+async function refusal(p: Promise<unknown>): Promise<string> {
+  try {
+    await p;
+  } catch (e) {
+    return (e as { detail?: string }).detail ?? String(e);
+  }
+  return "no refusal";
+}
+
+/* ------------------------- the pairing register and the per-pair invariant */
+
+describe("client money is a per-account invariant, not a tenant-wide one", () => {
+  // ADR-0126. The register the check reads: an asset names its own liability and
+  // the liability names it back. A misconfigured pair is a control that cannot
+  // work, so it fails closed and says which account it could not resolve.
+  it("pairs every client-money asset with the liability that names it back", async () => {
+    const ctx = await freshCtx();
+    const pairs = await clientMoneyPairs(ctx);
+    const byAsset = new Map(pairs.map((p) => [p.assetCode, p.liabilityCode]));
+    expect(byAsset.get("1010")).toBe("2010");
+    expect(byAsset.get("1011")).toBe("2011");
+    expect(pairs.every((p) => p.assetCode !== p.liabilityCode)).toBe(true);
+  });
+
+  it("refuses a client-money asset whose pair is missing, unknown or one-way", async () => {
+    const unnamed = await freshCtx();
+    await addAccount(unnamed, { code: "1013", en: "Cash – unnamed pair", type: "asset", normalSide: "debit" });
+    await expect(refusal(clientMoneyPairs(unnamed))).resolves.toMatch(/1013/);
+
+    const unknown = await freshCtx();
+    await addAccount(unknown, {
+      code: "1013",
+      en: "Cash – unknown pair",
+      type: "asset",
+      normalSide: "debit",
+      clientMoneyPair: "2999"
+    });
+    await expect(refusal(clientMoneyPairs(unknown))).resolves.toMatch(/1013/);
+
+    const oneWay = await freshCtx();
+    await addAccount(oneWay, {
+      code: "1013",
+      en: "Cash – one-way pair",
+      type: "asset",
+      normalSide: "debit",
+      clientMoneyPair: "2013"
+    });
+    await addAccount(oneWay, { code: "2013", en: "Liability – silent", type: "liability", normalSide: "credit" });
+    await expect(refusal(clientMoneyPairs(oneWay))).resolves.toMatch(/1013/);
+  });
+
+  it("records the account and its liability on the alarm, not only the amounts", async () => {
+    const ctx = await freshCtx();
+    // A liability recognised with nothing behind it: the client is owed money the
+    // platform is not holding. `post()` refuses it and leaves the alarm behind,
+    // because a float that is short is the one thing this control exists for.
+    //
+    // The batch this test first used was a client-money **debit** against a
+    // receivable — `Dr 1010 / Cr 1200` — which is a *surplus*, not a shortfall
+    // (asset 500 > liability 0), and the shape is legitimate by design: a receipt
+    // that clears a receivable is named in `assertClientMoneyShape`'s own comment
+    // as one of the credits a client-money debit may take. The control correctly
+    // did not fire, and it was the fixture that was wrong rather than the check.
+    await expect(
+      refusal(
+        receipt(ctx, "tx_uae_orphan", "AED", [
+          { accountCode: "2010", side: "credit", amountMinor: 500 },
+          { accountCode: "1200", side: "debit", amountMinor: 500 }
+        ])
+      )
+    ).resolves.toMatch(/client money/i);
+
+    const alarms = await ctx.db.select().from(schema.ledgerClientMoneyChecks);
+    expect(alarms.length).toBeGreaterThan(0);
+    expect(alarms[0]?.accountCode).toBe("1010");
+    expect(alarms[0]?.liabilityCode).toBe("2010");
+    expect(alarms[0]?.breach).toBe(true);
+  });
+
+  // The invariant, and the one that actually makes this real: a batch that
+  // crosses the two markets — debiting the KSA float to credit the UAE client
+  // liability — nets to nothing when the two liabilities are summed, so the old
+  // check saw a whole tenant while one account stood under-funded.
+  it("refuses a batch that funds one market's float from another market's liability", async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.integer({ min: 1, max: 500_000 }), fc.integer({ min: 1, max: 500_000 }), async (uae, amount) => {
+        const ctx = await freshCtx();
+        await receipt(ctx, "tx_uae", "AED", [
+          { accountCode: "1010", side: "debit", amountMinor: uae },
+          { accountCode: "2010", side: "credit", amountMinor: uae }
+        ]);
+
+        await settleTxn(ctx, "tx_cross", "CM-RECEIPT", "SAR");
+        const why = await refusal(
+          post(ctx, {
+            txnId: "tx_cross",
+            currency: "SAR",
+            fxRatePpm: 1_000_000,
+            lines: [
+              { accountCode: "1011", side: "debit", amountMinor: amount },
+              { accountCode: "2010", side: "credit", amountMinor: amount }
+            ]
+          })
+        );
+        // Refused by name, so an operator can see which two accounts were
+        // crossed rather than only that something was wrong.
+        expect(why, "a surplus in the UAE float cannot fund the KSA float").toMatch(/1010|1011/);
+
+        // And nothing was hidden: the KSA account has no position of its own,
+        // because the only batch that would have given it one was refused. Its
+        // shortfall cannot be reported as a UAE surplus — which is exactly what
+        // a tenant-wide sum would have called whole.
+        const ksa = (await clientMoneyPosition(ctx)).find((p) => p.accountCode === "1011");
+        expect(ksa).toBeUndefined();
+      }),
+      DB_RUNS
+    );
+  }, 120_000);
+
+  it("reports one row per client-money account, and never nets the pairs", async () => {
+    const ctx = await freshCtx();
+    // One balanced receipt that clears a receivable as well as recognising the
+    // liability, so the UAE account ends up holding 6,000 more than it owes.
+    await receipt(ctx, "tx_uae", "AED", [
+      { accountCode: "1010", side: "debit", amountMinor: 10_000 },
+      { accountCode: "2010", side: "credit", amountMinor: 4_000 },
+      { accountCode: "1200", side: "credit", amountMinor: 6_000 }
+    ]);
+    await receipt(ctx, "tx_ksa", "SAR", [
+      { accountCode: "1011", side: "debit", amountMinor: 250 },
+      { accountCode: "2011", side: "credit", amountMinor: 250 }
+    ]);
+
+    const rows = await clientMoneyPosition(ctx);
+    const uae = rows.find((r) => r.accountCode === "1010");
+    const ksa = rows.find((r) => r.accountCode === "1011");
+    expect(uae, "the UAE account is its own row").toBeDefined();
+    expect(ksa, "the KSA account is its own row").toBeDefined();
+    expect(ksa?.currency).toBe("SAR");
+    expect(ksa?.liabilityCode).toBe("2011");
+    // The property: a position row's stated breach is its own pair's arithmetic,
+    // and the KSA shortfall above is not offset by the UAE surplus.
+    expect(ksa?.surplusMinor).toBe(ksa!.assetMinor - ksa!.liabilityMinor);
+    expect(ksa?.breach).toBe(ksa!.assetMinor < ksa!.liabilityMinor);
+    expect(uae?.surplusMinor).toBe(uae!.assetMinor - uae!.liabilityMinor);
+    expect(uae?.breach).toBe(uae!.assetMinor < uae!.liabilityMinor);
+    // 1010 holds more than it owes and 1011 holds exactly what it owes: the one
+    // row a tenant-wide sum would report is not what the tenant actually holds.
+    expect(uae?.surplusMinor).toBe(6_000);
+    expect(ksa?.surplusMinor).toBe(0);
+  });
+});
 
 /* ------------------------------------------------------------ obligation 1 */
 

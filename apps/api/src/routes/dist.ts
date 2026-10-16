@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { and, desc, eq, gte, inArray, lte, sql, type AnyColumn } from "drizzle-orm";
 import { z } from "zod";
-import { id as newId, schema } from "@lyra/db";
+import { EntitlementsJson, PolicyJson, id as newId, schema } from "@lyra/db";
 import {
   actorRef,
   audit,
@@ -11,14 +11,19 @@ import {
   emit,
   gate,
   notFound,
+  recordConsent,
   require_,
   sha256Hex,
   unearnedShareMinor,
   withIdempotency,
   type Ctx
 } from "@lyra/core";
+// `db(env)` is the API's own accessor — `env.DB_CLIENT ?? makeDb(env.DB)`
+import { ctxFor, db, throttle } from "../auth.js";
+import { simNow } from "../clock.js";
 import { body, created, listParams, InstantMs } from "../http.js";
 import { one } from "../rows.js";
+import { portalLink } from "../portal-link.js";
 import type { QuoteOutcome } from "../engines/rating.js";
 import { quoterFor } from "../engines/dist-quoter.js";
 import { runShop } from "../engines/shop.js";
@@ -49,7 +54,22 @@ const ShopBody = z.object({
   caseId: z.string().optional(),
   /** The risk, in the product's rating inputs. */
   inputs: z.record(z.string(), z.unknown()),
-  currency: z.string().length(3).default("ZAR")
+  // ADR-0121: the launch market is the UAE. It read "ZAR" — a modelling currency
+  // from the source PDFs — so a request that omitted it quoted in Rand.
+  currency: z.string().length(3).default("AED")
+});
+
+/* ------------------------------------------------------- channel portal */
+
+// The channel's portal link (PORTALS-DESIGN-AND-AUDIT.md): its book, its own
+// commission and the settlements between it and the tenant. Minting one is
+// reading the channel row, so it is gated on the permission that does.
+distRoutes.get("/channels/:id/portal-link", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "dist:channels:read", { tenantId: ctx.tenantId, module: "dist" });
+  const id = c.req.param("id");
+  if (!(await one(ctx, schema.distChannels, id))) throw notFound("channel");
+  return c.json({ url: await portalLink(ctx, c.env, "channel", id) });
 });
 
 /**
@@ -58,56 +78,212 @@ const ShopBody = z.object({
  * because "six of nine underwriters would not touch this" is an answer the
  * operator needs and silently dropping them looks like a thin panel.
  */
+/**
+ * The fan-out, callable by more than one door.
+ *
+ * Extracted so the consumer door (ADR-0124) reaches **the same engine** rather
+ * than a copy of it — a second implementation of "ask the panel and rank it" is
+ * how two prices for one risk come to exist.
+ */
+async function shopFor(
+  ctx: Ctx,
+  env: App["Bindings"],
+  input: z.infer<typeof ShopBody>,
+  idempotencyKey: string | undefined
+) {
+  return withIdempotency(ctx, idempotencyKey, "dist.shop", input, async () => {
+    const channel = await one(ctx, schema.distChannels, input.channelId);
+    if (!channel) throw notFound("channel");
+    if (channel.status !== "active") throw conflict("channel is not active");
+
+    // Passing a customer's details to third-party underwriters is data sharing
+    // and needs a recorded basis. No consent, no fan-out (docs/12 §3).
+    if (!input.consentId) throw badRequest("consentId is required when a customer is identified");
+    const consent = await one(ctx, schema.consents, input.consentId);
+    if (!consent || consent.customerId !== input.customerId) throw badRequest("consent does not match customer");
+    const purposes = JSON.parse(consent.purposesJson) as { dataSharing?: boolean };
+    if (!purposes.dataSharing) throw badRequest("consent does not permit sharing with providers");
+
+    const { request, responses } = await runShop(ctx, {
+      request: {
+        id: newId("qr", ctx.now),
+        tenantId: ctx.tenantId,
+        caseId: input.caseId ?? null,
+        customerId: input.customerId,
+        channelId: input.channelId,
+        productId: input.productId,
+        inputsJson: JSON.stringify(input.inputs),
+        consentId: input.consentId ?? null,
+        currency: input.currency,
+        expiresAt: ctx.now + 7 * 86_400_000,
+        createdAt: ctx.now,
+        updatedAt: ctx.now
+      },
+      channelKey: channel.key,
+      inputs: input.inputs,
+      quoter: quoterFor(env)
+    });
+
+    await emit(ctx, {
+      module: "dist",
+      type: "dist.quote_request.fanned_out",
+      subject: request.id,
+      data: { productId: input.productId, channelId: input.channelId, fanout: request.fanoutCount }
+    });
+
+    return { request, responses };
+  });
+}
+
+/**
+ * ADR-0124 — the consumer's door.
+ *
+ * The client's product is a consumer comparison (a visitor enters their details,
+ * sees ranked offers, buys online), and `shop` is behind a staff seat *and* a
+ * consent record. Both of those are controls, not obstacles: the consent gate
+ * exists because *"passing a customer's details to third-party underwriters is
+ * data sharing and needs a recorded basis."* So this door **captures its own
+ * basis** rather than bypassing the check.
+ *
+ * Three things it deliberately does not do:
+ *   - it widens no permission: the actor is `kind: "customer"` with **no grants**,
+ *     so the margin strip in the comparison (`canSeeMargin`) applies by
+ *     construction rather than by a branch here;
+ *   - it does not shop without a recorded consent statement — the field is
+ *     required and the refusal names it;
+ *   - it does not fan out before the rate limit, because the fan-out spends the
+ *     panel's goodwill and the tenant's money.
+ */
+const PublicQuoteStartBody = z.object({
+  tenantSlug: z.string().min(1),
+  productId: z.string().min(1),
+  channelId: z.string().min(1),
+  /** The risk, in the product's rating inputs. */
+  inputs: z.record(z.string(), z.unknown()),
+  currency: z.string().length(3).default("AED"),
+  contact: z.object({
+    name: z.string().min(1).max(120),
+    email: z.string().email(),
+    phone: z.string().min(4).max(32).optional()
+  }),
+  /**
+   * What the visitor was actually shown and agreed to. Required, and required to
+   * permit data sharing — an unnamed basis is not one.
+   */
+  consent: z.object({
+    dataSharing: z.literal(true),
+    marketing: z.boolean().default(false)
+  })
+});
+
+distRoutes.post("/public/quote-start", async (c) => {
+  const now = await simNow(c.env);
+  const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+  // Before anything that costs money or someone else's patience.
+  await throttle(c.env, `quote-start:${ip}`, 20, 3600);
+
+  const input = await body(c, PublicQuoteStartBody);
+
+  // No `c.get("ctx")`: a public path has none, because `mw.ts` builds one only
+  // for a request it authenticated. This route reads the tenant from its own
+  // handle and then builds the Ctx it will use, the same way the partner signup
+  // route does.
+  const [tenant] = await db(c.env)
+    .select({ id: schema.tenants.id, status: schema.tenants.status })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.slug, input.tenantSlug))
+    .limit(1);
+  if (!tenant || tenant.status !== "active") throw notFound("tenant");
+
+  // A customer-scoped actor with no grants: it can reach exactly the consumer
+  // operations, and nothing that names a staff permission.
+  const ctx = await ctxFor(
+    c.env,
+    {
+      tenantId: tenant.id,
+      locale: c.req.header("accept-language")?.startsWith("ar") ? "ar" : "en",
+      actor: { kind: "customer", id: `web:${input.contact.email.toLowerCase()}`, tenantId: tenant.id, grants: [] },
+      policy: PolicyJson.parse({}),
+      entitlements: EntitlementsJson.parse({})
+    },
+    now,
+    ip,
+    c.req.header("user-agent")
+  );
+
+  // Find-or-create by email, scoped to the tenant: a returning visitor is the
+  // same customer, not a second one with a second consent history.
+  const email = input.contact.email.toLowerCase();
+  const [existing] = await ctx.db
+    .select({ id: schema.customers.id })
+    .from(schema.customers)
+    .where(and(eq(schema.customers.tenantId, tenant.id), eq(schema.customers.emailsJson, JSON.stringify([email]))))
+    .limit(1);
+  const customerId = existing?.id ?? newId("cus", now);
+  if (!existing) {
+    await ctx.db.insert(schema.customers).values({
+      id: customerId,
+      tenantId: tenant.id,
+      type: "person",
+      nameJson: JSON.stringify({ en: input.contact.name }),
+      emailsJson: JSON.stringify([email]),
+      phonesJson: input.contact.phone ? JSON.stringify([input.contact.phone]) : null,
+      createdAt: now,
+      updatedAt: now
+    } as never);
+  }
+
+  // The basis, recorded in this request and announced the same way an
+  // agent-entered consent is — so suppression learns about it too (docs/30 §2).
+  const state = await recordConsent(ctx, {
+    customerId,
+    purposes: { dataSharing: true, marketing: input.consent.marketing },
+    channels: { email: true, sms: false, whatsapp: false, voice: false, push: false },
+    source: "web"
+  });
+
+  const { request, responses } = await shopFor(
+    ctx,
+    c.env,
+    {
+      productId: input.productId,
+      channelId: input.channelId,
+      customerId,
+      consentId: state.id,
+      inputs: input.inputs,
+      currency: input.currency
+    },
+    c.req.header("idempotency-key")
+  );
+
+  // The consumer projection: ranked, and **without the margin**. `canSeeMargin`
+  // is false for this actor, so the same strip the comparison applies holds here;
+  // it is written out as well so a reader of this route can see the promise.
+  const quoted = responses.filter((r) => r.state === "quoted").sort((a, b) => (a.premiumMinor ?? 0) - (b.premiumMinor ?? 0));
+  return c.json(
+    {
+      requestId: request.id,
+      currency: request.currency,
+      quotes: quoted.map((r) => ({
+        offeringId: r.offeringId,
+        providerId: r.providerId,
+        premiumMinor: r.premiumMinor,
+        taxMinor: r.taxMinor,
+        feesMinor: r.feesMinor,
+        currency: r.currency,
+        bestValue: r.id === quoted[0]?.id
+      })),
+      unavailable: responses.filter((r) => r.state !== "quoted").length
+    },
+    201
+  );
+});
+
 distRoutes.post("/quote-requests/shop", async (c) => {
   const ctx = ctxOf(c);
   require_(ctx.actor, "dist:quote_requests:create", { tenantId: ctx.tenantId, module: "dist" });
   const input = await body(c, ShopBody);
-
-  return c.json(
-    await withIdempotency(ctx, c.req.header("idempotency-key"), "dist.shop", input, async () => {
-      const channel = await one(ctx, schema.distChannels, input.channelId);
-      if (!channel) throw notFound("channel");
-      if (channel.status !== "active") throw conflict("channel is not active");
-
-      // Passing a customer's details to third-party underwriters is data sharing
-      // and needs a recorded basis. No consent, no fan-out (docs/12 §3).
-      if (!input.consentId) throw badRequest("consentId is required when a customer is identified");
-      const consent = await one(ctx, schema.consents, input.consentId);
-      if (!consent || consent.customerId !== input.customerId) throw badRequest("consent does not match customer");
-      const purposes = JSON.parse(consent.purposesJson) as { dataSharing?: boolean };
-      if (!purposes.dataSharing) throw badRequest("consent does not permit sharing with providers");
-
-      const { request, responses } = await runShop(ctx, {
-        request: {
-          id: newId("qr", ctx.now),
-          tenantId: ctx.tenantId,
-          caseId: input.caseId ?? null,
-          customerId: input.customerId,
-          channelId: input.channelId,
-          productId: input.productId,
-          inputsJson: JSON.stringify(input.inputs),
-          consentId: input.consentId ?? null,
-          currency: input.currency,
-          expiresAt: ctx.now + 7 * 86_400_000,
-          createdAt: ctx.now,
-          updatedAt: ctx.now
-        },
-        channelKey: channel.key,
-        inputs: input.inputs,
-        quoter: quoterFor(c.env)
-      });
-
-      await emit(ctx, {
-        module: "dist",
-        type: "dist.quote_request.fanned_out",
-        subject: request.id,
-        data: { productId: input.productId, channelId: input.channelId, fanout: request.fanoutCount }
-      });
-
-      return { request, responses };
-    }),
-    201
-  );
+  return c.json(await shopFor(ctx, c.env, input, c.req.header("idempotency-key")), 201);
 });
 
 /** The comparison as the customer sees it: quotes ranked, declines summarised. */

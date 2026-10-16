@@ -1,13 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
-import {
-  CLIENT_MONEY_ACCOUNT,
-  CLIENT_MONEY_LIABILITY_ACCOUNT,
-  atomically,
-  id,
-  schema,
-  type Write
-} from "@lyra/db";
-import { PPM, actorRef, applyPpm, badRequest, conflict, tenantAccount, type Ctx } from "@lyra/core";
+import { atomically, id, schema, type Write } from "@lyra/db";
+import { PPM, actorRef, applyPpm, badRequest, clientMoneyPairs, conflict, tenantAccount, type Ctx } from "@lyra/core";
 import { assertPostable, ensurePeriod, periodCode } from "./periods.js";
 
 // docs/19 §5. The double-entry engine. Every financial transaction in the system
@@ -112,18 +105,39 @@ function chain(err: unknown): string {
  * caller) rather than the static `CHART_OF_ACCOUNTS`, so an account a tenant
  * added at runtime is subject to the same client-money shape rule as a
  * seeded one.
+ *
+ * ADR-0126, the per-market half. A batch that debits one market's client-money
+ * float and credits *another* market's client-money liability is the same
+ * failure one level down: the two liabilities sum to nothing, so a tenant-wide
+ * check sees a funded float while the market whose cash moved stands short. A
+ * client-money receipt may credit its own pair's liability, the receivable it
+ * clears, or the insurer payable it reclassifies — never a different pair's.
  */
 async function assertClientMoneyShape(ctx: Ctx, lines: readonly PostingLine[]): Promise<void> {
+  const pairs = await clientMoneyPairs(ctx);
+  const pairOf = new Map(pairs.map((p) => [p.assetCode, p.liabilityCode]));
   let debitsClientMoney = false;
+  let claimed: { assetCode: string; liabilityCode: string } | undefined;
   for (const l of lines) {
     if (l.side !== "debit") continue;
     const a = await tenantAccount(ctx, l.accountCode);
     if (a?.clientMoney && a.type === "asset") {
       debitsClientMoney = true;
-      break;
+      claimed ??= { assetCode: l.accountCode, liabilityCode: pairOf.get(l.accountCode) ?? "" };
     }
   }
-  if (!debitsClientMoney) return;
+  if (!debitsClientMoney || !claimed) return;
+
+  const crossesPairs = lines.find(
+    (l) => l.side === "credit" && pairOf.has(l.accountCode) && l.accountCode !== claimed!.assetCode
+  );
+  if (crossesPairs) {
+    throw badRequest(
+      `a batch debiting client money ${claimed.assetCode} may not credit client money ${crossesPairs.accountCode}; ` +
+        `move it out of ${claimed.assetCode} against its own liability ${claimed.liabilityCode}`
+    );
+  }
+
   const bad = lines.find((l) => l.side === "credit" && INCOME_OR_EXPENSE.test(l.accountCode));
   if (bad) {
     throw badRequest(
@@ -401,17 +415,23 @@ async function signedDelta(ctx: Ctx, accountCode: string, agg: Map<string, Delta
 
 /**
  * docs/19 §5.2 B, the invariant the regulator actually cares about: the money we
- * hold for clients (asset 1010) is never less than what we owe them (liability
- * 2010). Checked on every posting rather than nightly, and recorded either way
- * so the compliance evidence exists without a separate job.
+ * hold for clients is never less than what we owe them. Checked on every posting
+ * rather than nightly, and recorded either way so the compliance evidence exists
+ * without a separate job.
+ *
+ * ADR-0126. It is checked **per client-money pair** — one market's licensed
+ * clients' money is never whole because another market's is over-funded. The
+ * pair is read from the tenant's own chart (`clientMoneyPairs`), so a second
+ * account a broker adds is subject to the rule from the moment it exists, and
+ * the check no longer means "1010 against 2010" for every tenant.
  *
  * The position tested is the one the batch *would* leave behind, so a breach
  * refuses the write rather than being found after it. On a breach the evidence
  * row is written on its own and then the post is rejected — the alarm has to
  * outlive the batch it stopped, so it cannot ride inside it.
  *
- * Returns the row to include in the batch, or null when there is no client
- * money in this currency at all and nothing worth recording.
+ * Returns the row to include in the batch, or null when no client money moved
+ * in this currency and there is nothing worth recording.
  */
 export async function clientMoneyCheck(
   ctx: Ctx,
@@ -420,59 +440,76 @@ export async function clientMoneyCheck(
   at: number,
   agg: Map<string, Delta>
 ): Promise<typeof schema.ledgerClientMoneyChecks.$inferInsert | null> {
-  const asset = (await balanceOf(ctx, CLIENT_MONEY_ACCOUNT, currency)).balanceMinor
-    + (await signedDelta(ctx, CLIENT_MONEY_ACCOUNT, agg));
-  const liability = (await balanceOf(ctx, CLIENT_MONEY_LIABILITY_ACCOUNT, currency)).balanceMinor
-    + (await signedDelta(ctx, CLIENT_MONEY_LIABILITY_ACCOUNT, agg));
-  if (asset === 0 && liability === 0) return null;
+  let touched: typeof schema.ledgerClientMoneyChecks.$inferInsert | null = null;
+  for (const pair of await clientMoneyPairs(ctx)) {
+    // Every pair is tested against the position this batch would leave it in,
+    // including pairs the batch never named. A batch that moves only a
+    // receivable can still be the moment a float is discovered to be short —
+    // and a check that only looked at the accounts a batch mentions is exactly
+    // how a second client-money account stays invisible.
+    const asset = (await balanceOf(ctx, pair.assetCode, currency)).balanceMinor
+      + (await signedDelta(ctx, pair.assetCode, agg));
+    const liability = (await balanceOf(ctx, pair.liabilityCode, currency)).balanceMinor
+      + (await signedDelta(ctx, pair.liabilityCode, agg));
+    // Nothing has ever moved through this pair in this currency: a row about
+    // two zeroes is noise, not a control.
+    if (asset === 0 && liability === 0) continue;
 
-  // docs/19 §11.11 (docs/27 F22). The shortfall test below compares the two
-  // balances against *each other*, and that is not the same question as whether
-  // either of them is possible. Paying out of a float nobody funded moves both
-  // by the same amount — `CLAIM-PAY` is Dr 2010 / Cr 1010 — so asset and
-  // liability go negative together, stay equal, and the segregation check sees
-  // nothing wrong. A bank account cannot hold less than nothing, so the second
-  // question has to be asked separately: this is what stops a claim float going
-  // negative, and it was the property test that found it.
-  if (asset < 0) {
+    // docs/19 §11.11 (docs/27 F22). The shortfall test below compares the two
+    // balances against *each other*, and that is not the same question as whether
+    // either of them is possible. Paying out of a float nobody funded moves both
+    // by the same amount — `CLAIM-PAY` is Dr 2010 / Cr 1010 — so asset and
+    // liability go negative together, stay equal, and the segregation check sees
+    // nothing wrong. A bank account cannot hold less than nothing, so the second
+    // question has to be asked separately: this is what stops a claim float going
+    // negative, and it was the property test that found it.
+    if (asset < 0) {
+      await ctx.db.insert(schema.ledgerClientMoneyChecks).values({
+        id: id("cmc", at),
+        tenantId: ctx.tenantId,
+        accountCode: pair.assetCode,
+        liabilityCode: pair.liabilityCode,
+        assetMinor: asset,
+        liabilityMinor: liability,
+        currency,
+        shortfallMinor: -asset,
+        breach: true,
+        triggeredBy,
+        resolvedAt: null,
+        ts: at
+      });
+      throw conflict(
+        `client money account ${pair.assetCode} would go to ${asset} ${currency}: there is nothing in the float to pay out of`
+      );
+    }
+
+    const shortfall = liability - asset;
+    const breach = shortfall > 0;
     const row = {
       id: id("cmc", at),
       tenantId: ctx.tenantId,
+      accountCode: pair.assetCode,
+      liabilityCode: pair.liabilityCode,
       assetMinor: asset,
       liabilityMinor: liability,
       currency,
-      shortfallMinor: -asset,
-      breach: true,
+      shortfallMinor: breach ? shortfall : 0,
+      breach,
       triggeredBy,
       resolvedAt: null,
       ts: at
     };
+    if (!breach) {
+      touched ??= row;
+      continue;
+    }
+
     await ctx.db.insert(schema.ledgerClientMoneyChecks).values(row);
     throw conflict(
-      `client money account would go to ${asset} ${currency}: there is nothing in the float to pay out of`
+      `client money shortfall of ${shortfall} ${currency} in account ${pair.assetCode} (${pair.liabilityCode}): asset ${asset} < liability ${liability}`
     );
   }
-
-  const shortfall = liability - asset;
-  const breach = shortfall > 0;
-  const row = {
-    id: id("cmc", at),
-    tenantId: ctx.tenantId,
-    assetMinor: asset,
-    liabilityMinor: liability,
-    currency,
-    shortfallMinor: breach ? shortfall : 0,
-    breach,
-    triggeredBy,
-    resolvedAt: null,
-    ts: at
-  };
-  if (!breach) return row;
-
-  await ctx.db.insert(schema.ledgerClientMoneyChecks).values(row);
-  throw conflict(
-    `client money shortfall of ${shortfall} ${currency}: asset ${asset} < liability ${liability}`
-  );
+  return touched;
 }
 
 /**

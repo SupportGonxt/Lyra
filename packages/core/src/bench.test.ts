@@ -51,6 +51,9 @@ describe("buildPanelBench", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.winRate).toBe(50);
     expect(rows[0]!.volume).toBe(3);
+    // ADR-0127: the builder writes the `reach` half of the union, and says so
+    // in the value rather than only in its type.
+    expect(rows[0]!.coverageGaps.kind).toBe("reach");
     expect(rows[0]!.coverageGaps.declined).toBe(1);
   });
 

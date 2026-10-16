@@ -31,6 +31,12 @@ export const signal: WorkspaceSpec = {
       "signal-experiments": "Experiments",
       "budget-moves": "Budget moves",
       "aeo-pages": "Answer pages",
+      "brand-kits": "Brand kit & banned claims",
+      requiredPhrasesJson: "Required phrases",
+      forbiddenWordsJson: "Words we never use",
+      bannedClaimsJson: "Banned claims",
+      "bannedClaims.hint":
+        'A JSON list of {pattern, note, severity}. "pattern" is a literal phrase unless "isRegex" is true; "severity": "block" stops the copy outright, and the default flags it for review.',
       "attribution-events": "Attribution",
       spend: "Spend",
       prospects: "Prospects",
@@ -170,6 +176,12 @@ export const signal: WorkspaceSpec = {
       "signal-experiments": "التجارب",
       "budget-moves": "تحويلات الميزانية",
       "aeo-pages": "صفحات الإجابات",
+      "brand-kits": "هوية العلامة والادعاءات الممنوعة",
+      requiredPhrasesJson: "عبارات مطلوبة",
+      forbiddenWordsJson: "كلمات لا نستخدمها",
+      bannedClaimsJson: "ادعاءات ممنوعة",
+      "bannedClaims.hint":
+        'قائمة JSON من {pattern, note, severity}. الحقل "pattern" عبارة حرفية إلا إذا كان "isRegex" صحيحًا؛ و"severity": "block" يمنع النص تمامًا، والافتراضي يحوّله للمراجعة.',
       "attribution-events": "الإسناد",
       spend: "الإنفاق",
       prospects: "العملاء المرتقبون",
@@ -591,6 +603,35 @@ export const signal: WorkspaceSpec = {
       ]
     },
     {
+      key: "brand-kits",
+      api: "/v1/signal/brand-kits",
+      read: "signal:creatives:read",
+      create: "signal:creatives:approve",
+      update: "signal:creatives:approve",
+      // One row per tenant: the brand's own rules, not a campaign's. The three
+      // lists are JSON because each is short and read whole, and
+      // `bannedClaimsJson` is the one a regulator's list goes into.
+      columns: [
+        { name: "requiredPhrasesJson", type: "json" },
+        { name: "forbiddenWordsJson", type: "json" },
+        { name: "bannedClaimsJson", type: "json" },
+        { name: "version", type: "text", sortable: true },
+        { name: "updatedAt", type: "datetime", sortable: true }
+      ],
+      fields: [
+        { name: "requiredPhrasesJson", type: "json" },
+        { name: "forbiddenWordsJson", type: "json" },
+        { name: "bannedClaimsJson", type: "json", hintKey: "bannedClaims.hint" },
+        { name: "version", type: "text" }
+      ],
+      editable: [
+        { name: "requiredPhrasesJson", type: "json" },
+        { name: "forbiddenWordsJson", type: "json" },
+        { name: "bannedClaimsJson", type: "json", hintKey: "bannedClaims.hint" },
+        { name: "version", type: "text" }
+      ]
+    },
+    {
       key: "spend",
       api: "/v1/signal/spend",
       read: "signal:spend:read",
@@ -617,14 +658,14 @@ export const signal: WorkspaceSpec = {
         { name: "day", type: "text", required: true },
         { name: "channel", type: "text", required: true },
         { name: "campaignId", type: "text" },
-        { name: "amountMinor", type: "money", required: true },
+        { name: "amountMinor", type: "money", currencyFrom: "currency", required: true },
         { name: "currency", type: "text", required: true },
         { name: "impressions", type: "number" },
         { name: "clicks", type: "number" },
         { name: "conversions", type: "number" }
       ],
       editable: [
-        { name: "amountMinor", type: "money" },
+        { name: "amountMinor", type: "money", currencyFrom: "currency" },
         { name: "impressions", type: "number" },
         { name: "clicks", type: "number" },
         { name: "conversions", type: "number" }

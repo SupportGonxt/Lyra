@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { beforeEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { schema } from "@lyra/db";
 import type { Ctx } from "@lyra/core";
 import { TXN_PRECONDITIONS } from "./preconditions.js";
+import { expireStale } from "./txn.js";
 
 const MIGRATIONS = join(import.meta.dirname, "..", "..", "db", "migrations");
 
@@ -226,5 +228,87 @@ describe("TXN_PRECONDITIONS[SURPLUS-DIST]", () => {
 
   it("requires a productId, rather than deciding without one", async () => {
     await rejects(precondition(ctx, {}), /productId is required/);
+  });
+});
+
+/* -------------------------- the sweep that enforces a provider's deadline */
+
+/**
+ * The 2026-10-01 sweep's LEDGER finding. `expireStale` existed, worked, and its own
+ * docstring said **"Called by the scheduled worker"** — and nothing called it: one
+ * grep hit repo-wide, its own definition, no test anywhere that mentioned it or
+ * `externalTimeoutAt` either.
+ *
+ * What that cost is not one stuck row. The period-close check `no_pending_external`
+ * counts **every** `pending_external` row tenant-wide, with no period and no
+ * deadline filter — so a single row past its `externalTimeoutAt` failed the close
+ * of **every** period for that tenant, permanently. And the seed writes exactly such
+ * a row into the open period of every seeded tenant, so close was red on arrival.
+ *
+ * This covers the behaviour; a comment in `apps/api/src/index.ts` records that the
+ * scheduled worker now calls it.
+ */
+describe("expireStale enforces the deadline it was written for", () => {
+  const stale = async (id: string, timeoutAt: number) => {
+    await ctx.db.insert(schema.ledgerTxns).values({
+      id,
+      tenantId: ctx.tenantId,
+      type: "CMSN-SETL",
+      version: 1,
+      idempotencyKey: id,
+      state: "pending_external",
+      actorKind: "system",
+      actorId: "sys",
+      currency: "AED",
+      baseCurrency: "AED",
+      grossMinor: 0,
+      baseGrossMinor: 0,
+      externalTimeoutAt: timeoutAt,
+      createdAt: ctx.now - 10_000,
+      updatedAt: ctx.now - 10_000
+    } as never);
+  };
+
+  it("expires a transaction past its deadline and leaves a live one alone", async () => {
+    await stale("txn_overdue", ctx.now - 1);
+    await stale("txn_inflight", ctx.now + 600_000);
+
+    const expired = await expireStale(ctx);
+    expect(expired).toContain("txn_overdue");
+    expect(expired).not.toContain("txn_inflight");
+
+    const [overdue] = await ctx.db.select().from(schema.ledgerTxns).where(eq(schema.ledgerTxns.id, "txn_overdue"));
+    expect(overdue!.state).toBe("expired");
+
+    // The one still inside its window keeps pretending to be in flight, because it
+    // still is — expiring it early would unblock a close by lying.
+    const [inflight] = await ctx.db.select().from(schema.ledgerTxns).where(eq(schema.ledgerTxns.id, "txn_inflight"));
+    expect(inflight!.state).toBe("pending_external");
+  });
+
+  it("leaves a transaction with no deadline at all alone", async () => {
+    // No deadline is not a deadline of zero. A row nobody set a timeout on has not
+    // timed out, and treating null as "overdue" would expire live payments.
+    await ctx.db.insert(schema.ledgerTxns).values({
+      id: "txn_nodl",
+      tenantId: ctx.tenantId,
+      type: "CMSN-SETL",
+      version: 1,
+      idempotencyKey: "txn_nodl",
+      state: "pending_external",
+      actorKind: "system",
+      actorId: "sys",
+      currency: "AED",
+      baseCurrency: "AED",
+      grossMinor: 0,
+      baseGrossMinor: 0,
+      externalTimeoutAt: null,
+      createdAt: ctx.now - 10_000,
+      updatedAt: ctx.now - 10_000
+    } as never);
+
+    expect(await expireStale(ctx)).not.toContain("txn_nodl");
+    const [row] = await ctx.db.select().from(schema.ledgerTxns).where(eq(schema.ledgerTxns.id, "txn_nodl"));
+    expect(row!.state).toBe("pending_external");
   });
 });

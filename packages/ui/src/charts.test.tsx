@@ -19,6 +19,42 @@ describe("LineChart", () => {
     expect(markup).toContain('aria-label="Premium by month"');
   });
 
+  // The mark NORTH needs: a definition change, drawn *from the change date*. It
+  // is an index into the series rather than a date, so the mark travels with the
+  // data instead of needing the chart to parse a calendar.
+  it("marks an event at its point, and names it in the alternative", () => {
+    const markup = renderToStaticMarkup(
+      <LineChart
+        values={[10, 20, 30, 40]}
+        label="Policies issued"
+        xLabels={["2026-01", "2026-02", "2026-03", "2026-04"]}
+        annotations={[{ index: 2, label: "Definition changed" }]}
+      />
+    );
+    // The mark sits at the same x the third point does: 2/3 of the width.
+    expect(markup).toContain('x1="66.67"');
+    // A screen reader gets the event, its date and its label — the plot itself
+    // cannot be read aloud.
+    expect(markup).toContain("Marked: 2026-03 — Definition changed");
+    // And a sighted reader gets a key, not an unexplained line.
+    expect(markup).toContain("Definition changed");
+  });
+
+  it("draws no mark at all when there is nothing to mark", () => {
+    const markup = renderToStaticMarkup(<LineChart values={[1, 2, 3]} label="Series" />);
+    expect(markup).not.toContain("Marked:");
+    expect(markup).not.toContain("stroke-dasharray");
+  });
+
+  it("drops an out-of-range mark rather than clamping it onto a real point", () => {
+    // A mark on the wrong point is worse than no mark: it is read as evidence.
+    const markup = renderToStaticMarkup(
+      <LineChart values={[1, 2, 3]} label="Series" xLabels={["a", "b", "c"]} annotations={[{ index: 9, label: "Ghost" }]} />
+    );
+    expect(markup).not.toContain("Ghost");
+    expect(markup).not.toContain("Marked:");
+  });
+
   it("plots the series across the full width, top for the highest", () => {
     const markup = renderToStaticMarkup(<LineChart values={[0, 100]} label="Two points" />);
     expect(markup).toContain('points="0.00,40.00 100.00,0.00"');

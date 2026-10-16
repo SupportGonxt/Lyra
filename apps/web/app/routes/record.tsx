@@ -25,6 +25,7 @@ import {
   bodyFrom,
   labelsFor,
   optionWords,
+  recordLinkList,
   tabOf,
   visibleActions,
   type ActionSpec,
@@ -152,13 +153,13 @@ export default function Record() {
         <p className="font-ui text-12 text-subtle">
           {label(tab.key)} · <span className="font-mono">{String(row.id ?? "")}</span>
         </p>
-        {tab.recordLink ? (
-          <div>
-            <Button asChild variant="secondary" size="sm">
-              <Link to={tab.recordLink.href.replace("{id}", String(row.id ?? ""))}>
-                {label(tab.recordLink.labelKey)}
-              </Link>
-            </Button>
+        {recordLinkList(tab).length ? (
+          <div className="flex flex-wrap gap-2">
+            {recordLinkList(tab).map((link) => (
+              <Button key={link.href} asChild variant="secondary" size="sm">
+                <Link to={link.href.replace("{id}", String(row.id ?? ""))}>{label(link.labelKey)}</Link>
+              </Button>
+            ))}
           </div>
         ) : null}
       </header>

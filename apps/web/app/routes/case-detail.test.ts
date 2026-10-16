@@ -223,9 +223,10 @@ describe("action: export", () => {
 
     const result = await action(args(form({ intent: "export" })));
 
-    expect(calls[0]?.url).toBe("https://api.test/v1/compliance/evidence-bundles/export");
+    // docs/modules/axis.md §8 criterion 3: the case's own audit bundle, not a
+    // generic compliance bundle scoped by subjectRef.
+    expect(calls[0]?.url).toBe("https://api.test/v1/axis/cases/cas_1/audit-bundle");
     expect(calls[0]?.method).toBe("POST");
-    expect(JSON.parse(calls[0]!.body!)).toEqual({ purpose: "internal", subjectRef: "cas_1" });
     expect(result.done).toBe("exported");
     expect(result.bundleId).toBe("evb_1");
   });
@@ -333,5 +334,60 @@ describe("stateOfAudit", () => {
     ]) {
       expect(stateOfAudit(entry)).toBeNull();
     }
+  });
+});
+
+describe("action: census", () => {
+  // docs/modules/axis.md §2.2. The wiring worth testing is the translation: a
+  // screen gets text and the API takes rows, and everything between them is
+  // `parseCensusText`.
+
+  it("parses a pasted spreadsheet into rows and reads the census back", async () => {
+    const calls = stubFetch(
+      new Response(JSON.stringify({ census: { asOf: 1, members: [], problems: [] }, rollup: { lives: 3, byAgeBand: {}, bySalaryBand: {}, dependents: 4, averageDependents: 1.3, unpriced: 0 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    const result = await action(
+      args(form({ intent: "census", censusText: "Employee No\tName\tSalary\nE1\tRania\t24000\nE2\tOmar\t9600\n" }))
+    );
+
+    expect(calls[0]?.url).toBe("https://api.test/v1/axis/census/normalise");
+    const body = JSON.parse(calls[0]!.body!);
+    // Tabs are the column separator and the trailing newline is not a row.
+    expect(body.rows).toEqual([
+      ["Employee No", "Name", "Salary"],
+      ["E1", "Rania", "24000"],
+      ["E2", "Omar", "9600"]
+    ]);
+    // An age is meaningless without a date, so the census states the day it was
+    // taken. The exact instant is the screen's clock, not the file's.
+    expect(typeof body.asOf).toBe("number");
+    expect(body.priorRows).toBeUndefined();
+    expect(result.done).toBe("census");
+    expect(result.census?.rollup.lives).toBe(3);
+  });
+
+  it("sends last year's list only when one was pasted", async () => {
+    const calls = stubFetch(
+      new Response(JSON.stringify({ census: { asOf: 1, members: [], problems: [] }, rollup: { lives: 1, byAgeBand: {}, bySalaryBand: {}, dependents: 0, averageDependents: 0, unpriced: 0 }, diff: { added: [], removed: [], moved: [], dependentsChanged: [], unchanged: 1 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    await action(args(form({ intent: "census", censusText: "Name,Age\nRania,34", priorCensusText: "Name,Age\nRania,33" })));
+
+    const body = JSON.parse(calls[0]!.body!);
+    expect(body.priorRows).toEqual([["Name", "Age"], ["Rania", "33"]]);
+  });
+
+  it("refuses an empty paste without calling the API", async () => {
+    const calls = stubFetch(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+    const result = await action(args(form({ intent: "census", censusText: "   \n  " })));
+    expect(result.error).toBe("censusRequired");
+    expect(calls).toHaveLength(0);
   });
 });

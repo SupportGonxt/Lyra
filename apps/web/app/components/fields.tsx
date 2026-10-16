@@ -5,6 +5,8 @@ import {
   Field,
   formatMoney,
   Input,
+  MoneyField,
+  useUiCurrency,
   isOpaqueRef,
   Money,
   Select,
@@ -165,6 +167,25 @@ export function Cell({ column, row, locale, label, resolved = {} }: CellProps) {
  * `field.name` is the same string the form posts and the same key
  * `apps/api/src/http.ts:33` builds, which is what makes the lookup direct.
  */
+/**
+ * The currency a money field is edited **in**: the row's own if it states one, else the
+ * tenant's.
+ *
+ * `inherited` is passed in rather than read here: `useUiCurrency` is a hook, and a hook
+ * called from a plain function that JSX invokes conditionally is a hook-order bug that
+ * only shows up on the screen where the condition flips.
+ */
+function moneyCurrency(field: FieldSpec, row: Row | undefined, inherited: string): string {
+  const from = field.currencyFrom ? row?.[field.currencyFrom] : undefined;
+  return typeof from === "string" && from ? from : inherited;
+}
+
+/** A row's current minor amount, if the row has one — the start value a `MoneyField` shows. */
+function defaultMinorOf(row: Row | undefined, name: string): number | undefined {
+  const raw = row?.[name];
+  return typeof raw === "number" && Number.isSafeInteger(raw) ? raw : undefined;
+}
+
 export function FieldInput({
   field,
   row,
@@ -185,6 +206,8 @@ export function FieldInput({
   const kind = formKind(field);
   const hint = hintFor(field, label);
   const value = inputValue(field, row);
+  // Read once, unconditionally, at the top of the component — see `moneyCurrency`.
+  const inheritedCurrency = useUiCurrency();
   // Spread conditionally: exactOptionalPropertyTypes rejects an explicit
   // `undefined` where the prop is optional.
   const common = {
@@ -265,6 +288,25 @@ export function FieldInput({
           defaultValue={value}
           className={field.type === "json" ? "font-mono text-12" : undefined}
         />
+      ) : field.type === "money" ? (
+        // The conversion seam, and the reason this branch exists at all: the field
+        // submits **minor units** and the label a reader sees names no unit, so
+        // "Subtotal" accepted 1575 and stored 1575 fils — rendered as AED 15.75. The
+        // 2026-10-01 sweep's WEB finding.
+        //
+        // `currency` is the row's own when it declares one (`field.currencyFrom`),
+        // otherwise the tenant's functional currency from the provider. There is no
+        // third case and no guessing: a create form has no row, and the tenant's
+        // currency is resolved from `me.policy.currency` in `session.server.ts`.
+        <MoneyField
+          name={field.name}
+          currency={moneyCurrency(field, row, inheritedCurrency)}
+          {...(field.required ? { required: true } : {})}
+          {...(disabled ? { disabled: true } : {})}
+          {...(defaultMinorOf(row, field.name) !== undefined
+            ? { defaultMinor: defaultMinorOf(row, field.name) as number }
+            : {})}
+        />
       ) : (
         <Input
           {...common}
@@ -315,19 +357,28 @@ export function measure(value: number, unit: string, currency: string, locale: s
  * hints between them, so per-field prose was never going to cover this — the
  * *type* is what needs explaining, and it explains identically everywhere.
  *
- * `money` is deliberately not here: it submits raw and every money field is
- * named `…Minor`, which says it on the label itself.
+ * `money` **is** here now, and the reason it was not is the defect. This read:
+ * *"`money` is deliberately not here: it submits raw and every money field is named
+ * `..Minor`, which says it on the label itself."* — conflating the **field name** with
+ * the **label**. The reader sees "Premium", not "premiumMinor"; the guard that should
+ * have caught this passed only because its fixture supplied an *empty* label table, so
+ * the label fell back to the field name, which is the one string containing "Minor".
  *
- * A field's own `hintKey` still wins — a type hint is the floor, not a cap.
- * The keys resolve through `common.` in the shared catalogue, which both
- * label resolvers fall through to (`spec.ts:210`, `detail-kit.tsx:318`), so no
- * workspace table has to carry them.
+ * Verified end to end: a `<label>Subtotal</label>` over
+ * `<input type="number" step="1" name="subtotalMinor">`, `1575` posted raw, and the
+ * list beside it rendered **AED 15.75**.
  */
 function hintFor(field: FieldSpec, label: (key: string) => string): string | undefined {
   if (field.hintKey) return label(field.hintKey);
   const kind = formKind(field);
   if (kind === "list") return label("field.hint.list");
   if (kind === "localized" || kind === "ref" || kind === "rule") return undefined;
+  // `money` is **excluded again**, and for the opposite reason it used to be. It was
+  // excluded on the false premise that "the label says it"; it is excluded now because
+  // the field renders a `MoneyField`, which takes major units and shows the currency
+  // beside them — so a hint reading "in minor units, 1575 is 15.75" would be a
+  // **second, wrong** statement about the same input. The defect was never that money
+  // lacked a hint; it was that money lacked a conversion.
   if (field.type === "json" || field.type === "rate" || field.type === "ratio") {
     return label(`field.hint.${field.type}`);
   }

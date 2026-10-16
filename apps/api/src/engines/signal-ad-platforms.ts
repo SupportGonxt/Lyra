@@ -18,6 +18,7 @@ import {
 } from "@lyra/core";
 import { googleAdsPlatform } from "./signal-ad-google.js";
 import { metaAdsPlatform } from "./signal-ad-meta.js";
+import { tiktokAdsPlatform } from "./signal-ad-tiktok.js";
 import { recordSpend, spendRefusal } from "./signal-spend-import.js";
 
 // docs/30 SIGNAL 5, ADR-0100. The `AdPlatform` seam (core/seams.ts) wired into
@@ -38,7 +39,8 @@ export type AdPlatforms = Readonly<Record<string, AdPlatform>>;
 
 export const AD_PLATFORMS: AdPlatforms = {
   "google-ads": googleAdsPlatform(),
-  "meta-ads": metaAdsPlatform()
+  "meta-ads": metaAdsPlatform(),
+  "tiktok-ads": tiktokAdsPlatform()
 };
 
 type ConnectorRow = typeof schema.orbitChannelConnectors.$inferSelect;

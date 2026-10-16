@@ -32,6 +32,12 @@ const ALLOWLIST = new Set([
   // packages/model-gateway/evals/compliance/cases.jsonl cmp-05 — the eval
   // proves a key-shaped string in model output gets blocked.
   "sk-ant-abcd1234efgh5678ijkl",
+  // apps/api/src/onprem/s3.test.ts — the SigV4 signer is pinned on its canonical
+  // request and credential scope, so the fixture has to be a well-formed key id.
+  // This is AWS's **own published example** from the SigV4 documentation, not a
+  // credential, and its secret pair is the equally published
+  // `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+  "AKIAIOSFODNN7EXAMPLE",
 ]);
 
 const SKIP = /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|\.(png|jpg|jpeg|gif|webp|ico|svg|pdf|woff2?|ttf|otf|zip|gz|wasm)$/;

@@ -1,5 +1,6 @@
 import { id, schema } from "@lyra/db";
 import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
+import { SUPPRESSION_AUDIENCE_NAME } from "../suppression.js";
 import { dayName, monthKey, monthName } from "./period.js";
 
 // SIGNAL is the demand side of the same story the core seed already tells. The
@@ -185,7 +186,7 @@ export async function seedSignal(ctx: SeedContext): Promise<void> {
       // Every other audience subtracts this one. It exists as a row rather than
       // a hard-coded filter so that a withdrawn consent removes a person from
       // all campaigns at once, which is the only way suppression stays true.
-      name: "Do not contact — withdrawn consent, complaints, open claims",
+      name: SUPPRESSION_AUDIENCE_NAME,
       definitionJson: JSON.stringify({
         any: [
           { field: "consent.marketing", op: "eq", value: false },

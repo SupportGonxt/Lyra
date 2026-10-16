@@ -47,6 +47,11 @@ const CommissionArgs = z.object({
   baseCommissionPpm: Ppm.optional(),
   channelSharePpm: Ppm.optional(),
   taxPpm: Ppm.optional(),
+    /** The tax liability this leg belongs on (ADR-0121). A VAT goes to 2200, an
+     *  insurance premium tax to 2210, an Egyptian table tax to 2220 — see
+     *  `taxAccountOf` in @lyra/core. Stated by the caller, because only the
+     *  caller knows which rule produced the number. */
+  taxAccount: z.string().default("2200"),
   flatFeeMinor: NonNeg.optional(),
   /** 4000 new, 4010 renewal, 4020 brokerage, 4030 referral, 4070 ads, 4075 marketplace. */
   incomeAccount: z.string().default("4000"),
@@ -84,7 +89,7 @@ export function commissionAccrual(a: CommissionArgs): PostingLine[] {
     line(a.receivableAccount ?? "1100", "debit", split.grossMinor, a.memo ?? "commission earned", a.dims),
     line(a.incomeAccount ?? "4000", "credit", split.netMinor, "our share", a.dims),
     line("2100", "credit", split.channelMinor, "channel share payable", a.dims),
-    line("2200", "credit", split.taxMinor, "tax on commission", a.dims)
+    line(a.taxAccount ?? "2200", "credit", split.taxMinor, "tax on commission", a.dims)
   );
 }
 
@@ -457,6 +462,11 @@ const PayoutArgs = z.object({
   payableAccount: z.string().default("2100"),
   cashAccount: z.string().default("1000"),
   withholdingMinor: NonNeg.default(0),
+    /** The tax liability this leg belongs on (ADR-0121). A VAT goes to 2200, an
+     *  insurance premium tax to 2210, an Egyptian table tax to 2220 — see
+     *  `taxAccountOf` in @lyra/core. Stated by the caller, because only the
+     *  caller knows which rule produced the number. */
+  withholdingAccount: z.string().default("2200"),
   memo: Memo,
   dims: Dims
 });
@@ -465,7 +475,7 @@ const PayoutArgs = z.object({
 export function payout(a: z.infer<typeof PayoutArgs>): PostingLine[] {
   return lines(
     line(a.payableAccount, "debit", a.amountMinor, a.memo ?? "settled", a.dims),
-    line("2200", "credit", a.withholdingMinor, "withholding tax", a.dims),
+    line(a.withholdingAccount ?? "2200", "credit", a.withholdingMinor, "withholding tax", a.dims),
     line(a.cashAccount, "credit", a.amountMinor - a.withholdingMinor, a.memo ?? "paid", a.dims)
   );
 }
@@ -475,6 +485,11 @@ export function payout(a: z.infer<typeof PayoutArgs>): PostingLine[] {
 const InvoiceArgs = z.object({
   netMinor: Pos,
   taxMinor: NonNeg.default(0),
+    /** The tax liability this leg belongs on (ADR-0121). A VAT goes to 2200, an
+     *  insurance premium tax to 2210, an Egyptian table tax to 2220 — see
+     *  `taxAccountOf` in @lyra/core. Stated by the caller, because only the
+     *  caller knows which rule produced the number. */
+  taxAccount: z.string().default("2200"),
   /** 2300 when the revenue is still deferred, an income account when earned now. */
   creditAccount: z.string().default("2300"),
   receivableAccount: z.string().default("1160"),
@@ -486,7 +501,7 @@ export function invoiceRaised(a: z.infer<typeof InvoiceArgs>): PostingLine[] {
   return lines(
     line(a.receivableAccount, "debit", a.netMinor + a.taxMinor, a.memo ?? "invoice raised", a.dims),
     line(a.creditAccount, "credit", a.netMinor, a.memo ?? "invoice raised", a.dims),
-    line("2200", "credit", a.taxMinor, "output tax", a.dims)
+    line(a.taxAccount ?? "2200", "credit", a.taxMinor, "output tax", a.dims)
   );
 }
 
@@ -524,6 +539,11 @@ export function revenueRecognition(a: z.infer<typeof RecogniseArgs>): PostingLin
 const CreditNoteArgs = z.object({
   netMinor: Pos,
   taxMinor: NonNeg.default(0),
+    /** The tax liability this leg belongs on (ADR-0121). A VAT goes to 2200, an
+     *  insurance premium tax to 2210, an Egyptian table tax to 2220 — see
+     *  `taxAccountOf` in @lyra/core. Stated by the caller, because only the
+     *  caller knows which rule produced the number. */
+  taxAccount: z.string().default("2200"),
   debitAccount: z.string().default("2300"),
   receivableAccount: z.string().default("1160"),
   memo: Memo,
@@ -534,7 +554,7 @@ const CreditNoteArgs = z.object({
 export function creditNote(a: z.infer<typeof CreditNoteArgs>): PostingLine[] {
   return lines(
     line(a.debitAccount, "debit", a.netMinor, a.memo ?? "credit note", a.dims),
-    line("2200", "debit", a.taxMinor, "tax adjustment", a.dims),
+    line(a.taxAccount ?? "2200", "debit", a.taxMinor, "tax adjustment", a.dims),
     line(a.receivableAccount, "credit", a.netMinor + a.taxMinor, a.memo ?? "credit note", a.dims)
   );
 }

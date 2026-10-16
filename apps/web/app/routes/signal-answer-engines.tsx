@@ -54,17 +54,51 @@ export const STATUSES = ["draft", "published", "stale", "retired"] as const;
 /** A published page unverified for longer than this is answering from old facts. */
 const FRESH_DAYS = 30;
 
+/** Mirrors GET /v1/signal/aeo/trend (engines/signal-aeo-monitor.ts). A week
+ *  nobody sampled carries `share: null` — not zero. */
+export interface AeoWeekRow {
+  week: string;
+  sampled: number;
+  cited: number;
+  share: number | null;
+}
+
+export interface CitationRow {
+  id: string;
+  query: string;
+  assistant: string;
+  cited: boolean;
+  citedDomainsJson: string | null;
+  sampledAt: number;
+}
+
+/** The window's own share, or null when nothing was sampled in it. */
+export function observedShare(weeks: readonly AeoWeekRow[]): { sampled: number; cited: number; share: number | null } {
+  const sampled = weeks.reduce((n, w) => n + w.sampled, 0);
+  const cited = weeks.reduce((n, w) => n + w.cited, 0);
+  return { sampled, cited, share: sampled > 0 ? cited / sampled : null };
+}
+
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.get(cloudflare).env;
   const pages = await safe(
     () => api<Page<AeoRow>>("/v1/signal/aeo-pages?sort=updatedAt&order=desc&limit=200", { env, request }),
     { data: [] as AeoRow[] }
   );
+  // What the assistants actually answered, as opposed to what the page rows
+  // claim: `citedByJson` is a hand-editable column, this is a sample.
+  const trend = await safe(
+    () => api<{ weeks: AeoWeekRow[]; latest: CitationRow[] }>("/v1/signal/aeo/trend?weeks=8", { env, request }),
+    { weeks: [] as AeoWeekRow[], latest: [] as CitationRow[] }
+  );
   const now = Date.now();
   return {
     now,
     pages: pages.data,
     roll: aeoCoverage(pages.data),
+    weeks: trend.weeks,
+    observed: observedShare(trend.weeks),
+    recentCitations: trend.latest.slice(0, 5),
     staleCount: pages.data.filter((page) => page.status === "published" && isStale(page, now, FRESH_DAYS)).length,
     key: mintKey("signal-aeo")
   };
@@ -131,8 +165,37 @@ export default function AnswerEngines() {
         <Stat label={l("aeo.publishedPages")} value={String(roll.published)} />
         <Stat label={l("aeo.citedPages")} value={String(roll.cited)} />
         <Stat label={l("aeo.share")} value={`${roll.citationSharePct}%`} />
+        {/* J-M3's measure, kept next to the page-row figure so the two can be
+            told apart: one is what the pages say, this is what was answered. */}
+        <Stat
+          label={l("aeo.observedShare")}
+          value={loaded.observed.share === null ? "—" : `${Math.round(loaded.observed.share * 100)}%`}
+          hint={loaded.observed.sampled > 0 ? l("aeo.observedOf", { cited: String(loaded.observed.cited), sampled: String(loaded.observed.sampled) }) : l("aeo.notSampled")}
+        />
         <Stat label={l("aeo.stalePages")} value={String(loaded.staleCount)} />
       </KPIWall>
+
+      <Card title={l("aeo.trend")} description={l("aeo.trendHint")}>
+        {loaded.observed.sampled === 0 ? (
+          <EmptyState title={l("aeo.notSampled")} body={l("aeo.notSampled.body")} className="mt-4" />
+        ) : (
+          <ul className="flex flex-wrap gap-3">
+            {loaded.weeks.map((week) => (
+              <li key={week.week} className="flex min-w-24 flex-col gap-1 rounded-md border border-border px-3 py-2">
+                <span className="font-ui text-12 text-subtle">{week.week}</span>
+                {/* A week nobody asked about shows a dash with the reason, never
+                    a zero — "not cited" and "not asked" are different facts. */}
+                <span className="font-display text-18 font-bold tabular-nums text-text">
+                  {week.share === null ? "—" : `${Math.round(week.share * 100)}%`}
+                </span>
+                <span className="font-ui text-12 text-subtle">
+                  {week.sampled === 0 ? l("aeo.notSampled.short") : l("aeo.sampledN", { n: String(week.sampled) })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       {loaded.staleCount > 0 ? (
         <GuardrailNotice

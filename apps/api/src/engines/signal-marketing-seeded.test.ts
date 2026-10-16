@@ -50,8 +50,23 @@ beforeAll(async () => {
 
 describe("insight-driven marketing on a seeded tenant", () => {
   it("turns a lapsed comparison into a personal send whose reply counts at every scale", async () => {
-    const [customer] = await ctx.db.select().from(schema.customers).where(eq(schema.customers.tenantId, ctx.tenantId)).limit(1);
-    const customerId = customer!.id;
+    // A contact of this test's own, not a seeded one: every customer the seed
+    // creates already carries a bind touch, and the suppression floor refuses to
+    // market to somebody who bought inside the window (docs/modules/signal.md
+    // §2.2). A lapsed quote is a *prospect* journey, so its subject is somebody
+    // who has not just bought — which is what the floor requires and what the
+    // journey is actually about.
+    const customerId = "cus_lapsed_prospect";
+    await ctx.db.insert(schema.customers).values({
+      id: customerId,
+      tenantId: ctx.tenantId,
+      nameJson: JSON.stringify("Lapsed Prospect"),
+      emailsJson: JSON.stringify(["lapsed@test.example"]),
+      tagsJson: JSON.stringify(["prospect"]),
+      locale: "en",
+      createdAt: NOON,
+      updatedAt: NOON
+    });
     await ctx.db.insert(schema.consents).values({
       id: "con_mkt",
       tenantId: ctx.tenantId,

@@ -118,6 +118,7 @@ export const ar: Messages = {
   "nav.north/alerts": "التنبيهات",
   "nav.north/board": "مجلس الإدارة",
   "nav.north/decisions": "القرارات",
+  "nav.north/compliance-posture": "وضع الامتثال",
   "nav.north/admin": "الإدارة",
   "nav.north/dev": "أدوات المطوّر",
   "nav.group.records": "السجلات والمالية",

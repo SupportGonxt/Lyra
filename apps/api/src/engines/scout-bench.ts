@@ -5,6 +5,7 @@ import {
   buildPanelBench,
   checkKAnonymity,
   emit,
+  encodeCoverage,
   kAnonymityFloor,
   priceElasticityByLine,
   scoped,
@@ -89,7 +90,7 @@ export async function sweepPanelBench(ctx: Ctx): Promise<BenchSweepReport> {
       marketPriceIdx: row.marketPriceIdx,
       winRate: row.winRate,
       volume: row.volume,
-      coverageGapsJson: JSON.stringify(row.coverageGaps),
+      coverageGapsJson: encodeCoverage(row.coverageGaps),
       updatedAt: ctx.now
     };
     const id = idOf.get(cellKey(row));

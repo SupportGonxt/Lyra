@@ -14,6 +14,7 @@ export const distribution: WorkspaceSpec = {
     en: {
       channels: "Channels",
       "link.onboarding": "Onboarding checklist",
+      "link.channel-portal": "Open partner portal",
       offerings: "Offerings",
       "commission-rates": "Commission rates",
       "quote-requests": "Quote requests",
@@ -157,6 +158,7 @@ export const distribution: WorkspaceSpec = {
     ar: {
       channels: "القنوات",
       "link.onboarding": "قائمة مهام التهيئة",
+      "link.channel-portal": "فتح بوابة الشريك",
       offerings: "العروض",
       "commission-rates": "أسعار العمولة",
       "quote-requests": "طلبات التسعير",
@@ -307,6 +309,10 @@ export const distribution: WorkspaceSpec = {
       update: "dist:channels:write",
       remove: "dist:channels:write",
       recordLink: { href: "/onboarding/channels/{id}", labelKey: "link.onboarding" },
+      // The channel's own door (PORTALS-DESIGN-AND-AUDIT.md §2): its book and
+      // the commission that is its own, on a tokened, branded page. The
+      // onboarding checklist above is the first link; this is the second.
+      recordLinks: [{ href: "/portal-link/channel/{id}", labelKey: "link.channel-portal" }],
       search: true,
       filters: [
         { name: "kind", options: ["b2c", "b2b"] },
@@ -392,7 +398,7 @@ export const distribution: WorkspaceSpec = {
         { name: "effectiveTo", type: "date" },
         { name: "baseCommissionPpm", type: "rate" },
         { name: "maxDiscountPpm", type: "rate" },
-        { name: "minPremiumMinor", type: "money" },
+        { name: "minPremiumMinor", type: "money", currencyFrom: "currency" },
         { name: "slaSeconds", type: "number" },
         { name: "coverageJson", type: "json" },
         { name: "eligibilityJson", type: "json" }
@@ -403,7 +409,7 @@ export const distribution: WorkspaceSpec = {
         { name: "status", type: "select", options: ["draft", "active", "paused", "withdrawn"] },
         { name: "baseCommissionPpm", type: "rate" },
         { name: "maxDiscountPpm", type: "rate" },
-        { name: "minPremiumMinor", type: "money" },
+        { name: "minPremiumMinor", type: "money", currencyFrom: "currency" },
         { name: "effectiveTo", type: "date" },
         { name: "coverageJson", type: "json" },
         { name: "eligibilityJson", type: "json" },
@@ -436,7 +442,7 @@ export const distribution: WorkspaceSpec = {
         { name: "line", type: "text" },
         { name: "channelSharePpm", type: "rate", required: true },
         { name: "baseCommissionPpm", type: "rate" },
-        { name: "flatFeeMinor", type: "money" },
+        { name: "flatFeeMinor", type: "money", currencyFrom: "currency" },
         { name: "currency", type: "text" },
         { name: "earnedOn", type: "select", options: ["issue", "collection"] },
         { name: "clawbackDays", type: "number" },

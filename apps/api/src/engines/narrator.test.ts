@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, schema } from "@lyra/db";
 import { permissionsForRole, seed, type Ctx } from "@lyra/core";
-import { Gateway, makeStub } from "@lyra/model-gateway";
+import { Gateway, makeStub, type Provider } from "@lyra/model-gateway";
 import { buildSnapshot, generateBriefing, nightlyBriefing, verifyNumericClaims } from "./narrator.js";
 import { BY_MODULE } from "../resources.js";
 
@@ -165,6 +165,40 @@ describe("generateBriefing", () => {
       .where(and(eq(schema.northBriefings.tenantId, tenantId), eq(schema.northBriefings.id, result.id)));
     expect(row!.status).toBe("draft");
     expect(row!.approvedBy).toBeNull();
+  });
+
+  it("verifies a grounded answer against its assembled facts, not the snapshot", async () => {
+    // ADR-0118: a number the snapshot never held (99,000,000) is accepted because
+    // the grounded provider assembled it from a provenanced fact — the snapshot
+    // gate would have flagged it as a mismatch and kept the brief in draft.
+    const grounded: Provider = {
+      name: "aletheia",
+      async complete() {
+        return {
+          text: "Revenue today was 99,000,000.",
+          toolCalls: [],
+          tokensIn: 0,
+          tokensOut: 0,
+          finishReason: "stop",
+          grounding: {
+            epistemicCoverage: 1,
+            state: "complete",
+            facts: [{ factId: "F1", entity: "Acme", attribute: "revenue", value: 99_000_000, source: "GL" }],
+            contradictions: [],
+            ood: false,
+            samplingUsed: false
+          }
+        };
+      }
+    };
+    const gw = new Gateway({ env: {}, providers: { "workers-ai": grounded } });
+
+    // 2026-01-07 is a free (date, audience) slot: the seed leaves 01-06 free but
+    // every audience of 01-06 is already claimed by the tests above and below.
+    const result = await generateBriefing(ctx, gw, { date: "2026-01-07", audience: "exec" });
+
+    expect(result.status).toBe("review");
+    expect(result.mismatches).toEqual([]);
   });
 });
 

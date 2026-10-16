@@ -496,7 +496,12 @@ describe("seed", () => {
         normalSide: acc.normalSide,
         clientMoney: acc.clientMoney ?? false,
         suspense: acc.suspense ?? false,
-        currency: "AED",
+        // The chart's own currency, not a hard-coded one. This read `"AED"` for
+        // every entry, which was true only while every entry was AED — the KSA
+        // client-money pair (1011/2011, SAR) made it false, and the seed was
+        // right. The assertion's own intent is "the seed wires what the chart
+        // declares", so it reads the declaration.
+        currency: acc.currency ?? "AED",
         status: "active"
       });
     }
@@ -744,6 +749,17 @@ describe("seed", () => {
       { unit: string; grain: string; direction: string; owner: string; sensitivity: string; target: unknown }
     > = {
       gwp: {
+        unit: "money",
+        grain: "month",
+        direction: "up",
+        owner: "faisal.omar",
+        sensitivity: "internal",
+        target: { value: 230_000_000, scale: "minor", currency: "AED" }
+      },
+      // ADR-0128: the same premium cut by the market on the contract. It is a
+      // metric of its own because `SLICED` carries one dimension per metric, and
+      // a market cut is what a nine-market broker reads.
+      gwp_by_market: {
         unit: "money",
         grain: "month",
         direction: "up",

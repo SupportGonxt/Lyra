@@ -292,7 +292,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       prefix: "qvk_live_a1b2c3d4",
       keyHash: await digest("key.alpha"),
       mode: "live",
-      scopesJson: JSON.stringify(["dist:quotes:create", "dist:quotes:read", "core:customers:read"]),
+      scopesJson: JSON.stringify(["dist:quote_requests:create", "dist:quote_requests:read", "core:customers:read"]),
       createdBy: partners,
       lastUsedAt: now - 40 * MINUTE,
       createdAt: now - 120 * DAY
@@ -304,7 +304,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       prefix: "qvk_live_e5f6g7h8",
       keyHash: await digest("key.meridian"),
       mode: "live",
-      scopesJson: JSON.stringify(["dist:quotes:create", "dist:offerings:read"]),
+      scopesJson: JSON.stringify(["dist:quote_requests:create", "dist:offerings:read"]),
       createdBy: partners,
       lastUsedAt: now - 3 * HOUR,
       expiresAt: now + 180 * DAY,
@@ -317,7 +317,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       prefix: "qvk_test_j9k0l1m2",
       keyHash: await digest("key.sandbox"),
       mode: "test",
-      scopesJson: JSON.stringify(["dist:quotes:create", "dist:quotes:read"]),
+      scopesJson: JSON.stringify(["dist:quote_requests:create", "dist:quote_requests:read"]),
       createdBy: developer,
       lastUsedAt: now - 2 * DAY,
       createdAt: now - 30 * DAY
@@ -329,7 +329,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       prefix: "qvk_live_n3p4q5r6",
       keyHash: await digest("key.leaked"),
       mode: "live",
-      scopesJson: JSON.stringify(["dist:quotes:create"]),
+      scopesJson: JSON.stringify(["dist:quote_requests:create"]),
       createdBy: partners,
       lastUsedAt: now - 14 * DAY,
       // Found in a partner's public repository and cut the same hour. The row
@@ -344,7 +344,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       prefix: "qvk_test_s7t8u9v0",
       keyHash: await digest("key.migration"),
       mode: "test",
-      scopesJson: JSON.stringify(["core:customers:write", "axis:policies:create"]),
+      scopesJson: JSON.stringify(["core:customers:create", "axis:policies:create"]),
       createdBy: developer,
       lastUsedAt: now - 200 * DAY,
       // Deliberately short-lived: a one-off import key that has already lapsed
@@ -359,7 +359,7 @@ export async function seedAdmin(ctx: SeedContext): Promise<void> {
       prefix: "qvk_live_w1x2y3z4",
       keyHash: await digest("key.cedar"),
       mode: "live",
-      scopesJson: JSON.stringify(["ledger:settlements:read", "dist:commissions:read"]),
+      scopesJson: JSON.stringify(["ledger:payments:read", "dist:commissions:read"]),
       createdBy: controller,
       lastUsedAt: now - 6 * HOUR,
       createdAt: now - 45 * DAY

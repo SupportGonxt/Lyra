@@ -55,10 +55,17 @@ function ok<T>(res: Res<T>, ...accept: number[]): T {
 
 async function insertDraftPolicy(policyNo: string) {
   const start = Date.now();
+  // The product is load-bearing since ADR-0125: the licence register is asked
+  // whether an authorisation covers this policy's market **and product line**, so
+  // a draft with no product cannot be assessed and is refused — correctly, since a
+  // placement nobody can tie to a licence is the thing the register exists to
+  // stop. The fixture had none; a real bindable policy always does.
+  const [motor] = await database.select().from(schema.products).where(eq(schema.products.line, "motor"));
   const row = {
     id: `pol_${policyNo.toLowerCase()}`,
     tenantId: seeded.tenantId,
     customerId,
+    productId: motor!.id,
     providerId: seeded.providers.falcon as string,
     policyNo,
     startAt: start,
@@ -166,5 +173,45 @@ describe("AXIS bind-group (docs/superpowers/specs/2026-08-16-revenue-lines-full-
     expect(debit).toBe(credit);
     expect(legs.some((l) => l.accountCode === "4020")).toBe(true);
     expect(legs.some((l) => l.accountCode === "1160")).toBe(true);
+  });
+});
+
+/* ------------------------------- the licence door, on the group path too */
+
+/**
+ * `bindGroup` goes straight to its own accrual and never enters `bindPolicy`, so
+ * the authorisation check added for individual placements (ADR-0125) did not
+ * reach it: a broker could write group medical in a market it holds no licence in
+ * while the individual path refused the same market. **The register is only a
+ * control where every door asks it**, so the group door now asks.
+ *
+ * The check runs *before* the approval gate, so this needs no autoApprove change
+ * and the refusal is about the licence rather than about the approval.
+ */
+describe("AXIS bind-group asks the licence register", () => {
+  it("refuses a group placement in a market the tenant holds no authorisation for", async () => {
+    const tenantRow = (await database.select().from(schema.tenants).where(eq(schema.tenants.id, seeded.tenantId)))[0]!;
+    const policy0 = JSON.parse(tenantRow.policyJson as string) as { autoApprove: string[] };
+    // Qatar: no rulepack and no authorisation on file, which is exactly the state
+    // six of the client's nine markets are in.
+    await database
+      .update(schema.tenants)
+      .set({
+        policyJson: JSON.stringify({
+          ...policy0,
+          taxMarket: "QA",
+          autoApprove: [...policy0.autoApprove, "axis.bind_group"]
+        })
+      })
+      .where(eq(schema.tenants.id, seeded.tenantId));
+
+    const policy = await insertDraftPolicy("POL-GROUP-UNLICENSED");
+    const res = await call("POST", `/v1/axis/policies/${policy.id}/bind-group`, { channelMinor: 10_000_00 });
+
+    expect(res.status).toBe(400);
+    expect(String(res.body.detail)).toContain("QA");
+    // And nothing was written: the refusal is the control, not the message.
+    const [after] = await database.select().from(schema.axisPolicies).where(eq(schema.axisPolicies.id, policy.id));
+    expect(after!.status).toBe("draft");
   });
 });

@@ -114,6 +114,7 @@ const HAND_WRITTEN: Op[] = [
 
   // SQL aggregate for the 360 screen's Position card — never a paged read.
   { method: "get", path: "/v1/core/customers/{id}/position", summary: "Financial position: premium, commission and settled claims summed per currency", permission: "core:customers:read", tag: "core" },
+  { method: "get", path: "/v1/core/providers/{id}/portal-link", summary: "The insurer's own portal link — the tokened, branded page showing its panel position and the settlement; minting it is reading the row (PORTALS-DESIGN-AND-AUDIT.md §1)", permission: "core:providers:read", tag: "core" },
 
   // Capture: multipart in, stored file + document row out. The generated CRUD
   // create takes a `fileId` a phone has no way to produce.
@@ -207,10 +208,23 @@ const HAND_WRITTEN: Op[] = [
   // docs/27 F13. The manual capture path onto the one quote table, and the
   // desk's ruling-out of an answer it will not take forward.
   { method: "post", path: "/v1/axis/cases/{id}/transition", summary: "Move a case through its state machine", permission: "axis:cases:update", tag: "axis", requestBody: true },
+  // docs/modules/axis.md §8 criterion 3. Hash-manifested and tamper-evident, not
+  // cryptographically signed — the manifest says which.
+  // docs/modules/axis.md §2.2. Any-format employee list in, canonical census out:
+  // banded lives, a roll-up, every unreadable row named, and the prior-year diff.
+  // A read — it derives and stores nothing.
+  // docs/modules/orbit.md §8: "Partner sandbox → live key promotion without code
+  // changes" — the last step of J-X3, which had no route.
+  { method: "post", path: "/v1/onboarding/partners/{id}/live-key", summary: "Promote a live partner from its sandbox key to a live credential, with the commercial scopes the sandbox deliberately cannot reach", permission: "orbit:partner_keys:issue_live", tag: "orbit" },
+  { method: "post", path: "/v1/axis/census/normalise", summary: "Normalise an any-format employee census into banded lives, with a prior-year diff", permission: "axis:documents:extract", tag: "axis", requestBody: true },
+  { method: "post", path: "/v1/axis/cases/{id}/audit-bundle", summary: "Assemble a case's complete audit bundle: the case, its comparative shop and panel responses, the policy it became, its documents, the commission it accrued and the audit chain for every subject ref it touched, each artefact hash-manifested", permission: "axis:cases:export", tag: "axis" },
+  { method: "get", path: "/v1/axis/cases/{id}/audit-bundle/{bundleId}/download", summary: "Download an assembled case audit bundle as a zip", permission: "axis:cases:export", tag: "axis" },
   { method: "post", path: "/v1/axis/cases/{id}/quotes", summary: "Key a quote received off-panel onto the case, as a quote response", permission: "axis:quotes:create", tag: "axis", requestBody: true },
   { method: "post", path: "/v1/axis/quote-responses/{id}/decline", summary: "Rule a quote out, recording why", permission: "axis:quotes:create", tag: "axis", requestBody: true },
 
   { method: "post", path: "/v1/dist/quote-requests/shop", summary: "Shop one risk to every eligible offering and collect provider quotes", permission: "dist:quote_requests:create", tag: "dist", requestBody: true },
+  // ADR-0124. The only unauthenticated write in the platform: the consumer door.
+  { method: "post", path: "/v1/dist/public/quote-start", summary: "Start a consumer quote: captures the visitor's own consent basis and fans out to the panel, returning ranked offers with no margin", public: true, tag: "dist", requestBody: true },
   { method: "get", path: "/v1/dist/quote-requests/{id}/comparison", summary: "Ranked comparison across the responses received", permission: "dist:quote_requests:read", tag: "dist" },
   { method: "post", path: "/v1/dist/quote-requests/{id}/share", summary: "Share the comparison with the customer over their consented channel", permission: "dist:quote_requests:share", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/quote-requests/{id}/select", summary: "Record the quote the customer chose", permission: "dist:quote_requests:select", tag: "dist", requestBody: true },
@@ -218,6 +232,7 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/dist/quote-responses/{id}/sale", summary: "Confirm the chosen quote as a sale and accrue its channel commission (ADR-0094, tenants without AXIS)", permission: "dist:commissions:adjust", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/commission-entries/{id}/clawback", summary: "Claw back an accrued commission after a cancellation", permission: "dist:commissions:adjust", tag: "dist", requestBody: true },
   { method: "get", path: "/v1/dist/commission-entries/statement", summary: "Commission statement for a channel over a period", permission: "dist:commissions:read", tag: "dist" },
+  { method: "get", path: "/v1/dist/channels/{id}/portal-link", summary: "The channel's own portal link — the tokened, branded page showing its book and its commission; minting it is reading the row (PORTALS-DESIGN-AND-AUDIT.md §2)", permission: "dist:channels:read", tag: "dist" },
   { method: "post", path: "/v1/dist/next-best-offers/propose", summary: "Rank cross-sell and upsell offers for a customer", permission: "dist:offers:read", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/next-best-offers/{id}/surface", summary: "Record that an offer was shown, and where", permission: "dist:offers:surface", tag: "dist", requestBody: true },
   { method: "post", path: "/v1/dist/next-best-offers/{id}/decide", summary: "Record the customer's decision on a surfaced offer", permission: "dist:offers:override", tag: "dist", requestBody: true },
@@ -413,6 +428,16 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/signal/audiences/{id}/lookalike", summary: "Expand a seed audience into a new audience of the customers most like it (docs/17 §SIG-028, ADR-0113): body {size 1..5000, name?}. Scored on the domain pack's targetable axes only, never a protected attribute (§SIG-034); only people who consented to marketing and profiling are read or returned, suppression always applies, and the new audience's consentPurposes is the strictest basis its members share. 409 when the seed's consented members or shared cells fall under the k-anonymity floor", permission: "signal:audiences:create", tag: "signal", requestBody: true },
   { method: "post", path: "/v1/signal/creatives/generate", summary: "Generate ad-copy variants from a brief, compliance-checked and audited per locale", permission: "signal:creatives:generate", tag: "signal", requestBody: true },
   { method: "post", path: "/v1/signal/creatives/image", summary: "Generate a hero/post image from a prompt (ADR-0060); stores bytes to R2 and returns a data URL for immediate preview", permission: "signal:creatives:generate", tag: "signal", requestBody: true },
+  // docs/modules/signal.md §8 clause 1, the half that did not exist: the
+  // acceptance criterion is "brief -> 20 compliant variants -> publish to
+  // Meta+Google", and until this route there was no publish path at all.
+  // Consequential: gated on the signal.creative_publish approval, 202 when it
+  // queues, one placement row per (creative, provider), PAUSED on the platform.
+  { method: "post", path: "/v1/signal/creatives/{id}/publish", summary: "Place a cleared creative on the connected ad platforms (Meta, Google) as PAUSED ads; idempotent per (creative, provider) and 202 when the signal.creative_publish approval queues it", permission: "signal:creatives:approve", tag: "signal", requestBody: true },
+  { method: "post", path: "/v1/signal/watch/run", summary: "The anomaly guard by hand: a spend spike or a tracking break pauses the campaign, audits it, announces signal.anomaly.detected and puts a notice in the inbox of whoever runs campaigns (docs/modules/signal.md §2.3)", permission: "signal:autopilot:run", tag: "signal" },
+  { method: "get", path: "/v1/signal/next", summary: "What to do next, worst first: each suggestion carries the figures that produced it and the screen (with its permission) that acts on it — whitespace from SCOUT, cleared-but-unpublished copy, unbounded budgets, consent mismatches, stale or losing answer pages and experiments that cannot conclude", permission: "signal:campaigns:read", tag: "signal" },
+  // J-M3. A week with no sample reports share: null, never 0.
+  { method: "get", path: "/v1/signal/aeo/trend", summary: "Citation share per ISO week (up to 52) plus the latest observations per query; a week nobody sampled reports share: null rather than a collapse to zero", permission: "signal:aeo:read", tag: "signal" },
   { method: "get", path: "/v1/signal/creatives/{id}/image", summary: "Re-stream a previously generated creative image's bytes", permission: "signal:creatives:read", tag: "signal" },
   { method: "post", path: "/v1/signal/autopilot/pause", summary: "Pause the budget autopilot kill switch", permission: "signal:autopilot:pause", tag: "signal" },
   { method: "post", path: "/v1/signal/autopilot/resume", summary: "Resume the budget autopilot", permission: "signal:autopilot:pause", tag: "signal" },
@@ -435,11 +460,20 @@ const HAND_WRITTEN: Op[] = [
   { method: "get", path: "/v1/scout/watch", summary: "Competitor and regulatory watch: each watched subject's window scored against the one before it", permission: "scout:signals:read", tag: "scout" },
   { method: "get", path: "/v1/scout/config", summary: "The tenant's resolved SCOUT k-anonymity floor", permission: "scout:signals:read", tag: "scout" },
   { method: "post", path: "/v1/scout/wording-diff", summary: "Word-level diff of two coverage-wording texts (PDF extraction deferred, see ADR-0016)", permission: "scout:panel_bench:read", tag: "scout", requestBody: true },
+  // ADR-0123: the criterion is a comparison between two policy PDFs, so this
+  // takes documents rather than the strings the route above takes.
+  { method: "post", path: "/v1/scout/wording-diff/documents", summary: "Compare two policy wordings by transcribing whichever has no reading yet, answering the spans with where each side came from", permission: "scout:panel_bench:read", tag: "scout", requestBody: true },
   { method: "get", path: "/v1/scout/panel-bench/negotiation-pack", summary: "Bench + whitespace negotiation pack as a downloadable PDF", permission: "scout:whitespaces:promote", tag: "scout" },
 
   // North. The daily briefing and the board pack are both real assembly + AI
   // pipelines, gated ahead of generic CRUD so neither accepts a fabricated body.
   { method: "post", path: "/v1/north/briefings/generate", summary: "Generate an executive briefing from live metric snapshots, numeric claims verified against the input", permission: "north:briefings:generate", tag: "north", requestBody: true },
+  { method: "get", path: "/v1/north/briefings/{id}/grounding", summary: "The grounding proof behind a briefing: which facts were retrieved, coverage, contradictions and whether any sampling was used (ADR-0118)", permission: "north:briefings:read", tag: "north" },
+  { method: "post", path: "/v1/north/briefings/{id}/read", summary: "Record that the reader opened this briefing. Once per reader per briefing per UTC day, so a refresh is not a second read; audited as north.briefing.generated (J-E1)", permission: "north:briefings:read", tag: "north", requestBody: true },
+  // docs/12-security-compliance.md §5: the control → evidence map, live. Gated
+  // on `core:audit:read` because its reader is the person who can already read
+  // the trail behind it.
+  { method: "get", path: "/v1/north/compliance-posture", summary: "The seven controls docs/12 §5 maps to evidence, each saying whether its evidence is a live figure or a document on file", permission: "core:audit:read", tag: "north" },
   { method: "post", path: "/v1/north/boardpacks", summary: "Assemble a board pack PDF from the latest briefing, period metrics and open decisions", permission: "north:boardpacks:generate", tag: "north", requestBody: true },
   { method: "get", path: "/v1/north/boardpacks/{id}/file", summary: "Download the rendered board pack PDF", permission: "north:boardpacks:read", tag: "north" },
   // Guarded on `write` on purpose: the drafter asks, and the
@@ -538,6 +572,7 @@ const HAND_WRITTEN: Op[] = [
   // Platform console (routes/platform.ts, ADR-0028/ADR-0029). Cross-tenant,
   // gated on admin:* / core:impersonate:use rather than a tenant permission —
   // there is no tenant to scope most of these against.
+  { method: "post", path: "/v1/platform/tenants", summary: "Provision a tenant: the row, its tenant roles, and an invitation for its first administrator; audited as platform.tenant.created (J-A1 'new tenant in a day')", permission: "admin:tenants:write", tag: "platform", requestBody: true },
   { method: "get", path: "/v1/platform/flags", summary: "Every feature flag and its rollout", permission: "admin:flags:read", tag: "platform" },
   { method: "post", path: "/v1/platform/flags", summary: "Create a feature flag, disabled by default", permission: "admin:flags:write", tag: "platform", requestBody: true },
   // Flipping `enabled` is dual-control (core.flag_toggle); a rollout-percent
@@ -576,6 +611,16 @@ const HAND_WRITTEN: Op[] = [
   { method: "post", path: "/v1/portal/{tenantSlug}/renewals/{id}/accept", summary: "Customer accepts a renewal in one tap; records the decision, does not bind or charge", tag: "portal", requestBody: true, public: true },
   { method: "get", path: "/v1/portal/{tenantSlug}/feedback/{id}", summary: "Whether a closed conversation can still be rated, and its rating if already given", tag: "portal", public: true },
   { method: "post", path: "/v1/portal/{tenantSlug}/feedback/{id}", summary: "Submit the CSAT rating (1-5) for a closed conversation; one rating per conversation", tag: "portal", requestBody: true, public: true },
+  // The two external doors (PORTALS-DESIGN-AND-AUDIT.md). Read-only, opened on
+  // the same derived link token as a renewal, and 404 to a wrong token, another
+  // tenant's row or an unknown id alike.
+  { method: "get", path: "/v1/portal/{tenantSlug}/suppliers/{id}", summary: "The insurer's portal: its panel position (rows below the k-anonymity floor withheld), the data products it subscribes to, and the settlement between it and the tenant", tag: "portal", public: true },
+  { method: "get", path: "/v1/portal/{tenantSlug}/channels/{id}", summary: "The channel partner's portal: the book it wrote, its own commission by state, its settlements and the agreement behind it", tag: "portal", public: true },
+  // The embedded PSP rail (docs/25 §7): open a hosted session for an accepted
+  // offer, and take the gateway's signed callback. The card data never reaches
+  // LYRA — only the provider's reference does.
+  { method: "post", path: "/v1/portal/{tenantSlug}/quote-requests/{id}/pay", summary: "Open a hosted PSP session for the accepted offer and return where to send the payer; the amount comes from the request, never the body (docs/25 §7)", tag: "portal", requestBody: true, public: true },
+  { method: "post", path: "/v1/portal/{tenantSlug}/payments/{provider}/webhook", summary: "The PSP's own callback: the adapter verifies its signature before any row moves, and a replayed callback for a recorded state is a duplicate (docs/25 §7)", tag: "portal", requestBody: true, public: true },
   // docs/30 ORBIT 4, ADR-0099: web chat. The visitor token travels in the
   // x-lyra-visitor header, never the URL; 404 while the tenant has no active
   // `lyra-webchat` connector.

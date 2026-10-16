@@ -12,6 +12,7 @@ import {
   renewalDay7Followup,
   renewalExpireIfUndecided
 } from "./renewal-campaign.js";
+import { requoteRenewal } from "./orbit-requote.js";
 
 // docs/10 §2 `WF` binding: the day-0/7/21/30 renewal campaign
 // (renewal-workflow.ts) is a thin durable wrapper around these steps. This
@@ -161,5 +162,135 @@ describe("renewalExpireIfUndecided", () => {
     await renewalExpireIfUndecided(ctx, "rnw_1");
     const row = await renewal();
     expect(row.state).toBe("accepted");
+  });
+});
+
+/* ------------------------------------------------ the re-quote engine (ADR-0129) */
+
+/**
+ * The engine exists because four separate in-tree comments admitted it did not:
+ * `requotes_json` was written only by a person hand-typing a premium into
+ * `make_renewal_offer`, and every downstream retention number was defined against
+ * a price that did not exist.
+ *
+ * This file covers the half that is a **contract about honesty** rather than about
+ * pricing: the engine must return `null` rather than manufacture a figure when it
+ * cannot re-quote the risk. The full panel round trip (offering, commission, tax
+ * rule, quoter) needs the shop's own fixture and is the next piece.
+ */
+describe("requoteRenewal refuses to invent a price", () => {
+  it("answers null when the policy behind the renewal cannot be found", async () => {
+    // A renewal whose `policyRef` names nothing is a renewal about a contract we do
+    // not hold. Shopping it would price somebody else's risk.
+    await ctx.db.insert(schema.orbitRenewals).values({
+      id: "rnw_orphan",
+      tenantId: ctx.tenantId,
+      policyRef: "pol_missing",
+      customerId: "cu_1",
+      expiryAt: ctx.now + 20 * 86_400_000,
+      strategy: "auto_requote",
+      state: "scheduled",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    } as never);
+
+    const out = await requoteRenewal(ctx, {} as never, "rnw_orphan");
+
+    expect(out).toBeNull();
+    // And nothing was written: an absent value beats a zero, and both beat a
+    // number nobody underwrote.
+    const [row] = await ctx.db.select().from(schema.orbitRenewals).where(eq(schema.orbitRenewals.id, "rnw_orphan"));
+    expect(row!.requotesJson).toBeNull();
+  });
+
+  it("answers null for a policy with no quote request behind it", async () => {
+    // The risk comes from the request the policy was bound from, never from a
+    // reconstruction: re-shopping a guess prices a different customer.
+    await ctx.db.insert(schema.axisPolicies).values({
+      id: "pol_1",
+      tenantId: ctx.tenantId,
+      customerId: "cu_1",
+      providerId: "prov_1",
+      productId: "prd_1",
+      policyNo: "POL-REQ-1",
+      startAt: ctx.now - 365 * 86_400_000,
+      endAt: ctx.now + 20 * 86_400_000,
+      premiumMinor: 100_000,
+      taxMinor: 0,
+      feesMinor: 0,
+      grossMinor: 100_000,
+      currency: "AED",
+      commissionMinor: 1_000,
+      status: "active",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    } as never);
+
+    await ctx.db.insert(schema.orbitRenewals).values({
+      id: "rnw_1",
+      tenantId: ctx.tenantId,
+      policyRef: "pol_1",
+      customerId: "cu_1",
+      expiryAt: ctx.now + 20 * 86_400_000,
+      strategy: "auto_requote",
+      state: "scheduled",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    } as never);
+
+    const out = await requoteRenewal(ctx, {} as never, "rnw_1");
+    expect(out).toBeNull();
+  });
+});
+
+/* ------------------------------- day 0 prices an auto_requote renewal */
+
+describe("the campaign now prices what it opens", () => {
+  it("still opens the renewal when the re-quote cannot price it, and says why on the trail", async () => {
+    // The panel being unreachable, or the policy having no request behind it, must
+    // not strand a renewal a person can still work. But it must not be silent
+    // either: a price that quietly failed to appear is how the four comments this
+    // change closes came to be true in the first place.
+    await ctx.db.insert(schema.orbitRenewals).values({
+      id: "rnw_unpriced",
+      tenantId: ctx.tenantId,
+      policyRef: "pol_nothing",
+      customerId: "cu_1",
+      expiryAt: ctx.now + 20 * 86_400_000,
+      strategy: "auto_requote",
+      state: "scheduled",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    } as never);
+
+    const out = await renewalDay0(ctx, "rnw_unpriced", {} as never);
+    expect(out.done).toBe(false);
+
+    const [row] = await ctx.db.select().from(schema.orbitRenewals).where(eq(schema.orbitRenewals.id, "rnw_unpriced"));
+    expect(row!.state).toBe("offered");
+    // Opened without a number, because there was no number to open it with — and
+    // null is the honest value, not zero.
+    expect(row!.requotesJson).toBeNull();
+  });
+
+  it("does not re-quote a renewal the tenant asked to handle by hand", async () => {
+    // `human` is a strategy, not an absence of one. Pricing a case the tenant
+    // deliberately reserved for a person would spend the panel's goodwill and
+    // could put a machine's number in front of a customer nobody intended to.
+    await ctx.db.insert(schema.orbitRenewals).values({
+      id: "rnw_human",
+      tenantId: ctx.tenantId,
+      policyRef: "pol_nothing",
+      customerId: "cu_1",
+      expiryAt: ctx.now + 20 * 86_400_000,
+      strategy: "human",
+      state: "scheduled",
+      createdAt: ctx.now,
+      updatedAt: ctx.now
+    } as never);
+
+    await renewalDay0(ctx, "rnw_human", {} as never);
+    const [row] = await ctx.db.select().from(schema.orbitRenewals).where(eq(schema.orbitRenewals.id, "rnw_human"));
+    expect(row!.requotesJson).toBeNull();
   });
 });

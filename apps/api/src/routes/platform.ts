@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { and, desc, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, can, conflict, forbidden, gate, notFound, require_, type Ctx } from "@lyra/core";
+import { actorRef, audit, can, conflict, forbidden, gate, notFound, require_, ROLES, TENANT_ROLE_KEYS, type Ctx } from "@lyra/core";
 import { AI_KILL_SWITCH } from "@lyra/model-gateway";
 import { body, created } from "../http.js";
 import { allTenants } from "../auth.js";
@@ -49,6 +49,108 @@ platformRoutes.post("/flags", async (c) => {
   await ctx.db.insert(schema.featureFlags).values(row);
   await audit(ctx, { action: "platform.flag.created", subjectRef: row.id, after: row });
   return created(c, row);
+});
+
+const CreateTenantBody = z
+  .object({
+    slug: z
+      .string()
+      .min(2)
+      .max(60)
+      .regex(/^[a-z0-9][a-z0-9-]*$/, "slug is lowercase letters, digits and hyphens"),
+    name: z.string().min(1).max(200),
+    plan: z.string().min(1).max(60).optional(),
+    region: z.string().min(1).max(60).optional(),
+    adminEmail: z.string().email().max(200).optional(),
+    adminName: z.string().min(1).max(200).optional()
+  })
+  .strict();
+
+/**
+ * J-A1 "new tenant in a day" (docs/06 §2). Tenant creation was seed-only — this
+ * is the runtime counterpart: the platform provisions the tenant, writes the
+ * same role set the seed writes (docs/06 §1), and invites its first
+ * administrator. Nothing here binds a policy or moves money.
+ */
+platformRoutes.post("/tenants", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "admin:tenants:write");
+  const input = await body(c, CreateTenantBody);
+
+  const [taken] = await ctx.db
+    .select({ id: schema.tenants.id })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.slug, input.slug))
+    .limit(1);
+  if (taken) throw conflict(`tenant slug "${input.slug}" is already taken`);
+
+  const now = ctx.now;
+  const tenantId = id("tn", now);
+  await ctx.db.insert(schema.tenants).values({
+    id: tenantId,
+    slug: input.slug,
+    name: input.name,
+    plan: input.plan ?? "standard",
+    region: input.region ?? "auto",
+    status: "active",
+    createdAt: now,
+    updatedAt: now
+  });
+
+  // The role set every tenant gets (docs/06 §1): the bundles rbac.ts owns, so a
+  // fresh tenant is usable the moment it exists and no runtime path invents a
+  // permission the catalogue does not hold.
+  const roleIds: Record<string, string> = {};
+  let roleSeq = 0;
+  for (const key of TENANT_ROLE_KEYS) {
+    const roleId = id("rl", now + roleSeq++);
+    roleIds[key] = roleId;
+    await ctx.db.insert(schema.roles).values({
+      id: roleId,
+      tenantId,
+      key,
+      name: key,
+      permissionsJson: JSON.stringify(ROLES[key] ?? []),
+      system: true,
+      createdAt: now
+    });
+  }
+
+  let adminUserId: string | null = null;
+  if (input.adminEmail) {
+    adminUserId = id("usr", now);
+    await ctx.db.insert(schema.users).values({
+      id: adminUserId,
+      tenantId,
+      email: input.adminEmail,
+      name: input.adminName ?? input.adminEmail,
+      locale: "en",
+      status: "invited",
+      authProvider: "password",
+      mfaEnrolled: false,
+      createdAt: now,
+      updatedAt: now
+    });
+    await ctx.db.insert(schema.userRoles).values({
+      id: id("ur", now),
+      tenantId,
+      userId: adminUserId,
+      roleId: roleIds["tenant.admin"]!,
+      createdAt: now
+    });
+    await audit(ctx, {
+      action: "platform.tenant.admin_invited",
+      subjectRef: tenantId,
+      after: { tenantId, userId: adminUserId, email: input.adminEmail }
+    });
+  }
+
+  await audit(ctx, {
+    action: "platform.tenant.created",
+    subjectRef: tenantId,
+    after: { id: tenantId, slug: input.slug, name: input.name, roles: TENANT_ROLE_KEYS.length, adminUserId }
+  });
+  return created(c, { id: tenantId, slug: input.slug, name: input.name, adminInvited: adminUserId !== null });
 });
 
 const PatchFlagBody = z

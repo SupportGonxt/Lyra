@@ -111,6 +111,13 @@ export const accounts = sqliteTable(
     cashFlow: text("cash_flow"),
     currency: text("currency"), // null = multi-currency account
     parentCode: text("parent_code"),
+    // ADR-0126. A broker holds one segregated client-money account per licence,
+    // per market, so the asset has to name the liability that holds the same
+    // clients' money — and the liability names it back. Read only by
+    // `clientMoneyPairs` (packages/core/src/chart.ts), which every control over
+    // client money routes through. Deliberately not `parentCode`: that is a
+    // chart hierarchy and already means "parent account" on the ledger screen.
+    clientMoneyPair: text("client_money_pair"),
     status: text("status").notNull().default("active"),
     createdAt: integer("created_at").notNull()
   },
@@ -267,8 +274,14 @@ export const clientMoneyChecks = sqliteTable(
   {
     id: text("id").primaryKey(),
     tenantId: text("tenant_id").notNull(),
-    assetMinor: integer("asset_minor").notNull(), // 1010
-    liabilityMinor: integer("liability_minor").notNull(), // 2010
+    // ADR-0126. Which pair this row is about. Nullable because rows written
+    // before the column existed name no account. The period-close check reads
+    // these to say *which market* is short, which is the whole question when
+    // there is more than one client-money account.
+    accountCode: text("account_code"), // the client-money asset
+    liabilityCode: text("liability_code"), // the liability it is paired with
+    assetMinor: integer("asset_minor").notNull(), // the asset's balance
+    liabilityMinor: integer("liability_minor").notNull(), // the liability's balance
     currency: text("currency").notNull(),
     shortfallMinor: integer("shortfall_minor").notNull().default(0),
     breach: integer("breach", { mode: "boolean" }).notNull().default(false),
@@ -459,6 +472,15 @@ export const taxRules = sqliteTable(
     tenantId: text("tenant_id").notNull(),
     market: text("market").notNull(),
     code: text("code").notNull(),
+    /**
+     * Which tax this is, not how much of it (ADR-0121, docs/29 G1). `vat` is the
+     * default because every regime modelled before this column was a VAT/GST.
+     * Egypt levies VAT on general insurance *and* a table tax on the premium;
+     * the EU and UK levy a premium tax where insurance is VAT-exempt. A rate
+     * alone cannot say which return the money belongs on, so the identity
+     * travels with it and the posting path routes to the matching liability.
+     */
+    kind: text("kind").notNull().default("vat"),
     ratePpm: integer("rate_ppm").notNull(),
     placeOfSupply: text("place_of_supply"),
     reverseCharge: integer("reverse_charge", { mode: "boolean" }).notNull().default(false),

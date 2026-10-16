@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   Form,
   Link,
@@ -490,7 +491,7 @@ export default function Staff() {
   const l = labelsIn(locale);
   // The money field's precision follows the currency beside it: 500 in JPY is
   // 500 minor units, in ZAR it is 50000.
-  const [currency, setCurrency] = useState(shell?.currency ?? "ZAR");
+  const [currency, setCurrency] = useState(shell?.currency ?? FALLBACK_CURRENCY);
 
   const busy = navigation.state !== "idle";
 
@@ -716,7 +717,7 @@ export default function Staff() {
                     <DatePicker name="endsAt" withTime required />
                   </Field>
                   <Field label={l("maxAmount")} hint={l("maxAmountHint")}>
-                    <MoneyField name="maxAmountMinor" currency={currency || "ZAR"} locale={locale} className="w-32" />
+                    <MoneyField name="maxAmountMinor" currency={currency || FALLBACK_CURRENCY} locale={locale} className="w-32" />
                   </Field>
                   <Field label={l("currency")}>
                     <Input

@@ -108,6 +108,11 @@ export const LABELS: Record<string, Record<string, string>> = {
       "A data-subject request arrived and needs verification",
     "notice.north.alert.triggered": "A metric crossed an alert threshold",
     "notice.scout.watch.alert": "The market watch flagged something urgent",
+    "notice.signal.anomaly.detected": "A campaign was paused by the anomaly guard",
+    "notice.signal.creative.flagged": "A drafted variant needs a compliance decision",
+    // Found by home.notice-keys.test.ts: this writer had no label at all, so the
+    // inbox printed its own key.
+    "notice.core.apiKey.rotationDue": "An API key is due for rotation",
     "notice.north.boardpack.distributed": "A board pack was sent to you",
 
     "activity.title": "Your recent activity",
@@ -254,6 +259,9 @@ export const LABELS: Record<string, Record<string, string>> = {
     "notice.compliance.dsar.created": "وصل طلب من صاحب بيانات ويحتاج إلى تحقق",
     "notice.north.alert.triggered": "تجاوز مؤشر حدّ التنبيه",
     "notice.scout.watch.alert": "رصد مراقب السوق أمرًا عاجلًا",
+    "notice.signal.anomaly.detected": "أوقفت حماية الشذوذ حملة تلقائيًا",
+    "notice.signal.creative.flagged": "مسودة إعلان تنتظر قرارًا من الالتزام",
+    "notice.core.apiKey.rotationDue": "مفتاح واجهة برمجية حان وقت تدويره",
     "notice.north.boardpack.distributed": "أُرسلت إليك حزمة مجلس",
 
     "activity.title": "نشاطك الأخير",

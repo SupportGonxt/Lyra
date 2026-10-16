@@ -8,11 +8,13 @@ import { resolvePurpose } from "./purposes.js";
 import { rehydrate, scrubMessages } from "./scrub.js";
 import { guardChunk, newStreamGuard } from "./stream-guard.js";
 import { anthropic } from "./providers/anthropic.js";
+import { aletheia } from "./providers/aletheia.js";
 import { openaiCompat } from "./providers/openai-compat.js";
 import { workersAi } from "./providers/workers-ai.js";
 import type {
   EmbedRequest,
   EmbedResponse,
+  GroundingProof,
   ImageRequest,
   ImageResponse,
   ModelRequest,
@@ -48,7 +50,8 @@ export function elapsed(started: number): number {
 const REGISTRY: Partial<Record<ProviderName, Provider>> = {
   "workers-ai": workersAi,
   anthropic,
-  "openai-compat": openaiCompat
+  "openai-compat": openaiCompat,
+  aletheia
 };
 
 export interface GatewayOptions {
@@ -92,6 +95,7 @@ function configuredProviders(env: ProviderEnv, injected: Partial<Record<Provider
   if (env.AI) names.add("workers-ai");
   if (env.ANTHROPIC_API_KEY) names.add("anthropic");
   if (env.OPENAI_COMPAT_URL) names.add("openai-compat");
+  if (env.ALETHEIA_URL) names.add("aletheia");
   return [...names];
 }
 
@@ -236,8 +240,11 @@ export class Gateway {
     }
 
     // `untrusted` steers guardrails only — strip it before the provider call.
+    // ADR-0118: stamp the resolved tenant so a tenant-scoped provider (aletheia)
+    // addresses the right tenant without the caller passing one in.
     const outbound = {
       ...req,
+      tenantId: ctx.tenantId,
       messages: scrubbed.messages.map(({ untrusted: _untrusted, ...m }) => m)
     };
 
@@ -319,7 +326,10 @@ export class Gateway {
       latencyMs: elapsed(started),
       toolCalls: result.toolCalls,
       flags: [...flags],
-      outcome: refused ? "refused" : "ok"
+      outcome: refused ? "refused" : "ok",
+      // ADR-0118: a grounded answer's provenance is audited even on refusal,
+      // because "refused for lack of facts" is itself the compliance signal.
+      ...(result.grounding ? { grounding: result.grounding } : {})
     });
     await recordGuardrails(ctx, [...preHits, ...postHits], req.subjectRef ? { subjectRef: req.subjectRef } : {});
     // Tokens were burned whether or not we let the answer through.
@@ -335,7 +345,10 @@ export class Gateway {
       latencyMs: elapsed(started),
       finishReason: refused ? "refusal" : result.finishReason,
       flags: [...flags],
-      auditId
+      auditId,
+      // ADR-0118: a grounded answer carries its provenance. On a guardrail
+      // refusal there is no provider result worth trusting, so it is dropped.
+      ...(result.grounding && !refused ? { grounding: result.grounding } : {})
     };
   }
 
@@ -742,10 +755,14 @@ export class Gateway {
       toolCalls: unknown[];
       flags: string[];
       outcome: "ok" | "refused" | "error" | "budget_exceeded" | "killed";
+      /** ADR-0118: grounded provenance, persisted without the fact values. */
+      grounding?: GroundingProof;
     }
   ): Promise<void> {
     // Hashes, never content: ai_audit_log is queried by Compliance and must not
-    // become a second copy of every customer conversation (docs/12 §4).
+    // become a second copy of every customer conversation (docs/12 §4). Grounding
+    // is persisted as provenance only — fact ids/sources, never the underlying
+    // values, which stay in Aletheia's fact graph.
     await ctx.db.insert(schema.aiAuditLog).values({
       id: a.auditId,
       tenantId: ctx.tenantId,
@@ -762,6 +779,7 @@ export class Gateway {
       latencyMs: a.latencyMs,
       toolCallsJson: a.toolCalls.length ? JSON.stringify(a.toolCalls) : null,
       guardrailFlagsJson: a.flags.length ? JSON.stringify(a.flags) : null,
+      groundingJson: a.grounding ? groundingAuditJson(a.grounding) : null,
       actorRef: actorRef(ctx),
       subjectRef: a.req.subjectRef ?? null,
       outcome: a.outcome,
@@ -789,6 +807,22 @@ function sleep(ms: number): Promise<void> {
  *  says which model answered, so a later reconciliation has what it needs. */
 function approx(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+/**
+ * ADR-0118. Persist grounded provenance as provenance, never as a second copy of
+ * the tenant's data: fact values stay in Aletheia's fact graph; the audit row
+ * keeps the ids, entities, attributes and sources that make the answer traceable.
+ */
+function groundingAuditJson(g: GroundingProof): string {
+  return JSON.stringify({
+    epistemicCoverage: g.epistemicCoverage,
+    state: g.state,
+    facts: g.facts.map((f) => ({ factId: f.factId, entity: f.entity, attribute: f.attribute, source: f.source })),
+    contradictions: g.contradictions,
+    ood: g.ood,
+    samplingUsed: g.samplingUsed
+  });
 }
 
 /** A non-streaming adapter, presented as a stream of one. */

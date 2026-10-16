@@ -204,9 +204,18 @@ function prospectLines(prospects: CampaignPlanEvidence["prospects"], nouns: Prom
     .map(([reason, n]) => `Identified ${said[reason]}: ${n}`);
 }
 
+/**
+ * @param knowledge the rendered `knowledgeBlock` for the tenant's pack and
+ *   market (`knowledge.ts`). Context, not evidence: it tells the planner what
+ *   world it is in — the market's language, the disclosure rules, how an
+ *   aggregator earns — and is deliberately kept out of the evidence lines, so
+ *   no figure here can be cited as though the tenant's own data had said it.
+ *   Omitted, the prompt is byte-identical to what it was before.
+ */
 export function campaignPlanMessages(
   ev: CampaignPlanEvidence,
-  nouns: PromptNouns
+  nouns: PromptNouns,
+  knowledge?: string
 ): { role: "system" | "user"; content: string }[] {
   return [
     {
@@ -231,7 +240,8 @@ export function campaignPlanMessages(
         "Never plan against race, ethnicity, nationality, national origin, residency status, " +
         "religion, belief, health, disability, gender, sex, sexual orientation, politics, union " +
         "membership or criminal record. " +
-        "A human funds this. You propose it and say how sure you are."
+        "A human funds this. You propose it and say how sure you are." +
+        (knowledge ? `\n\n${knowledge}` : "")
     },
     { role: "user", content: campaignPlanEvidenceLines(ev, nouns).join("\n") }
   ];

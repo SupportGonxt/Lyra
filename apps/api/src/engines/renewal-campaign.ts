@@ -1,4 +1,6 @@
 import { and, eq } from "drizzle-orm";
+import { requoteRenewal } from "./orbit-requote.js";
+import type { Env } from "../env.js";
 import { schema } from "@lyra/db";
 import { audit, emit, type Ctx } from "@lyra/core";
 
@@ -6,11 +8,17 @@ import { audit, emit, type Ctx } from "@lyra/core";
 // over 30 days...)". `sweepRenewals` (renewals.ts) only raises a renewal row —
 // nothing previously advanced it past `state: "scheduled"`. RenewalWorkflow
 // (renewal-workflow.ts) is the durable driver; these are the plain, testable
-// steps it calls at each stage. No pricing/quote generation here — an
-// auto_requote strategy only marks intent (docs/modules/orbit.md §8's A/B
-// cohort), the actual requote is out of scope until that engine exists
-// (ponytail: real gap, not invented — nothing consumes `strategy` today
-// either).
+// steps it calls at each stage.
+//
+// **This comment used to say the opposite of what the code now does**, and it is
+// kept here in corrected form because the shape of the mistake is the lesson:
+// it read *"No pricing/quote generation here — an auto_requote strategy only marks
+// intent, the actual requote is out of scope until that engine exists (ponytail:
+// real gap … nothing consumes `strategy` today either)."* Every clause of that was
+// true when written and false now: `orbit-requote.ts` is the engine, `renewalDay0`
+// below calls it, and `strategy` decides whether it does. A comment that admits a
+// gap is worth having; a comment that admits one **after it is closed** is how a
+// reader learns to trust prose over code.
 
 const row = (ctx: Ctx, renewalId: string) =>
   ctx.db
@@ -21,10 +29,40 @@ const row = (ctx: Ctx, renewalId: string) =>
 /** Decided outside this campaign — a human (or a future auto-requote engine) already moved it on. */
 const resolved = (state: string) => state === "accepted" || state === "lost";
 
-/** Day 0: open the renewal for action. `{done: true}` short-circuits the rest of the campaign. */
-export async function renewalDay0(ctx: Ctx, renewalId: string): Promise<{ done: boolean }> {
+/**
+ * Day 0: open the renewal for action. `{done: true}` short-circuits the rest of the campaign.
+ *
+ * **And price it, when the strategy says to.** The comment at the head of this file
+ * used to read *"No pricing/quote generation here — an auto_requote strategy only
+ * marks intent … the actual requote is out of scope until that engine exists."* The
+ * engine exists now (`orbit-requote.ts`), so intent becomes a number before the
+ * customer is told the renewal is available — because an "offer" with no price is
+ * exactly what this gap was.
+ *
+ * `env` is optional and its absence is the honest default: without a quoter binding
+ * the campaign still runs, it just runs with no price, which is the behaviour that
+ * shipped for two years. A **failed** re-quote does not stop the campaign either —
+ * the panel being unreachable must not strand a renewal that a person can still
+ * work — but it is audited, because a price that quietly failed to appear is how the
+ * four comments this closes came to be true in the first place.
+ */
+export async function renewalDay0(ctx: Ctx, renewalId: string, env?: Env): Promise<{ done: boolean }> {
   const [current] = await row(ctx, renewalId);
   if (!current || current.state !== "scheduled") return { done: true };
+
+  if (current.strategy === "auto_requote" && env) {
+    try {
+      await requoteRenewal(ctx, env, renewalId);
+    } catch (error) {
+      // Visible, not swallowed: the renewal still opens, and the reason it opened
+      // without a price is on the trail.
+      await audit(ctx, {
+        action: "orbit.renewal.requote_failed",
+        subjectRef: renewalId,
+        after: { reason: error instanceof Error ? error.message : String(error) }
+      });
+    }
+  }
 
   const after = { ...current, state: "offered" as const, offeredAt: ctx.now, updatedAt: ctx.now };
   await ctx.db

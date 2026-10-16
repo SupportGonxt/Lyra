@@ -6,6 +6,9 @@ import { makeLibsqlDb } from "@lyra/db/libsql";
 import type { Db } from "@lyra/db";
 import worker, { app } from "./index.js";
 import type { Env } from "./env.js";
+import { s3ObjectStore } from "./onprem/s3.js";
+import { renderBinding } from "./onprem/render.js";
+import { qdrantIndex } from "./onprem/qdrant.js";
 
 // docs/11 §3. The on-prem twin: RUNTIME=node, libsql instead of D1, and local
 // stand-ins for the two bindings that actually get called. Nothing below
@@ -88,6 +91,24 @@ function files(root: string) {
 
 /* ------------------------------------------------------------------- env */
 
+/**
+ * The object store `FILES` binds: MinIO (or any S3 API) when `S3_ENDPOINT` is
+ * set, else the local filesystem under `FILES_DIR`. Both answer the same
+ * `{ put, get }` surface, so nothing below this file knows which is in use.
+ */
+function objectStore() {
+  const endpoint = process.env.S3_ENDPOINT;
+  if (endpoint && process.env.S3_BUCKET && process.env.MINIO_ROOT_USER && process.env.MINIO_ROOT_PASSWORD) {
+    return s3ObjectStore({
+      endpoint,
+      bucket: process.env.S3_BUCKET,
+      accessKey: process.env.MINIO_ROOT_USER,
+      secretKey: process.env.MINIO_ROOT_PASSWORD
+    });
+  }
+  return files(resolve(process.env.FILES_DIR ?? "/var/lib/lyra/files"));
+}
+
 /** `DB` stays unbound: auth.ts prefers `DB_CLIENT` and never reaches D1 here. */
 export function makeEnv(): Env {
   const env = {
@@ -95,7 +116,26 @@ export function makeEnv(): Env {
     KV: kv(),
     // The virtual clock's offset (clock.ts): without it the sim cannot run on-prem.
     CONFIG: kv(),
-    FILES: files(resolve(process.env.FILES_DIR ?? "/var/lib/lyra/files")),
+    FILES: objectStore(),
+    // Browser rendering: browserless/chromium when RENDER_URL is set, else
+    // unbound (Arabic PDFs fall back to the in-process writer, ADR-0115).
+    ...(process.env.RENDER_URL
+      ? {
+          BROWSER: renderBinding({
+            url: process.env.RENDER_URL,
+            ...(process.env.RENDER_TOKEN ? { token: process.env.RENDER_TOKEN } : {})
+          })
+        }
+      : {}),
+    // Vectors: Qdrant when QDRANT_URL is set, else unbound (retrieval falls
+    // back to the deterministic lexical scorer, orbit-kb.ts).
+    ...(process.env.QDRANT_URL
+      ? {
+          VEC_KB: qdrantIndex({ url: process.env.QDRANT_URL, collection: "kb" }),
+          VEC_MARKET: qdrantIndex({ url: process.env.QDRANT_URL, collection: "market" }),
+          VEC_CONVO: qdrantIndex({ url: process.env.QDRANT_URL, collection: "convo" })
+        }
+      : {}),
     ENVIRONMENT: process.env.ENVIRONMENT ?? "onprem",
     ...(process.env.APP_ORIGIN ? { APP_ORIGIN: process.env.APP_ORIGIN } : {}),
     ...(process.env.SESSION_COOKIE ? { SESSION_COOKIE: process.env.SESSION_COOKIE } : {}),

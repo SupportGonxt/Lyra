@@ -139,3 +139,44 @@ export function verifyGroundedness(text: string, contextLines: string[]): Ground
   const mismatches = extractNumbers(text).filter((n) => !nearAny(n, pool));
   return { ok: mismatches.length === 0, mismatches };
 }
+
+/**
+ * ADR-0118. The grounded counterpart to `verifyNumericClaims`: when a
+ * deterministic provider (Aletheia) assembles an answer from provenanced facts
+ * instead of sampling prose, the verification moves from "every number matches
+ * the snapshot" to "every number is one of the facts the engine assembled" — a
+ * fact the engine returned with a source is the evidence, not a regex guess.
+ *
+ * A grounded answer whose engine could not complete (`ood` or `insufficient`)
+ * is not a verifiable answer: it fails closed, so the caller keeps it as a
+ * draft rather than a reviewable brief.
+ *
+ * `fact.value` is assumed to be in the same display units the answer phrases
+ * (major currency / percent) — the adapter and Aletheia's fact graph share the
+ * answer's wording, so the pool and the prose agree.
+ */
+export interface GroundedFactValue {
+  value: unknown;
+  source: string;
+}
+
+export interface GroundingClaims {
+  state: "complete" | "partial" | "insufficient";
+  ood: boolean;
+  facts: GroundedFactValue[];
+}
+
+export function verifyGroundedClaims(text: string, grounding: GroundingClaims): GroundednessResult {
+  if (grounding.ood || grounding.state === "insufficient") {
+    // Refuse-to-guess: nothing the engine wrote is accepted, so every number in
+    // the prose (there should be none) is a mismatch.
+    return { ok: false, mismatches: extractNumbers(text) };
+  }
+  const pool: number[] = [];
+  for (const f of grounding.facts) {
+    const v = Number(f.value);
+    if (Number.isFinite(v)) pool.push(v, Math.round(v), Math.round(v * 10) / 10);
+  }
+  const mismatches = extractNumbers(text).filter((n) => !nearAny(n, pool));
+  return { ok: mismatches.length === 0, mismatches };
+}

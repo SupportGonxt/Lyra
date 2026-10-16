@@ -1673,12 +1673,19 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
   ]);
 
   // Tax treatment comes from the rulepack, never inferred at posting time.
+  //
+  // ADR-0121 adds the third dimension a rate cannot carry: WHICH tax it is. The
+  // UAE rows are all VAT, so they say so by default; Egypt is the market that
+  // proves the column is needed — it levies VAT on general insurance *and* a
+  // table tax on the premium, two returns, and before this they shared one
+  // liability account (docs/29 G1).
   await db.insert(schema.ledgerTaxRules).values([
     {
       id: nid("tax"),
       tenantId,
       market: "AE",
       code: "VAT-STD",
+      kind: "vat",
       ratePpm: 50_000,
       placeOfSupply: "AE",
       reverseCharge: false,
@@ -1691,6 +1698,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       tenantId,
       market: "AE",
       code: "VAT-ZERO-EXPORT",
+      kind: "vat",
       ratePpm: 0,
       placeOfSupply: "OUTSIDE",
       reverseCharge: false,
@@ -1703,6 +1711,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       tenantId,
       market: "AE",
       code: "VAT-RC-IMPORT",
+      kind: "vat",
       ratePpm: 50_000,
       placeOfSupply: "AE",
       reverseCharge: true,
@@ -1714,6 +1723,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       tenantId,
       market: "AE",
       code: "VAT-EXEMPT-LIFE",
+      kind: "vat",
       ratePpm: 0,
       placeOfSupply: "AE",
       reverseCharge: false,
@@ -1727,6 +1737,7 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       tenantId,
       market: "SA",
       code: "VAT-STD",
+      kind: "vat",
       ratePpm: 50_000,
       placeOfSupply: "SA",
       reverseCharge: false,
@@ -1739,11 +1750,68 @@ export async function seedLedger(ctx: SeedContext): Promise<void> {
       tenantId,
       market: "SA",
       code: "VAT-STD",
+      kind: "vat",
       ratePpm: 150_000,
       placeOfSupply: "SA",
       reverseCharge: false,
       exempt: false,
       effectiveFrom: Date.UTC(2020, 6, 1)
+    },
+    {
+      // Egypt, the market after the UAE: standard VAT on general insurance.
+      id: nid("tax"),
+      tenantId,
+      market: "EG",
+      code: "VAT-STD",
+      kind: "vat",
+      ratePpm: 140_000,
+      placeOfSupply: "EG",
+      reverseCharge: false,
+      exempt: false,
+      effectiveFrom: Date.UTC(2017, 8, 1)
+    },
+    {
+      // Life cover is outside the VAT charge, as it is in the UAE.
+      id: nid("tax"),
+      tenantId,
+      market: "EG",
+      code: "VAT-EXEMPT-LIFE",
+      kind: "vat",
+      ratePpm: 0,
+      placeOfSupply: "EG",
+      reverseCharge: false,
+      exempt: true,
+      effectiveFrom: Date.UTC(2017, 8, 1)
+    },
+    {
+      // The reason `kind` exists. A table levy sits on the same premium as the
+      // VAT above and is reported separately, so it may not share its account.
+      //
+      // The RATE is the tenant's to confirm against its own adviser before the
+      // first Egyptian invoice — it is seeded so the shape is exercised, not as
+      // a statement of law. Editing it is a rulepack change, not a code change.
+      id: nid("tax"),
+      tenantId,
+      market: "EG",
+      code: "TABLE-TAX-INSURANCE",
+      kind: "table_tax",
+      ratePpm: 1_250,
+      placeOfSupply: "EG",
+      reverseCharge: false,
+      exempt: false,
+      effectiveFrom: Date.UTC(2017, 8, 1)
+    },
+    {
+      id: nid("tax"),
+      tenantId,
+      market: "EG",
+      code: "VAT-RC-IMPORT",
+      kind: "vat",
+      ratePpm: 140_000,
+      placeOfSupply: "EG",
+      reverseCharge: true,
+      exempt: false,
+      effectiveFrom: Date.UTC(2017, 8, 1)
     }
   ]);
 

@@ -62,6 +62,7 @@ export interface AiAiAuditLog {
   latencyMs?: number;
   toolCallsJson?: string;
   guardrailFlagsJson?: string;
+  groundingJson?: string;
   actorRef: string;
   subjectRef?: string;
   outcome?: string;
@@ -330,6 +331,22 @@ export interface AnalyticsUnitEconomics {
   updatedAt?: number;
 }
 
+export interface AxisAuthorisations {
+  id?: string;
+  tenantId?: string;
+  market: string;
+  regulatorKey: string;
+  licenceNumber: string;
+  scope: string;
+  productLinesJson: string;
+  validFrom: number;
+  validTo?: number;
+  evidenceFileId?: string;
+  status?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface AxisBordereauLines {
   id?: string;
   tenantId?: string;
@@ -492,6 +509,7 @@ export interface AxisDocuments {
   extractionJson?: string;
   extractionConfidence?: number;
   extractionModel?: string;
+  wordingJson?: string;
   verifiedBy?: string;
   verifiedAt?: number;
   status?: string;
@@ -537,6 +555,7 @@ export interface AxisPolicies {
   offeringId?: string;
   channelId?: string;
   policyNo: string;
+  market?: string;
   startAt: number;
   endAt: number;
   premiumMinor: number;
@@ -1459,6 +1478,7 @@ export interface DistQuoteResponses {
   valueScore?: number;
   rationaleKey?: string;
   declineReason?: string;
+  breakdownJson?: string;
   latencyMs?: number;
   validUntil?: number;
   rawRef?: string;
@@ -1492,6 +1512,7 @@ export interface LedgerAccounts {
   cashFlow?: string;
   currency?: string;
   parentCode?: string;
+  clientMoneyPair?: string;
   status?: string;
   createdAt?: number;
 }
@@ -1511,6 +1532,8 @@ export interface LedgerBudgets {
 export interface LedgerClientMoneyChecks {
   id?: string;
   tenantId?: string;
+  accountCode?: string;
+  liabilityCode?: string;
   assetMinor: number;
   liabilityMinor: number;
   currency: string;
@@ -1770,6 +1793,7 @@ export interface LedgerTaxRules {
   tenantId?: string;
   market: string;
   code: string;
+  kind?: string;
   ratePpm: number;
   placeOfSupply?: string;
   reverseCharge?: boolean;
@@ -1910,6 +1934,15 @@ export interface NorthDecisions {
   status?: string;
   createdAt?: number;
   updatedAt?: number;
+}
+
+export interface NorthMetricDefinitions {
+  id?: string;
+  tenantId?: string;
+  metricKey: string;
+  definitionSqlRef: string;
+  changedAt: number;
+  changedBy: string;
 }
 
 export interface NorthMetrics {
@@ -2359,6 +2392,17 @@ export interface SignalAudiences {
   updatedAt?: number;
 }
 
+export interface SignalBrandKits {
+  id?: string;
+  tenantId?: string;
+  requiredPhrasesJson?: string;
+  forbiddenWordsJson?: string;
+  bannedClaimsJson?: string;
+  version?: number;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface SignalBudgetMoves {
   id?: string;
   tenantId?: string;
@@ -2394,6 +2438,17 @@ export interface SignalCampaigns {
   createdAt?: number;
   updatedAt?: number;
   deletedAt?: number;
+}
+
+export interface SignalCreativePublishes {
+  id?: string;
+  tenantId?: string;
+  creativeId: string;
+  provider: string;
+  externalId?: string;
+  status: string;
+  error?: string;
+  publishedAt: number;
 }
 
 export interface SignalCreatives {
@@ -2603,6 +2658,11 @@ export interface Operations {
   "GET /v1/auth/sso/{id}/callback": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/auth/sso/{id}/metadata": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/auth/sso/{id}/start": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "GET /v1/axis/authorisations": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisAuthorisations>>;
+  "POST /v1/axis/authorisations": Op<never, never, AxisAuthorisations, AxisAuthorisations>;
+  "GET /v1/axis/authorisations/{id}": Op<{ id: string }, never, never, AxisAuthorisations>;
+  "PATCH /v1/axis/authorisations/{id}": Op<{ id: string }, never, AxisAuthorisations, AxisAuthorisations>;
+  "DELETE /v1/axis/authorisations/{id}": Op<{ id: string }, never, never, void>;
   "GET /v1/axis/bordereau-lines": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisBordereauLines>>;
   "GET /v1/axis/bordereau-lines/{id}": Op<{ id: string }, never, never, AxisBordereauLines>;
   "GET /v1/axis/bordereaux": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisBordereaux>>;
@@ -2620,11 +2680,14 @@ export interface Operations {
   "GET /v1/axis/cases/{id}": Op<{ id: string }, never, never, AxisCases>;
   "PATCH /v1/axis/cases/{id}": Op<{ id: string }, never, AxisCases, AxisCases>;
   "DELETE /v1/axis/cases/{id}": Op<{ id: string }, never, never, void>;
+  "POST /v1/axis/cases/{id}/audit-bundle": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "GET /v1/axis/cases/{id}/audit-bundle/{bundleId}/download": Op<{ id: string; bundleId: string }, never, never, Record<string, unknown>>;
   "POST /v1/axis/cases/{id}/copilot": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/axis/cases/{id}/quotes": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/axis/cases/{id}/restore": Op<{ id: string }, never, never, AxisCases>;
   "POST /v1/axis/cases/{id}/sla-predict": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/axis/cases/{id}/transition": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/axis/census/normalise": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/axis/claims": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<AxisClaims>>;
   "POST /v1/axis/claims": Op<never, never, AxisClaims, AxisClaims>;
   "POST /v1/axis/claims/coverage-check": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -2853,6 +2916,7 @@ export interface Operations {
   "GET /v1/core/providers/{id}": Op<{ id: string }, never, never, CoreProviders>;
   "PATCH /v1/core/providers/{id}": Op<{ id: string }, never, CoreProviders, CoreProviders>;
   "DELETE /v1/core/providers/{id}": Op<{ id: string }, never, never, void>;
+  "GET /v1/core/providers/{id}/portal-link": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/core/roles": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<CoreRoles>>;
   "POST /v1/core/roles": Op<never, never, CoreRoles, CoreRoles>;
   "GET /v1/core/roles/{id}": Op<{ id: string }, never, never, CoreRoles>;
@@ -2898,6 +2962,7 @@ export interface Operations {
   "GET /v1/dist/channels/{id}": Op<{ id: string }, never, never, DistChannels>;
   "PATCH /v1/dist/channels/{id}": Op<{ id: string }, never, DistChannels, DistChannels>;
   "DELETE /v1/dist/channels/{id}": Op<{ id: string }, never, never, void>;
+  "GET /v1/dist/channels/{id}/portal-link": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/dist/channels/{id}/restore": Op<{ id: string }, never, never, DistChannels>;
   "GET /v1/dist/commission-entries": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<DistCommissionEntries>>;
   "POST /v1/dist/commission-entries/accrue": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -2921,6 +2986,7 @@ export interface Operations {
   "POST /v1/dist/offerings/{id}/restore": Op<{ id: string }, never, never, DistOfferings>;
   "GET /v1/dist/partner-agreements": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<DistPartnerAgreements>>;
   "GET /v1/dist/partner-agreements/{id}": Op<{ id: string }, never, never, DistPartnerAgreements>;
+  "POST /v1/dist/public/quote-start": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/dist/quote-requests": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<DistQuoteRequests>>;
   "POST /v1/dist/quote-requests": Op<never, never, DistQuoteRequests, DistQuoteRequests>;
   "POST /v1/dist/quote-requests/shop": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3064,6 +3130,9 @@ export interface Operations {
   "POST /v1/north/briefings/generate": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/north/briefings/{id}": Op<{ id: string }, never, never, NorthBriefings>;
   "PATCH /v1/north/briefings/{id}": Op<{ id: string }, never, NorthBriefings, NorthBriefings>;
+  "GET /v1/north/briefings/{id}/grounding": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/north/briefings/{id}/read": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/north/compliance-posture": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/north/data-health": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/north/decisions": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthDecisions>>;
   "POST /v1/north/decisions": Op<never, never, NorthDecisions, NorthDecisions>;
@@ -3073,6 +3142,8 @@ export interface Operations {
   "POST /v1/north/explore": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/north/forecast": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/north/journeys": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/north/metric-definitions": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthMetricDefinitions>>;
+  "GET /v1/north/metric-definitions/{id}": Op<{ id: string }, never, never, NorthMetricDefinitions>;
   "GET /v1/north/metrics": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<NorthMetrics>>;
   "POST /v1/north/metrics": Op<never, never, NorthMetrics, NorthMetrics>;
   "POST /v1/north/metrics/import": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3094,6 +3165,7 @@ export interface Operations {
   "POST /v1/onboarding/agreements/{id}/sign": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/onboarding/partners/signup": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/onboarding/partners/{id}/advance": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/onboarding/partners/{id}/live-key": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/onboarding/partners/{id}/resume": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/onboarding/partners/{id}/suspend": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/onboarding/partners/{id}/terminate": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3198,20 +3270,25 @@ export interface Operations {
   "GET /v1/platform/incidents": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/platform/ops/overview": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/platform/slo": Op<never, never, never, Record<string, unknown>>;
+  "POST /v1/platform/tenants": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "GET /v1/portal/{tenantSlug}/channels/{id}": Op<{ tenantSlug: string; id: string }, never, never, Record<string, unknown>>;
   "GET /v1/portal/{tenantSlug}/chat": Op<{ tenantSlug: string }, never, never, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/chat/messages": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/portal/{tenantSlug}/feedback/{id}": Op<{ tenantSlug: string; id: string }, never, never, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/feedback/{id}": Op<{ tenantSlug: string; id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/leads": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/portal/{tenantSlug}/payments/{provider}/webhook": Op<{ tenantSlug: string; provider: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/privacy-requests": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/portal/{tenantSlug}/quote-requests/{id}": Op<{ tenantSlug: string; id: string }, never, never, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/quote-requests/{id}/accept": Op<{ tenantSlug: string; id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/quote-requests/{id}/documents": Op<{ tenantSlug: string; id: string }, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/portal/{tenantSlug}/quote-requests/{id}/pay": Op<{ tenantSlug: string; id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/quote-requests/{id}/reprice": Op<{ tenantSlug: string; id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/registrations": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/portal/{tenantSlug}/renewals/{id}": Op<{ tenantSlug: string; id: string }, never, never, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/renewals/{id}/accept": Op<{ tenantSlug: string; id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/portal/{tenantSlug}/site": Op<{ tenantSlug: string }, never, never, Record<string, unknown>>;
+  "GET /v1/portal/{tenantSlug}/suppliers/{id}": Op<{ tenantSlug: string; id: string }, never, never, Record<string, unknown>>;
   "POST /v1/portal/{tenantSlug}/track": Op<{ tenantSlug: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/realtime": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/scim/v2/Groups": Op<never, never, never, Record<string, unknown>>;
@@ -3259,6 +3336,7 @@ export interface Operations {
   "GET /v1/scout/whitespaces/{id}/commentary": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/scout/whitespaces/{id}/promote-to-signal": Op<{ id: string }, never, never, Record<string, unknown>>;
   "POST /v1/scout/wording-diff": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
+  "POST /v1/scout/wording-diff/documents": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/search": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/settlement/runs": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/settlement/settlements/{id}": Op<{ id: string }, never, never, Record<string, unknown>>;
@@ -3273,6 +3351,7 @@ export interface Operations {
   "GET /v1/signal/aeo-pages/{id}": Op<{ id: string }, never, never, SignalAeoPages>;
   "PATCH /v1/signal/aeo-pages/{id}": Op<{ id: string }, never, SignalAeoPages, SignalAeoPages>;
   "DELETE /v1/signal/aeo-pages/{id}": Op<{ id: string }, never, never, void>;
+  "GET /v1/signal/aeo/trend": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/attribution-events": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalAttributionEvents>>;
   "GET /v1/signal/attribution-events/{id}": Op<{ id: string }, never, never, SignalAttributionEvents>;
   "GET /v1/signal/attribution/funnel": Op<never, never, never, Record<string, unknown>>;
@@ -3286,6 +3365,10 @@ export interface Operations {
   "POST /v1/signal/autopilot/pause": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/signal/autopilot/resume": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/signal/autopilot/run": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/signal/brand-kits": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalBrandKits>>;
+  "POST /v1/signal/brand-kits": Op<never, never, SignalBrandKits, SignalBrandKits>;
+  "GET /v1/signal/brand-kits/{id}": Op<{ id: string }, never, never, SignalBrandKits>;
+  "PATCH /v1/signal/brand-kits/{id}": Op<{ id: string }, never, SignalBrandKits, SignalBrandKits>;
   "GET /v1/signal/budget-moves": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalBudgetMoves>>;
   "GET /v1/signal/budget-moves/{id}": Op<{ id: string }, never, never, SignalBudgetMoves>;
   "PATCH /v1/signal/budget-moves/{id}": Op<{ id: string }, never, SignalBudgetMoves, SignalBudgetMoves>;
@@ -3296,6 +3379,8 @@ export interface Operations {
   "POST /v1/signal/campaigns/{id}/plan": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/signal/conversions/export": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/conversions/exports": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/signal/creative-publishes": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalCreativePublishes>>;
+  "GET /v1/signal/creative-publishes/{id}": Op<{ id: string }, never, never, SignalCreativePublishes>;
   "GET /v1/signal/creatives": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalCreatives>>;
   "POST /v1/signal/creatives": Op<never, never, SignalCreatives, SignalCreatives>;
   "POST /v1/signal/creatives/generate": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
@@ -3304,9 +3389,11 @@ export interface Operations {
   "PATCH /v1/signal/creatives/{id}": Op<{ id: string }, never, SignalCreatives, SignalCreatives>;
   "PUT /v1/signal/creatives/{id}/design": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/signal/creatives/{id}/image": Op<{ id: string }, never, never, Record<string, unknown>>;
+  "POST /v1/signal/creatives/{id}/publish": Op<{ id: string }, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/signal/demo/spend-tick": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/experiments/{id}/readout": Op<{ id: string }, never, never, Record<string, unknown>>;
   "GET /v1/signal/holdout/readout": Op<never, never, never, Record<string, unknown>>;
+  "GET /v1/signal/next": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach": Op<never, { limit?: number; cursor?: string; q?: string; sort?: string }, never, Page<SignalOutreach>>;
   "POST /v1/signal/outreach/run": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/signal/outreach/{id}": Op<{ id: string }, never, never, SignalOutreach>;
@@ -3325,6 +3412,7 @@ export interface Operations {
   "POST /v1/signal/spend/pull": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "GET /v1/signal/spend/{id}": Op<{ id: string }, never, never, SignalSpend>;
   "PATCH /v1/signal/spend/{id}": Op<{ id: string }, never, SignalSpend, SignalSpend>;
+  "POST /v1/signal/watch/run": Op<never, never, never, Record<string, unknown>>;
   "GET /v1/staff/delegations": Op<never, never, never, Record<string, unknown>>;
   "POST /v1/staff/delegations": Op<never, never, Record<string, unknown>, Record<string, unknown>>;
   "POST /v1/staff/delegations/expire": Op<never, never, never, Record<string, unknown>>;
@@ -3452,6 +3540,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/auth/sso/{id}/callback": { tag: "auth", summary: "Verify the id_token, link or provision the account, issue a session", permission: null, public: true },
   "GET /v1/auth/sso/{id}/metadata": { tag: "auth", summary: "SAML service-provider metadata: entity id, ACS, signed assertions required (ADR-0097)", permission: null, public: true },
   "GET /v1/auth/sso/{id}/start": { tag: "auth", summary: "Redirect to the provider's authorization endpoint (OIDC + PKCE)", permission: null, public: true },
+  "GET /v1/axis/authorisations": { tag: "axis", summary: "List authorisations", permission: "axis:authorisations:read", public: false },
+  "POST /v1/axis/authorisations": { tag: "axis", summary: "Create a authorisation", permission: "axis:authorisations:write", public: false },
+  "GET /v1/axis/authorisations/{id}": { tag: "axis", summary: "Fetch one authorisation", permission: "axis:authorisations:read", public: false },
+  "PATCH /v1/axis/authorisations/{id}": { tag: "axis", summary: "Update a authorisation", permission: "axis:authorisations:write", public: false },
+  "DELETE /v1/axis/authorisations/{id}": { tag: "axis", summary: "Soft-delete a authorisation", permission: "axis:authorisations:write", public: false },
   "GET /v1/axis/bordereau-lines": { tag: "axis", summary: "List bordereau-lines", permission: "axis:bordereaux:read", public: false },
   "GET /v1/axis/bordereau-lines/{id}": { tag: "axis", summary: "Fetch one bordereau line", permission: "axis:bordereaux:read", public: false },
   "GET /v1/axis/bordereaux": { tag: "axis", summary: "List bordereaux", permission: "axis:bordereaux:read", public: false },
@@ -3469,11 +3562,14 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/axis/cases/{id}": { tag: "axis", summary: "Fetch one cas", permission: "axis:cases:read", public: false },
   "PATCH /v1/axis/cases/{id}": { tag: "axis", summary: "Update a cas", permission: "axis:cases:update", public: false },
   "DELETE /v1/axis/cases/{id}": { tag: "axis", summary: "Soft-delete a cas", permission: "axis:cases:delete", public: false },
+  "POST /v1/axis/cases/{id}/audit-bundle": { tag: "axis", summary: "Assemble a case's complete audit bundle: the case, its comparative shop and panel responses, the policy it became, its documents, the commission it accrued and the audit chain for every subject ref it touched, each artefact hash-manifested", permission: "axis:cases:export", public: false },
+  "GET /v1/axis/cases/{id}/audit-bundle/{bundleId}/download": { tag: "axis", summary: "Download an assembled case audit bundle as a zip", permission: "axis:cases:export", public: false },
   "POST /v1/axis/cases/{id}/copilot": { tag: "axis", summary: "Answer a question about a case, grounded only in its own documents, events and tasks", permission: "axis:cases:read", public: false },
   "POST /v1/axis/cases/{id}/quotes": { tag: "axis", summary: "Key a quote received off-panel onto the case, as a quote response", permission: "axis:quotes:create", public: false },
   "POST /v1/axis/cases/{id}/restore": { tag: "axis", summary: "Restore a soft-deleted cas", permission: "axis:cases:delete", public: false },
   "POST /v1/axis/cases/{id}/sla-predict": { tag: "axis", summary: "Estimate SLA breach probability and time-to-breach for a case", permission: "axis:cases:read", public: false },
   "POST /v1/axis/cases/{id}/transition": { tag: "axis", summary: "Move a case through its state machine", permission: "axis:cases:update", public: false },
+  "POST /v1/axis/census/normalise": { tag: "axis", summary: "Normalise an any-format employee census into banded lives, with a prior-year diff", permission: "axis:documents:extract", public: false },
   "GET /v1/axis/claims": { tag: "axis", summary: "List claims", permission: "axis:claims:read", public: false },
   "POST /v1/axis/claims": { tag: "axis", summary: "Create a claim", permission: "axis:claims:create", public: false },
   "POST /v1/axis/claims/coverage-check": { tag: "axis", summary: "Cover in force on the incident date, without writing anything", permission: "axis:claims:register", public: false },
@@ -3702,6 +3798,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/core/providers/{id}": { tag: "core", summary: "Fetch one provider", permission: "core:providers:read", public: false },
   "PATCH /v1/core/providers/{id}": { tag: "core", summary: "Update a provider", permission: "core:providers:write", public: false },
   "DELETE /v1/core/providers/{id}": { tag: "core", summary: "Soft-delete a provider", permission: "core:providers:write", public: false },
+  "GET /v1/core/providers/{id}/portal-link": { tag: "core", summary: "The insurer's own portal link — the tokened, branded page showing its panel position and the settlement; minting it is reading the row (PORTALS-DESIGN-AND-AUDIT.md §1)", permission: "core:providers:read", public: false },
   "GET /v1/core/roles": { tag: "core", summary: "List roles", permission: "core:roles:read", public: false },
   "POST /v1/core/roles": { tag: "core", summary: "Create a role", permission: "core:roles:update", public: false },
   "GET /v1/core/roles/{id}": { tag: "core", summary: "Fetch one role", permission: "core:roles:read", public: false },
@@ -3747,6 +3844,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/dist/channels/{id}": { tag: "dist", summary: "Fetch one channel", permission: "dist:channels:read", public: false },
   "PATCH /v1/dist/channels/{id}": { tag: "dist", summary: "Update a channel", permission: "dist:channels:write", public: false },
   "DELETE /v1/dist/channels/{id}": { tag: "dist", summary: "Soft-delete a channel", permission: "dist:channels:write", public: false },
+  "GET /v1/dist/channels/{id}/portal-link": { tag: "dist", summary: "The channel's own portal link — the tokened, branded page showing its book and its commission; minting it is reading the row (PORTALS-DESIGN-AND-AUDIT.md §2)", permission: "dist:channels:read", public: false },
   "POST /v1/dist/channels/{id}/restore": { tag: "dist", summary: "Restore a soft-deleted channel", permission: "dist:channels:write", public: false },
   "GET /v1/dist/commission-entries": { tag: "dist", summary: "List commission-entries", permission: "dist:commissions:read", public: false },
   "POST /v1/dist/commission-entries/accrue": { tag: "dist", summary: "Accrue the commission split between the provider, us and the channel", permission: "dist:commissions:adjust", public: false },
@@ -3770,6 +3868,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/dist/offerings/{id}/restore": { tag: "dist", summary: "Restore a soft-deleted offering", permission: "dist:offerings:write", public: false },
   "GET /v1/dist/partner-agreements": { tag: "dist", summary: "List partner-agreements", permission: "dist:agreements:read", public: false },
   "GET /v1/dist/partner-agreements/{id}": { tag: "dist", summary: "Fetch one partner agreement", permission: "dist:agreements:read", public: false },
+  "POST /v1/dist/public/quote-start": { tag: "dist", summary: "Start a consumer quote: captures the visitor's own consent basis and fans out to the panel, returning ranked offers with no margin", permission: null, public: true },
   "GET /v1/dist/quote-requests": { tag: "dist", summary: "List quote-requests", permission: "dist:quote_requests:read", public: false },
   "POST /v1/dist/quote-requests": { tag: "dist", summary: "Create a quote request", permission: "dist:quote_requests:create", public: false },
   "POST /v1/dist/quote-requests/shop": { tag: "dist", summary: "Shop one risk to every eligible offering and collect provider quotes", permission: "dist:quote_requests:create", public: false },
@@ -3913,6 +4012,9 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/north/briefings/generate": { tag: "north", summary: "Generate an executive briefing from live metric snapshots, numeric claims verified against the input", permission: "north:briefings:generate", public: false },
   "GET /v1/north/briefings/{id}": { tag: "north", summary: "Fetch one briefing", permission: "north:briefings:read", public: false },
   "PATCH /v1/north/briefings/{id}": { tag: "north", summary: "Update a briefing", permission: "north:briefings:approve", public: false },
+  "GET /v1/north/briefings/{id}/grounding": { tag: "north", summary: "The grounding proof behind a briefing: which facts were retrieved, coverage, contradictions and whether any sampling was used (ADR-0118)", permission: "north:briefings:read", public: false },
+  "POST /v1/north/briefings/{id}/read": { tag: "north", summary: "Record that the reader opened this briefing. Once per reader per briefing per UTC day, so a refresh is not a second read; audited as north.briefing.generated (J-E1)", permission: "north:briefings:read", public: false },
+  "GET /v1/north/compliance-posture": { tag: "north", summary: "The seven controls docs/12 §5 maps to evidence, each saying whether its evidence is a live figure or a document on file", permission: "core:audit:read", public: false },
   "GET /v1/north/data-health": { tag: "north", summary: "Staleness per metric, computed live from the snapshot table", permission: "north:metrics:read", public: false },
   "GET /v1/north/decisions": { tag: "north", summary: "List decisions", permission: "north:decisions:read", public: false },
   "POST /v1/north/decisions": { tag: "north", summary: "Create a decision", permission: "north:decisions:write", public: false },
@@ -3922,6 +4024,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/north/explore": { tag: "north", summary: "Query north_snapshots by metric keys, grain and period", permission: "north:snapshots:read", public: false },
   "GET /v1/north/forecast": { tag: "north", summary: "Project a metric forward from its closed snapshots — damped Holt, p10/p50/p90, with the fitted parameters", permission: "north:forecasts:read", public: false },
   "GET /v1/north/journeys": { tag: "north", summary: "Journey health: each documented journey's funnel from the audit log, ?days= window", permission: "north:metrics:read", public: false },
+  "GET /v1/north/metric-definitions": { tag: "north", summary: "List metric-definitions", permission: "north:metrics:read", public: false },
+  "GET /v1/north/metric-definitions/{id}": { tag: "north", summary: "Fetch one metric definition", permission: "north:metrics:read", public: false },
   "GET /v1/north/metrics": { tag: "north", summary: "List metrics", permission: "north:metrics:read", public: false },
   "POST /v1/north/metrics": { tag: "north", summary: "Create a metric", permission: "north:metrics:write", public: false },
   "POST /v1/north/metrics/import": { tag: "north", summary: "Import metric values from a CSV (metric,period,value); one push per metric, per-line errors", permission: "north:metrics:write", public: false },
@@ -3943,6 +4047,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/onboarding/agreements/{id}/sign": { tag: "onboarding", summary: "Countersign an agreement (dual control; supersedes the previous version)", permission: "dist:agreements:write", public: false },
   "POST /v1/onboarding/partners/signup": { tag: "onboarding", summary: "Self-service partner signup: creates a prospect-stage partner and mints a sandbox API key", permission: null, public: true },
   "POST /v1/onboarding/partners/{id}/advance": { tag: "onboarding", summary: "Advance a partner one stage, refused while a step gating it is open", permission: "orbit:partners:update", public: false },
+  "POST /v1/onboarding/partners/{id}/live-key": { tag: "orbit", summary: "Promote a live partner from its sandbox key to a live credential, with the commercial scopes the sandbox deliberately cannot reach", permission: "orbit:partner_keys:issue_live", public: false },
   "POST /v1/onboarding/partners/{id}/resume": { tag: "onboarding", summary: "Resume trading with a suspended partner", permission: "orbit:partners:update", public: false },
   "POST /v1/onboarding/partners/{id}/suspend": { tag: "onboarding", summary: "Stop trading with a partner without unwinding their diligence", permission: "orbit:partners:update", public: false },
   "POST /v1/onboarding/partners/{id}/terminate": { tag: "onboarding", summary: "End a partnership; the record and its agreements stay readable", permission: "orbit:partners:update", public: false },
@@ -4047,20 +4152,25 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/platform/incidents": { tag: "platform", summary: "Outage incidents across every tenant, newest first", permission: "admin:diagnostics:read", public: false },
   "GET /v1/platform/ops/overview": { tag: "platform", summary: "Outbox backlog, DLQ depth and pending approvals, per tenant", permission: "admin:diagnostics:read", public: false },
   "GET /v1/platform/slo": { tag: "platform", summary: "Every SLO definition with its actual and burn percent over its window", permission: "admin:diagnostics:read", public: false },
+  "POST /v1/platform/tenants": { tag: "platform", summary: "Provision a tenant: the row, its tenant roles, and an invitation for its first administrator; audited as platform.tenant.created (J-A1 'new tenant in a day')", permission: "admin:tenants:write", public: false },
+  "GET /v1/portal/{tenantSlug}/channels/{id}": { tag: "portal", summary: "The channel partner's portal: the book it wrote, its own commission by state, its settlements and the agreement behind it", permission: null, public: true },
   "GET /v1/portal/{tenantSlug}/chat": { tag: "portal", summary: "The web chat transcript for the visitor named by the x-lyra-visitor header: their lines and the replies sent to them (empty for an unknown visitor); rate-limited per IP", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/chat/messages": { tag: "portal", summary: "Post a web chat line into ORBIT. Without a known x-lyra-visitor token it starts a conversation (name and Turnstile required) and mints one; rate-limited per visitor and IP", permission: null, public: true },
   "GET /v1/portal/{tenantSlug}/feedback/{id}": { tag: "portal", summary: "Whether a closed conversation can still be rated, and its rating if already given", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/feedback/{id}": { tag: "portal", summary: "Submit the CSAT rating (1-5) for a closed conversation; one rating per conversation", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/leads": { tag: "portal", summary: "Submit a quote lead from the public storefront; rate-limited per email", permission: null, public: true },
+  "POST /v1/portal/{tenantSlug}/payments/{provider}/webhook": { tag: "portal", summary: "The PSP's own callback: the adapter verifies its signature before any row moves, and a replayed callback for a recorded state is a duplicate (docs/25 §7)", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/privacy-requests": { tag: "portal", summary: "Data subject lodges an access/erasure/rectification request (J-C4); recorded unverified, staff verify before fulfilment", permission: null, public: true },
   "GET /v1/portal/{tenantSlug}/quote-requests/{id}": { tag: "portal", summary: "Re-open a self-serve comparison with the one-time token", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/quote-requests/{id}/accept": { tag: "portal", summary: "Customer accepts a quoted offer; converts the request, does not bind cover", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/quote-requests/{id}/documents": { tag: "portal", summary: "Upload a supporting document against a self-serve quote (multipart)", permission: null, public: true },
+  "POST /v1/portal/{tenantSlug}/quote-requests/{id}/pay": { tag: "portal", summary: "Open a hosted PSP session for the accepted offer and return where to send the payer; the amount comes from the request, never the body (docs/25 §7)", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/quote-requests/{id}/reprice": { tag: "portal", summary: "Indicative re-price of the same panel with moved rating criteria; persists nothing and binds nothing", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/registrations": { tag: "portal", summary: "Self-registration from the public storefront (person or business); records a pending customer, grants no access", permission: null, public: true },
   "GET /v1/portal/{tenantSlug}/renewals/{id}": { tag: "portal", summary: "Open a renewal offer with its link token (reference, expiry and state only)", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/renewals/{id}/accept": { tag: "portal", summary: "Customer accepts a renewal in one tap; records the decision, does not bind or charge", permission: null, public: true },
   "GET /v1/portal/{tenantSlug}/site": { tag: "portal", summary: "A tenant's public storefront: brand and active products", permission: null, public: true },
+  "GET /v1/portal/{tenantSlug}/suppliers/{id}": { tag: "portal", summary: "The insurer's portal: its panel position (rows below the k-anonymity floor withheld), the data products it subscribes to, and the settlement between it and the tenant", permission: null, public: true },
   "POST /v1/portal/{tenantSlug}/track": { tag: "portal", summary: "Record an acquisition touch (impression, click or visit) from the public tracking pixel; rate-limited per IP. A lead or bind must be signed (ADR-0092): x-lyra-key-id (a tenant webhook id), x-lyra-timestamp, x-lyra-signature v1=HMAC-SHA256(secret, `${timestamp}.${body}`); a replayed eventId is answered 200 with duplicate: true. Any touch may carry the ad click id from the landing URL (gclid, fbclid) so a bind can be reported back to that platform (SIG-032, ADR-0112)", permission: null, public: true },
   "GET /v1/realtime": { tag: "realtime", summary: "Server-Sent Events stream of the caller's own live updates", permission: null, public: false },
   "GET /v1/scim/v2/Groups": { tag: "scim", summary: "SCIM: the tenant's roles as groups; filter displayName eq", permission: "core:roles:read", public: false },
@@ -4108,6 +4218,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/scout/whitespaces/{id}/commentary": { tag: "scout", summary: "One candidate's commentary, evidence and AI provenance", permission: "scout:whitespaces:read", public: false },
   "POST /v1/scout/whitespaces/{id}/promote-to-signal": { tag: "scout", summary: "Promote a whitespace into a draft SIGNAL campaign with AI-drafted brief and creative variants (approval-gated, idempotent, nothing sent)", permission: "scout:whitespaces:promote", public: false },
   "POST /v1/scout/wording-diff": { tag: "scout", summary: "Word-level diff of two coverage-wording texts (PDF extraction deferred, see ADR-0016)", permission: "scout:panel_bench:read", public: false },
+  "POST /v1/scout/wording-diff/documents": { tag: "scout", summary: "Compare two policy wordings by transcribing whichever has no reading yet, answering the spans with where each side came from", permission: "scout:panel_bench:read", public: false },
   "GET /v1/search": { tag: "search", summary: "Search across every resource the caller may read", permission: "core:search:read", public: false },
   "POST /v1/settlement/runs": { tag: "settlement", summary: "Draft a counterparty's commission settlement for a period (arithmetic only, nothing posts)", permission: "dist:commissions:settle", public: false },
   "GET /v1/settlement/settlements/{id}": { tag: "settlement", summary: "One settlement with its totals and state", permission: "dist:commissions:read", public: false },
@@ -4122,6 +4233,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "GET /v1/signal/aeo-pages/{id}": { tag: "signal", summary: "Fetch one aeo page", permission: "signal:aeo:read", public: false },
   "PATCH /v1/signal/aeo-pages/{id}": { tag: "signal", summary: "Update a aeo page", permission: "signal:aeo:write", public: false },
   "DELETE /v1/signal/aeo-pages/{id}": { tag: "signal", summary: "Soft-delete a aeo page", permission: "signal:aeo:write", public: false },
+  "GET /v1/signal/aeo/trend": { tag: "signal", summary: "Citation share per ISO week (up to 52) plus the latest observations per query; a week nobody sampled reports share: null rather than a collapse to zero", permission: "signal:aeo:read", public: false },
   "GET /v1/signal/attribution-events": { tag: "signal", summary: "List attribution-events", permission: "signal:attribution:read", public: false },
   "GET /v1/signal/attribution-events/{id}": { tag: "signal", summary: "Fetch one attribution event", permission: "signal:attribution:read", public: false },
   "GET /v1/signal/attribution/funnel": { tag: "signal", summary: "The acquisition funnel aggregated per campaign and channel for a window — impressions, clicks, visits, leads, binds and value", permission: "signal:attribution:read", public: false },
@@ -4135,6 +4247,10 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/signal/autopilot/pause": { tag: "signal", summary: "Pause the budget autopilot kill switch", permission: "signal:autopilot:pause", public: false },
   "POST /v1/signal/autopilot/resume": { tag: "signal", summary: "Resume the budget autopilot", permission: "signal:autopilot:pause", public: false },
   "POST /v1/signal/autopilot/run": { tag: "signal", summary: "Force the SIGNAL budget autopilot pass now", permission: "signal:autopilot:run", public: false },
+  "GET /v1/signal/brand-kits": { tag: "signal", summary: "List brand-kits", permission: "signal:creatives:read", public: false },
+  "POST /v1/signal/brand-kits": { tag: "signal", summary: "Create a brand kit", permission: "signal:creatives:approve", public: false },
+  "GET /v1/signal/brand-kits/{id}": { tag: "signal", summary: "Fetch one brand kit", permission: "signal:creatives:read", public: false },
+  "PATCH /v1/signal/brand-kits/{id}": { tag: "signal", summary: "Update a brand kit", permission: "signal:creatives:approve", public: false },
   "GET /v1/signal/budget-moves": { tag: "signal", summary: "List budget-moves", permission: "signal:budget_moves:read", public: false },
   "GET /v1/signal/budget-moves/{id}": { tag: "signal", summary: "Fetch one budget move", permission: "signal:budget_moves:read", public: false },
   "PATCH /v1/signal/budget-moves/{id}": { tag: "signal", summary: "Update a budget move", permission: "signal:budget_moves:approve", public: false },
@@ -4145,6 +4261,8 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/signal/campaigns/{id}/plan": { tag: "signal", summary: "Plan a campaign in three ranked options, each with a probability of success and the reasons behind it, suggesting and linking a targeting pool when the campaign has none", permission: "signal:campaigns:update", public: false },
   "POST /v1/signal/conversions/export": { tag: "signal", summary: "Report attributed binds with their value to every connected ad account that takes conversions (Google Ads offline click conversions by gclid; Meta Conversions API by fbclid, or SHA-256 email/phone only under data-sharing consent) so the platforms bid on value (SIG-032, ADR-0112). The same run the nightly tick makes. Each bind goes to an account once; a bind whose customer has not consented to marketing is skipped. Stands down (standDown: no_value_rule) until moduleConfig.signal.settings.conversionValue is set to {basis: commission} or {basis: premium_rate, ratePpm}", permission: "signal:spend:write", public: false },
   "GET /v1/signal/conversions/exports": { tag: "signal", summary: "What the value-based bidding exporter did with each bind per ad account, newest first: status sent|skipped|failed, detail (no_consent, no_value, no_match_key, or the platform's error), value and currency, exportedAt. Optional ?status= and ?limit= (at most 200)", permission: "signal:attribution:read", public: false },
+  "GET /v1/signal/creative-publishes": { tag: "signal", summary: "List creative-publishes", permission: "signal:creatives:read", public: false },
+  "GET /v1/signal/creative-publishes/{id}": { tag: "signal", summary: "Fetch one creative publishe", permission: "signal:creatives:read", public: false },
   "GET /v1/signal/creatives": { tag: "signal", summary: "List creatives", permission: "signal:creatives:read", public: false },
   "POST /v1/signal/creatives": { tag: "signal", summary: "Create a creative", permission: "signal:creatives:generate", public: false },
   "POST /v1/signal/creatives/generate": { tag: "signal", summary: "Generate ad-copy variants from a brief, compliance-checked and audited per locale", permission: "signal:creatives:generate", public: false },
@@ -4153,9 +4271,11 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "PATCH /v1/signal/creatives/{id}": { tag: "signal", summary: "Update a creative", permission: "signal:creatives:approve", public: false },
   "PUT /v1/signal/creatives/{id}/design": { tag: "signal", summary: "Save a creative's studio layout and canvas edits (DesignJson). Not a publish: no approval, audited", permission: "signal:creatives:generate", public: false },
   "GET /v1/signal/creatives/{id}/image": { tag: "signal", summary: "Re-stream a previously generated creative image's bytes", permission: "signal:creatives:read", public: false },
+  "POST /v1/signal/creatives/{id}/publish": { tag: "signal", summary: "Place a cleared creative on the connected ad platforms (Meta, Google) as PAUSED ads; idempotent per (creative, provider) and 202 when the signal.creative_publish approval queues it", permission: "signal:creatives:approve", public: false },
   "POST /v1/signal/demo/spend-tick": { tag: "signal", summary: "Insert a spend row per channel per live campaign, keyed off the simulated clock (non-production only)", permission: "signal:autopilot:run", public: false },
   "GET /v1/signal/experiments/{id}/readout": { tag: "signal", summary: "Where an experiment stands: per-arm samples and rates from attribution touches, probability to beat control, verdict (docs/30 SIGNAL 4)", permission: "signal:experiments:read", public: false },
   "GET /v1/signal/holdout/readout": { tag: "signal", summary: "Autopilot uplift against the frozen-budget holdout (docs/17 SIG-046, ADR-0110): spend, attributed binds and CAC for the acted-on and holdout campaigns over ?since&until (epoch ms, default the trailing 30 days), and upliftBps — null unless status is ok (no_holdout, no_conversions and no_spend say why)", permission: "signal:attribution:read", public: false },
+  "GET /v1/signal/next": { tag: "signal", summary: "What to do next, worst first: each suggestion carries the figures that produced it and the screen (with its permission) that acts on it — whitespace from SCOUT, cleared-but-unpublished copy, unbounded budgets, consent mismatches, stale or losing answer pages and experiments that cannot conclude", permission: "signal:campaigns:read", public: false },
   "GET /v1/signal/outreach": { tag: "signal", summary: "List outreach", permission: "signal:outreach:read", public: false },
   "POST /v1/signal/outreach/run": { tag: "signal", summary: "Run the acquisition outreach sweep now — draft, consent-gate, approval-gate, send, and record the lead touch (also runs on the nightly tick)", permission: "signal:outreach:send", public: false },
   "GET /v1/signal/outreach/{id}": { tag: "signal", summary: "Fetch one outreach", permission: "signal:outreach:read", public: false },
@@ -4174,6 +4294,7 @@ export const OPERATIONS: Record<OperationId, OperationMeta> = {
   "POST /v1/signal/spend/pull": { tag: "signal", summary: "Pull daily spend from every connected ad account (Google Ads, Meta; connectors on transport `ads`) through the import's write path — optional body {since, until} as YYYY-MM-DD, default the last three whole days, at most 31. A tenant with no ad connector gets connectors: 0 and nothing changes", permission: "signal:spend:write", public: false },
   "GET /v1/signal/spend/{id}": { tag: "signal", summary: "Fetch one spend", permission: "signal:spend:read", public: false },
   "PATCH /v1/signal/spend/{id}": { tag: "signal", summary: "Update a spend", permission: "signal:spend:write", public: false },
+  "POST /v1/signal/watch/run": { tag: "signal", summary: "The anomaly guard by hand: a spend spike or a tracking break pauses the campaign, audits it, announces signal.anomaly.detected and puts a notice in the inbox of whoever runs campaigns (docs/modules/signal.md §2.3)", permission: "signal:autopilot:run", public: false },
   "GET /v1/staff/delegations": { tag: "staff", summary: "Who currently holds whose authority", permission: "core:delegations:read", public: false },
   "POST /v1/staff/delegations": { tag: "staff", summary: "Delegate the authority to approve for a window (itself approved)", permission: "core:delegations:write", public: false },
   "POST /v1/staff/delegations/expire": { tag: "staff", summary: "Sweep delegations whose window has closed (also runs on the scheduled tick)", permission: "core:delegations:write", public: false },

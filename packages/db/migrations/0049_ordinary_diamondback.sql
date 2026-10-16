@@ -1,0 +1,1 @@
+ALTER TABLE `ai_audit_log` ADD `grounding_json` text;

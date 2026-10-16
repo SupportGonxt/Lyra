@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkCompliance, checkOutreachDraft } from "./signal-compliance.js";
+import { checkCompliance, checkOutreachDraft, preflightCreative, tenantPatternProblem } from "./signal-compliance.js";
 
 // The pre-flight every creative and every personal draft passes. Its eval
 // (model-gateway/evals/signal, evals/outreach-draft) scores it from outside;
@@ -109,5 +109,113 @@ describe("checkOutreachDraft", () => {
 
   it("refuses a grounded draft that fails the pre-flight, with the rule's why", () => {
     expect(checkOutreachDraft("Hi Amina, we are the cheapest.", evidence)).toEqual({ ok: false, why: SOURCE });
+  });
+});
+
+/* ------------------------------------------------- the tenant's own rules */
+
+// docs/modules/signal.md §2.1. The brand kit and the banned-claims list used to
+// be two strings the seed wrote as "pass" — so these tests are the difference
+// between an attestation and a check. The kit is *additive*: a tenant says what
+// else must be true, never whether the built-ins run.
+
+const KIT = {
+  requiredPhrases: ["nxt"],
+  forbiddenWords: ["cheap"],
+  bannedClaims: [
+    { pattern: "approved by the central bank", note: "A regulator's name is not ours to borrow.", severity: "block" as const },
+    { pattern: "no questions asked", note: "Our own register avoids this phrasing." }
+  ]
+};
+
+describe("a tenant's brand kit", () => {
+  it("changes nothing when the tenant has none", () => {
+    // The defaults are what every existing tenant already runs on.
+    expect(checkCompliance("Compare nine UAE insurers today")).toEqual({ status: "passed", findings: [] });
+    expect(checkCompliance("Compare nine UAE insurers today", null).status).toBe("passed");
+  });
+
+  it("blocks a claim the tenant marked as blocking", () => {
+    const result = checkCompliance("nxt is approved by the central bank", KIT);
+    expect(result.status).toBe("blocked");
+    expect(result.findings[0]).toMatchObject({ rule: "tenant_banned_claim", severity: "block" });
+  });
+
+  it("flags a claim the tenant left advisory", () => {
+    const result = checkCompliance("nxt cover, no questions asked", KIT);
+    expect(result.status).toBe("flagged");
+    expect(result.findings.find((f) => f.rule === "tenant_banned_claim")?.severity).toBe("flag");
+  });
+
+  it("matches a literal phrase literally, not as a pattern", () => {
+    // "10%" as a regex is "10" then "0 or more %", so a tenant typing it means
+    // the phrase — a pattern would match "10" anywhere and block good copy.
+    const kit = { requiredPhrases: [], forbiddenWords: [], bannedClaims: [{ pattern: "10% off", note: "x" }] };
+    expect(checkCompliance("Get 10% off your first month", kit).status).toBe("flagged");
+    expect(checkCompliance("Save 10 fils a day", kit).status).toBe("passed");
+  });
+
+  it("flags a missing required phrase and a forbidden word", () => {
+    const missing = checkCompliance("Cover your car in an afternoon", KIT);
+    expect(missing.findings.map((f) => f.rule)).toContain("brand_required_phrase_missing");
+    const forbidden = checkCompliance("nxt: cheap cover, fast", KIT);
+    expect(forbidden.findings.map((f) => f.rule)).toContain("brand_forbidden_word");
+  });
+
+  it("keeps the built-in rules running alongside the tenant's", () => {
+    const result = checkCompliance("nxt is the cheapest, guaranteed", KIT);
+    const rules = result.findings.map((f) => f.rule);
+    expect(rules).toContain("comparison_claim_requires_source");
+    expect(rules).toContain("no_guarantee_of_cover");
+    // The built-ins stay advisory; only the tenant's own block made it a block.
+    expect(result.findings.find((f) => f.rule === "no_guarantee_of_cover")?.severity).toBeUndefined();
+  });
+});
+
+describe("tenant-supplied patterns are bounded before they run", () => {
+  it("refuses the catastrophic-backtracking shape", () => {
+    // This repo has already paid for one ReDoS (stripFence). A pattern that
+    // hangs the worker fails differently from one that matches wrongly.
+    expect(tenantPatternProblem({ pattern: "(a+)+$", isRegex: true, note: "x" })).toContain("nested quantifier");
+    expect(tenantPatternProblem({ pattern: "(\\w*)*", isRegex: true, note: "x" })).toContain("nested quantifier");
+  });
+
+  it("refuses an over-long, empty or invalid pattern", () => {
+    expect(tenantPatternProblem({ pattern: "", note: "x" })).toBe("empty pattern");
+    expect(tenantPatternProblem({ pattern: "a".repeat(201), note: "x" })).toContain("longer than");
+    expect(tenantPatternProblem({ pattern: "([", isRegex: true, note: "x" })).toContain("not a valid regular expression");
+  });
+
+  it("accepts an ordinary phrase or pattern", () => {
+    expect(tenantPatternProblem({ pattern: "no questions asked", note: "x" })).toBeNull();
+    expect(tenantPatternProblem({ pattern: "free\\s+cover", isRegex: true, note: "x" })).toBeNull();
+  });
+
+  it("skips a rejected pattern rather than running it", () => {
+    const kit = { requiredPhrases: [], forbiddenWords: [], bannedClaims: [{ pattern: "(a+)+$", isRegex: true, note: "x" }] };
+    // The dangerous pattern is not applied, and it does not take the copy down.
+    expect(checkCompliance("aaaa", kit).status).toBe("passed");
+  });
+});
+
+describe("preflightCreative with a kit", () => {
+  const scope = { productLine: "motor", disclosure: { id: "d1", version: 1, key: "motor", productLine: "motor", locale: "en", wording: "Motor cover is arranged by NXT." }, tenantConfigured: true };
+
+  it("lets a tenant's own block outrank a soft flag", () => {
+    const result = preflightCreative("nxt: approved by the central bank, cheapest", scope, KIT);
+    expect(result.lane).toBe("hard_block");
+    expect(result.status).toBe("blocked");
+  });
+
+  it("carries the kit's findings into the creative's own record", () => {
+    const result = preflightCreative("nxt cover, no questions asked. Motor cover is arranged by NXT.", scope, KIT);
+    expect(result.status).toBe("flagged");
+    expect(result.findings.some((f) => f.rule === "tenant_banned_claim")).toBe(true);
+  });
+
+  it("still hard-blocks a missing mandatory disclosure with no kit at all", () => {
+    const result = preflightCreative("Cover your car today", scope, null);
+    expect(result.status).toBe("blocked");
+    expect(result.findings[0]!.rule).toBe("disclosure_missing");
   });
 });

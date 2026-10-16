@@ -7,6 +7,7 @@ import {
   audit,
   can,
   conflict,
+  coverageOf,
   diffWords,
   ForbiddenError,
   kAnonymityFloor,
@@ -14,6 +15,7 @@ import {
   require_,
   withIdempotency,
   SIGNAL_SOURCE_KINDS,
+  notFound,
   type Ctx
 } from "@lyra/core";
 import type { WhitespaceCandidate } from "@lyra/core";
@@ -32,11 +34,13 @@ import { sweepSignalClusters } from "../engines/scout-cluster.js";
 import { benchElasticity, sweepPanelBench } from "../engines/scout-bench.js";
 import { runWatch } from "../engines/scout-watch.js";
 import { suggestTargeting } from "../engines/signal-audience.js";
+import { compareWordings, comparisonRef } from "../engines/scout-wording.js";
 import { planCampaign } from "../engines/signal-campaign-plan.js";
 import { generateCreatives } from "../engines/signal-creative.js";
 import { embedQuery } from "../engines/vectorize.js";
 import { buildNegotiationPackTables } from "../engines/export/negotiation-pack.js";
 import { toPdf } from "../engines/export/pdf.js";
+import { gatewayFor } from "../mw.js";
 import type { App } from "../env.js";
 
 // docs/modules/scout.md §8 clause 1 (whitespace) and §2.3 (wording diffs feed
@@ -254,6 +258,58 @@ scoutRoutes.get("/config", (c) => {
 
 const WordingDiffBody = z.object({ textA: z.string().max(50_000), textB: z.string().max(50_000) });
 
+/**
+ * ADR-0123. The route the criterion actually needed: **two documents, not two
+ * strings.** The differ above takes text a human already has; this one gets the
+ * text from the documents, transcribing whichever side has no reading yet, and
+ * answers the spans **with where each side came from** — because a comparison of
+ * two model readings is a different claim from a comparison of two text layers,
+ * and a surface that does not say which it is looking at cannot be defended.
+ *
+ * Bytes come from R2 through the file row, so the engine stays testable without a
+ * bucket binding.
+ */
+const WordingCompareBody = z.object({ leftId: z.string().min(1), rightId: z.string().min(1) });
+
+scoutRoutes.post("/wording-diff/documents", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "scout:panel_bench:read", { tenantId: ctx.tenantId, module: "scout" });
+  const input = await body(c, WordingCompareBody);
+
+  const read = async (documentId: string) => {
+    const [document] = await ctx.db
+      .select({ fileId: schema.axisDocuments.fileId })
+      .from(schema.axisDocuments)
+      .where(and(eq(schema.axisDocuments.tenantId, ctx.tenantId), eq(schema.axisDocuments.id, documentId)));
+    if (!document) throw notFound("document");
+    const object = await c.env.FILES?.get(`documents/${ctx.tenantId}/${document.fileId}`);
+    if (!object) {
+      // A document row whose object is gone is a missing document, not a wording
+      // of nothing: transcribing nothing would report the whole document as a
+      // coverage change.
+      throw notFound("document file");
+    }
+    return {
+      bytes: new Uint8Array(await object.arrayBuffer()),
+      mimeType: object.httpMetadata?.contentType ?? "application/pdf"
+    };
+  };
+
+  const comparison = await compareWordings(ctx, gatewayFor(c.env), { ...input, read });
+  await audit(ctx, {
+    action: "scout.wording.compared",
+    subjectRef: comparisonRef(input.leftId, input.rightId),
+    // Which readings were taken now, and by which model — the half a reader
+    // needs to know whether this comparison is stable or fresh.
+    after: {
+      left: { model: comparison.left.reading.model, transcribedNow: comparison.left.transcribedNow },
+      right: { model: comparison.right.reading.model, transcribedNow: comparison.right.transcribedNow },
+      spans: comparison.spans.length
+    }
+  });
+  return c.json(comparison);
+});
+
 // ADR-0016: PDF-to-text extraction deferred, this takes plain text.
 scoutRoutes.post("/wording-diff", async (c) => {
   const ctx = ctxOf(c);
@@ -328,7 +384,11 @@ scoutRoutes.get("/panel-bench/negotiation-pack", async (c) => {
       ourPriceIdx: schema.scoutPanelBench.ourPriceIdx,
       marketPriceIdx: schema.scoutPanelBench.marketPriceIdx,
       winRate: schema.scoutPanelBench.winRate,
-      volume: schema.scoutPanelBench.volume
+      volume: schema.scoutPanelBench.volume,
+      // ADR-0127: the pack's own copy promises the wording gaps, and this
+      // select used to omit the column, so it never carried any. Read through
+      // the one accessor, never parsed here.
+      coverageGapsJson: schema.scoutPanelBench.coverageGapsJson
     })
     .from(schema.scoutPanelBench)
     .where(eq(schema.scoutPanelBench.tenantId, ctx.tenantId));
@@ -358,8 +418,44 @@ scoutRoutes.get("/panel-bench/negotiation-pack", async (c) => {
       visible: true
     }));
 
-  const tables = buildNegotiationPackTables(bench, whitespace, ctx.now);
-  const bytes = toPdf(tables, { meta: { "Requested by": actorRef(ctx) } });
+  // The stored column reaches the pack only through the accessor that tolerates
+  // what is already in the database (ADR-0127) — including the seed's pre-union
+  // shapes on rows written before this change.
+  const tables = buildNegotiationPackTables(
+    bench.map((row) => ({
+      providerId: row.providerId,
+      line: row.line,
+      period: row.period,
+      ourPriceIdx: row.ourPriceIdx,
+      marketPriceIdx: row.marketPriceIdx,
+      winRate: row.winRate,
+      volume: row.volume,
+      coverage: coverageOf(row.coverageGapsJson)
+    })),
+    whitespace,
+    ctx.now
+  );
+  // The same two omissions NORTH's board pack had, on a document that goes to a
+  // **provider** rather than to the tenant's own board: no footer at all, and a
+  // `Requested by` of `user:<id>`. CLAUDE.md §5 — the footer is the tenant's own
+  // name, never the platform's, and never its id
+  // (`axis-policy-document.ts:288` is the idiom).
+  const [tenant] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenantId));
+  const brand = tenant?.brandJson ? (JSON.parse(tenant.brandJson) as { name?: string }) : {};
+  const requestedBy =
+    ctx.actor.kind === "user"
+      ? ((
+          await ctx.db
+            .select({ name: schema.users.name })
+            .from(schema.users)
+            .where(and(eq(schema.users.tenantId, ctx.tenantId), eq(schema.users.id, ctx.actor.id)))
+            .limit(1)
+        )[0]?.name ?? actorRef(ctx))
+      : actorRef(ctx);
+  const bytes = toPdf(tables, {
+    footer: brand.name ?? tenant?.name ?? "",
+    meta: { "Requested by": requestedBy }
+  });
 
   await audit(ctx, { action: "scout.negotiation_pack.export", subjectRef: "panel-bench", after: { rows: bench.length } });
 

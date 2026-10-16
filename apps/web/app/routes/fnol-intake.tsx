@@ -6,6 +6,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   Badge,
   Button,
@@ -410,7 +411,7 @@ export default function FnolIntake() {
 
         <div className="flex flex-wrap gap-4">
           <Field label={l("field.amount")} hint={l("hint.amount")} className="min-w-56 flex-1">
-            <MoneyField name="amountMinor" currency={shell?.currency ?? "ZAR"} locale={locale} />
+            <MoneyField name="amountMinor" currency={shell?.currency ?? FALLBACK_CURRENCY} locale={locale} />
           </Field>
 
           <Field label={l("field.contact")} hint={l("hint.contact")} className="min-w-56 flex-1">

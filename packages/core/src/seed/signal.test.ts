@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { schema } from "@lyra/db";
 import type { CoreDb } from "../context.js";
 import { DAY, HOUR, MINUTE, type SeedContext } from "./context.js";
+import { SUPPRESSION_AUDIENCE_NAME } from "../suppression.js";
 import { SEED_CREATIVE_COPY, seedSignal } from "./signal.js";
 
 // Same DB harness as ../seed.test.ts and analytics.test.ts: an in-memory
@@ -105,7 +106,9 @@ describe("seedSignal: audiences", () => {
 
     const byName = new Map(rows.map((a) => [a.name, a]));
 
-    const suppression = byName.get("Do not contact — withdrawn consent, complaints, open claims")!;
+    // By constant, not by literal: the engine looks this audience up by name, so
+    // a second literal here is how a duplicate row gets created.
+    const suppression = byName.get(SUPPRESSION_AUDIENCE_NAME)!;
     expect(suppression.sizeCached).toBe(213);
     expect(suppression.refreshPolicy).toBe("hourly");
     expect(suppression.lastRefreshedAt).toBe(NOW - 40 * MINUTE);

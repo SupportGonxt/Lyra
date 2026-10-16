@@ -65,6 +65,11 @@ export async function runShop(ctx: Ctx, args: ShopArgs): Promise<ShopResult> {
       commissionMinor: o.commission?.grossMinor ?? null,
       channelCommissionMinor: o.commission?.channelMinor ?? null,
       coverageJson: o.coverage ? JSON.stringify(o.coverage) : null,
+      // ADR-0131. Both pricing paths compute this and it used to stop here — the
+      // row was rebuilt from an explicit field list that omitted it, so the
+      // decomposition never reached a reader at all. For a carrier-priced quote it
+      // is the only record of the underwriter's line items that will ever exist.
+      breakdownJson: o.breakdown?.length ? JSON.stringify(o.breakdown) : null,
       priceRank: o.priceRank ?? null,
       valueScore: o.valueScore ?? null,
       rationaleKey: o.priceRank === 1 ? "quote.rationale.cheapest" : null,
@@ -100,6 +105,59 @@ export async function runShop(ctx: Ctx, args: ShopArgs): Promise<ShopResult> {
     subjectRef: request.id,
     after: { fanout: request.fanoutCount, quoted: rows.filter((r) => r.state === "quoted").length }
   });
+
+  // docs/modules/axis.md §2.3's live process map. The lifecycle steps are written
+  // by the cases resource; these two are the quoting engine's own, and until now
+  // only the *seed* wrote them — so the map showed `quote_fanout` and
+  // `quotes_compared` for seeded cases and for nothing else. Here as well as in
+  // the routes for the reason the header gives: both shops must count the same.
+  //
+  // Only when the shop names a case: without one there is no case timeline to
+  // attach the step to, and a process event with no case is a row no reader can
+  // use.
+  if (request.caseId) {
+    const latencies = rows.map((r) => r.latencyMs).filter((ms): ms is number => typeof ms === "number");
+    // The step took as long as its **slowest** member — that is what a bottleneck
+    // is, and a mean would hide the one provider that holds the panel up. Null
+    // when no caller reported a latency, never zero: zero is a measurement.
+    const slowest = latencies.length ? Math.max(...latencies) : null;
+    const reached = rows.some((r) => r.state === "quoted" || r.state === "declined");
+    const quoted = rows.filter((r) => r.state === "quoted").length;
+
+    await ctx.db.insert(schema.axisProcessEvents).values([
+      {
+        id: newId("pev", ctx.now),
+        tenantId: ctx.tenantId,
+        caseId: request.caseId,
+        step: "quote_fanout",
+        actorRef: "agent:quoting",
+        durationMs: slowest,
+        // A fan-out that reached nobody (every provider errored or timed out) is
+        // a failed step; one where every provider declined is a step that worked
+        // and a risk nobody will write. Those are different facts.
+        outcome: reached ? "ok" : "failed",
+        ts: ctx.now
+      },
+      // A comparison of one is not a comparison, so this step exists only when
+      // the panel actually gave a choice. Its duration is null rather than timed:
+      // ranking is instantaneous, and a number there would be noise dressed as a
+      // measurement.
+      ...(quoted > 1
+        ? [
+            {
+              id: newId("pev", ctx.now),
+              tenantId: ctx.tenantId,
+              caseId: request.caseId,
+              step: "quotes_compared",
+              actorRef: "agent:quoting",
+              durationMs: null,
+              outcome: "ok",
+              ts: ctx.now
+            }
+          ]
+        : [])
+    ] as never);
+  }
 
   return {
     request: {

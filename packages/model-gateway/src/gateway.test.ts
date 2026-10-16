@@ -908,3 +908,53 @@ describe("elapsed", () => {
     expect(ms).toBeLessThan(60_000);
   });
 });
+
+// ADR-0118. A grounded provider's provenance is audited, but as provenance —
+// fact ids/sources — never as a second copy of the underlying values.
+describe("aletheia grounding is audited", () => {
+  const grounded: Provider = {
+    name: "aletheia",
+    async complete() {
+      return {
+        text: "Total revenue is 26,057,181,587.",
+        toolCalls: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        finishReason: "stop",
+        grounding: {
+          epistemicCoverage: 1,
+          state: "complete",
+          facts: [
+            { factId: "F1", entity: "Acme", attribute: "revenue", value: 26057181587, source: "VBRK.NETWR" }
+          ],
+          contradictions: [],
+          ood: false,
+          samplingUsed: false
+        }
+      };
+    }
+  };
+
+  it("persists grounding as provenance, without the fact value", async () => {
+    const gw = new Gateway({ env: {}, providers: { aletheia: grounded } });
+    const res = await gw.complete(ctx, {
+      module: "north",
+      purpose: "briefing.narrate",
+      tier: "reasoning",
+      modelKey: "aletheia-grounded",
+      messages: [{ role: "user", content: "what is our revenue?" }]
+    });
+
+    expect(res.grounding?.state).toBe("complete");
+
+    const audit = await ctx.db.select().from(schema.aiAuditLog);
+    expect(audit).toHaveLength(1);
+    const stored = JSON.parse(audit[0]!.groundingJson ?? "{}") as Record<string, unknown>;
+    expect(stored["epistemicCoverage"]).toBe(1);
+    expect(stored["ood"]).toBe(false);
+    expect(JSON.stringify(stored)).toContain("VBRK.NETWR");
+    expect(JSON.stringify(stored)).toContain("F1");
+    // Provenance only: the fact value never lands in the audit row.
+    expect(JSON.stringify(stored)).not.toContain("26057181587");
+  });
+});

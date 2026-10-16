@@ -51,7 +51,8 @@ export {
   quoteResponses as distQuoteResponses,
   commissionEntries as distCommissionEntries,
   nextBestOffers as distNextBestOffers,
-  partnerAgreements as distPartnerAgreements
+  partnerAgreements as distPartnerAgreements,
+  payments as distPayments
 } from "./schema/dist.js";
 
 export {
@@ -77,7 +78,8 @@ export {
   referrals as axisReferrals,
   telemetryPoints as axisTelemetryPoints,
   reinsuranceTreaties as axisReinsuranceTreaties,
-  reinsuranceCessions as axisReinsuranceCessions
+  reinsuranceCessions as axisReinsuranceCessions,
+  authorisations as axisAuthorisations
 } from "./schema/axis.js";
 
 export {
@@ -115,7 +117,10 @@ export {
   outreach as signalOutreach,
   prospects as signalProspects,
   responses as signalResponses,
-  audienceMembers as signalAudienceMembers
+  audienceMembers as signalAudienceMembers,
+  creativePublishes as signalCreativePublishes,
+  aeoCitations as signalAeoCitations,
+  brandKits as signalBrandKits
 } from "./schema/signal.js";
 
 export {
@@ -135,7 +140,8 @@ export {
   scenarios as northScenarios,
   boardpacks as northBoardpacks,
   decisions as northDecisions,
-  alertRules as northAlertRules
+  alertRules as northAlertRules,
+  metricDefinitions as northMetricDefinitions
 } from "./schema/north.js";
 
 export {

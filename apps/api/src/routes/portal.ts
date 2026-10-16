@@ -2,12 +2,12 @@ import { Hono, type Context } from "hono";
 import { simNow } from "../clock.js";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
-import { id as newId, schema, BrandJson, EntitlementsJson, PolicyJson } from "@lyra/db";
-import { audit, badRequest, conflict, emit, notFound, randomToken, recordConsent, sha256Hex, timingSafeEqual, type Envelope } from "@lyra/core";
+import { id as newId, schema, BrandJson, PolicyJson } from "@lyra/db";
+import { audit, badRequest, conflict, emit, notFound, randomToken, recordConsent, sha256Hex, timingSafeEqual, type Envelope, type VerifiedRequest } from "@lyra/core";
 import { body, formOf, parse } from "../http.js";
 import { readUpload } from "../upload.js";
 import { verifyTurnstile } from "../turnstile.js";
-import { ctxFor, db as rawDb, throttle } from "../auth.js";
+import { ctxFor, db as rawDb, tenantConfigFrom, throttle } from "../auth.js";
 import { portalLinkToken, type PortalLinkKind } from "../portal-link.js";
 import {
   clampToCriteria,
@@ -24,6 +24,8 @@ import { recordTouch } from "../engines/signal-attribution.js";
 import { recordSignedConversion, verifyTrackSignature } from "../engines/signal-track.js";
 import { activeWebchat, webchatAdapter, webchatRequest } from "../engines/orbit-channel-webchat.js";
 import { processChannelEvents } from "../engines/orbit-channel-inbound.js";
+import { createPayment, handlePaymentWebhook } from "../engines/payment.js";
+import { channelPortalView, supplierPortalView } from "../engines/party-portals.js";
 import { inboundHooks, kickAutoReply } from "./channels.js";
 import type { App, Env } from "../env.js";
 
@@ -203,19 +205,7 @@ portalRoutes.post("/:tenantSlug/leads", async (c) => {
     .limit(1);
   if (!productRows[0]) throw notFound("product");
 
-  const ctx = await ctxFor(
-    c.env,
-    {
-      tenantId: tenant.id,
-      locale: "en",
-      actor: { kind: "system", id: "portal-lead", tenantId: tenant.id, grants: [] },
-      policy: PolicyJson.parse({}),
-      entitlements: EntitlementsJson.parse({})
-    },
-    now,
-    c.req.header("cf-connecting-ip"),
-    c.req.header("user-agent")
-  );
+  const ctx = await portalCtx(c, tenant, now, "portal-lead");
 
   const channelId = await findOrCreateDirectWebChannel(ctx, now);
   const customerId = await findOrCreateCustomer(ctx, now, {
@@ -375,7 +365,7 @@ portalRoutes.post("/:tenantSlug/registrations", async (c) => {
 
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
-  const ctx = await portalCtx(c, tenant.id, now, "portal-register");
+  const ctx = await portalCtx(c, tenant, now, "portal-register");
 
   const emailHash = await sha256Hex(email);
   const existing = (
@@ -633,15 +623,27 @@ async function comparison(
   };
 }
 
-async function portalCtx(c: Context<App>, tenantId: string, now: number, who: string) {
+/**
+ * The public routes' system Ctx, carrying the tenant's *own* policy and
+ * entitlements.
+ *
+ * This used to parse an empty policy, which looked harmless — a portal route
+ * writes a lead or a consent, and neither reads a module setting. It was not
+ * harmless: the k-anonymity floor lives on `ctx.policy`, so the supplier portal
+ * read the *default* floor and a tenant that raised its own would have had a
+ * cell below it served over a public URL. `activeTenant` has already selected
+ * the whole tenant row, so the real config costs no extra query.
+ */
+async function portalCtx(c: Context<App>, tenant: typeof schema.tenants.$inferSelect, now: number, who: string) {
+  const { policy, entitlements } = tenantConfigFrom(tenant);
   return ctxFor(
     c.env,
     {
-      tenantId,
+      tenantId: tenant.id,
       locale: "en",
-      actor: { kind: "system", id: who, tenantId, grants: [] },
-      policy: PolicyJson.parse({}),
-      entitlements: EntitlementsJson.parse({})
+      actor: { kind: "system", id: who, tenantId: tenant.id, grants: [] },
+      policy,
+      entitlements
     },
     now,
     c.req.header("cf-connecting-ip"),
@@ -654,7 +656,7 @@ portalRoutes.get("/:tenantSlug/quote-requests/:id", async (c) => {
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
   const request = await requestForToken(database, tenant.id, c.req.param("id"), c.req.query("token"));
-  const ctx = await portalCtx(c, tenant.id, now, "portal-quote");
+  const ctx = await portalCtx(c, tenant, now, "portal-quote");
   return c.json(await comparison(ctx, request));
 });
 
@@ -688,7 +690,7 @@ portalRoutes.post("/:tenantSlug/quote-requests/:id/reprice", async (c) => {
   const ip = c.req.header("cf-connecting-ip");
   if (ip) await throttle(c.env, `portal-reprice-ip:${ip}`, REPRICE_IP_MAX, REPRICE_WINDOW_SEC);
 
-  const ctx = await portalCtx(c, tenant.id, now, "portal-reprice");
+  const ctx = await portalCtx(c, tenant, now, "portal-reprice");
   const { criteria, stored } = await criteriaOf(ctx, request);
   const moved = clampToCriteria(criteria, input.inputs);
   if (!Object.keys(moved).length) throw badRequest("no rating criteria in inputs");
@@ -745,7 +747,7 @@ portalRoutes.post("/:tenantSlug/quote-requests/:id/accept", async (c) => {
   const request = await requestForToken(database, tenant.id, c.req.param("id"), input.token);
   if (request.expiresAt !== null && request.expiresAt < now) throw conflict("quote has expired");
 
-  const ctx = await portalCtx(c, tenant.id, now, "portal-quote-accept");
+  const ctx = await portalCtx(c, tenant, now, "portal-quote-accept");
   const responses = await ctx.db
     .select()
     .from(schema.distQuoteResponses)
@@ -783,10 +785,72 @@ portalRoutes.post("/:tenantSlug/quote-requests/:id/accept", async (c) => {
     data: { id: request.id, offeringId: chosen.offeringId, premiumMinor: chosen.premiumMinor, via: "portal" }
   });
 
-  // No payment step: no PSP connector exists (engines/settlement.ts §7), so what
-  // the customer is told next is "send your documents", and a human takes it
-  // from there. ADR-0043.
+  // With a `payment` connector configured, the accepted offer can be paid for
+  // in-flow (the `pay` route below); without one this is where the v1 flow ends
+  // — "send your documents", and a human takes it from there. ADR-0043.
   return c.json({ acceptedOfferingId: chosen.offeringId, nextStep: "documents" });
+});
+
+// docs/25 §7, J-C1's `pay` step: open a hosted PSP session for the accepted
+// offer and hand the browser where to go. The portal token is the only
+// credential (same as accept/documents); the amount comes from the request the
+// customer already accepted, never from the body.
+const PayBody = z
+  .object({
+    token: z.string().min(1),
+    returnUrl: z.string().url().optional(),
+    cancelUrl: z.string().url().optional()
+  })
+  .strict();
+
+portalRoutes.post("/:tenantSlug/quote-requests/:id/pay", async (c) => {
+  const now = await simNow(c.env);
+  const input = await body(c, PayBody);
+  const database = rawDb(c.env);
+  const tenant = await activeTenant(database, c.req.param("tenantSlug"));
+  const request = await requestForToken(database, tenant.id, c.req.param("id"), input.token);
+  if (request.expiresAt !== null && request.expiresAt < now) throw conflict("quote has expired");
+  if (!request.bestOfferingId || request.bestPremiumMinor === null) {
+    throw conflict("no offer has been accepted yet");
+  }
+
+  const ctx = await portalCtx(c, tenant, now, "portal-quote-pay");
+  const origin = c.env.APP_ORIGIN ?? new URL(c.req.url).origin;
+  const returnUrl =
+    input.returnUrl ?? `${origin}/portal/${encodeURIComponent(c.req.param("tenantSlug"))}/quote/${request.id}?paid=1`;
+
+  const payment = await createPayment(ctx, c.env.FIELD_KEY, {
+    subjectRef: `quote-requests:${request.id}`,
+    amountMinor: request.bestPremiumMinor,
+    currency: request.currency,
+    returnUrl,
+    ...(input.cancelUrl !== undefined ? { cancelUrl: input.cancelUrl } : {}),
+    description: `Policy purchase ${request.id}`
+  });
+  await audit(ctx, {
+    action: "dist.quote_requests.pay",
+    subjectRef: `quote-requests:${request.id}`,
+    after: { paymentId: payment.id, provider: payment.provider, amountMinor: request.bestPremiumMinor }
+  });
+  return c.json(payment, 201);
+});
+
+// The PSP calls back here. Public by shape (no session), so the signature the
+// adapter checks is the only thing between a stranger and someone else's
+// payment: a bad one throws before any row moves.
+portalRoutes.post("/:tenantSlug/payments/:provider/webhook", async (c) => {
+  const now = await simNow(c.env);
+  const database = rawDb(c.env);
+  const tenant = await activeTenant(database, c.req.param("tenantSlug"));
+  const rawBody = await c.req.text();
+  const req: VerifiedRequest = {
+    rawBody,
+    headers: c.req.raw.headers,
+    query: new URL(c.req.url).searchParams
+  };
+  const ctx = await portalCtx(c, tenant, now, "portal-payment-webhook");
+  const result = await handlePaymentWebhook(ctx, c.req.param("provider"), req, c.env.FIELD_KEY);
+  return c.json(result);
 });
 
 portalRoutes.post("/:tenantSlug/quote-requests/:id/documents", async (c) => {
@@ -810,7 +874,7 @@ portalRoutes.post("/:tenantSlug/quote-requests/:id/documents", async (c) => {
   const bucket = c.env.FILES;
   if (!bucket) throw conflict("document storage is not configured");
 
-  const ctx = await portalCtx(c, tenant.id, now, "portal-quote-documents");
+  const ctx = await portalCtx(c, tenant, now, "portal-quote-documents");
   const fileId = newId("file", now);
   const r2Key = `portal/${tenant.id}/${request.id}/${fileId}`;
   await bucket.put(r2Key, bytes, { httpMetadata: { contentType } });
@@ -901,19 +965,7 @@ portalRoutes.post("/:tenantSlug/privacy-requests", async (c) => {
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
   const customerId = await customerIdForEmail(database, tenant.id, email);
 
-  const ctx = await ctxFor(
-    c.env,
-    {
-      tenantId: tenant.id,
-      locale: "en",
-      actor: { kind: "system", id: "portal-dsar", tenantId: tenant.id, grants: [] },
-      policy: PolicyJson.parse({}),
-      entitlements: EntitlementsJson.parse({})
-    },
-    now,
-    ip,
-    c.req.header("user-agent")
-  );
+  const ctx = await portalCtx(c, tenant, now, "portal-dsar");
 
   const dueAt = now + DSAR_DUE_DAYS * 24 * 60 * 60 * 1000;
   const requestRow = {
@@ -1066,7 +1118,7 @@ portalRoutes.post("/:tenantSlug/renewals/:id/accept", async (c) => {
   if (row.expiryAt < now) throw conflict("this renewal has expired");
 
   const after = { ...row, state: "accepted" as const, outcomeReason: "customer_accepted", decidedAt: now, updatedAt: now };
-  const ctx = await portalCtx(c, tenant.id, now, "portal-renewal-accept");
+  const ctx = await portalCtx(c, tenant, now, "portal-renewal-accept");
   await ctx.db
     .update(schema.orbitRenewals)
     .set({ state: "accepted", outcomeReason: "customer_accepted", decidedAt: now, updatedAt: now })
@@ -1137,7 +1189,7 @@ portalRoutes.post("/:tenantSlug/feedback/:id", async (c) => {
   if (row.state !== "closed") throw conflict("this conversation is still open");
   if (row.csat !== null) throw conflict("this conversation has already been rated");
 
-  const ctx = await portalCtx(c, tenant.id, now, "portal-feedback");
+  const ctx = await portalCtx(c, tenant, now, "portal-feedback");
   await ctx.db
     .update(schema.orbitConversations)
     .set({ csat: input.rating, updatedAt: now })
@@ -1216,7 +1268,7 @@ portalRoutes.post("/:tenantSlug/track", async (c) => {
 
   const database = rawDb(c.env);
   const tenant = await activeTenant(database, c.req.param("tenantSlug"));
-  const ctx = await portalCtx(c, tenant.id, now, "portal-track");
+  const ctx = await portalCtx(c, tenant, now, "portal-track");
 
   if (signature) {
     await verifyTrackSignature(ctx, { keyId: c.req.header("x-lyra-key-id") ?? "", timestamp: c.req.header("x-lyra-timestamp") ?? "", signature }, raw, Date.now());
@@ -1374,7 +1426,7 @@ portalRoutes.post("/:tenantSlug/chat/messages", async (c) => {
   const visitorKey = handle as string;
   await throttle(c.env, `portal-chat-visitor:${visitorKey}`, CHAT_VISITOR_MAX, CHAT_WINDOW_SEC);
 
-  const ctx = await portalCtx(c, tenant.id, now, "portal-chat");
+  const ctx = await portalCtx(c, tenant, now, "portal-chat");
   const events = webchatAdapter.parse(
     webchatRequest({
       ref: `webchat:${newId("wcm", now)}`,
@@ -1394,4 +1446,31 @@ portalRoutes.post("/:tenantSlug/chat/messages", async (c) => {
     { visitorToken: token, messages: visitor ? await transcript(database, connector, visitor.customerId) : [] },
     201
   );
+});
+
+/* ------------------------------------------------ supplier & channel portals */
+
+// docs: PORTALS-DESIGN-AND-AUDIT.md. The insurer's panel position, its data
+// subscriptions and the settlement between it and the tenant. Read-only, and
+// opened on a link the tenant mints behind the permission that reads the row —
+// `assertPortalLink` answers 404 for a wrong token, another tenant's row or an
+// unknown id alike, so the page never confirms that somebody else's row exists.
+portalRoutes.get("/:tenantSlug/suppliers/:id", async (c) => {
+  const now = await simNow(c.env);
+  const database = rawDb(c.env);
+  const tenant = await activeTenant(database, c.req.param("tenantSlug"));
+  await assertPortalLink(c.env, "supplier", tenant.id, c.req.param("id"), c.req.query("token"));
+  const ctx = await portalCtx(c, tenant, now, "portal-supplier");
+  return c.json(await supplierPortalView(ctx, c.req.param("id")));
+});
+
+// The broker/embed channel: its book, its own commission, its settlements and
+// the agreement behind it. Same door, same wall — the channel's share only.
+portalRoutes.get("/:tenantSlug/channels/:id", async (c) => {
+  const now = await simNow(c.env);
+  const database = rawDb(c.env);
+  const tenant = await activeTenant(database, c.req.param("tenantSlug"));
+  await assertPortalLink(c.env, "channel", tenant.id, c.req.param("id"), c.req.query("token"));
+  const ctx = await portalCtx(c, tenant, now, "portal-channel");
+  return c.json(await channelPortalView(ctx, c.req.param("id")));
 });

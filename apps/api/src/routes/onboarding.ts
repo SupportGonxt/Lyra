@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import { simNow } from "../clock.js";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { id as newId, schema, EntitlementsJson, PolicyJson } from "@lyra/db";
 import {
   actorRef,
   audit,
+  conflict,
   base32Encode,
   emit,
   notFound,
@@ -15,6 +16,7 @@ import {
   type Ctx
 } from "@lyra/core";
 import { body, InstantMs } from "../http.js";
+import { must } from "../rows.js";
 import { ctxFor, db as rawDb, throttle } from "../auth.js";
 import {
   STAGES,
@@ -167,6 +169,18 @@ const SANDBOX_SCOPES = [
   "dist:quote_requests:create"
 ];
 
+/**
+ * What a live partner key may reach. Deliberately **not** the sandbox set: a live
+ * partner quotes and reads its own record, and reaches nothing of the tenant's
+ * beyond that.
+ */
+const LIVE_SCOPES = [
+  "orbit:partners:read",
+  "dist:offerings:read",
+  "dist:quote_requests:read",
+  "dist:quote_requests:create"
+];
+
 const SIGNUP_SECRET_BYTES = 32;
 const SIGNUP_WINDOW_SEC = 24 * 60 * 60;
 
@@ -310,6 +324,104 @@ onboardingRoutes.post("/partners/:id/advance", async (c) => {
       () => advancePartner(ctx, partnerId)
     )
   );
+});
+
+/**
+ * docs/modules/orbit.md §8, and this file's own header: *"portal signup →
+ * sandbox key → mock quote in <30 min → certification checklist → **live key**."*
+ *
+ * The last step did not exist. The signup route mints a `test` key and says of
+ * itself that it "can never mint a live key", the stage ladder
+ * (`advancePartner`) moves a partner to `live` behind the
+ * `dist.partner_activate` approval — and **no live credential was ever issued**,
+ * so a partner could be trading and still hold only a sandbox key. Promoting one
+ * meant a code change, which is exactly what the criterion forbids.
+ *
+ * Two gates, because they are two different decisions: the partner must already
+ * **be** live (that promotion had its own approval and its own checklist), and
+ * the caller must hold `orbit:partner_keys:issue_live`. The permission was
+ * declared with the module and granted to no role at all — fixed the same day,
+ * because a route nobody can call is the defect this is meant to remove.
+ *
+ * The sandbox key is **kept**: a live partner still tests against the sandbox,
+ * and revoking the credential they signed up with would break that for no gain.
+ * The partner's `apiKeyRef` moves to the live key, which is the one real traffic
+ * uses.
+ */
+onboardingRoutes.post("/partners/:id/live-key", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "orbit:partner_keys:issue_live", { tenantId: ctx.tenantId, module: "orbit" });
+  const partner = await must(ctx, schema.orbitPartners, c.req.param("id"), "partner");
+  if (partner.status === "terminated") throw conflict("partner is terminated");
+  if (partner.status === "suspended") throw conflict("partner is suspended");
+  // Live credentials are for live partners. Issuing one earlier would put real
+  // money behind a counterparty that has not cleared its checklist.
+  if (partner.stage !== "live") throw conflict(`partner is in stage ${partner.stage}, not live`);
+
+  // Idempotent by refusal rather than by minting a second key: two live keys for
+  // one partner is a credential nobody can account for.
+  const existing = await ctx.db
+    .select({ id: schema.apiKeys.id })
+    .from(schema.apiKeys)
+    .where(
+      and(
+        eq(schema.apiKeys.tenantId, ctx.tenantId),
+        eq(schema.apiKeys.mode, "live"),
+        eq(schema.apiKeys.createdBy, `partner:${partner.id}`),
+        isNull(schema.apiKeys.revokedAt)
+      )
+    )
+    .limit(1);
+  if (existing[0]) throw conflict("this partner already holds a live key");
+
+  // The same mint as the sandbox route and as `POST /v1/core/api-keys`: same
+  // secret size, alphabet, prefix scheme and hash. Only the mode and the prefix
+  // differ, which is the whole of "promotion".
+  const bytes = new Uint8Array(SIGNUP_SECRET_BYTES);
+  crypto.getRandomValues(bytes);
+  const secret = base32Encode(bytes);
+  const prefix = `qvk_live_${secret.slice(0, 8)}`;
+  const plaintext = `qvk_live_${secret}`;
+  const keyHash = await sha256Hex(plaintext);
+
+  const keyRow = {
+    id: newId("key", ctx.now),
+    tenantId: ctx.tenantId,
+    name: `${partner.name} live`,
+    prefix,
+    keyHash,
+    mode: "live" as const,
+    // The partner's commercial scopes, not the sandbox's: a live key can reach
+    // the quote and bind surface the sandbox deliberately cannot.
+    scopesJson: JSON.stringify(LIVE_SCOPES),
+    // `createdBy` is the idempotency key above, so `partner:<id>` is how a live
+    // key is found rather than inferred from its name.
+    createdBy: `partner:${partner.id}`,
+    lastUsedAt: null,
+    expiresAt: null,
+    revokedAt: null,
+    createdAt: ctx.now
+  };
+  await ctx.db.insert(schema.apiKeys).values(keyRow);
+  await ctx.db
+    .update(schema.orbitPartners)
+    .set({ apiKeyRef: keyRow.id, updatedAt: ctx.now })
+    .where(and(eq(schema.orbitPartners.tenantId, ctx.tenantId), eq(schema.orbitPartners.id, partner.id)));
+
+  // The hash, never the plaintext — same rule as every other mint here. The
+  // plaintext is returned once, in the response, and never stored.
+  await audit(ctx, {
+    action: "orbit.partner.live_key_issued",
+    subjectRef: partner.id,
+    after: { keyId: keyRow.id, prefix, mode: "live" }
+  });
+  await emit(ctx, {
+    module: "orbit",
+    type: "orbit.partner.live_key_issued",
+    subject: partner.id,
+    data: { partnerId: partner.id, keyId: keyRow.id, prefix }
+  });
+  return c.json({ id: keyRow.id, prefix, key: plaintext, mode: "live" }, 201);
 });
 
 onboardingRoutes.post("/partners/:id/suspend", async (c) => {

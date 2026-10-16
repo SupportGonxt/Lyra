@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { schema } from "@lyra/db";
+import { coverageOf } from "../coverage.js";
 import { seed } from "../seed.js";
 import { DAY, HOUR, MINUTE } from "./context.js";
 import type { CoreDb } from "../context.js";
@@ -368,10 +369,13 @@ describe("seedScout: panel bench", () => {
     expect(cedarMotorJan.winRate).toBe(44);
     expect(cedarMotorJan.volume).toBe(1_812);
     expect(cedarMotorJan.updatedAt).toBe(T0 - 6 * HOUR);
-    const cedarGaps = JSON.parse(cedarMotorJan.coverageGapsJson!);
-    expect(cedarGaps).toHaveLength(2);
-    expect(cedarGaps[0].term).toBe("agency_repair");
-    expect(cedarGaps[1].term).toBe("roadside");
+    // ADR-0127: the seed writes the `terms` half of the coverage union, and a
+    // reader reaches it through the one accessor rather than parsing a shape.
+    const cedarGaps = coverageOf(cedarMotorJan.coverageGapsJson);
+    expect(cedarGaps).toMatchObject({ kind: "terms" });
+    expect(cedarGaps?.kind === "terms" ? cedarGaps.terms.map((one) => one.term) : []).toEqual(["agency_repair", "roadside"]);
+    expect(cedarGaps?.kind === "terms" ? cedarGaps.terms[0]!.ours : null).toEqual({ present: false });
+    expect(cedarGaps?.kind === "terms" ? cedarGaps.terms[0]!.panelMedian : null).toEqual({ present: true });
 
     const falconMotorJan = row(providerIds.falcon, "motor", "2026-01");
     expect(falconMotorJan.ourPriceIdx).toBe(10_380);
@@ -410,9 +414,9 @@ describe("seedScout: panel bench", () => {
     expect(gulfHealthJan.ourPriceIdx).toBe(9_880);
     expect(gulfHealthJan.winRate).toBe(34);
     expect(gulfHealthJan.volume).toBe(41);
-    const gulfGaps = JSON.parse(gulfHealthJan.coverageGapsJson!);
-    expect(gulfGaps[0].ours).toBe(365);
-    expect(gulfGaps[0].panelMedian).toBeNull();
+    const gulfGaps = coverageOf(gulfHealthJan.coverageGapsJson);
+    expect(gulfGaps?.kind === "terms" ? gulfGaps.terms[0]!.ours : null).toEqual({ present: true, note: "365 days" });
+    expect(gulfGaps?.kind === "terms" ? gulfGaps.terms[0]!.panelMedian : null).toEqual({ present: false });
 
     const gonxtTravelJan = row(providerIds.gonxt, "travel", "2026-01");
     expect(gonxtTravelJan.ourPriceIdx).toBe(9_240);
@@ -423,7 +427,9 @@ describe("seedScout: panel bench", () => {
     expect(cedarHomeJan.ourPriceIdx).toBe(10_050);
     expect(cedarHomeJan.winRate).toBe(52);
     expect(cedarHomeJan.volume).toBe(214);
-    expect(JSON.parse(cedarHomeJan.coverageGapsJson!)).toEqual([]);
+    // A row with no gaps is a *terms* fact with an empty list, not a null
+    // column: the two are different claims (ADR-0127).
+    expect(coverageOf(cedarHomeJan.coverageGapsJson)).toEqual({ kind: "terms", terms: [] });
 
     // No second life row on the panel: price columns stay null, not zero.
     const oryxLifeJan = row(providerIds.oryx, "life", "2026-01");

@@ -76,7 +76,11 @@ export interface DataInConnector {
  * in behind this interface without a rewrite — that is the whole point of the
  * seam.
  */
-export const SIGNAL_SOURCE_KINDS = ["search", "quotes", "abandonment", "reviews", "news", "regulatory"] as const;
+// `model` is Aletheia's own findings (ADR-0118): a value outside its learned
+// benchmark is an observation about the market, not a news item, and filing it
+// under `news` would make the Clusterer treat a modelled reading as a report
+// somebody published.
+export const SIGNAL_SOURCE_KINDS = ["search", "quotes", "abandonment", "reviews", "news", "regulatory", "model"] as const;
 export type SignalSourceKind = (typeof SIGNAL_SOURCE_KINDS)[number];
 
 export function isSignalSourceKind(s: string): s is SignalSourceKind {
@@ -272,6 +276,44 @@ export interface AdConversionResult {
   readonly error?: string;
 }
 
+/**
+ * A compliance-cleared creative on its way to a platform (docs/modules/signal.md
+ * §2.1 and §4.2 "one-click to channels"). The copy arrives already passed by the
+ * pre-flight, so an adapter's job is transport, not judgement — it never decides
+ * whether something may be published.
+ */
+export interface AdCreativePush {
+  /** The LYRA creative id, which is the handle both sides can reconcile on. */
+  readonly creativeId: string;
+  /** "ad_copy" | "search_ad" | "social_ad" — the platform's own shape decides. */
+  readonly kind: string;
+  readonly locale: string;
+  readonly headline: string;
+  readonly body: string;
+  readonly callToAction: string | null;
+  readonly landingUrl: string;
+  /** The platform campaign to hang it on, when the connector maps one. */
+  readonly externalCampaignId: string | null;
+  /** The creative's disclosure text, already appended — a regulated ad carries it. */
+  readonly disclosure: string | null;
+  /**
+   * The other cleared variants of the same campaign and locale. A search ad is
+   * *built* from a pool rather than from one line (Google wants three headlines
+   * and two descriptions minimum), so a format that needs variants draws on
+   * them; a format that does not, ignores this. Empty when the campaign has a
+   * single approved variant — the adapter then refuses rather than inventing
+   * copy to fill a quota.
+   */
+  readonly pool: { readonly headlines: readonly string[]; readonly descriptions: readonly string[] };
+}
+
+export interface AdCreativePushResult {
+  readonly status: "published" | "failed";
+  /** The platform's own id for what it created; absent on a failure. */
+  readonly externalId?: string;
+  readonly error?: string;
+}
+
 export interface AdPlatform {
   readonly provider: string;
   /** The identifiers this platform matches a conversion on; the exporter sends it no others. */
@@ -295,4 +337,116 @@ export interface AdPlatform {
     secrets: ConnectorSecrets,
     config: Record<string, unknown>
   ): Promise<{ beforeMinor: number; afterMinor: number }>;
+  /**
+   * Creates the ad on the platform. Optional, on the same rule
+   * `uploadConversions` follows: a platform that cannot take a creative simply
+   * receives none, and the publisher records that as a per-platform outcome
+   * rather than failing the whole push.
+   */
+  publishCreative?(
+    creative: AdCreativePush,
+    secrets: ConnectorSecrets,
+    config: Record<string, unknown>
+  ): Promise<AdCreativePushResult>;
+}
+
+/**
+ * docs/25 §7 — the embedded PSP seam, the missing `pay` step of J-C1. A
+ * consumer pays inside the flow instead of being sent away and told to wait:
+ * the provider opens a hosted session the browser is redirected to, and calls
+ * back with its own status webhook. Runtime-gated on the connector's secrets —
+ * with none, the flow keeps the v1 behaviour (`engines/settlement.ts`: a
+ * human-confirmed bank/PSP reference), so this seam only ever adds a rail.
+ *
+ * The card data never reaches LYRA: the payer types it on the provider's page
+ * (docs/12 — never store a PAN), and only the provider's reference comes back.
+ */
+export interface PaymentSession {
+  /** LYRA's id for this payment, echoed back by the provider's webhook. */
+  readonly paymentRef: string;
+  readonly amountMinor: number;
+  readonly currency: string;
+  /** What is being paid for — a quote request id. */
+  readonly subjectRef: string;
+  readonly description?: string;
+  /** Where the provider sends the browser on success/cancel. */
+  readonly returnUrl: string;
+  readonly cancelUrl?: string;
+}
+
+export interface PaymentSessionResult {
+  /** The provider's own reference for the session. */
+  readonly providerRef: string;
+  /** The hosted page the payer is sent to. */
+  readonly redirectUrl: string;
+}
+
+export interface PaymentWebhookEvent {
+  readonly providerRef: string;
+  readonly paymentRef: string;
+  readonly status: "paid" | "failed" | "pending" | "refunded";
+  readonly amountMinor: number;
+  readonly currency: string;
+  readonly at: number;
+  readonly error?: string;
+}
+
+export interface PaymentProvider {
+  readonly provider: string;
+  /** Requirement for opening a session: which secrets the adapter needs. */
+  readonly requiredSecrets?: readonly string[];
+  /** Opens a hosted session and returns where to send the payer. */
+  createSession(
+    session: PaymentSession,
+    secrets: ConnectorSecrets,
+    config: Record<string, unknown>
+  ): Promise<PaymentSessionResult>;
+  /** Verifies a callback's authenticity; a bad signature throws. */
+  verifyWebhook(req: VerifiedRequest, secrets: ConnectorSecrets): Promise<void>;
+  /** Parses a verified callback into the status it carries. */
+  parseWebhook(req: VerifiedRequest): PaymentWebhookEvent;
+}
+
+/* --------------------------------------------------------------------- tax */
+
+/**
+ * Tax for a market whose answer is not a row in a table (docs/29 G2, ADR-0121).
+ *
+ * US sales tax is a function of destination, the seller's own nexus footprint
+ * and the product's taxability class; Brazil layers federal, state and municipal
+ * taxes onto one invoice. Neither fits `ledger_tax_rules`, and neither should
+ * distort it — that table is correct and cheap for the VAT/GST markets this
+ * product ships for, and "a row per Illinois county" is not a rulepack.
+ *
+ * So a market outside that shape installs a provider and names it in tenant
+ * policy (`policy.taxProvider`). The table-backed provider is always installed
+ * and is what a tenant gets unless its policy says otherwise, which is what
+ * keeps this seam load-bearing rather than a fifth declaration nothing calls.
+ */
+export interface TaxProviderQuery {
+  readonly market: string;
+  readonly code: string;
+  /** Supply date — a restatement re-derives the rate that applied then. */
+  readonly at: number;
+}
+
+export interface TaxProviderAnswer {
+  readonly ratePpm: number;
+  /** Which tax this is; the `TAX_KINDS` vocabulary in `./tax.js`. */
+  readonly kind: string;
+  readonly placeOfSupply: string | null;
+  readonly reverseCharge: boolean;
+  readonly exempt: boolean;
+  /**
+   * The rulepack row this came from, when it came from one. A computed answer —
+   * a US destination rate — has none, and `null` is how it says so.
+   */
+  readonly ruleId: string | null;
+}
+
+export interface TaxProvider {
+  /** The key tenant policy names. */
+  readonly key: string;
+  /** The treatment for this query, or null when this provider has no answer. */
+  resolve(q: TaxProviderQuery): Promise<TaxProviderAnswer | null>;
 }

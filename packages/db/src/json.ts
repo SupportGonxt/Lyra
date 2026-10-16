@@ -120,6 +120,15 @@ export const PolicyJson = z.object({
   // a market — this is the dimension that was missing, so the lookup key is a
   // tenant's own stated establishment rather than a guess from its currency.
   taxMarket: z.string().min(2).max(8).default("AE"),
+  // ADR-0121 / docs/29 G2: which provider answers this tenant's supplies. The
+  // rulepack table is the default and covers every VAT/GST market the product
+  // ships for; a market whose tax is a function of destination, nexus and
+  // product class (US sales tax, Brazil's layered federal/state/municipal
+  // taxes) names a provider installed alongside it. Key only, not a
+  // configuration — an unknown key is refused at the point of use, where the
+  // installed set is known (`taxProviderFor`, @lyra/core/tax), because this
+  // schema also parses stored rows and a bad value must not throw a read.
+  taxProvider: z.string().min(1).max(64).default("table"),
   // docs/modules/signal.md §8: "one-click global pause" for budget autopilot —
   // a tenant-wide kill switch, distinct from a single campaign's own
   // state=paused (packages/db/schema/signal.ts).

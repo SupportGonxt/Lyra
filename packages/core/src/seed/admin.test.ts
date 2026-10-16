@@ -363,7 +363,7 @@ describe("seedAdmin: apiKeys", () => {
       revokedAt: null,
       expiresAt: null
     });
-    expect(JSON.parse(alpha.scopesJson!)).toEqual(["dist:quotes:create", "dist:quotes:read", "core:customers:read"]);
+    expect(JSON.parse(alpha.scopesJson!)).toEqual(["dist:quote_requests:create", "dist:quote_requests:read", "core:customers:read"]);
 
     const meridian = rows.find((r) => r.prefix === "qvk_live_e5f6g7h8")!;
     expect(meridian).toMatchObject({
@@ -388,7 +388,7 @@ describe("seedAdmin: apiKeys", () => {
       revokedAt: NOW - 14 * DAY + 30 * MINUTE,
       createdAt: NOW - 300 * DAY
     });
-    expect(JSON.parse(leaked.scopesJson!)).toEqual(["dist:quotes:create"]);
+    expect(JSON.parse(leaked.scopesJson!)).toEqual(["dist:quote_requests:create"]);
 
     const migration = rows.find((r) => r.prefix === "qvk_test_s7t8u9v0")!;
     expect(migration).toMatchObject({
@@ -405,7 +405,7 @@ describe("seedAdmin: apiKeys", () => {
       createdBy: result.users["finance.controller"],
       createdAt: NOW - 45 * DAY
     });
-    expect(JSON.parse(cedar.scopesJson!)).toEqual(["ledger:settlements:read", "dist:commissions:read"]);
+    expect(JSON.parse(cedar.scopesJson!)).toEqual(["ledger:payments:read", "dist:commissions:read"]);
   });
 });
 

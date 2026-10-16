@@ -1568,6 +1568,19 @@ describe("AXIS state machines through generic CRUD (docs/27 F27)", () => {
     expect((await policyRow("pol_flow_2"))?.status).toBe("cancelled");
   });
 
+  it("a policy cannot be bound by editing it — the bind door is the only bind door", async () => {
+    // The sweep's finding (2026-10-01): `draft -> bound` is a *legal* transition, so
+    // `guardPolicyState` allowed it, and this resource raises `approval.create` only.
+    // A generic PATCH therefore bound a policy with no licence check (ADR-0125), no
+    // version 1 and no BIND accrual — which made the authorisation register advisory
+    // while every test of it passed, because every test used the real door.
+    await seedPolicy("pol_bind_door", "draft");
+    const refused = await send(policies(), "PATCH", "/pol_bind_door", { status: "bound" });
+    expect(refused.status).toBe(400);
+    expect(String(refused.body.detail)).toContain("/bind");
+    expect((await policyRow("pol_bind_door"))?.status).toBe("draft");
+  });
+
   it("a policy cannot be minted straight into a state it has to be walked to", async () => {
     await seedPolicy("pol_flow_3", "bound");
     expect((await send(policies(), "PATCH", "/pol_flow_3", { status: "renewed" })).status).toBe(400);

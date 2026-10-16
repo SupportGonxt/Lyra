@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractNumbers, normalizeDigits, verifyGroundedness } from "./narrator-verify.js";
+import { extractNumbers, normalizeDigits, verifyGroundedClaims, verifyGroundedness } from "./narrator-verify.js";
 
 describe("verifyGroundedness", () => {
   it("passes text whose numbers all trace back to the context", () => {
@@ -72,5 +72,44 @@ describe("numbers written in Arabic", () => {
       ok: false,
       mismatches: [8200]
     });
+  });
+});
+
+// ADR-0118. A grounded answer's numbers are checked against the facts the engine
+// assembled, not the snapshot — the fact with a source is the evidence.
+describe("verifyGroundedClaims", () => {
+  const complete = {
+    state: "complete" as const,
+    ood: false,
+    facts: [
+      { value: 26_057_181_587, source: "VBRK.NETWR" },
+      { value: 28.4, source: "concentration" }
+    ]
+  };
+
+  it("passes when every number in the prose is an assembled fact", () => {
+    const r = verifyGroundedClaims("Total revenue is 26,057,181,587 and concentration is 28.4%.", complete);
+    expect(r).toEqual({ ok: true, mismatches: [] });
+  });
+
+  it("flags a number the fact graph never assembled", () => {
+    const r = verifyGroundedClaims("Total revenue is 99,999,999.", complete);
+    expect(r.ok).toBe(false);
+    expect(r.mismatches).toEqual([99999999]);
+  });
+
+  it("fails closed when the engine refused to guess", () => {
+    const r = verifyGroundedClaims("Revenue is 5,000.", { state: "insufficient", ood: true, facts: [] });
+    expect(r.ok).toBe(false);
+    expect(r.mismatches).toEqual([5000]);
+  });
+
+  it("treats a string fact value as a number where it parses", () => {
+    const r = verifyGroundedClaims("Revenue is 1,200.", {
+      state: "complete",
+      ood: false,
+      facts: [{ value: "1200", source: "GL" }]
+    });
+    expect(r.ok).toBe(true);
   });
 });

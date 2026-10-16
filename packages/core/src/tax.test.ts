@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { EntitlementsJson, PolicyJson, TAX_RULEPACK, id, schema } from "@lyra/db";
-import { DEFAULT_TAX_CODE, resolveTaxRule, taxPpmOf, taxTreatment } from "./tax.js";
+import { DEFAULT_TAX_CODE, resolveTaxRule, taxAccountOf, taxKindOf, taxPpmOf, taxTreatment } from "./tax.js";
 import { quoteCommission } from "./commission.js";
 import { permissionsForRole, type Actor } from "./rbac.js";
 import type { Ctx } from "./context.js";
@@ -60,6 +60,7 @@ async function installRulepack(market = "AE"): Promise<void> {
     tenantId: "t_1",
     market: r.market,
     code: r.code,
+    kind: r.kind ?? "vat",
     ratePpm: r.ratePpm,
     placeOfSupply: r.placeOfSupply ?? null,
     reverseCharge: r.reverseCharge ?? false,
@@ -228,5 +229,60 @@ describe("quoteCommission stops defaulting tax to zero", () => {
     });
     expect(s.taxMinor).toBe(0);
     expect(s.taxRuleId).toBeNull();
+  });
+});
+
+describe("a tax knows which tax it is (ADR-0121)", () => {
+  it("carries the rule's kind into the treatment", async () => {
+    await installRulepack("EG");
+    const t = await resolveTaxRule(ctx, { market: "EG", code: "commission" });
+    expect(t?.kind).toBe("vat");
+    expect(t?.ratePpm).toBe(140_000);
+  });
+
+  it("distinguishes Egypt's table levy from the VAT on the same premium", async () => {
+    await installRulepack("EG");
+    const vat = await taxTreatment(ctx, { market: "EG", code: "commission" });
+    const table = await taxTreatment(ctx, { market: "EG", code: "premium_general_table" });
+    expect(table.kind).toBe("table_tax");
+    // Two levies, one premium, two liabilities — which is the whole point.
+    expect(taxAccountOf(table.kind)).not.toBe(taxAccountOf(vat.kind));
+  });
+
+  it("reads a kind it does not know as the pre-0121 default rather than trusting it", () => {
+    expect(taxKindOf("table_tax")).toBe("table_tax");
+    expect(taxKindOf("something_invented")).toBe("vat");
+    expect(taxKindOf(null)).toBe("vat");
+  });
+
+  it("sends each kind to its own liability account", () => {
+    expect(taxAccountOf("vat")).toBe("2200");
+    expect(taxAccountOf("premium_tax")).toBe("2210");
+    expect(taxAccountOf("table_tax")).toBe("2220");
+    // A kind with no dedicated account shares the general one; a tenant that
+    // must split it further adds an account (ADR-0083).
+    expect(taxAccountOf("stamp_duty")).toBe("2200");
+  });
+});
+
+describe("tax resolution goes through the provider seam (docs/29 G2)", () => {
+  it("answers from the table for every market it has a rule for", async () => {
+    await installRulepack("AE");
+    expect((await taxTreatment(ctx, { market: "AE", code: DEFAULT_TAX_CODE })).ratePpm).toBe(50_000);
+  });
+
+  it("refuses a market whose provider is not installed rather than falling back", async () => {
+    // A tenant that installed a US provider and then lost it must not quietly
+    // start taxing Illinois at the UAE's 5%.
+    ctx = { ...ctx, policy: PolicyJson.parse({ taxProvider: "avalara" }) };
+    await expect(resolveTaxRule(ctx, { market: "US", code: "sales_tax" })).rejects.toMatchObject({
+      code: "bad_request"
+    });
+  });
+
+  it("still answers from the table when policy names the table explicitly", async () => {
+    ctx = { ...ctx, policy: PolicyJson.parse({ taxProvider: "table" }) };
+    await installRulepack("AE");
+    expect((await taxTreatment(ctx, { market: "AE", code: DEFAULT_TAX_CODE })).kind).toBe("vat");
   });
 });

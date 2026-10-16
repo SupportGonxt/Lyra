@@ -113,6 +113,10 @@ export const PERMISSIONS = [
   // AXIS — operations
   "axis:cases:read", "axis:cases:create", "axis:cases:update", "axis:cases:assign",
   "axis:cases:approve", "axis:cases:delete",
+  // docs/modules/axis.md §8 criterion 3: a case's signed audit bundle. Its own
+  // permission rather than `cases:read` — handing a complete evidentiary package
+  // to whoever can open a case is a different act from reading one.
+  "axis:cases:export",
   "axis:quotes:read", "axis:quotes:create", "axis:quotes:compare", "axis:quotes:approve",
   "axis:documents:read", "axis:documents:upload", "axis:documents:extract", "axis:documents:verify",
   "axis:tasks:read", "axis:tasks:write",
@@ -169,6 +173,12 @@ export const PERMISSIONS = [
   // all three through `axis:*:*`, and dual control above the policy threshold
   // is what keeps a drafter from signing their own large cession.
   "axis:reinsurance:read", "axis:reinsurance:write", "axis:reinsurance:approve",
+  // ADR-0125. The register of licences the tenant places risk under. Reading it
+  // is every AXIS reader's (the desk must see what it may place under, so
+  // `readsOf("axis")` carries it to axis.agent and axis.lead); *writing* it is
+  // the compliance officer's act, held by tenant.compliance beside `axis.admin`'s
+  // wildcard — the seat that answers to the regulator maintains the register.
+  "axis:authorisations:read", "axis:authorisations:write",
 
   // ORBIT — customer experience
   "orbit:conversations:read", "orbit:conversations:reply", "orbit:conversations:assign",
@@ -396,6 +406,10 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     // still costs a justification and an approval.
     "analytics:reports:read", "analytics:reports:run",
     "axis:policies:read", "dist:quote_requests:read",
+    // ADR-0125: the officer who answers to the regulator keeps the register of
+    // licences the desk places risk under. Read and write together, because a
+    // seat that may add a licence but not correct one is a register that rots.
+    "axis:authorisations:read", "axis:authorisations:write",
     "ledger:client_money:read", "ledger:journals:read",
     "core:notes:read"
   ],
@@ -422,7 +436,7 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
   "axis.lead": [
     ...readsOf("axis"), "axis:ai:invoke", "ai:suggestions:read", "ai:command:read",
     "axis:cases:create", "axis:cases:update", "axis:cases:assign",
-    "axis:cases:approve", "axis:quotes:create", "axis:quotes:compare", "axis:quotes:approve",
+    "axis:cases:approve", "axis:cases:export", "axis:quotes:create", "axis:quotes:compare", "axis:quotes:approve",
     "axis:documents:upload", "axis:documents:extract", "axis:documents:verify",
     "axis:tasks:write", "axis:policies:create", "axis:policies:bind",
     "axis:policies:endorse", "axis:policies:update", "axis:policies:cancel",
@@ -453,6 +467,8 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     "core:notes:read", "core:notes:write"
   ],
   "axis.admin": [
+    // The desk owner, who assembles evidentiary packages for regulators.
+    "axis:cases:export",
     "axis:*:*", "ai:suggestions:read", "core:customers:*", "core:products:*", "core:providers:*",
     "core:pii:view", "core:approvals:read", "core:approvals:decide", "core:files:*", "core:webhooks:read",
     "ledger:txns:read", "ledger:recon:read", "ledger:recon:run",
@@ -510,6 +526,11 @@ export const ROLES: Readonly<Record<string, readonly Permission[]>> = {
     ...readsOf("orbit"), "orbit:ai:invoke", "ai:suggestions:read", "ai:command:read",
     "orbit:partners:create", "orbit:partners:update",
     "orbit:partners:certify", "orbit:partner_keys:issue_test",
+    // docs/modules/orbit.md §8: "Partner sandbox → live key promotion without code
+    // changes." The permission was declared with the module and **granted to no
+    // role**, so even the promotion nobody had built could not have been run by
+    // anybody. The same seat that certifies a partner issues its live credential.
+    "orbit:partner_keys:issue_live",
     "ledger:txns:read", "analytics:reports:read", "analytics:reports:run",
     "dist:channels:read", "dist:channels:write", "dist:rates:read", "dist:commissions:read",
     "dist:offerings:read",

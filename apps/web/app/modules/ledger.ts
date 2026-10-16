@@ -1089,7 +1089,7 @@ export const ledger: WorkspaceSpec = {
         { name: "customerRef", type: "text", required: true },
         { name: "plan", type: "text", required: true },
         { name: "edition", type: "text" },
-        { name: "priceMinor", type: "money", required: true },
+        { name: "priceMinor", type: "money", currencyFrom: "currency", required: true },
         { name: "currency", type: "text", required: true },
         { name: "interval", type: "select", options: ["month", "year"] },
         { name: "seats", type: "number" },
@@ -1100,7 +1100,7 @@ export const ledger: WorkspaceSpec = {
       editable: [
         { name: "state", type: "select", options: ["active", "paused", "cancelled", "past_due"] },
         { name: "seats", type: "number" },
-        { name: "priceMinor", type: "money" },
+        { name: "priceMinor", type: "money", currencyFrom: "currency" },
         { name: "endAt", type: "date" },
         { name: "termsJson", type: "json" }
       ]
@@ -1131,9 +1131,9 @@ export const ledger: WorkspaceSpec = {
         { name: "number", type: "text", required: true },
         { name: "customerRef", type: "text", required: true },
         { name: "subscriptionId", type: "text" },
-        { name: "subtotalMinor", type: "money", required: true },
-        { name: "taxMinor", type: "money" },
-        { name: "totalMinor", type: "money", required: true },
+        { name: "subtotalMinor", type: "money", currencyFrom: "currency", required: true },
+        { name: "taxMinor", type: "money", currencyFrom: "currency" },
+        { name: "totalMinor", type: "money", currencyFrom: "currency", required: true },
         { name: "currency", type: "text", required: true },
         { name: "linesJson", type: "json", required: true },
         { name: "dueAt", type: "date" }
@@ -1308,11 +1308,11 @@ export const ledger: WorkspaceSpec = {
         { name: "accountCode", type: "text", required: true, hintKey: "hint.budgetAccount" },
         { name: "period", type: "text", required: true, hintKey: "hint.budgetPeriod" },
         { name: "currency", type: "text", required: true },
-        { name: "amountMinor", type: "money", required: true },
+        { name: "amountMinor", type: "money", currencyFrom: "currency", required: true },
         { name: "note", type: "textarea" }
       ],
       editable: [
-        { name: "amountMinor", type: "money" },
+        { name: "amountMinor", type: "money", currencyFrom: "currency" },
         { name: "note", type: "textarea" }
       ]
     },

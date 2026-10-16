@@ -166,6 +166,32 @@ export function useUiLocale(): string {
 }
 
 /**
+ * The currency a tenant's money is **counted in** — the functional currency, not a
+ * row's.
+ *
+ * This exists because the spec-driven write path had no currency at all: `FieldSpec`
+ * carried none, so a `MoneyField` could not be rendered and every money input posted
+ * raw minor units under a label that named no unit — `1575` stored 1575 fils and
+ * displayed as AED 15.75 (the 2026-10-01 sweep's WEB finding, recovered from a
+ * truncated result).
+ *
+ * Defaulted to `AED` for the same reason `apps/web/app/calendar.ts` does: ADR-0121
+ * records the launch market, so a fallback here applies a decision rather than making
+ * one. A row that disagrees states its own currency through `FieldSpec.currencyFrom`
+ * — that is a policy priced in SAR by an AED tenant — and only those rows need it,
+ * because a **form** edits one row for one tenant where a **list** can mix currencies.
+ */
+const CurrencyContext = React.createContext<string>("AED");
+
+export function UiCurrencyProvider({ currency, children }: { currency: string; children: React.ReactNode }) {
+  return <CurrencyContext.Provider value={currency}>{children}</CurrencyContext.Provider>;
+}
+
+export function useUiCurrency(): string {
+  return React.useContext(CurrencyContext);
+}
+
+/**
  * Which calendar a tenant reckons dates in. "dual" is the Gulf business
  * convention — a contract cites the Gregorian date and the Hijri one beside it —
  * so it is a rendering choice, not a third calendar.

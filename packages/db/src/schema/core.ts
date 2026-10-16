@@ -277,6 +277,8 @@ export const aiAuditLog = sqliteTable(
     latencyMs: integer("latency_ms").notNull().default(0),
     toolCallsJson: text("tool_calls_json"),
     guardrailFlagsJson: text("guardrail_flags_json"),
+    /** ADR-0118: grounded provenance (epistemic coverage, fact ids/sources, ood) — no fact values. */
+    groundingJson: text("grounding_json"),
     actorRef: text("actor_ref").notNull(),
     subjectRef: text("subject_ref"),
     outcome: text("outcome").notNull().default("ok"), // ok|refused|error|budget_exceeded|killed

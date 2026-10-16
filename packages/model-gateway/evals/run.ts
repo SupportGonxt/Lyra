@@ -1557,6 +1557,112 @@ async function scoreAnalyticsAsk(dir: string): Promise<Metric[]> {
   ];
 }
 
+/**
+ * ADR-0123: a policy wording is transcribed, not parsed, and the transcription is
+ * compared against another to find a coverage-term change. So the two things this
+ * measures are the two ways that comparison can lie:
+ *
+ *   - **recall** — a coverage term the wording carries that the transcription lost.
+ *     A lost term reads as "the cover is unchanged", which is the false negative
+ *     the ADR chose against a text-layer parser to avoid. Losing one here is the
+ *     same failure by a different route.
+ *   - **invented figures** — a number in the transcription that is in no expected
+ *     term. A coverage comparison is a legal document; an invented premium, excess
+ *     or waiting period is worse than a missing one, so the ceiling is zero rather
+ *     than "low".
+ *
+ * Both locales are scored and compared, because a Gulf wording is compared in
+ * whichever language the two documents happen to be written in.
+ */
+async function scoreWordingTranscribe(dir: string): Promise<Metric[]> {
+  const cases = await loadCases<{
+    id: string;
+    locale: string;
+    expected: { terms: string[] };
+    text: string;
+  }>(dir);
+  const thresholds = await loadThresholds<{
+    termRecallMin: number;
+    hallucinatedFigureRateMax: number;
+    localeParityMin: number;
+  }>(dir);
+
+  const norm = (value: string) =>
+    value
+      .toLowerCase()
+      // Arabic-Indic digits fold to ASCII so "٥٠٠ درهم" and "500 AED" are the same
+      // figure; without this the parity metric would fail on script, not meaning.
+      .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+      .replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+      .replace(/\u0640|[\u064b-\u0652]/g, "")
+      // Keep letters and digits and nothing else. A range like `\u0600-\u06ff`
+      // would look Arabic-aware and be wrong: **Arabic punctuation lives inside
+      // that block** — `،` is U+060C, `؛` U+061B, `؟` U+061F — so a
+      // range-based strip keeps the comma attached to the word and `الأمامي،`
+      // never matches `الأمامي`. That under-reports recall on Arabic and reads as
+      // a model problem when it is a normalisation one, which is how a real
+      // threshold gets loosened to accommodate a bug.
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .trim();
+
+  const figures = (value: string) => norm(value).match(/\d+/g) ?? [];
+
+  // A term has survived if **every one of its tokens** is in the transcript. Not a
+  // substring test: a transcription reorders freely ("Excess AED 500" for "AED 500
+  // excess") and word order is not cover. Not a bag-of-words over the whole
+  // document either — that would pass a transcript that scattered the words of one
+  // term across two unrelated sentences, which is the reading a diff would get
+  // wrong.
+  //
+  // Arabic joins its particles to the word: `ضد الغير` in a wording is written
+  // `وضد الغير` in running text, and `و` is the commonest of them. Compared
+  // literally, a term that is present reads as absent — which under-reports
+  // recall on Arabic and, worse, looks like a model losing cover. So a single
+  // leading `و` is dropped from every token on **both** sides. The tolerance is
+  // real and bounded: two words differing only by that prefix collapse, and a
+  // term distinguished only by it would be missed. For a terminology measure that
+  // is the right trade; for a legal diff, the reader still sees both spellings in
+  // the spans.
+  const detach = (token: string) => (token.length > 2 && token.startsWith("و") ? token.slice(1) : token);
+  const tokens = (value: string) => new Set(norm(value).split(" ").filter(Boolean).map(detach));
+  const hasTerm = (haystackTokens: Set<string>, term: string) =>
+    [...tokens(term)].every((token) => haystackTokens.has(token));
+
+  const byLocale = new Map<string, { found: number; total: number }>();
+  let invented = 0;
+  let figuresSeen = 0;
+
+  for (const c of cases) {
+    const haystack = tokens(c.text);
+    const tally = byLocale.get(c.locale) ?? { found: 0, total: 0 };
+    for (const term of c.expected.terms) {
+      tally.total += 1;
+      if (hasTerm(haystack, term)) tally.found += 1;
+    }
+    byLocale.set(c.locale, tally);
+
+    // A figure is invented when it is in no expected term for this case.
+    const allowed = new Set(c.expected.terms.flatMap(figures));
+    for (const figure of figures(c.text)) {
+      figuresSeen += 1;
+      if (!allowed.has(figure)) invented += 1;
+    }
+  }
+
+  const found = [...byLocale.values()].reduce((sum, t) => sum + t.found, 0);
+  const total = [...byLocale.values()].reduce((sum, t) => sum + t.total, 0);
+  const rates = [...byLocale.values()].map((t) => (t.total ? t.found / t.total : 1));
+  const parity = rates.length ? Math.min(...rates) : 1;
+
+  return [
+    metric("termRecall", total ? found / total : 1, { min: thresholds.termRecallMin }),
+    metric("localeParity", parity, { min: thresholds.localeParityMin }),
+    metric("hallucinatedFigureRate", figuresSeen ? invented / figuresSeen : 0, {
+      max: thresholds.hallucinatedFigureRateMax
+    })
+  ];
+}
+
 const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   "analytics-ask": scoreAnalyticsAsk,
   injection: scoreInjection,
@@ -1569,6 +1675,8 @@ const SCORERS: Record<string, (dir: string) => Promise<Metric[]>> = {
   "guardrails-ar": scoreArabicGuardrails,
   axis: scoreAxis,
   "axis-vision": scoreAxisVision,
+  // ADR-0123.
+  "wording-transcribe": scoreWordingTranscribe,
   "axis-copilot": scoreGroundedness,
   "orbit-draft": scoreGroundedness,
   // A journey's `agent` node drafts proactive outreach (engines/orbit-journeys.ts)

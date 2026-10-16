@@ -120,6 +120,7 @@ export const en = {
   "nav.north/alerts": "Alerts",
   "nav.north/board": "Board",
   "nav.north/decisions": "Decisions",
+  "nav.north/compliance-posture": "Compliance posture",
   "nav.north/admin": "Admin",
   "nav.north/dev": "Dev",
   "nav.group.records": "Records & finance",
@@ -333,6 +334,19 @@ export const en = {
   "common.field.hint.json": "JSON — an object or a list, exactly as it is stored.",
   "common.field.hint.rate": "A percentage. 2.5 means two and a half percent.",
   "common.field.hint.ratio": "A multiplier, not a percentage. 18.5 means 18.5 times.",
+  // The money hint exists because the premise that made it unnecessary was false.
+  //
+  // `fields.tsx:318` read *"`money` is deliberately not here: it submits raw and
+  // every money field is named `…Minor`, which says it on the label itself"* — which
+  // conflates the **field name** with the **label**. The label a reader sees is
+  // "Premium", not "premiumMinor", so a field labelled "Subtotal" accepted `1575` and
+  // stored 1575 **fils**, rendering as AED 15.75. The 2026-10-01 sweep's lost WEB
+  // finding, recovered and verified end to end.
+  //
+  // This states the unit rather than converting it. Routing the engine's money fields
+  // through `MoneyField` (which does convert, and which ui.md:415 specifies as the
+  // contract) is the real fix and is recorded as owed — but a **stated** unit is not a
+  // misstated amount, and that is the bar this had to clear.
   // Every agent key and AI purpose the platform mints, in words. Both are code
   // constants (`renewal`, `claim_reserve`) that six screens print — home, the
   // agent console three times, a run's detail and a conversation — and they

@@ -5,6 +5,7 @@ import {
   creativeContextLines,
   fallbackCampaignPlan,
   parseCampaignPlan,
+  knowledgeBlock,
   promptNouns,
   type CampaignPlan,
   type CampaignPlanEvidence,
@@ -16,7 +17,7 @@ import {
   type Gateway
 } from "@lyra/model-gateway";
 import { schema } from "@lyra/db";
-import type { Ctx } from "@lyra/core";
+import { taxMarketOf, type Ctx } from "@lyra/core";
 
 // The three-option campaign plan a promotion argues before a line of copy is
 // written: the planner's notes, three ranked approaches each with a
@@ -51,6 +52,12 @@ export async function planCampaign(
   ev: CampaignPlanEvidence
 ): Promise<PlannedCampaign> {
   const nouns = promptNouns(ctx.policy.domainPack);
+  // The planner reasons inside the tenant's own world: its market's language,
+  // its disclosure rules, how an aggregator earns (packages/model-gateway/src
+  // /knowledge.ts). Context, not evidence — the prompt says so, and none of it
+  // reaches `verifyGroundedness`, so a knowledge fact can never be cited as
+  // though the tenant's data had stated it.
+  const knowledge = knowledgeBlock(ctx.policy.domainPack, { markets: [taxMarketOf(ctx)] });
   try {
     const res = await gateway.complete(ctx, {
       module: "signal",
@@ -58,7 +65,7 @@ export async function planCampaign(
       tier: "reasoning",
       subjectRef: ev.subject,
       responseSchema: campaignPlanSchema(),
-      messages: campaignPlanMessages(ev, nouns)
+      messages: campaignPlanMessages(ev, nouns, knowledge)
     });
     const plan = parseCampaignPlan(res.text, ev, nouns);
     return plan

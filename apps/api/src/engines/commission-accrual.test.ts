@@ -109,6 +109,22 @@ describe("axis.policy.issued accrues the channel's commission", () => {
     expect(entries[0]).toMatchObject({ state: "accrued", kind: "new_business", channelId: policy.channelId, premiumMinor: policy.premiumMinor });
     expect(entries[0]!.grossCommissionMinor).toBeGreaterThan(0);
 
+    // The sweep's MONEY finding (2026-10-01). `quoteCommission` resolves the
+    // market's VAT and takes it off `split.netMinor`, but the row used to record
+    // `input.taxMinor` — which `:241` and `routes/dist.ts:442` both pass as 0. So
+    // every live accrual stored **tax = 0 on a net already 5% lighter**, while the
+    // column's contract (schema/dist.ts:237-239) says the row decomposes into these
+    // parts, and both the statement's Tax total and the report engine's Tax metric
+    // read this column and reported zero.
+    //
+    // Asserted as the schema's own identity rather than a literal, so a rate change
+    // cannot invalidate the test; the seeded tenant is priced in AED, whose
+    // commission rule carries VAT, so a zero means the resolved tax was discarded.
+    expect(entries[0]!.taxMinor).toBeGreaterThan(0);
+    expect(entries[0]!.netCommissionMinor).toBe(
+      entries[0]!.grossCommissionMinor - entries[0]!.channelCommissionMinor - entries[0]!.taxMinor
+    );
+
     const audits = await database
       .select()
       .from(schema.auditLog)

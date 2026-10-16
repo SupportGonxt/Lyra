@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, gte, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import { schema } from "@lyra/db";
 import {
   applyPpm,
   badRequest,
+  clientMoneyPairs,
   notFound,
   tenantAccount,
   tenantChart,
@@ -182,6 +183,19 @@ export async function accountStatement(
 }
 
 export interface ClientMoneyPosition {
+  /**
+   * ADR-0126. The segregated account this row is about. A broker holds one per
+   * licence, per market, so a report that answers per currency alone cannot say
+   * which licence is short — and a surplus in one market's account is not
+   * evidence about another's.
+   */
+  accountCode: string;
+  /** The liability that account is paired with; the other half of the same test. */
+  liabilityCode: string;
+  /** A name for the account, English or Arabic by `ctx.locale`, as the chart gives it. */
+  accountName: string;
+  /** The account's own currency where the chart fixes one; otherwise the first currency it holds. */
+  market: string | null;
   currency: string;
   assetMinor: number;
   liabilityMinor: number;
@@ -190,14 +204,29 @@ export interface ClientMoneyPosition {
   asOf: number;
 }
 
+/** `market` from the chart's currency, so a report row names the account a reader sees. */
+function marketOf(currency: string | undefined): string | null {
+  return currency ? currency.toUpperCase() : null;
+}
+
 /**
  * docs/12: the regulator's question is "is client money whole right now". This
  * answers it from lines, independently of the running-balance cache, so the two
  * can be compared as a control.
+ *
+ * ADR-0126: **one row per client-money account**, not one per currency. The
+ * pairs come from the tenant's own chart, so an account added at runtime is
+ * reported beside a seeded one, and the rows are never summed: the whole reason
+ * a broker segregates per licence is that the total is not the answer.
  */
 export async function clientMoneyPosition(ctx: Ctx, currency?: string): Promise<ClientMoneyPosition[]> {
   const l = schema.ledgerJournalLines;
-  const where = [eq(l.tenantId, ctx.tenantId), sql`${l.accountCode} in ('1010','2010')`];
+  const pairs = await clientMoneyPairs(ctx);
+  const chart = await tenantChartMap(ctx);
+  const codes = pairs.flatMap((p) => [p.assetCode, p.liabilityCode]);
+  if (codes.length === 0) return [];
+
+  const where = [eq(l.tenantId, ctx.tenantId), inArray(l.accountCode, codes)];
   if (currency) where.push(eq(l.currency, currency));
 
   const rows = await ctx.db
@@ -211,23 +240,50 @@ export async function clientMoneyPosition(ctx: Ctx, currency?: string): Promise<
     .where(and(...where))
     .groupBy(l.currency, l.accountCode, l.side);
 
-  const byCurrency = new Map<string, { asset: number; liability: number }>();
+  // Keyed by pair *and* currency: an account held in two currencies has two
+  // positions, and its own row for each, because a shortfall in one cannot be
+  // paid out of the other without an FX conversion nobody authorised.
+  const held = new Map<string, { asset: number; liability: number }>();
   for (const r of rows) {
-    const acc = byCurrency.get(r.currency) ?? { asset: 0, liability: 0 };
     const n = Number(r.total);
-    if (r.accountCode === "1010") acc.asset += r.side === "debit" ? n : -n;
-    else acc.liability += r.side === "credit" ? n : -n;
-    byCurrency.set(r.currency, acc);
+    for (const p of pairs) {
+      if (r.accountCode !== p.assetCode && r.accountCode !== p.liabilityCode) continue;
+      const key = `${p.assetCode}\u0000${r.currency}`;
+      const acc = held.get(key) ?? { asset: 0, liability: 0 };
+      if (r.accountCode === p.assetCode) acc.asset += r.side === "debit" ? n : -n;
+      else acc.liability += r.side === "credit" ? n : -n;
+      held.set(key, acc);
+    }
   }
 
-  return [...byCurrency].map(([cur, v]) => ({
-    currency: cur,
-    assetMinor: v.asset,
-    liabilityMinor: v.liability,
-    surplusMinor: v.asset - v.liability,
-    breach: v.asset < v.liability,
-    asOf: ctx.now
-  }));
+  const out: ClientMoneyPosition[] = [];
+  for (const p of pairs) {
+    const asset = chart.get(p.assetCode);
+    const liability = chart.get(p.liabilityCode);
+    // Every currency either side has ever been posted in, so a pair whose
+    // liability moved and whose asset did not still gets its row — and its
+    // breach. The account's own currency leads, then the rest by code.
+    const currencies = [...new Set(
+      [...held.keys()].filter((k) => k.startsWith(`${p.assetCode}\u0000`)).map((k) => k.split("\u0000")[1]!)
+    )].sort((a, b) => (a === asset?.currency ? -1 : b === asset?.currency ? 1 : a.localeCompare(b)));
+
+    for (const cur of currencies) {
+      const v = held.get(`${p.assetCode}\u0000${cur}`) ?? { asset: 0, liability: 0 };
+      out.push({
+        accountCode: p.assetCode,
+        liabilityCode: p.liabilityCode,
+        accountName: (ctx.locale === "ar" ? asset?.ar : asset?.en) ?? p.assetCode,
+        market: marketOf(asset?.currency ?? liability?.currency ?? cur),
+        currency: cur,
+        assetMinor: v.asset,
+        liabilityMinor: v.liability,
+        surplusMinor: v.asset - v.liability,
+        breach: v.asset < v.liability,
+        asOf: ctx.now
+      });
+    }
+  }
+  return out;
 }
 
 export interface RebuildResult {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   Form,
   Link,
@@ -320,7 +321,7 @@ export default function LedgerOpenTxn() {
                     />
                   </Field>
                   <Field label={l("open.gross")} className="w-44">
-                    <MoneyField name="grossMinor" currency={currency || "ZAR"} locale={locale} />
+                    <MoneyField name="grossMinor" currency={currency || FALLBACK_CURRENCY} locale={locale} />
                   </Field>
                 </div>
 
@@ -343,7 +344,7 @@ export default function LedgerOpenTxn() {
                           field={field}
                           label={l(`arg.${field.name}`)}
                           accountHint={l("open.argAccountHint")}
-                          currency={currency || "ZAR"}
+                          currency={currency || FALLBACK_CURRENCY}
                           locale={locale}
                         />
                       ))}

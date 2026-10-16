@@ -24,6 +24,7 @@ import {
   type Column
 } from "@lyra/ui";
 import { ApiError, api, fetchMe } from "../api.server";
+import { FALLBACK_CURRENCY } from "../calendar";
 import { cloudflare } from "../context";
 import { Gate } from "./staff";
 import { daysUntil, safe, type Page } from "./orbit-shared";
@@ -356,7 +357,7 @@ export default function ReferralDesk() {
                     row.valueMinor === null ? (
                       "—"
                     ) : (
-                      <Money amountMinor={row.valueMinor} currency={row.currency ?? "USD"} locale={loaded.locale} />
+                      <Money amountMinor={row.valueMinor} currency={row.currency ?? FALLBACK_CURRENCY} locale={loaded.locale} />
                     )
                 },
                 {

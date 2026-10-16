@@ -7,11 +7,22 @@ import { fieldKey, type Env } from "./env.js";
 // credential: an HMAC over kind, tenant and row, keyed by FIELD_KEY. One module
 // mints it for every sender — the staff route that hands a link to a person and
 // the journey `survey` node that posts one into a conversation — so the two can
-// never disagree about what a valid link looks like.
+// never disagree about what a valid link looks like. The supplier and channel
+// portals (docs: the insurer's panel position, the broker's book and commission)
+// are the same door for two more external parties: an insurer and a channel are
+// as external as a customer, so they get a link, not a seat.
 
-export type PortalLinkKind = "renewal" | "feedback";
+export type PortalLinkKind = "renewal" | "feedback" | "supplier" | "channel";
 
-/** The credential in a renewal/feedback link. */
+/** The hosted path each kind opens on, under `/portal/:tenantSlug/`. */
+const LINK_PATH: Record<PortalLinkKind, string> = {
+  renewal: "renewals",
+  feedback: "feedback",
+  supplier: "suppliers",
+  channel: "channels"
+};
+
+/** The credential in a hosted link. */
 export async function portalLinkToken(
   env: Pick<Env, "FIELD_KEY">,
   kind: PortalLinkKind,
@@ -37,6 +48,5 @@ export async function portalLink(
     .limit(1);
   if (!tenant) throw badRequest("tenant");
   const token = await portalLinkToken(env, kind, ctx.tenantId, rowId);
-  const path = kind === "renewal" ? `renewals/${rowId}` : `feedback/${rowId}`;
-  return `${env.APP_ORIGIN}/portal/${tenant.slug}/${path}?token=${token}`;
+  return `${env.APP_ORIGIN}/portal/${tenant.slug}/${LINK_PATH[kind]}/${rowId}?token=${token}`;
 }

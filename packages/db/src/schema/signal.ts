@@ -336,3 +336,114 @@ export const audienceMembers = sqliteTable(
     index("signal_audience_members_customer_idx").on(t.tenantId, t.customerId)
   ]
 );
+
+/**
+ * Where a cleared creative actually landed (docs/modules/signal.md §2.1, §4.2).
+ *
+ * The module could argue, plan, draft, clear and mark a campaign live while
+ * nothing reached an ad account — the acceptance criterion in §8 ("brief → 20
+ * compliant variants → publish to Meta+Google in under an hour") had no path at
+ * all. This is the placement record: one row per creative per platform, holding
+ * the platform's own id for what it created.
+ *
+ * Unique on (tenant, creative, provider) on purpose. The ad on the platform is
+ * an immutable asset plus a placement, so re-publishing a creative that already
+ * landed would orphan the first ad and leave two objects billing behind one
+ * row — the publisher skips a successful placement instead, and retries only a
+ * failure. `status` is the outcome of the last attempt, `error` its reason.
+ */
+export const creativePublishes = sqliteTable(
+  "signal_creative_publishes",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    creativeId: text("creative_id").notNull(),
+    /** The connector provider key: `meta-ads`, `google-ads`, `tiktok-ads`. */
+    provider: text("provider").notNull(),
+    /** The platform's own id — an ad id, a resource name. Null on a failure. */
+    externalId: text("external_id"),
+    status: text("status").notNull(), // published|failed
+    error: text("error"),
+    publishedAt: integer("published_at").notNull()
+  },
+  (t) => [
+    uniqueIndex("signal_creative_publishes_uq").on(t.tenantId, t.creativeId, t.provider),
+    index("signal_creative_publishes_creative_idx").on(t.tenantId, t.creativeId, t.status)
+  ]
+);
+
+/**
+ * One observation of whether an AI assistant cited us for a query
+ * (docs/modules/signal.md §2.4, §4.5; J-M3).
+ *
+ * Before this table the only record of a citation was `signal_aeo_pages
+ * .citedByJson` — a single mutable column whose one writer in the whole
+ * repository was the demo seed. So "citation share" (cited ÷ published) was a
+ * fixture, it read 0% on every tenant that was not the demo, and the 8-week
+ * trend J-M3 asks for was not merely unmeasured but unmeasurable: one mutable
+ * value cannot have a history. A row per sample can.
+ *
+ * Keyed by query rather than only by page, because §7 asks for "citation share
+ * on the top-20 queries" and a cluster is not a query. `pageId` is null when a
+ * sampled query has no page written for it yet, which is a fact worth keeping:
+ * it is the gap the content plan exists to close.
+ */
+export const aeoCitations = sqliteTable(
+  "signal_aeo_citations",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    /** -> signal_aeo_pages.id; null when nothing is published for this query. */
+    pageId: text("page_id"),
+    query: text("query").notNull(),
+    locale: text("locale").notNull().default("en"),
+    /** Which assistant answered — the connector's own label, so two engines can
+     *  disagree about the same query without being averaged into one number. */
+    assistant: text("assistant").notNull(),
+    cited: integer("cited", { mode: "boolean" }).notNull(),
+    /** The domains the answer did cite, so the board can name who took the box. */
+    citedDomainsJson: text("cited_domains_json"),
+    /** The answer's opening, trimmed — the evidence behind the verdict. */
+    excerpt: text("excerpt"),
+    sampledAt: integer("sampled_at").notNull()
+  },
+  (t) => [
+    index("signal_aeo_citations_idx").on(t.tenantId, t.sampledAt),
+    index("signal_aeo_citations_page_idx").on(t.tenantId, t.pageId, t.sampledAt)
+  ]
+);
+
+/**
+ * The tenant's house rules for marketing copy (docs/modules/signal.md §2.1:
+ * "brand kit enforcement: tenant tokens, banned-claims list").
+ *
+ * Until this table existed the brand kit and the banned-claims list were two
+ * strings the demo seed wrote into a campaign's `guardrailChecksJson` as
+ * `"pass"`, and the admin screen rendered them as an attestation. So a real
+ * marketing team saw a guardrail table saying "pass" on every campaign it
+ * created, and the pre-flight's banned-claim scan was four hardcoded regexes
+ * that no tenant could extend — a Saudi or Egyptian regulator's list had
+ * nowhere to go.
+ *
+ * One row per tenant (unique on tenant_id): a brand kit is the brand's, not a
+ * campaign's. The lists live in JSON because each is short, ordered by nothing,
+ * and read whole — the same reason `moduleConfig` is a blob.
+ */
+export const brandKits = sqliteTable(
+  "signal_brand_kits",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    /** Phrases the brand always runs; copy without them is flagged for a human. */
+    requiredPhrasesJson: text("required_phrases_json").notNull().default("[]"),
+    /** Words this brand never uses — a competitor's name, a register it avoids. */
+    forbiddenWordsJson: text("forbidden_words_json").notNull().default("[]"),
+    /** The tenant's own banned claims: `{pattern, isRegex?, note, severity?}`. */
+    bannedClaimsJson: text("banned_claims_json").notNull().default("[]"),
+    /** Bumped on every write, so a finding can name the kit it was checked against. */
+    version: integer("version").notNull().default(1),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull()
+  },
+  (t) => [uniqueIndex("signal_brand_kits_uq").on(t.tenantId)]
+);

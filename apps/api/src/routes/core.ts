@@ -26,6 +26,7 @@ import { LOGIN_MAX, LOGIN_WINDOW_SEC, MFA_MAX, SESSION_TTL_MS } from "../auth.js
 import { deliver } from "../dispatch.js";
 import { body, created, csvBody, InstantMs } from "../http.js";
 import { importCustomers } from "../engines/customer-import.js";
+import { portalLink } from "../portal-link.js";
 import { must } from "../rows.js";
 import type { App } from "../env.js";
 
@@ -403,6 +404,19 @@ coreRoutes.get("/security-posture", async (c) => {
     // true instead: the control is not offered.
     network: { ipAllowlist: "unsupported" }
   });
+});
+
+/* ------------------------------------------------------- supplier portal */
+
+// The insurer's portal link (PORTALS-DESIGN-AND-AUDIT.md). Handing one out is
+// reading the row it names, so it is gated on the same permission — a link is
+// as sensitive as what it opens. Read-only; the page it opens writes nothing.
+coreRoutes.get("/providers/:id/portal-link", async (c) => {
+  const ctx = ctxOf(c);
+  require_(ctx.actor, "core:providers:read", { tenantId: ctx.tenantId, module: "core" });
+  const id = c.req.param("id");
+  await must(ctx, schema.providers, id, "provider");
+  return c.json({ url: await portalLink(ctx, c.env, "supplier", id) });
 });
 
 /* ------------------------------------------------------------- position */

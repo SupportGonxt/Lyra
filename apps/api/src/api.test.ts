@@ -386,7 +386,13 @@ describe("openapi", () => {
           !p.startsWith("/v1/channels/") &&
           p !== "/health" &&
           p !== "/openapi.json" &&
-          p !== "/v1/onboarding/partners/signup"
+          p !== "/v1/onboarding/partners/signup" &&
+          // ADR-0124: the consumer's door. Listed here deliberately — this list
+          // IS the platform's unauthenticated surface, so opening one is an edit
+          // to it rather than a side effect of adding a route. The door captures
+          // its own consent basis, reaches no staff operation, and is rate-limited
+          // before it fans out; nothing else here would be.
+          p !== "/v1/dist/public/quote-start"
       )
       .flatMap(([p, ops]) => Object.entries(ops).filter(([, op]) => !op.security).map(([m]) => `${m} ${p}`));
     expect(open).toEqual([]);

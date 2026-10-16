@@ -27,7 +27,7 @@ of route files driven by declarative specs in [apps/web/app/modules/](apps/web/a
 - [module.tsx](apps/web/app/routes/module.tsx) — `/:module` and `/:module/:resource`, the tabbed list
 - [record.tsx](apps/web/app/routes/record.tsx) — `/:module/:resource/:id`, the single record
 
-Adding a resource adds a `ResourceSpec` entry, not a route. 141 resource tabs
+Adding a resource adds a `ResourceSpec` entry, not a route. 143 resource tabs
 across 10 workspaces render this way. §7 is the full table.
 
 **Bespoke.** A screen that is genuinely its own thing — a quote comparison, a
@@ -423,7 +423,7 @@ Anything the user needs to *read* belongs on the page.
 
 ## 6. Route index
 
-All 129 declared routes, in manifest order. `routes.inventory.test.ts` holds
+All 133 declared routes, in manifest order. `routes.inventory.test.ts` holds
 this table to `apps/web/app/routes.ts` — URL, route module and the count above —
 so a screen cannot ship missing from the inventory a reader is told to consult
 first. What each screen *does* is still written by hand; what exists is not.
@@ -438,6 +438,8 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/portal/:tenantSlug/register` | [portal.$tenantSlug.register.tsx](apps/web/app/routes/portal.$tenantSlug.register.tsx) |
 | `/portal/:tenantSlug/quotes/:id` | [portal.$tenantSlug.quotes.$id.tsx](apps/web/app/routes/portal.$tenantSlug.quotes.$id.tsx) |
 | `/portal/:tenantSlug/partners` | [portal.$tenantSlug.partners.tsx](apps/web/app/routes/portal.$tenantSlug.partners.tsx) |
+| `/portal/:tenantSlug/suppliers/:id` | [portal.$tenantSlug.suppliers.$id.tsx](apps/web/app/routes/portal.$tenantSlug.suppliers.$id.tsx) |
+| `/portal/:tenantSlug/channels/:id` | [portal.$tenantSlug.channels.$id.tsx](apps/web/app/routes/portal.$tenantSlug.channels.$id.tsx) |
 | `/portal/:tenantSlug/renewals/:id` | [portal.$tenantSlug.renewals.$id.tsx](apps/web/app/routes/portal.$tenantSlug.renewals.$id.tsx) |
 | `/portal/:tenantSlug/feedback/:id` | [portal.$tenantSlug.feedback.$id.tsx](apps/web/app/routes/portal.$tenantSlug.feedback.$id.tsx) |
 | `/portal/:tenantSlug/chat` | [portal.$tenantSlug.chat.tsx](apps/web/app/routes/portal.$tenantSlug.chat.tsx) |
@@ -487,6 +489,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/search/results` | [search-results.tsx](apps/web/app/routes/search-results.tsx) |
 | `/memory` | [memory.ts](apps/web/app/routes/memory.ts) |
 | `/memory/export` | [memory-export.ts](apps/web/app/routes/memory-export.ts) |
+| `/portal-link/:kind/:id` | [portal-link.$kind.$id.tsx](apps/web/app/routes/portal-link.$kind.$id.tsx) |
 | `/onboarding/:kind/:ref` | [onboarding.tsx](apps/web/app/routes/onboarding.tsx) |
 | `/admin/customers/:id/360` | [customer-360.tsx](apps/web/app/routes/customer-360.tsx) |
 | `/admin/products/:id/detail` | [product-detail.tsx](apps/web/app/routes/product-detail.tsx) |
@@ -557,6 +560,7 @@ first. What each screen *does* is still written by hand; what exists is not.
 | `/north/board` | [north-board.tsx](apps/web/app/routes/north-board.tsx) |
 | `/north/board/:id/file` | [north-board-file.tsx](apps/web/app/routes/north-board-file.tsx) |
 | `/north/decisions` | [north-decisions.tsx](apps/web/app/routes/north-decisions.tsx) |
+| `/north/compliance-posture` | [north-compliance-posture.tsx](apps/web/app/routes/north-compliance-posture.tsx) |
 | `/north/admin` | [north-admin.tsx](apps/web/app/routes/north-admin.tsx) |
 | `/north/dev` | [north-dev.tsx](apps/web/app/routes/north-dev.tsx) |
 
@@ -660,7 +664,7 @@ multiplier in ppm (FX 18.5 is `18500000`, never 1850%), `measure` is a number
 whose unit is a sibling column (NORTH stores money, basis points, milliseconds and
 counts in one `value`), `money` is minor units.
 
-### 7.1 The 141 resource tabs
+### 7.1 The 143 resource tabs
 
 
 #### `/admin` — 36 tabs
@@ -788,7 +792,7 @@ definition read back as phrases (`describeDef`) under an `AgentBadge` whose
 ("outside what your data covers" / "did not compile"); the model's prose never
 reaches the page. No modal, no auto-run, no toast.
 
-#### `/axis` — 15 tabs
+#### `/axis` — 16 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
@@ -807,6 +811,7 @@ reaches the page. No modal, no auto-run, no toast.
 | `case-approvals` | `/v1/axis/case-approvals` | `axis:cases:approve` |  |  |  |  |  |
 | `process-events` | `/v1/axis/process-events` | `axis:metrics:read` |  |  |  |  |  |
 | `ops-policies` | `/v1/axis/ops-policies` | `axis:ops_policies:read` | ✓ | ✓ | ✓ |  |  |
+| `authorisations` | `/v1/axis/authorisations` | `axis:authorisations:read` | ✓ | ✓ | ✓ | ✓ |  |
 
 #### `/compliance` — 11 tabs
 
@@ -910,7 +915,7 @@ reaches the page. No modal, no auto-run, no toast.
 | `scout-experiments` | `/v1/scout/scout-experiments` | `scout:experiments:read` | ✓ | ✓ |  |  |  |
 | `data-products` | `/v1/scout/data-products` | `scout:data_products:read` | ✓ | ✓ |  |  |  |
 
-#### `/signal` — 10 tabs
+#### `/signal` — 11 tabs
 
 | Tab | API | Read | C | U | D | Search | Record link |
 | --- | --- | --- | :-: | :-: | :-: | :-: | --- |
@@ -924,6 +929,7 @@ reaches the page. No modal, no auto-run, no toast.
 | `prospects` | `/v1/signal/prospects` | `signal:audiences:read` |  |  |  |  |  |
 | `responses` | `/v1/signal/responses` | `signal:campaigns:read` |  |  |  |  |  |
 | `spend` | `/v1/signal/spend` | `signal:spend:read` | ✓ | ✓ |  |  |  |
+| `brand-kits` | `/v1/signal/brand-kits` | `signal:creatives:read` | ✓ | ✓ |  |  |  |
 
 The `audiences` record offers one action, **Expand as lookalike** (ADR-0113,
 `signal:audiences:create`). It takes a size of 1 to 5000. The field hint states

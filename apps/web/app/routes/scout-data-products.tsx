@@ -9,6 +9,7 @@ import {
   type LoaderFunctionArgs
 } from "react-router";
 import { Badge, Button, Card, DateTime, EmptyState, Field, GuardrailNotice, Money, MoneyField, Ref, Select } from "@lyra/ui";
+import { FALLBACK_CURRENCY } from "../calendar";
 import { ApiError, api, names } from "../api.server";
 import { refOptions } from "../refs.server";
 import { cloudflare } from "../context";
@@ -375,7 +376,7 @@ export default function ScoutDataProducts() {
   const subscribers = subscribersOf(product);
   const warnings = warningsFor(product, loaded.kFloor);
   const selling = may.has(PERM.dataProductsPublish) && product.status === "published";
-  const currency = shell?.currency ?? "AED";
+  const currency = shell?.currency ?? FALLBACK_CURRENCY;
 
   return (
     <div className="flex flex-col gap-6">

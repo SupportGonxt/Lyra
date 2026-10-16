@@ -7,6 +7,7 @@ import {
   type ActionFunctionArgs,
   type LoaderFunctionArgs
 } from "react-router";
+import { FALLBACK_CURRENCY } from "../calendar";
 import {
   Badge,
   BudgetMeter,
@@ -363,7 +364,7 @@ function boundsColumns(
       numeric: true,
       render: (campaign) => {
         const budget = budgetOf(campaign);
-        return money(budget.dailyMinor ?? 0, budget.currency ?? "ZAR");
+        return money(budget.dailyMinor ?? 0, budget.currency ?? FALLBACK_CURRENCY);
       }
     },
     {
@@ -374,7 +375,7 @@ function boundsColumns(
         const budget = budgetOf(campaign);
         return budget.autopilotBoundMinor === undefined
           ? l("none")
-          : money(budget.autopilotBoundMinor, budget.currency ?? "ZAR");
+          : money(budget.autopilotBoundMinor, budget.currency ?? FALLBACK_CURRENCY);
       }
     },
     {
@@ -391,7 +392,7 @@ function boundsColumns(
       key: "spent",
       header: l("budget.used"),
       numeric: true,
-      render: (campaign) => money(spentBy[campaign.id] ?? 0, budgetOf(campaign).currency ?? "ZAR")
+      render: (campaign) => money(spentBy[campaign.id] ?? 0, budgetOf(campaign).currency ?? FALLBACK_CURRENCY)
     },
     {
       key: "headroom",
@@ -402,7 +403,7 @@ function boundsColumns(
         const left = plannedMinor(budget, days) - (spentBy[campaign.id] ?? 0);
         return (
           <span className={left < 0 ? "text-danger" : undefined}>
-            {money(Math.abs(left), budget.currency ?? "ZAR")}
+            {money(Math.abs(left), budget.currency ?? FALLBACK_CURRENCY)}
           </span>
         );
       }

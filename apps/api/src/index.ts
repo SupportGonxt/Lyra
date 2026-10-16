@@ -17,17 +17,21 @@ import { concludeExperiments } from "./engines/signal-experiment.js";
 import { sweepBilling } from "./engines/billing.js";
 import { sweepConversationDrafts } from "./engines/orbit-draft.js";
 import { runSnapshotter } from "./engines/north-snapshotter.js";
+import { ingestAletheia } from "./engines/aletheia-ingest.js";
 import { backupTenant } from "./engines/backup.js";
 import { anchorAudit } from "./engines/anchor.js";
 import { nudgeApiKeyRotation } from "./engines/api-key-rotation.js";
 import { runBudgetAutopilot } from "./engines/signal-autopilot.js";
+import { runSpendWatch } from "./engines/signal-watch.js";
 import { pullAdSpend, spendPullWindow } from "./engines/signal-ad-platforms.js";
 import { exportConversions } from "./engines/signal-conversions.js";
 import { runAcquisitionSweep } from "./engines/signal-outreach.js";
+import { openerFor as aeoOpener, sampleAeoCitations } from "./engines/signal-aeo-monitor.js";
 import { sweepQaScores } from "./engines/orbit-qa.js";
 import { sweepAiDrift } from "./engines/ai-drift.js";
 import { expireDelegations } from "./engines/staff.js";
 import { notifyUrgentWatch, runWatch } from "./engines/scout-watch.js";
+import { gatherSentinelInput, runAletheiaSentinel } from "./engines/aletheia-sentinel.js";
 import { nightlyBriefing } from "./engines/narrator.js";
 import { expireQuoteRequests } from "./engines/dist-quote-expiry.js";
 import { sweepRetention } from "./engines/compliance-retention.js";
@@ -41,6 +45,7 @@ import { meRoutes } from "./routes/me.js";
 import { coreRoutes } from "./routes/core.js";
 import { axisRoutes } from "./routes/axis.js";
 import { distRoutes } from "./routes/dist.js";
+import { expireStale } from "@lyra/ledger";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { aiRoutes } from "./routes/ai.js";
 import { orbitRoutes } from "./routes/orbit.js";
@@ -227,6 +232,10 @@ export default {
     const isBackupWindow = nowDate.getUTCHours() === 2 && nowDate.getUTCMinutes() < 15;
     // The autopilot evaluates each campaign on the first tick of the UTC day.
     const isSpendPullWindow = nowDate.getUTCHours() === 0 && nowDate.getUTCMinutes() < 15;
+    // The AEO monitor asks the assistants once a week (docs/modules/signal.md
+    // §2.4), so a citation trend has one comparable sample per week rather than
+    // a number that moves every time somebody looks at it. Monday 03:00 UTC.
+    const isAeoWindow = nowDate.getUTCDay() === 1 && nowDate.getUTCHours() === 3 && nowDate.getUTCMinutes() < 15;
     ctxExec.waitUntil(
       (async () => {
         await pruneSessions(env, now);
@@ -286,7 +295,25 @@ export default {
                 console.error("conversion export failed", { tenantId, err: String(err) })
               );
             }
+            // docs/modules/signal.md §2.3. After the spend pull (so the day's
+            // figures are fresh) and *before* the autopilot, so a runaway
+            // campaign is stopped rather than reallocated on top of. A guard
+            // that reads only spend would call a broken pixel a normal day, so
+            // delivery is watched too.
+            if (isSpendPullWindow && on("signal")) {
+              await runSpendWatch(ctx).catch((err: unknown) =>
+                console.error("spend watch failed", { tenantId, err: String(err) })
+              );
+            }
             if (on("signal")) await runBudgetAutopilot(ctx, { fieldKey: env.FIELD_KEY });
+            // AEO monitor: sample the assistants for the queries our published
+            // pages target, and record what came back. A tenant with no `aeo`
+            // connector is a no-op, not an error.
+            if (isAeoWindow && on("signal")) {
+              await sampleAeoCitations(ctx, aeoOpener(env.FIELD_KEY)).catch((err: unknown) =>
+                console.error("aeo sample failed", { tenantId, err: String(err) })
+              );
+            }
             // Acquisition outreach (engines/signal-outreach.ts): draft →
             // consent gate → approval gate → send → lead touch. Quiet hours
             // and the weekly frequency cap are enforced inside the sweep; the
@@ -299,6 +326,21 @@ export default {
             // A delegation that has run out must stop showing as active, or every
             // admin screen lies about who currently holds the authority to approve.
             await expireDelegations(ctx);
+            // A transaction whose provider never answered gets a deadline, and this
+            // is what enforces it. The sweep's LEDGER finding (2026-10-01):
+            // `expireStale` existed and its own docstring said "Called by the
+            // scheduled worker" — and **nothing called it**, a single grep hit
+            // across source and build artifacts being its own definition.
+            //
+            // What that cost is bigger than one stuck row: the period-close check
+            // `no_pending_external` (periods.ts:159-162) counts *every*
+            // `pending_external` row tenant-wide, with no period and no deadline
+            // filter — so one row past its `externalTimeoutAt` failed the close of
+            // **every** period for that tenant, permanently, clearable only by an
+            // audited force close. And the seed writes exactly such a row into the
+            // open period of every seeded tenant (seed/ledger.ts:553, +2 days), so
+            // this was not hypothetical: period close was red on arrival.
+            if (on("ledger")) await expireStale(ctx);
             // docs/27 F7. Drafts the next reply for every conversation waiting
             // on us, so the inbox opens with something to approve instead of a
             // blank box. Draft only — nothing is sent without a human.
@@ -327,6 +369,15 @@ export default {
             if (isBackupWindow && ctx.policy.retention.schedule !== "never") await sweepRetention(ctx, env.FILES);
             // docs/modules/north.md §3 Snapshotter: nightly, 02:00Z per seed.ts's timing model (ADR-0024).
             if (isBackupWindow && on("north")) await runSnapshotter(ctx);
+            // ADR-0118: after the snapshot, feed the tenant's metric history into
+            // Aletheia's self-learning so its benchmarks grow from LYRA's data.
+            // A no-op with no ALETHEIA_URL; a failure costs tonight's learning,
+            // never the snapshot or the brief.
+            if (isBackupWindow && on("north")) {
+              await ingestAletheia(ctx, env).catch((err: unknown) =>
+                console.error("aletheia ingest failed", { tenantId, err: String(err) })
+              );
+            }
             // docs/30 NORTH gap 1, J-E1 "the 7am read": today's exec brief, in
             // each of the tenant's locales, from the snapshot just taken. Once
             // per (date, locale); published only by a person. With no model —
@@ -349,6 +400,13 @@ export default {
               // docs/30 SCOUT gap 3: urgent watch findings, over what was just
               // harvested, reach the SCOUT leads.
               await notifyUrgentWatch(ctx, (await runWatch(ctx)).findings);
+              // A7: what the watch cannot answer. It knows what *moved*; only
+              // Aletheia's benchmarks know whether a value is out of band for a
+              // business this size. Stands down on its own when ALETHEIA_URL is
+              // unset, so this line is identical with or without the engine.
+              await runAletheiaSentinel(ctx, gatewayFor(env), env, await gatherSentinelInput(ctx)).catch((err: unknown) =>
+                console.error("aletheia sentinel failed", { tenantId, err: String(err) })
+              );
               await sweepPanelBench(ctx);
               // @accept:SA: the Radar's whitespace was only computed on request,
               // so it went stale; it follows the demand it reads every night.

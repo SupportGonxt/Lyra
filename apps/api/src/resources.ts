@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { id } from "@lyra/db";
 import { AGENT_AUTONOMY, ChannelOptinsJson, PaymentPlanWrite, PurposesJson, schema } from "@lyra/db";
 import {
@@ -10,6 +10,8 @@ import {
   CommissionStructureJson,
   can,
   canClaimTransition,
+  CASE_STATES,
+  require_,
   canPolicyTransition,
   checkKAnonymity,
   conflict,
@@ -19,6 +21,8 @@ import {
   isClaimState,
   isPolicyState,
   kAnonymityFloor,
+  PRODUCT_LINES,
+  REGULATOR_SCOPES,
   scoped,
   sealFields,
   tenantAccount,
@@ -33,6 +37,7 @@ import { gatewayFor } from "./mw.js";
 import { embedUpsert } from "./engines/vectorize.js";
 import { assertCanGrant, bundleOf } from "./engines/staff.js";
 import { onExperimentConcluded } from "./engines/scout-validate.js";
+import { guardrailRecordFor } from "./engines/signal-brand-kit.js";
 import { audienceRuleProblem } from "./engines/signal-outreach.js";
 import { creativePreflightGuard, recordCreativeDisclosure } from "./engines/signal-disclosure.js";
 import { lookalikeWriteProblem } from "./engines/signal-lookalike.js";
@@ -149,7 +154,31 @@ export const CORE = register(
     // path reaches the same array, and a guard on only one of two doors is not
     // a guard. Same rule, same function (packages/core/src/approvals.ts): no
     // unknown key, and nothing docs/19 §7 puts a floor under.
-    beforeWrite: (_ctx, values) => {
+    beforeWrite: (ctx, values, existing) => {
+      // The same rule the comment above states, applied to the bigger door.
+      // `policyJson` is the documented way out of the *approval* gate;
+      // `entitlementsJson` is the licence itself — which modules the tenant may
+      // use and how many seats it holds. It was **exempted** from this guard
+      // (`rbac.reachability.test.ts` carried an entry claiming "entitlements are
+      // edited by the platform operator, not by a tenant route") while the very
+      // route below accepted it: a tenant admin could add every module and raise
+      // their own seat limit through the generic form. A guard on only one of two
+      // doors is not a guard, and this was the door with the crown jewels behind
+      // it.
+      //
+      // Stated as a refusal rather than stripped silently: a tenant that tries to
+      // widen its own licence should be told it is a closed door, not have its
+      // edit quietly dropped.
+      if (values.entitlementsJson !== undefined) {
+        const next = typeof values.entitlementsJson === "string" ? values.entitlementsJson : JSON.stringify(values.entitlementsJson);
+        const prior = existing ? String(existing.entitlementsJson ?? "") : "";
+        if (next !== prior && !can(ctx.actor, "admin:entitlements:write")) {
+          throw badRequest(
+            "entitlements are granted by the platform operator, not changed by a tenant (admin:entitlements:write)"
+          );
+        }
+      }
+
       const policy = values.policyJson;
       let parsed: unknown = policy;
       if (typeof policy === "string") {
@@ -468,6 +497,13 @@ const SIU_TRANSITIONS: Record<string, string[]> = {
 };
 
 /**
+ * ADR-0125. `axis_authorisations.status`. The bind seam reads `active` as "may
+ * place under this licence"; the other two are the operator's own statement and
+ * are refused by name rather than silently ignored.
+ */
+const AUTHORISATION_STATUSES = ["active", "suspended", "expired"] as const;
+
+/**
  * docs/27 F27. `POLICY_TRANSITIONS` and `CLAIM_TRANSITIONS` (@lyra/core
  * lifecycle.ts) were enforced by the dedicated engines — `transitionClaim`,
  * `axis-lifecycle.ts` — and by nothing here, which left generic CRUD as a
@@ -516,7 +552,51 @@ const guardClaimState = guardState(
 const guardPolicyState = guardState("status", canPolicyTransition, isPolicyState, "policy");
 
 export const AXIS = register(
-  r("cases", schema.axisCases, "cas", "axis", rcud("axis:cases"), { searchable: ["ref"] }),
+  r("cases", schema.axisCases, "cas", "axis", rcud("axis:cases"), {
+    searchable: ["ref"],
+    // docs/modules/axis.md §2.3: `axis_process_events` feeds the live process map
+    // — bottlenecks, rework loops — and the SLA sentinel's `caseHistory`. Nothing
+    // in production wrote it: the only writers were the seed and a test fixture,
+    // so the map was as live as the seed and every prediction ran on an empty
+    // history. Every case write goes through here, which is why this is the seam.
+    afterWrite: async (ctx, row, action, before) => {
+      const caseId = String(row.id);
+      const to = action === "create" ? null : String(row.status ?? "");
+      const from = before ? String(before.status ?? "") : null;
+      // A write that did not move the case is not a process step. Without this,
+      // editing a note would look like a stage of the pipeline.
+      if (action !== "create" && from === to) return;
+
+      // The step's own duration: the gap since this case's last recorded step.
+      // Null rather than zero for the first one, because a duration of zero is a
+      // measurement and there was nothing to measure.
+      const [previous] = await ctx.db
+        .select({ ts: schema.axisProcessEvents.ts })
+        .from(schema.axisProcessEvents)
+        .where(and(eq(schema.axisProcessEvents.tenantId, ctx.tenantId), eq(schema.axisProcessEvents.caseId, caseId)))
+        .orderBy(desc(schema.axisProcessEvents.ts))
+        .limit(1);
+
+      // Rework is a move *backwards* through the declared machine (a review sent
+      // back to awaiting documents, an approval back to review) — the loop
+      // `docs/modules/axis.md` §2.3 asks the process map to surface. Read from
+      // `CASE_STATES`' own order rather than a second list that could disagree.
+      const fromIndex = from ? CASE_STATES.indexOf(from as (typeof CASE_STATES)[number]) : -1;
+      const toIndex = to ? CASE_STATES.indexOf(to as (typeof CASE_STATES)[number]) : -1;
+      const outcome = action === "create" ? "ok" : to === "failed" ? "failed" : fromIndex >= 0 && toIndex >= 0 && toIndex < fromIndex ? "rework" : "ok";
+
+      await ctx.db.insert(schema.axisProcessEvents).values({
+        id: id("pev", ctx.now),
+        tenantId: ctx.tenantId,
+        caseId,
+        step: action === "create" ? "case_opened" : to,
+        actorRef: actorRef(ctx),
+        durationMs: previous ? Math.max(0, ctx.now - previous.ts) : null,
+        outcome,
+        ts: ctx.now
+      } as never);
+    }
+  }),
   // docs/27 F13: `dist_quote_responses` is the single source of quote truth.
   // This table is history — readable so old cases still render, but the write
   // doors are gone: a hand-keyed quote goes through POST /v1/axis/cases/:id/quotes
@@ -577,6 +657,22 @@ export const AXIS = register(
       // approval is raised for it.
       if (!existing) await assertNotScreenedOut(ctx, values.customerId as string | undefined);
       guardPolicyState(values, existing);
+      // A policy is bound by the bind route, never by editing it. Found by the
+      // 2026-10-01 sweep: `guardPolicyState` allows the *legal* hop `draft ->
+      // bound` (lifecycle.ts:23), and this resource raises `approval.create` only,
+      // so a generic `PATCH {status:"bound"}` bound a policy with **no
+      // authorisation check** (ADR-0125), **no version 1** and **no BIND journal** —
+      // a third bind door that made the licence register advisory. The web UI never
+      // walked through it, but the API contract publishes the field and `axis.lead`
+      // holds both `axis:policies:update` and the bind permission.
+      //
+      // Refused rather than re-implemented: binding is a saga (version + accrual +
+      // licence), so the honest answer is to point at the door that runs it.
+      if (values.status === "bound" && existing?.status !== "bound") {
+        throw badRequest(
+          "a policy is bound by POST /v1/axis/quote-responses/:id/bind, not by editing it: the bind records the licence that permitted the placement, writes version 1 and posts the commission accrual, and a field edit does none of the three"
+        );
+      }
       if (values.paymentPlanJson === undefined || values.paymentPlanJson === null) return values;
       const raw = values.paymentPlanJson;
       let parsed: unknown = raw;
@@ -718,7 +814,65 @@ export const AXIS = register(
   // Read-only: engines/axis-reinsurance.ts is the one writer. A cession is a
   // computed figure that posts to the ledger; a hand-typed one would be a
   // hand-typed journal with none of RI-CEDE's gate.
-  r("reinsurance-cessions", schema.axisReinsuranceCessions, "ric", "axis", ro("axis:reinsurance:read"))
+  r("reinsurance-cessions", schema.axisReinsuranceCessions, "ric", "axis", ro("axis:reinsurance:read")),
+  // ADR-0125. The licence a risk may be placed under. Tenant-owned data a
+  // compliance officer maintains, and the register the bind seam refuses against
+  // (routes/axis.ts `enforceAuthorisation`): a tenant with no row for the
+  // market and line cannot bind, which is the feature rather than a gap.
+  r("authorisations", schema.axisAuthorisations, "aut", "axis", rw("axis:authorisations"), {
+    searchable: ["licenceNumber", "regulatorKey"],
+    // The write door validates what the column types cannot say. `scope` and
+    // `status` are text unions in production code (operating-model.ts is the
+    // authority for the first), and a typo in either is a register that reads
+    // right and matches nothing. The lines are checked against `PRODUCT_LINES`
+    // for the same reason, and an authorisation covering no line is refused
+    // rather than stored as a row that can never authorise a placement.
+    beforeWrite: (_ctx, values, existing) => {
+      const merged: Record<string, unknown> = { ...(existing ?? {}), ...values };
+
+      if (!(REGULATOR_SCOPES as readonly unknown[]).includes(merged.scope)) {
+        throw badRequest(`scope must be one of ${REGULATOR_SCOPES.join(", ")}`);
+      }
+      // The column's own default, which the DB applies when the body omits it.
+      const status = merged.status ?? "active";
+      if (!(AUTHORISATION_STATUSES as readonly unknown[]).includes(status)) {
+        throw badRequest(`status must be one of ${AUTHORISATION_STATUSES.join(", ")}`);
+      }
+
+      // Stored as JSON text, posted as an array (the spec's `list` input) or as
+      // a string. Both forms reach here, so both are parsed before they are
+      // judged — the same shape axis/documents' `extractionJson` guard uses.
+      const raw = merged.productLinesJson;
+      let lines: unknown = raw;
+      if (typeof raw === "string") {
+        try {
+          lines = JSON.parse(raw);
+        } catch {
+          throw badRequest("productLinesJson is not valid JSON");
+        }
+      }
+      if (!Array.isArray(lines) || lines.some((line) => typeof line !== "string")) {
+        throw badRequest("productLinesJson must be a list of operating-model product lines");
+      }
+      if (!lines.length) {
+        throw badRequest("productLinesJson must name at least one product line: a licence covering nothing authorises nothing");
+      }
+      const unknownLines = (lines as string[]).filter((line) => !(line in PRODUCT_LINES));
+      if (unknownLines.length) {
+        throw badRequest(`productLinesJson names no such product line: ${unknownLines.join(", ")}`);
+      }
+
+      const from = merged.validFrom;
+      const to = merged.validTo;
+      if (typeof from !== "number") throw badRequest("validFrom is required");
+      if (typeof to === "number" && to <= from) throw badRequest("validTo must be after validFrom");
+
+      // `MARKETS[].code` is upper case and the bind seam compares the tenant's
+      // `taxMarket` to it, so a lower-case row would be a licence that exists
+      // and never matches.
+      return typeof values.market === "string" ? { ...values, market: values.market.toUpperCase() } : values;
+    }
+  })
 );
 
 /* ------------------------------------------------------------------- orbit */
@@ -947,12 +1101,26 @@ export const SIGNAL = register(
     },
     // `existing` is null on create (a new campaign has no prior state to
     // transition from) — the table only constrains the update path.
-    beforeWrite: (_ctx, values, existing) => {
+    beforeWrite: async (ctx, values, existing) => {
       if (!existing) return values;
       const from = existing.state as string;
       const to = values.state;
       if (typeof to === "string" && to !== from && !(CAMPAIGN_TRANSITIONS[from] ?? []).includes(to)) {
         throw badRequest(`a campaign cannot move ${from} -> ${to}`);
+      }
+      // Stopping a live campaign is its own capability, not an edit. The
+      // permission was declared and granted to `signal.lead` while nothing
+      // required it, so the grant was decorative: `signal:campaigns:update`
+      // carried every transition. Checked on the transition rather than on the
+      // route because the update path is the generic resource PATCH.
+      if (to === "paused" && from !== "paused") {
+        require_(ctx.actor, "signal:campaigns:pause", { tenantId: ctx.tenantId, module: "signal" });
+      }
+      // Going live records what was actually checked, computed from the
+      // tenant's brand kit and this campaign's creatives — not a "pass"
+      // string nothing earned (engines/signal-brand-kit.ts).
+      if (to === "live" && from !== "live") {
+        values.guardrailChecksJson = JSON.stringify(await guardrailRecordFor(ctx, String(existing.id)));
       }
       return values;
     }
@@ -979,7 +1147,21 @@ export const SIGNAL = register(
   r("budget-moves", schema.signalBudgetMoves, "bmv", "signal", {
     read: "signal:budget_moves:read",
     update: "signal:budget_moves:approve"
-  }, { approval: { update: "signal.budget_move", amountField: "amountMinor" } }),
+  }, {
+    approval: { update: "signal.budget_move", amountField: "amountMinor" },
+    // docs/19: pulling money back is its own capability. The route is the
+    // generic PATCH, so `signal:budget_moves:approve` carried the reversal too
+    // and the finer grant did nothing — a role could be told it may reverse and
+    // find the button silently worked for somebody else's permission.
+    beforeWrite: (ctx, values, existing) => {
+      const reversing = values.reversedAt !== undefined && values.reversedAt !== null;
+      const already = existing ? (existing as { reversedAt?: number | null }).reversedAt != null : false;
+      if (reversing && !already) {
+        require_(ctx.actor, "signal:budget_moves:reverse", { tenantId: ctx.tenantId, module: "signal" });
+      }
+      return values;
+    }
+  }),
   r("aeo-pages", schema.signalAeoPages, "aeo", "signal", rw("signal:aeo")),
   r("attribution-events", schema.signalAttributionEvents, "atr", "signal", ro("signal:attribution:read"), {
     immutable: true
@@ -1002,7 +1184,19 @@ export const SIGNAL = register(
   // a hand edit would forge the very proof the cockpit shows.
   r("outreach", schema.signalOutreach, "otr", "signal", ro("signal:outreach:read"), {
     immutable: true
-  })
+  }),
+  // The tenant's house rules for copy (docs/modules/signal.md §2.1). Read by
+  // whoever reads creative, written by whoever clears it: the person who
+  // approves copy owns the list that decides what needs approving.
+  r("brand-kits", schema.signalBrandKits, "sbk", "signal", {
+    read: "signal:creatives:read",
+    create: "signal:creatives:approve",
+    update: "signal:creatives:approve"
+  }),
+  // Where a cleared creative actually landed (engines/signal-publish.ts).
+  // Read-only: the row is the platform's receipt, and a hand edit would make a
+  // placement that does not exist look like one that does.
+  r("creative-publishes", schema.signalCreativePublishes, "scp", "signal", ro("signal:creatives:read"))
 );
 
 /* ------------------------------------------------------------------- scout */
@@ -1012,7 +1206,11 @@ export const SIGNAL = register(
 // subscribers" rather than throwing — this gates visibility, not data
 // integrity. A subscriber entry with suspendedAt set has had that provider's
 // access revoked, so it's excluded even while the product stays published.
-function activeSubscriberIds(raw: string | null): string[] {
+//
+// Exported because the supplier portal (engines/party-portals.ts) asks the same
+// question — "is this provider an active subscriber?" — and two parsers over one
+// column is the drift this file already warns about elsewhere.
+export function activeSubscriberIds(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -1138,7 +1336,33 @@ export const SCOUT = register(
 /* ------------------------------------------------------------------- north */
 
 export const NORTH = register(
-  r("metrics", schema.northMetrics, "mtr", "north", rw("north:metrics")),
+  r("metrics", schema.northMetrics, "mtr", "north", rw("north:metrics"), {
+    // docs/modules/north.md §8: a definition change has to be datable, and
+    // `north_metrics.updated_at` is one date with no memory. The history row is
+    // written **after** the update lands and only when the value actually
+    // differs, so a retried or no-op edit leaves no trail — a phantom row saying
+    // the definition changed would be worse than no row at all.
+    afterWrite: async (ctx, row, action, before) => {
+      if (action !== "update") return;
+      const next = String(row.definitionSqlRef ?? "");
+      const prev = before ? String(before.definitionSqlRef ?? "") : null;
+      // `prev === null` means the row predates this hook and we cannot say
+      // whether anything changed; recording it would invent a date.
+      if (prev === null || prev === next) return;
+      await ctx.db.insert(schema.northMetricDefinitions).values({
+        id: id("mdf", ctx.now),
+        tenantId: ctx.tenantId,
+        metricKey: String(row.key ?? before?.key ?? ""),
+        definitionSqlRef: next,
+        changedAt: ctx.now,
+        changedBy: actorRef(ctx)
+      });
+    }
+  }),
+  // The metric's definition history, readable by anyone who may read metrics —
+  // it is the same disclosure as the definition itself, only datable. Read-only:
+  // rows are written by the `metrics` resource's `afterWrite`, never by a client.
+  r("metric-definitions", schema.northMetricDefinitions, "mdf", "north", ro("north:metrics:read")),
   r("snapshots", schema.northSnapshots, "snp", "north", ro("north:snapshots:read"), {
     immutable: true,
     // A snapshot is `{metricKey, value}` and nothing else: the name a person

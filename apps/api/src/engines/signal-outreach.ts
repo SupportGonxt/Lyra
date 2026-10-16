@@ -12,11 +12,11 @@ import {
   LOOKALIKE_PURPOSES,
   consentCovers,
   type ConsentPurpose,
-  type Ctx
-} from "@lyra/core";
+  type Ctx, moduleSettings } from "@lyra/core";
 import { promptNouns, type Gateway, type PromptNouns } from "@lyra/model-gateway";
 import { recordTouch } from "./signal-attribution.js";
 import { currentPurposes, suppressedCustomerIds } from "./signal-consent.js";
+import { suppressionFloor } from "./signal-suppression.js";
 import { markProspectsContacted } from "./signal-prospects.js";
 import { recordResponse } from "./signal-responses.js";
 
@@ -43,7 +43,8 @@ export type OutreachChannel = (typeof OUTREACH_CHANNEL)[number];
 
 /** Per-recipient weekly cap — mirrors the seed guardrail's frequencyCapPerWeek
  *  default so an engine default and a tenant guardrail agree out of the box. */
-const FREQUENCY_CAP_PER_WEEK = 2;
+/** The weekly contact cap, exported so the guardrail record states the number it enforces. */
+export const FREQUENCY_CAP_PER_WEEK = 2;
 
 const WEEK_MS = 7 * 86_400_000;
 
@@ -95,6 +96,13 @@ export async function recipientsFor(ctx: Ctx, campaign: OutreachCampaign): Promi
   const members = await audienceMemberIds(ctx, campaign.audienceId);
   if (!members.length) return [];
 
+  // The suppression floor (docs/modules/signal.md §2.2). Consent is checked per
+  // member below; a recent purchase and a regulated complaint are checked here,
+  // as floors rather than audience rules — a tenant may build any audience it
+  // likes, and none of them may reach somebody these suppress. Scoped to the
+  // members in hand, so the cost is the audience's, not the tenant's.
+  const floor = await suppressionFloor(ctx, moduleSettings(ctx.policy, "signal").settings, members);
+
   // Every member's latest consent, in chunks: D1 binds at most 100 parameters
   // per statement, and the max(ts) subquery picks each customer's newest row.
   const consents: (typeof schema.consents.$inferSelect)[] = [];
@@ -116,6 +124,7 @@ export async function recipientsFor(ctx: Ctx, campaign: OutreachCampaign): Promi
 
   const out: Recipient[] = [];
   for (const customerId of members) {
+    if (floor.byCustomer.has(customerId)) continue;
     const consent = consentByCustomer.get(customerId);
     if (!consent) continue;
     let purposes: { marketing?: boolean } = {};
@@ -765,39 +774,3 @@ export async function onLeadConverted(ctx: Ctx, customerId: string, policyId: st
   return true;
 }
 
-/** Loop summary for the cockpit: per campaign, sends → leads → binds, and the
- *  conversions (closed loops) with their refs. */
-export async function loopSummary(ctx: Ctx, since: number): Promise<
-  Array<{ campaignId: string; sends: number; leads: number; binds: number; converted: number }>
-> {
-  const campaigns = await acquisitionCampaigns(ctx);
-  const out: Array<{ campaignId: string; sends: number; leads: number; binds: number; converted: number }> = [];
-  for (const campaign of campaigns) {
-    const [[sends], [leads], [binds], [converted]] = await Promise.all([
-      ctx.db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.signalOutreach)
-        .where(and(eq(schema.signalOutreach.tenantId, ctx.tenantId), eq(schema.signalOutreach.campaignId, campaign.id), gte(schema.signalOutreach.ts, since))),
-      ctx.db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.signalAttributionEvents)
-        .where(and(eq(schema.signalAttributionEvents.tenantId, ctx.tenantId), eq(schema.signalAttributionEvents.campaignId, campaign.id), eq(schema.signalAttributionEvents.touchType, "lead"), gte(schema.signalAttributionEvents.ts, since))),
-      ctx.db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.signalAttributionEvents)
-        .where(and(eq(schema.signalAttributionEvents.tenantId, ctx.tenantId), eq(schema.signalAttributionEvents.campaignId, campaign.id), eq(schema.signalAttributionEvents.touchType, "bind"), gte(schema.signalAttributionEvents.ts, since))),
-      ctx.db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.signalOutreach)
-        .where(and(eq(schema.signalOutreach.tenantId, ctx.tenantId), eq(schema.signalOutreach.campaignId, campaign.id), eq(schema.signalOutreach.state, "converted")))
-    ]);
-    out.push({
-      campaignId: campaign.id,
-      sends: sends?.n ?? 0,
-      leads: leads?.n ?? 0,
-      binds: binds?.n ?? 0,
-      converted: converted?.n ?? 0
-    });
-  }
-  return out;
-}

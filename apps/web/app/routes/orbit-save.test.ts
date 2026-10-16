@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { LABELS, NothingAtRisk, labelsIn } from "./orbit-save";
+import { LABELS, NothingAtRisk, labelsIn, requoteOf } from "./orbit-save";
 
 describe("an empty save queue", () => {
   // Role adoption: the retention seat opened its desk to "Nothing waiting on
@@ -39,5 +39,48 @@ describe("labelsIn", () => {
   it("keeps its own words, which no pack has an opinion on", () => {
     expect(labelsIn("en")("policyRef")).not.toBe("Order reference");
     expect(labelsIn("en")("customer")).toBeTruthy();
+  });
+});
+
+/* ------------------ the re-quote price reaches the operator (ADR-0129) */
+
+/**
+ * The 2026-10-01 sweep's ORBIT finding: `requotesJson` was declared on the renewal
+ * row and never rendered by any screen, while the notice above the desk told the
+ * operator *"Nothing in the platform generates a re-quote today."* The engine writes
+ * it; this is the reader.
+ */
+describe("requoteOf", () => {
+  it("reads the engine's shape", () => {
+    expect(requoteOf(JSON.stringify({ premiumMinor: 95_000, currency: "AED", offeredBy: "engine:requote" }))).toEqual({
+      premiumMinor: 95_000,
+      currency: "AED"
+    });
+  });
+
+  it("reads the hand-typed shape too, because two writers survive", () => {
+    // `make_renewal_offer` writes `{premiumMinor, currency, offeredBy}` with no panel
+    // detail. Both carry the two fields the column needs, so both render.
+    expect(requoteOf(JSON.stringify({ premiumMinor: 120_000, currency: "SAR", offeredBy: "user:u_1" }))).toEqual({
+      premiumMinor: 120_000,
+      currency: "SAR"
+    });
+  });
+
+  it("carries a null price through rather than turning it into zero", () => {
+    // The panel was asked and did not answer. **Null is not zero**, and a column that
+    // printed 0 here would tell an operator a renewal is free.
+    expect(requoteOf(JSON.stringify({ premiumMinor: null, currency: "AED", offeredBy: "engine:requote" }))).toEqual({
+      premiumMinor: null,
+      currency: "AED"
+    });
+  });
+
+  it("answers null for anything it cannot state, rather than inventing a figure", () => {
+    expect(requoteOf(null)).toBeNull();
+    expect(requoteOf("")).toBeNull();
+    expect(requoteOf("not json")).toBeNull();
+    expect(requoteOf(JSON.stringify({ premiumMinor: 100 }))).toBeNull();
+    expect(requoteOf(JSON.stringify({ currency: "AED" }))).toBeNull();
   });
 });

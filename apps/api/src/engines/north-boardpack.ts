@@ -42,23 +42,75 @@ export async function assembleBoardpackSections(ctx: Ctx, period: string): Promi
     generatedAt: ctx.now
   };
 
+  // `dimsHash` is projected and rendered, not filtered away. The 2026-10-01 sweep:
+  // `north_snapshots` holds one row per metric **per slice** (dimsHash "" = the
+  // grand total, `north.ts:58`), and this table selected three columns with no
+  // dimension — so for period "2025-12" a board pack printed `gwp` three times
+  // (3,507,200 gross; 3,091,200 web; 416,000 brokerAlpha) with **nothing to say
+  // which was the headline**. The pack is a human-approval artifact, so the person
+  // signing it was the one who could not tell.
+  //
+  // Both are kept rather than the slices being filtered out: a headline without its
+  // breakdown hides where the money is, and a breakdown without its headline is the
+  // bug. Each row now says which it is.
   const snapshotRows = await ctx.db
     .select({
       metricKey: schema.northSnapshots.metricKey,
       period: schema.northSnapshots.period,
-      value: schema.northSnapshots.value
+      value: schema.northSnapshots.value,
+      dimsHash: schema.northSnapshots.dimsHash,
+      // A money metric names the currency it is counted in (`north_metrics.currency`),
+      // and the pack printed the number without it — so a board read "3,507,200" with
+      // nothing saying whether that was dirhams or, after the multi-market work, a
+      // figure that had been summed across nine of them. NORTH's money layer states
+      // one currency per metric (item 4); this is where that statement reaches paper.
+      currency: schema.northMetrics.currency
     })
     .from(schema.northSnapshots)
+    // **Left** join on tenant and key, deliberately. Matching the tenant keeps a stray
+    // key from another tenant out of the join (and `north_metrics` is the registry the
+    // snapshotter reads to decide what to compute, so a live snapshot always has its
+    // row). But an **inner** join would drop a historical snapshot whose metric was
+    // later retired — and a board pack is a record of what was measured in a past
+    // period. A missing currency is a blank cell; a missing month is a lie.
+    .leftJoin(
+      schema.northMetrics,
+      and(
+        eq(schema.northMetrics.tenantId, schema.northSnapshots.tenantId),
+        eq(schema.northMetrics.key, schema.northSnapshots.metricKey)
+      )
+    )
     .where(and(eq(schema.northSnapshots.tenantId, ctx.tenantId), eq(schema.northSnapshots.period, period)));
 
   const metrics: ReportTable = {
     title: "Metric snapshot",
     columns: [
       { key: "metricKey", label: "Metric", kind: "text" },
+      // The grand total leads its own slices: a reader scanning the column sees the
+      // figure they came for first, then what it is made of.
+      { key: "dimension", label: "Dimension", kind: "text" },
       { key: "period", label: "Period", kind: "text" },
-      { key: "value", label: "Value", kind: "number" }
+      { key: "value", label: "Value", kind: "number" },
+      // Last, because it qualifies the Value beside it rather than standing alone.
+      // Blank for a count metric — "policies issued: 412 AED" would be nonsense, and a
+      // currency column that invented one for every row would be the same class of
+      // error as the unitless figure it replaces.
+      { key: "currency", label: "Currency", kind: "text" }
     ],
-    rows: snapshotRows,
+    rows: snapshotRows
+      .map((row) => ({
+        metricKey: row.metricKey,
+        dimension: row.dimsHash === "" ? "Total" : row.dimsHash,
+        period: row.period,
+        value: row.value,
+        currency: row.currency ?? ""
+      }))
+      .sort(
+        (a, b) =>
+          a.metricKey.localeCompare(b.metricKey) ||
+          // "Total" before any slice, so a metric's headline never appears beneath it.
+          (a.dimension === "Total" ? -1 : b.dimension === "Total" ? 1 : a.dimension.localeCompare(b.dimension))
+      ),
     generatedAt: ctx.now
   };
 

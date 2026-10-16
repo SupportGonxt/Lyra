@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNegotiationPackTables, type PanelBenchRow } from "./negotiation-pack.js";
+import { buildNegotiationPackTables, coverageCell, type PanelBenchRow } from "./negotiation-pack.js";
 import { toPdf } from "./pdf.js";
 import type { WhitespaceCandidate } from "@lyra/core";
 
@@ -14,6 +14,7 @@ const bench = (over: Partial<PanelBenchRow> = {}): PanelBenchRow => ({
   marketPriceIdx: 10_000,
   winRate: 42,
   volume: 50,
+  coverage: { kind: "terms", terms: [{ term: "roadside", ours: { present: false }, panelMedian: { present: true } }] },
   ...over
 });
 
@@ -32,9 +33,33 @@ describe("buildNegotiationPackTables", () => {
   it("assembles bench and whitespace rows into two report tables", () => {
     const [benchTable, gapsTable] = buildNegotiationPackTables([bench()], [whitespace()], 0);
     expect(benchTable!.rows).toEqual([
-      { providerId: "prov_gulf", line: "motor", period: "2026-06", ourPriceIdx: 10_400, marketPriceIdx: 10_000, winRate: 42 }
+      {
+        providerId: "prov_gulf",
+        line: "motor",
+        period: "2026-06",
+        ourPriceIdx: 10_400,
+        marketPriceIdx: 10_000,
+        winRate: 42,
+        coverage: "roadside"
+      }
     ]);
     expect(gapsTable!.rows).toEqual([{ category: "travel", momentum: 88, coverage: 2 }]);
+  });
+
+  // The pack's own copy promises the wording gaps (scout.shared.ts
+  // `panel.packHint`) and the select omitted the column, so no pack ever had
+  // one. Both facts the column holds now reach the document.
+  it("carries the coverage column the pack advertises", () => {
+    const reach = bench({ providerId: "prov_reach", coverage: { kind: "reach", unquotedRequests: 41, declined: 6 } });
+    const [benchTable] = buildNegotiationPackTables([bench(), reach], [], 0);
+    expect(benchTable!.columns.map((c) => c.key)).toContain("coverage");
+    expect(benchTable!.rows.map((r) => r.coverage)).toEqual(["roadside", "41 unquoted, 6 declined"]);
+  });
+
+  it("renders a coverage cell for each shape, and for none recorded", () => {
+    expect(coverageCell(null)).toBe("-");
+    expect(coverageCell({ kind: "terms", terms: [] })).toBe("-");
+    expect(coverageCell({ kind: "reach", unquotedRequests: 3, declined: 0 })).toBe("3 unquoted, 0 declined");
   });
 
   it("drops a bench row below the k-anonymity floor rather than serving it thin", () => {
