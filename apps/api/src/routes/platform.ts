@@ -75,7 +75,6 @@ const CreateTenantBody = z
       .regex(/^[a-z0-9][a-z0-9-]*$/, "slug is lowercase letters, digits and hyphens"),
     name: z.string().min(1).max(200),
     plan: z.string().min(1).max(60).optional(),
-    region: z.string().min(1).max(60).optional(),
     adminEmail: z.string().email().max(200).optional(),
     adminName: z.string().min(1).max(200).optional()
   })
@@ -106,7 +105,6 @@ platformRoutes.post("/tenants", async (c) => {
     slug: input.slug,
     name: input.name,
     plan: input.plan ?? "standard",
-    region: input.region ?? "auto",
     status: "active",
     createdAt: now,
     updatedAt: now

@@ -1227,8 +1227,6 @@ export interface CoreTenants {
   slug: string;
   name: string;
   plan?: string;
-  region?: string;
-  dbBinding?: string;
   status?: string;
   brandJson?: string;
   policyJson?: string;

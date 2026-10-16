@@ -65,7 +65,6 @@ meRoutes.get("/", async (c) => {
       slug: tenant.slug,
       name: tenant.name,
       plan: tenant.plan,
-      region: tenant.region,
       status: tenant.status,
       brand: safe(tenant.brandJson)
     },

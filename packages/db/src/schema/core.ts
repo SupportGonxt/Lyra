@@ -10,8 +10,22 @@ export const tenants = sqliteTable("core_tenants", {
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   plan: text("plan").notNull().default("standard"),
-  region: text("region").notNull().default("auto"),
-  dbBinding: text("db_binding"),
+  // `region` and `dbBinding` were here, and were removed on 2026-10-16 (ADR-0129).
+  //
+  // They were a residency promise nothing kept: `region` was written at tenant
+  // creation and echoed by `me.ts`; `dbBinding` reached the generated SDK type and
+  // nothing else. No query router, no binding resolution, no test — so the product
+  // could **display** a commitment it did not honour, and its published SDK
+  // advertised a per-tenant database binding that routed nothing.
+  //
+  // docs/29 §G4 called it P0 and named the two acceptable outcomes: make
+  // `dbBinding` load-bearing in `withTenant`, or delete both and stop implying the
+  // capability. Deleting is the honest option while no client contract requires
+  // residency — the absence of a column cannot mislead, whereas a column that
+  // routes nothing reads as implemented.
+  //
+  // If residency becomes a requirement, restore it as a **working** mechanism and
+  // say in the ADR what enforces it, rather than as a field.
   status: text("status").notNull().default("active"), // active|suspended|closed
   brandJson: text("brand_json"),
   policyJson: text("policy_json"),

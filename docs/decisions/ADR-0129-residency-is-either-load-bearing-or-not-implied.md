@@ -1,8 +1,15 @@
 # ADR-0129 — Residency: make `dbBinding` load-bearing, or stop implying it
 
-**Status:** **proposed** — the decision is the client's, and this record exists so it is a decision rather than a
-drift. `docs/29-global-launch-readiness.md` §G4 classifies the underlying finding **P0** and states that either
-outcome requires an ADR. This is that ADR, unratified.
+**Status:** **accepted (2026-10-16) — Option B taken: both columns deleted.**
+`docs/29-global-launch-readiness.md` §G4 classifies the underlying finding **P0** and states that either outcome
+requires an ADR. This is that ADR, and the outcome is recorded at the foot of this file.
+
+**Decision.** `region` and `dbBinding` are removed — from the schema, the create-tenant request, the `me`
+response, and the generated SDK type — by generated, journaled migration `0056_shallow_warlock`
+(`packages/db/migrations/`). Option A (making `dbBinding` load-bearing in `withTenant`) was not taken: it is a
+resolution layer on the one function every query in the product routes through, and **no client contract in hand
+requires residency.** `docs/29`'s own framing is explicit that shipping the middle state is worse than either
+outcome, and the middle state is what was removed.
 **Depends on:** ADR-0010 (the on-prem stack), ADR-0121 (tax identity), ADR-0125 (the authorisation register).
 **Touches:** `packages/db/src/schema/core.ts:13-14`, `apps/api/src/routes/me.ts:68`,
 `apps/api/src/routes/platform.ts:109`, `packages/sdk/src/generated.ts:1231`.
@@ -86,7 +93,36 @@ not have.
   **consent-as-basis only** — it cannot express legitimate interest or contractual necessity, which `docs/29` notes
   is what most underwriting processing actually runs on.
 
-## Consequences of leaving it as it is
+## What was done, and how it was verified
+
+```
+schema          packages/db/src/schema/core.ts      both columns removed
+migration       0056_shallow_warlock.sql            generated, journaled (57 entries)
+the only reader apps/api/src/routes/me.ts:68        `region` field removed
+the writer      apps/api/src/routes/platform.ts     `region` gone from the body and the insert
+seed            packages/core/src/seed.ts           `region: "auto"` removed
+SDK             packages/sdk/src/generated.ts       regenerated; `dbBinding` no longer published
+```
+
+**Verified by running, against a libsql server that already held the pre-change schema:**
+
+```
+drizzle-kit migrate  → [✓] migrations applied successfully!
+__drizzle_migrations → 57
+region present       → false
+db_binding present   → false
+```
+
+The migration was **generated, not hand-written** — the lesson from `MODULE-AUDIT.md` §58, where six hand-written
+migrations never entered drizzle's journal and the real runner skipped all of them while unit tests passed.
+
+`pnpm typecheck` 0 · `pnpm lint` 0 · `@lyra/api` 2 399 tests · `@lyra/db` 36 tests.
+
+**Reversal, if residency ever becomes a requirement:** restore it as a **working mechanism** and say in a
+superseding ADR what enforces it — a region that routes, not a field that displays. One trap the removal leaves
+behind: `region` appears in `docs/03-data-model.md`'s column list, which now describes a table that has changed.
+
+## Consequences of leaving it as it was
 
 The status quo is a decision too, and it is the one `docs/29` names as worst: the platform keeps advertising a
 capability it does not have, and a client who reads `region` in the API response — or `dbBinding` in the SDK — has

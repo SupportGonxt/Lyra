@@ -7,7 +7,10 @@ all FKs indexed · composite index `(tenant_id, <hot key>)` on every table.
 
 ## Core (`core_`)
 
-- `core_tenants` — id, slug, name, plan, region, db_binding, status,
+- `core_tenants` — id, slug, name, plan, status,
+  (`region` and `db_binding` were removed by ADR-0129: they were a residency
+  promise nothing enforced. Restore them as a mechanism that routes, not a field
+  that displays.)
   brand_json, policy_json (auto_approve[], ai_budget, locales[], data_residency),
   entitlements_json, created_at.
 - `core_users` — id, tenant_id, email, phone, name, locale, status,
