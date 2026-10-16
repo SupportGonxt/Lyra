@@ -43,7 +43,7 @@ Two questions had no home, and they are different questions:
 ### 1. The tenant-owned half is a table: `axis_authorisations`
 
 `packages/db/src/schema/axis.ts:736`, migration
-`packages/db/migrations/0057_tenant_authorisations.sql`. One row is one licence
+`packages/db/migrations/`0055_numerous_tag.sql` (was `0057_tenant_authorisations.sql` — see the note below)`. One row is one licence
 the tenant holds: `market` (ISO alpha-2), `regulatorKey`, `licenceNumber`,
 `scope`, `productLinesJson`, `validFrom`, `validTo` (nullable),
 `evidenceFileId` (nullable), `status` (`active|suspended|expired`).
@@ -231,3 +231,14 @@ missing belong to endpoints that exist only in uncommitted work here
 (`/v1/signal/brand-kits`, `/v1/north/metric-definitions`, the portal and platform
 routes) and are absent from `HEAD`. Regeneration is whole-document, so those 28
 came with it; `@lyra/sdk` is now 16/16.
+
+## Note on migration numbers (2026-10-16)
+
+This record named a migration file that **no longer exists**. Six migrations — 0055 to 0060 — were hand-written
+and **never entered drizzle's journal**, so `drizzle-kit migrate` skipped all of them while unit tests, which
+execute every `.sql` directly, passed. CI found it: the e2e setup died with
+`SqliteError: table ledger_accounts has no column named client_money_pair`.
+
+They are now one generated, journaled migration, **`0055_numerous_tag.sql`**, carrying their schema changes and
+the data backfill. The decisions recorded here are unchanged; only the artefact that implements them moved. See
+`MODULE-AUDIT.md` §58.
