@@ -2,7 +2,22 @@ import { Hono } from "hono";
 import { and, desc, eq, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { id, schema } from "@lyra/db";
-import { actorRef, audit, can, conflict, forbidden, gate, notFound, require_, ROLES, TENANT_ROLE_KEYS, type Ctx } from "@lyra/core";
+import {
+  actorRef,
+  audit,
+  can,
+  conflict,
+  forbidden,
+  gate,
+  notFound,
+  require_,
+  ROLES,
+  syncChartOfAccounts,
+  syncTaxRules,
+  TENANT_ROLE_KEYS,
+  type CoreDb,
+  type Ctx
+} from "@lyra/core";
 import { AI_KILL_SWITCH } from "@lyra/model-gateway";
 import { body, created } from "../http.js";
 import { allTenants } from "../auth.js";
@@ -145,12 +160,54 @@ platformRoutes.post("/tenants", async (c) => {
     });
   }
 
+  // **Provision what a tenant needs to function, not merely to exist.**
+  //
+  // This route wrote a tenant row, its role set and its first admin — and nothing
+  // else. A real tenant created in production therefore could not trade:
+  //
+  //   - **no chart of accounts** — the ledger has no accounts to post to, so no
+  //     commission accrual and no settlement;
+  //   - **no tax rulepack** — `taxTreatment()` refuses every supply it has no rule
+  //     for, so the tenant cannot shop or bind at all (the same refusal that makes
+  //     six of the client's nine markets wait, §52).
+  //
+  // The only backfill was `/v1/auth/demo/resync-roles`, which is **`demoOnly`** *and*
+  // hard-wired to `demoTenant()` — so it could not reach a real tenant in production
+  // by either route. "New tenant in a day" was true of the row and false of the
+  // workspace.
+  //
+  // Both calls are the seed's own functions and both are idempotent, so a tenant
+  // provisioned here is provisioned exactly the way every other tenant is — no second
+  // code path to drift.
+  //
+  // **Not provisioned: authorisations.** A licence number is the tenant's own
+  // statement and the platform must never invent one (ADR-0125), so a tenant records
+  // its own before it can bind. That is a data task, not a defect.
+  const accounts = await syncChartOfAccounts(ctx.db as unknown as CoreDb, tenantId);
+  const taxRules = await syncTaxRules(ctx.db as unknown as CoreDb, tenantId, { now });
+
   await audit(ctx, {
     action: "platform.tenant.created",
     subjectRef: tenantId,
-    after: { id: tenantId, slug: input.slug, name: input.name, roles: TENANT_ROLE_KEYS.length, adminUserId }
+    after: {
+      id: tenantId,
+      slug: input.slug,
+      name: input.name,
+      roles: TENANT_ROLE_KEYS.length,
+      adminUserId,
+      accounts: accounts.length,
+      taxRules: taxRules.length
+    }
   });
-  return created(c, { id: tenantId, slug: input.slug, name: input.name, adminInvited: adminUserId !== null });
+  return created(c, {
+    id: tenantId,
+    slug: input.slug,
+    name: input.name,
+    adminInvited: adminUserId !== null,
+    // Named in the response so a provisioner can see the workspace is *usable*, not
+    // just that the row exists.
+    provisioned: { accounts: accounts.length, taxRules: taxRules.length }
+  });
 });
 
 const PatchFlagBody = z

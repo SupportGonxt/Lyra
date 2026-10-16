@@ -578,6 +578,29 @@ describe("tenant creation (J-A1)", () => {
       .from(schema.auditLog)
       .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "platform.tenant.created")));
     expect(audits).toHaveLength(1);
+
+    // **And the workspace is usable, not merely present.**
+    //
+    // This route wrote a row, its roles and an admin, and nothing else — so a tenant
+    // created in production could not trade: no chart of accounts to post to, and no
+    // tax rulepack, which makes `taxTreatment()` refuse every supply and the tenant
+    // unable to shop or bind. The only backfill was `/v1/auth/demo/resync-roles`,
+    // which is `demoOnly` **and** hard-wired to `demoTenant()`, so it could not reach
+    // a real tenant either way.
+    const accounts = await database.select().from(schema.ledgerAccounts).where(eq(schema.ledgerAccounts.tenantId, tenant!.id));
+    expect(accounts.length).toBeGreaterThan(0);
+    // The two client-money accounts the segregation invariant reads by code.
+    expect(accounts.some((a) => a.code === "1010" && a.clientMoney)).toBe(true);
+
+    const rules = await database.select().from(schema.ledgerTaxRules).where(eq(schema.ledgerTaxRules.tenantId, tenant!.id));
+    expect(rules.length).toBeGreaterThan(0);
+    // The launch market, so a UAE tenant can price on day one (ADR-0121).
+    expect(rules.some((r) => r.market === "AE")).toBe(true);
+
+    // And the response says so, so a provisioner can see the workspace is usable
+    // rather than inferring it from a 201.
+    expect(res.body.provisioned.accounts).toBe(accounts.length);
+    expect(res.body.provisioned.taxRules).toBe(rules.length);
   });
 
   it("refuses a duplicate slug and an actor without admin:tenants:write", async () => {
