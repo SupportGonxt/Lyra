@@ -639,7 +639,6 @@ export async function seed(db: CoreDb, opts: SeedOptions = {}): Promise<SeedResu
     slug: "gonxt",
     name: "GONXT",
     plan: "enterprise",
-    region: "auto",
     status: "active",
     brandJson: JSON.stringify(
       BrandJson.parse({

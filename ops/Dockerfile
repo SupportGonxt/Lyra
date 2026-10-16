@@ -40,6 +40,24 @@ RUN pnpm install --frozen-lockfile && pnpm build
 # named volume inherits node's ownership at first mount.
 RUN mkdir -p /var/lib/lyra/files && chown -R node:node /var/lib/lyra
 
+# **The image must not inherit the builder's umask.**
+#
+# `COPY . .` preserves the *host's* file modes, and `USER node` below drops to a
+# non-root user. On a working tree where some files are mode 0600 — which is
+# neither unusual nor visible to `git`, since git records only the executable bit
+# — the copied files are root-owned and unreadable, and the container dies at
+# startup with `EACCES: permission denied, open '/app/apps/api/src/onprem/s3.ts'`.
+#
+# Found by running the stack, 2026-10-16: seventy files in the tree were 0600
+# while their neighbours were 0644, so `app` read some of its own source and not
+# the rest. The image built cleanly and the container started; it simply could
+# not read itself.
+#
+# `a+rX` — read for all, plus traverse for directories and execute for anything
+# already executable. Written as a permission *floor* rather than by chowning the
+# tree to node, so the running user cannot rewrite its own code.
+RUN chmod -R a+rX /app
+
 # Nothing below is baked in: every value comes from the compose env file.
 # RUNTIME=node selects the on-prem adapters (docs/11 §3); MODE picks the role.
 ENV RUNTIME=node MODE=app NODE_ENV=production

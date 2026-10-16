@@ -26,6 +26,12 @@ export default {
   // inlined, so "which mutants survived in one file" is only greppable from json.
   reporters: ["html", "json", "clear-text", "progress"],
   coverageAnalysis: "perTest",
+  // See packages/core/stryker.config.mjs for the full reasoning. Same purpose
+  // here: a `main` push re-mutates the whole PR, and the incremental file lets a
+  // later run skip mutants whose covering tests have not changed. Kept out of
+  // tempDirName, which Stryker wipes at the start of every run.
+  incremental: true,
+  incrementalFile: "packages/model-gateway/.stryker-incremental.json",
   tempDirName: "packages/model-gateway/.stryker-tmp",
   ignorePatterns: [
     "apps",
@@ -45,9 +51,15 @@ export default {
   ],
   // See packages/core/stryker.config.mjs: STRYKER_SINCE narrows a CI run to the
   // files a change touched, unset it is the full sweep.
-  mutate: changed
-    ? [...changed, ...excluded]
-    : ["packages/model-gateway/src/**/*.ts", ...excluded],
+  // Same distinction as packages/core/stryker.config.mjs, and the same bug: `[]` is
+  // truthy, so an empty diff took the first branch and mutated the whole package
+  // instead of nothing. `null` (unresolvable ref) still widens to the whole tree.
+  mutate:
+    changed === null
+      ? ["packages/model-gateway/src/**/*.ts", ...excluded]
+      : changed.length > 0
+        ? [...changed, ...excluded]
+        : [],
   vitest: { dir: "packages/model-gateway" },
   thresholds: { high: 80, low: 70, break: 70 },
   allowEmpty: true

@@ -2,7 +2,7 @@
 
 **Status:** accepted (2026-10-01)
 **Depends on:** ADR-0075 (the market dimension), ADR-0121 (tax identity), ADR-0125 (the authorisation register).
-**Touches:** `packages/db/migrations/0059_policy_market.sql`, `packages/db/src/schema/axis.ts`,
+**Touches:** `packages/db/migrations/0055_numerous_tag.sql` (was `0059_policy_market.sql`), `packages/db/src/schema/axis.ts`,
 `apps/api/src/routes/axis.ts`.
 
 ## Context
@@ -52,3 +52,14 @@ the nine.
 - A per-market figure becomes answerable for tax (`taxMarket` on the tenant) and for trading (the market on
   the contract) as two separate statements, which is the distinction a nine-country broker needs and a
   one-market one never notices.
+
+## Note on migration numbers (2026-10-16)
+
+This record named a migration file that **no longer exists**. Six migrations — 0055 to 0060 — were hand-written
+and **never entered drizzle's journal**, so `drizzle-kit migrate` skipped all of them while unit tests, which
+execute every `.sql` directly, passed. CI found it: the e2e setup died with
+`SqliteError: table ledger_accounts has no column named client_money_pair`.
+
+They are now one generated, journaled migration, **`0055_numerous_tag.sql`**, carrying their schema changes and
+the data backfill. The decisions recorded here are unchanged; only the artefact that implements them moved. See
+`MODULE-AUDIT.md` §58.

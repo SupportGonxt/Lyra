@@ -120,7 +120,6 @@ beforeAll(async () => {
     slug: "rival",
     name: "Rival Cover",
     plan: "standard",
-    region: "auto",
     status: "active",
     brandJson: null,
     policyJson: null,

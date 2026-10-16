@@ -37,7 +37,37 @@ export function onpremInit(opts: { root?: string } = {}): InitResult {
   });
 
   mkdirSync(resolve(root, "ops"), { recursive: true });
-  writeFileSync(outPath, written);
+  // **Two template values address the developer's host, and inside a container they
+  // address the container itself.**
+  //
+  // `ops/docker-compose.yml` gives every service address a default
+  // (`${LIBSQL_URL:-http://libsql:8080}`, `${OPENAI_COMPAT_URL:-http://llm:11434/v1}`), and
+  // the intent is clearly that an operator may override them. But `.env.example` — a
+  // **host-dev** template — already sets both to host-local values, and composes's `:-`
+  // default only applies when the variable is unset **or empty**. A non-empty
+  // `file:./.data/lyra.db` therefore wins over `http://libsql:8080`, and the default
+  // never fires.
+  //
+  // Found by running the stack, 2026-10-16. `migrate` died with
+  // `ConnectionFailed("Unable to open connection to local database ./.data/lyra.db")`
+  // — drizzle opening a file that does not exist in that container, because the
+  // template told it to.
+  //
+  // The other four service addresses in the template are already correct
+  // (`REDIS_URL=redis://redis:6379`, `QDRANT_URL`, `EMBEDDINGS_URL`, `RENDER_URL` all
+  // name services), which is what makes these two look deliberate rather than wrong.
+  //
+  // `APP_ORIGIN` is left alone: it is genuinely deployment-specific, and the operator
+  // sets it to the public origin.
+  const CONTAINER_ADDRESSES: Record<string, string> = {
+    LIBSQL_URL: "http://libsql:8080",
+    OPENAI_COMPAT_URL: "http://llm:11434/v1"
+  };
+  const fixed = written.replace(/^([A-Z0-9_]+)=.*$/gm, (line, key: string) =>
+    key in CONTAINER_ADDRESSES ? `${key}=${CONTAINER_ADDRESSES[key]}` : line
+  );
+
+  writeFileSync(outPath, fixed);
   return { path: outPath, created: true, generated, licenceConfigured };
 }
 

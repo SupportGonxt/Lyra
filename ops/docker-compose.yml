@@ -94,7 +94,24 @@ services:
     volumes:
       - libsql-data:/var/lib/sqld
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      # **This check used to be `curl -fsS http://localhost:8080/health`, and it made
+      # the whole stack unstartable.** The libsql image contains no `curl` — only
+      # `sqld`, `dash` and the usual text tools — so every probe failed with
+      # `exec: "curl": executable file not found in $PATH`, `libsql` was permanently
+      # unhealthy, `migrate` waits on `service_healthy` and never ran, and `app`
+      # waits on `migrate: service_completed_successfully` and never started.
+      # `pnpm onprem:up` died at its first step, with a message about a dependency
+      # rather than about a missing binary.
+      #
+      # Nothing else in the image can make an HTTP request, and `dash` has no
+      # `/dev/tcp`, so this reads `/proc/net/tcp` instead: it asserts a socket is
+      # **listening on the SQL port**, which is what "healthy" means for a database
+      # server. 8080 is 0x1F90 and LISTEN is state 0A.
+      #
+      # Deliberately not `sqld --version`: that proves the binary exists, not that the
+      # server is serving, and a healthcheck that does not check health is worse than
+      # none because it reports green.
+      test: ["CMD-SHELL", "awk '$2 ~ /:1F90$$/ && $4 == \"0A\" { found = 1 } END { exit !found }' /proc/net/tcp"]
       interval: 5s
       timeout: 3s
       retries: 20
