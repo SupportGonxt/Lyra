@@ -77,6 +77,7 @@ and do not pick.
 | [0125](ADR-0125-a-placement-names-its-licence.md) | A placement names the market and the licence it was made under | accepted |
 | [0127](ADR-0127-a-coverage-gap-and-a-coverage-term-are-two-facts.md) | A coverage gap and a coverage term are two facts, not one column | accepted |
 | [0128](ADR-0128-a-contract-records-the-market-it-was-placed-in.md) | A contract records the market it was placed in | accepted |
+| [0129](ADR-0129-residency-is-either-load-bearing-or-not-implied.md) | Residency: make `dbBinding` load-bearing, or stop implying it | **proposed** |
 
 *(0032–0124 are not indexed here; the table stopped being maintained at 0031.)*
 
