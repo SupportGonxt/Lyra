@@ -194,6 +194,22 @@ jobs:
       #                     makes scripts/stryker-changed.mjs sweep the whole
       #                     tree, which is the 45h run, i.e. the production
       #                     dispatch could never go green.
+      # The incremental cache those configs now write. Restored by prefix rather
+      # than by sha, so a run picks up the newest file for its package whatever
+      # commit produced it.
+      #
+      # What this does and does not buy, stated plainly: GitHub scopes caches by
+      # branch, and a cache written on a PR branch is **not** readable from
+      # `main`. So the first `main` run after this change pays full cost, and
+      # every run after it does not; PR re-runs benefit too. It shortens the
+      # repeated cost of a gate that currently re-mutates a whole PR on every
+      # merge push — it does not make this one run cheaper.
+      - uses: actions/cache@v4
+        with:
+          path: packages/${{ matrix.package }}/.stryker-incremental.json
+          key: stryker-incremental-${{ matrix.package }}-${{ github.sha }}
+          restore-keys: |
+            stryker-incremental-${{ matrix.package }}-
       - run: pnpm --filter @lyra/${{ matrix.package }} mutation
         env:
           STRYKER_SINCE: ${{ github.event_name == 'pull_request' && format('origin/{0}...', github.base_ref) || github.event.before || 'HEAD^' }}

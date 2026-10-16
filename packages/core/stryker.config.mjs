@@ -49,6 +49,28 @@ export default {
   reporters: ["html", "clear-text", "progress"],
   coverageAnalysis: "perTest",
   tempDirName: "packages/core/.stryker-tmp",
+  // **The upgrade path this file's sibling comment in ci.yml prescribed and
+  // nobody had taken.** Stryker 9 dropped the git-diff selector and kept
+  // `incremental`, which caches each mutant's result so a later run re-tests only
+  // the mutants whose *covering tests* changed.
+  //
+  // Why it is worth having: a push to `main` scopes mutation to
+  // `github.event.before` — on a merge commit that is `HEAD^1`, the pre-merge tip,
+  // so the deploy re-mutates the **whole PR** even though the PR's own mutation job
+  // already tested exactly those files via `origin/<base>...`. For a large change
+  // set that duplication is what parks the deploy: 89abd6e was the merge of a
+  // 286-file change set, and its `mutation (core)` ran past 54 minutes against a
+  // 60-minute ceiling before it was cancelled.
+  //
+  // The file deliberately does **not** live in `tempDirName` above: Stryker wipes
+  // the temp dir at the start of every run, so a cache kept there would be deleted
+  // before it could be restored.
+  //
+  // Stryker discards the file, with a warning and a full run, when the config or
+  // the test suite no longer matches it. A stale cache therefore costs time, never
+  // correctness — which is the property that makes it safe to wire to CI.
+  incremental: true,
+  incrementalFile: "packages/core/.stryker-incremental.json",
   ignorePatterns: [
     "apps",
     "packages/agents",
@@ -69,7 +91,28 @@ export default {
   // run covers only the files a change touched; unset, it is the full sweep.
   // Scoping alone was never enough — one 1,914-line fixture file in the diff
   // reproduced the whole-tree stall — hence the seed/ exclusion above.
-  mutate: changed ? [...changed, ...excluded] : ["packages/core/src/**/*.ts", ...excluded],
+  // **`null` and `[]` are different answers, and this ternary used to conflate
+  // them.** `changed` is `null` when `STRYKER_SINCE` is unset or unresolvable — the
+  // fail-closed case, which must widen to the whole tree. It is `[]` when the diff
+  // touched nothing in this package — which means there is nothing to mutate.
+  //
+  // **`[]` is truthy in JavaScript**, so `changed ? [...changed, ...excluded] : …`
+  // took the *first* branch and produced `excluded` alone: pure negation patterns,
+  // which Stryker resolves against `**/*`. A commit touching no core source
+  // therefore mutated the entire package — ~6.8k mutants, hours, against a
+  // 60-minute job ceiling — instead of nothing. `allowEmpty: true` below states the
+  // intent exactly ("a commit that touches no source in this package has nothing to
+  // mutate"); the code did not implement it.
+  //
+  // The consequence was not theoretical: both deploy jobs are `needs: checks`, so
+  // **any merge to main that touched no `packages/core/src/*.ts` file parked the
+  // deploy on a gate that could not finish**, and staging and production never ran.
+  mutate:
+    changed === null
+      ? ["packages/core/src/**/*.ts", ...excluded]
+      : changed.length > 0
+        ? [...changed, ...excluded]
+        : [],
   vitest: { dir: "packages/core" },
   thresholds: { high: 80, low: 70, break: 70 },
   // A commit that touches no source in this package has nothing to mutate.
