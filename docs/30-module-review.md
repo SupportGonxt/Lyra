@@ -345,6 +345,79 @@ found — applies correctly to a **real libsql server**, not only to a local SQL
 `__drizzle_migrations` matching the 56-entry journal, `ledger_accounts.client_money_pair` present,
 `axis_authorisations` and `north_metric_definitions` created.
 
+## 2e. The deploy had not completed since 28 September (2026-10-16)
+
+Not a platform defect — a pipeline one, and the reason none of the merged work is live. **Production answers
+`{"environment":"demo"}` on a deployment dated 2026-09-28.**
+
+Mutation scope in `packages/core/stryker.config.mjs` read:
+
+```js
+mutate: changed ? [...changed, ...excluded] : ["packages/core/src/**/*.ts", ...excluded]
+```
+
+`changedSources()` returns **`null`** when `STRYKER_SINCE` is unset or unresolvable — fail-closed, widen to the
+whole tree — and **`[]`** when the diff touched nothing in this package, which means nothing to mutate. **`[]` is
+truthy in JavaScript**, so the empty case took the first branch and produced `excluded` **alone**: pure negation
+patterns, which Stryker resolves against `**/*`.
+
+**A commit touching no `packages/core/src/*.ts` file therefore mutated the entire package** — ~6.8k mutants,
+hours — against `timeout-minutes: 60`. Both deploy jobs are `needs: checks`, so **every merge to main that touched
+no core source parked the deploy on a gate that could not finish, and staging and production never ran.**
+
+The config's own text states the intent: `allowEmpty: true` is commented *"a commit that touches no source in this
+package has nothing to mutate."* `ci.yml:132-139` predicted the shape in as many words — *"an unbounded mutation
+job parks the deploy instead of failing it"* — and named the remedy, Stryker `incremental`, which nobody had
+taken.
+
+**Fixed in both stryker configs**, and the `incremental` cache added to `ci.yml`, kept outside `tempDirName`
+because Stryker wipes that directory at the start of every run. Verified by running:
+
+```
+no core change     -> mutate = []                     (nothing to mutate)
+ref unset          -> whole-tree glob                  (fail-closed, unchanged)
+ref unresolvable   -> whole-tree glob                  (fail-closed, unchanged)
+real core diff     -> scoped (whitespace.ts)
+first scoped run   -> score 92.42 >= 70, exit 0, cache written, 4s
+second scoped run  -> "66 of 66 mutant result(s) are reused", 1s
+```
+
+**Honest scope of the cache:** GitHub scopes caches by branch, so a PR's cache is **not** readable from `main`.
+The first main run still pays full cost; every run after it does not.
+
+### And the residency finding from §2d's sibling, closed
+
+`docs/29` §G4 — P0 — is now ADR-0129, **accepted, Option B**: `region` and `dbBinding` deleted from the schema,
+the create-tenant request, the `me` response, the seed, the SDK type and `docs/03`'s column list, by generated
+journaled migration `0056_shallow_warlock`. Verified on a libsql server holding the pre-change schema: 57
+migrations and both columns gone. The reversal path is in the ADR — restore it as a mechanism that routes, not a
+field that displays.
+
+**The lesson worth carrying.** §2d concluded that *"complete on inspection" is a statement about artefacts, not
+about a system.* The same holds one layer down: **a gate that cannot finish is indistinguishable from one that is
+merely slow**, and the run reports `in_progress` either way. The pipeline had no SLO for its own gates, which is
+§1's observability gap arriving where it costs releases rather than dashboards.
+
+
+### 2e-bis. **RETRACTION of 2e's deploy finding** (correction 14)
+
+2e claimed the deploy had been parked by a truthiness bug in the mutation scope. **It had not.** I verified the
+config's output and never ran Stryker with an all-negation `mutate`; run it and Stryker reports *"No files found
+for mutation with the given glob expressions"*, performs a dry run, and **exits 0 in 0 seconds**. The bug was real
+in intent and inert in effect.
+
+**The deploy was never broken.** Run `38742669595` on `598c5f3` (PR #95) completed **successfully at
+2026-10-15T13:36** — staging and production green. Production's newest API deployment is that run's, version
+`6fb45545`. **I had read `wrangler deployments list` backwards**: it lists oldest first, I piped it through
+`head -12`, and concluded from September entries that production was 18 days stale.
+
+**What actually stopped `89abd6e`:** a correctly-scoped mutation that was slow (~947 mutants, ~36m locally, 54
+minutes on the runner) and which **I recommended cancelling**. The cancel stopped the release.
+
+The mutation fix is still worth keeping — it makes the empty case explicit rather than dependent on a Stryker
+quirk, and the `incremental` cache is measured at 66/66 mutants reused. **It is a robustness improvement, not the
+repair 2e describes.** See `MODULE-AUDIT.md` §60b.
+
 ## 3. Order of work
 
 1. **Wiring defects** (done 2026-09-23): duplicate emits, consent bypass, save-desk
