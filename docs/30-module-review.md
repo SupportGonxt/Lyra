@@ -279,6 +279,72 @@ docs/17's wording, so the client's intent decides it.
 - **No backfill of authorisations for existing tenants.** `seed()` refuses a second call, so a tenant
   provisioned before `0057` holds no licence and its next bind is refused — the sighting-9 shape.
 
+## 2d. The sovereign stack did not start (2026-10-16)
+
+`pnpm onprem:up` — a documented command in `CLAUDE.md` — **could not start the stack at all.** Three independent
+defects, none of them visible to any check that does not run the container. Every static artefact passed: the
+image built, `docker compose config` validated, the three on-prem adapters had tests, and `scripts/lyra-onprem.ts`
+had its own.
+
+**1. The libsql healthcheck used a binary the image does not contain.**
+`ops/docker-compose.yml` probed with `curl -fsS http://localhost:8080/health`. The image ships only `sqld`, `dash`
+and the usual text tools, so every probe failed with
+`exec: "curl": executable file not found in $PATH` and `FailingStreak: 21`. `libsql` was permanently unhealthy,
+`migrate` waits on `service_healthy` and never ran, and `app` waits on
+`migrate: service_completed_successfully` and never started. The stack died at its first step complaining about a
+dependency rather than a missing binary.
+
+The check now reads `/proc/net/tcp` and asserts a socket is **listening on the SQL port** (8080 = `0x1F90`,
+LISTEN = `0A`). `dash` has no `/dev/tcp` and nothing in the image can make an HTTP request. Deliberately **not**
+`sqld --version`: that proves the binary exists, not that the server serves, and a healthcheck that does not check
+health is worse than none because it reports green.
+
+**2. `onpremInit` emitted host-local addresses into a container environment.**
+`.env.example:42` sets `LIBSQL_URL=file:./.data/lyra.db`. Compose gives it an in-network default
+(`${LIBSQL_URL:-http://libsql:8080}`), but `:-` applies only when the variable is **unset or empty**, so the
+non-empty host path won and the default never fired. `migrate` then died with
+`ConnectionFailed("Unable to open connection to local database ./.data/lyra.db")` — drizzle opening a file that
+does not exist in that container.
+
+The same trap catches the model tier: `OPENAI_COMPAT_URL=http://localhost:11434/v1`, where `localhost` inside the
+app container is the container, not the `llm` service. **Four other addresses in the template already name
+services** (`REDIS_URL`, `QDRANT_URL`, `EMBEDDINGS_URL`, `RENDER_URL`), which is what made the two wrong ones look
+deliberate. `onpremInit` now emits the in-network address for those two keys. `APP_ORIGIN` is left alone — it is
+genuinely deployment-specific.
+
+**3. The app image inherited the builder's umask and could not read its own source.**
+`COPY . .` preserves the *host's* file modes and `USER node` drops to a non-root user. **Seventy tracked files in
+the tree were mode 0600** while their neighbours were 0644 — invisible to `git`, which records only the executable
+bit. Measured in the built image:
+
+```
+-rw-------  root root  /app/apps/api/src/onprem/s3.ts     <- unreadable by node
+-rw-r--r--  root root  /app/apps/api/src/node.ts          <- readable
+```
+
+So `app` read *some* of its own source and not the rest, and died with
+`EACCES: permission denied, open '/app/apps/api/src/onprem/s3.ts'`. Fixed with `RUN chmod -R a+rX /app` before
+`USER node` — a permission **floor** rather than a `chown` to `node`, which would let the running user rewrite its
+own code — and by making the seventy working-tree files readable (no diff; git tracks only `100644` vs `100755`).
+
+**Verified after all three:**
+
+```
+docker compose up -d libsql migrate app   → exit 0
+libsql running · migrate exited 0 · app running
+/health → {"ok":true,"environment":"local",…}
+```
+
+**The lesson worth keeping.** The review had on-prem recorded as *build-complete*: thirteen services, three tested
+adapters, a tested install script, a building image. **All of that was true, and the stack could not start.**
+"Complete on inspection" is a statement about artefacts, not about a system — and the only thing that found any of
+the three defects was executing it.
+
+**Adjacent, and verified in the same round:** the `0055_numerous_tag` migration — the one whose journal absence CI
+found — applies correctly to a **real libsql server**, not only to a local SQLite file: 56 rows in
+`__drizzle_migrations` matching the 56-entry journal, `ledger_accounts.client_money_pair` present,
+`axis_authorisations` and `north_metric_definitions` created.
+
 ## 3. Order of work
 
 1. **Wiring defects** (done 2026-09-23): duplicate emits, consent bypass, save-desk
