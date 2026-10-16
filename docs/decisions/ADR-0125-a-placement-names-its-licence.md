@@ -43,7 +43,7 @@ Two questions had no home, and they are different questions:
 ### 1. The tenant-owned half is a table: `axis_authorisations`
 
 `packages/db/src/schema/axis.ts:736`, migration
-`packages/db/migrations/`0055_numerous_tag.sql` (was `0057_tenant_authorisations.sql` — see the note below)`. One row is one licence
+`packages/db/migrations/0055_numerous_tag.sql` (was `0057_tenant_authorisations.sql`). One row is one licence
 the tenant holds: `market` (ISO alpha-2), `regulatorKey`, `licenceNumber`,
 `scope`, `productLinesJson`, `validFrom`, `validTo` (nullable),
 `evidenceFileId` (nullable), `status` (`active|suspended|expired`).

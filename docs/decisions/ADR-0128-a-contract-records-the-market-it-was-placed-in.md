@@ -2,7 +2,7 @@
 
 **Status:** accepted (2026-10-01)
 **Depends on:** ADR-0075 (the market dimension), ADR-0121 (tax identity), ADR-0125 (the authorisation register).
-**Touches:** `packages/db/migrations/`0055_numerous_tag.sql` (was `0059_policy_market.sql` — see the note below)`, `packages/db/src/schema/axis.ts`,
+**Touches:** `packages/db/migrations/0055_numerous_tag.sql` (was `0059_policy_market.sql`), `packages/db/src/schema/axis.ts`,
 `apps/api/src/routes/axis.ts`.
 
 ## Context
