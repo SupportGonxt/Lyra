@@ -204,7 +204,7 @@ jobs:
       # every run after it does not; PR re-runs benefit too. It shortens the
       # repeated cost of a gate that currently re-mutates a whole PR on every
       # merge push — it does not make this one run cheaper.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: packages/${{ matrix.package }}/.stryker-incremental.json
           key: stryker-incremental-${{ matrix.package }}-${{ github.sha }}
